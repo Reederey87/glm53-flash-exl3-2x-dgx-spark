@@ -28,8 +28,9 @@ while :; do
   if node_ssh head "curl -fsS --max-time 5 http://127.0.0.1:$API_PORT/health" >/dev/null 2>&1; then
     echo "== serving:"
     node_ssh head "curl -fsS http://127.0.0.1:$API_PORT/v1/models"; echo
-    node_ssh head 'systemctl --user start vllm-glm53-watchdog.timer' 2>/dev/null \
-      && echo "== watchdog armed" || true
+    if node_ssh head 'systemctl --user start vllm-glm53-watchdog.timer' 2>/dev/null; then
+      echo "== watchdog armed"
+    fi
     exit 0
   fi
   for role in head worker; do
