@@ -29,5 +29,11 @@ node_label() { _target "$1"; }
 node_ssh() { local r="$1"; shift; ssh "${_ssh_opts[@]}" "$(_target "$r")" "$@"; }
 node_rsync() { # node_rsync <role> <src/> <dest/> [extra rsync flags...]
   local r="$1" src="$2" dest="$3"; shift 3
-  rsync -a "$@" -e "ssh ${_ssh_opts[*]}" "$src" "$(_target "$r"):$dest"
+  # `-e "ssh ${_ssh_opts[*]}"` would flatten to a string rsync re-splits on
+  # whitespace, breaking any SSH_KEY path containing a space -- which is the
+  # normal case on macOS (~/Library/Application Support/...). Build the remote
+  # shell with printf %q so each option survives as one word.
+  local esc=""; local o
+  for o in "${_ssh_opts[@]}"; do esc+=" $(printf '%q' "$o")"; done
+  rsync -a "$@" -e "ssh$esc" "$src" "$(_target "$r"):$dest"
 }

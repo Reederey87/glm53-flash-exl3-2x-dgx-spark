@@ -35,7 +35,14 @@ RUN python3 /opt/glm53-tp2/patch_tp2.py
 # over the edited sources -- editing Python/CUDA alone changes nothing. Rebuild
 # for sm_121a and install back into the same AOT slot. This is the slow step
 # (tens of minutes on a GB10).
-RUN mv /usr/local/lib/python3.12/dist-packages/flashinfer_jit_cache/jit_cache/sparse_mla_sm120/sparse_mla_sm120.so \
+# The base image ALREADY ran this build, so /root/.cache/flashinfer arrives warm
+# with a (64, 2176)-only module. Freshness would then rest on ninja's dep scan
+# surviving a docker layer boundary; if it ever no-ops we would install their
+# 64-only .so, the build would succeed, and the image would still die at TP=2
+# after loading 181 GiB. Start cold instead -- correctness should not depend on
+# an mtime comparison we cannot observe.
+RUN rm -rf /root/.cache/flashinfer \
+    && mv /usr/local/lib/python3.12/dist-packages/flashinfer_jit_cache/jit_cache/sparse_mla_sm120/sparse_mla_sm120.so \
        /opt/glm53-tp2/sparse_mla_sm120.base.so \
     && FLASHINFER_CUDA_ARCH_LIST=12.1a python3 -c \
        'from flashinfer.jit.mla import gen_sparse_mla_sm120_module; gen_sparse_mla_sm120_module().build()' \

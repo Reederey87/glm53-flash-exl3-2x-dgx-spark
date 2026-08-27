@@ -12,8 +12,16 @@ HEALTH_WAIT="${HEALTH_WAIT_SECS:-3600}"
 # Without this teardown a retry rendezvouses with a stale worker still holding
 # ~90 GiB and hangs at parallel_state init. Always start from a known state.
 echo "== clearing any previous state on both nodes"
+# Stop the watchdog SERVICE too, not just its timer: stopping a timer does not
+# interrupt an in-flight bounce, which would race this teardown and recreate the
+# exact stale-worker state described above.
+node_ssh head 'systemctl --user stop vllm-glm53-watchdog.timer vllm-glm53-watchdog.service' >/dev/null 2>&1 || true
 for role in head worker; do
   node_ssh "$role" "systemctl --user stop vllm-glm53-$role.service" >/dev/null 2>&1 || true
+  # `stop` does not clear the StartLimitBurst counter. Without this, three failed
+  # attempts in an hour -- exactly what debugging QSFP or weights produces --
+  # make every later run die with "start request repeated too quickly".
+  node_ssh "$role" "systemctl --user reset-failed vllm-glm53-$role.service" >/dev/null 2>&1 || true
   node_ssh "$role" 'docker rm -f vllm-glm53 >/dev/null 2>&1 || true'
 done
 

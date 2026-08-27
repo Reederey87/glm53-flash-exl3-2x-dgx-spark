@@ -9,3 +9,4 @@ __pycache__/
 # Never commit an image tarball or weights
 *.tar
 image-archive/
+build-*.log

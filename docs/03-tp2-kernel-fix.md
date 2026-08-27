@@ -75,8 +75,13 @@ attempt that pads the query in Python still calls the old compiled kernel.
 
 ## Verification
 
-The build fails if the rebuilt module lacks either specialization
-(`image/verify_tp2.py`). To check an image by hand:
+`image/verify_tp2.py` gates the build with two checks, because either alone is
+weak: the dispatch set must carry `(32, 2176)`, **and** the installed AOT `.so`
+must differ from the base one saved aside. The second is what makes the first
+mean anything — the frozenset is just text the patcher edited, so without a
+proof that the rebuild happened the gate could pass on an unrebuilt module.
+
+To check an image by hand:
 
 ```bash
 docker run --rm --entrypoint bash <image> -lc \
@@ -88,7 +93,14 @@ print(sorted(k for k in m._DECODE_DSV3_2_DISPATCH if k[1]==2176))"'
 
 ## Extending to other topologies
 
-TP=4 would need `(16, 2176)`. Add it the same way: another insert next to
-`(16, 2048)` in the two dispatch tables, and another `case 16:` in the prefill
-switch in `patch_tp2.py`. Each entry costs compile time and register pressure,
-so add only the topology you actually serve.
+TP=4 would need `(16, 2176)` — but **not** by copying what we did for 32.
+Upstream routes `num_heads <= HPB` (HPB=16) through `launch_prefill_sg`, a
+different kernel; the multi-group switch we edit starts at `case 32:`. Adding a
+`case 16:` there would instantiate an MG shape upstream never provides.
+
+The decode half is straightforward (`(16, 2048)` already exists, so insert
+`(16, 2176)` beside it in both dispatch tables). The prefill half needs an
+`sg` instantiation instead, and we have not tested it.
+
+Each entry costs compile time and register pressure, so add only the topology
+you actually serve.

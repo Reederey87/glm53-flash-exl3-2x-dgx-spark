@@ -39,8 +39,30 @@ fi
 # vm.min_free_kbytes reserves memory away from the GPU on this UMA platform, so
 # the two nodes MUST agree or one will size its KV cache differently.
 MINFREE="$(cat /proc/sys/vm/min_free_kbytes)"
-echo "preflight ok: vm.min_free_kbytes=$MINFREE (must match the peer)"
+if [ "$ROLE" = head ]; then
+  # docs/01-architecture.md calls this invariant mandatory, so enforce it rather
+  # than print it. A mismatch makes the two ranks size their KV caches
+  # differently and surfaces as a phantom memory failure AFTER a 12-minute load,
+  # with nothing in the logs pointing at the sysctl.
+  PEERFREE="$(ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+                "$CLUSTER_USER@$PEER_IP" 'cat /proc/sys/vm/min_free_kbytes' 2>/dev/null || echo unknown)"
+  if [ "$PEERFREE" = unknown ]; then
+    echo "preflight WARN: could not read peer vm.min_free_kbytes" >&2
+  elif [ "$MINFREE" != "$PEERFREE" ]; then
+    fail "vm.min_free_kbytes differs: this node $MINFREE, peer $PEERFREE -- set both the same"
+  else
+    echo "preflight ok: vm.min_free_kbytes=$MINFREE matches the peer"
+  fi
+else
+  echo "preflight ok: vm.min_free_kbytes=$MINFREE"
+fi
 
+# Refuse to run by hand against a live service: this removes the container, and
+# with Restart=on-failure that triggers a ~12 min reload from what the operator
+# thought was a read-only check. INVOCATION_ID is set only under systemd.
+if [ -z "${INVOCATION_ID:-}" ] && docker ps -q -f name=^vllm-glm53$ | grep -q .; then
+  fail "vllm-glm53 is RUNNING and this was not started by systemd. Refusing to remove it."
+fi
 docker rm -f vllm-glm53 >/dev/null 2>&1 || true
 
 if [ "$ROLE" = head ]; then

@@ -70,7 +70,7 @@ services:
         --enable-prefix-caching --enable-chunked-prefill
         --no-disable-hybrid-kv-cache-manager
         --no-async-scheduling
-        --enforce-eager
+        ${ENFORCE_EAGER:+--enforce-eager}
         --default-chat-template-kwargs '{"reasoning_effort":"${REASONING_EFFORT}"}'
         --distributed-executor-backend mp
         --nnodes 2 --node-rank ${NODE_RANK}

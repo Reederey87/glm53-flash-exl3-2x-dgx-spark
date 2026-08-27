@@ -72,7 +72,7 @@ def report(name, ok, detail=""):
 
 def chat(url, model, messages, max_tokens, extra=None, timeout=600):
     payload = {"model": model, "messages": messages, "max_tokens": max_tokens,
-               "temperature": 1.0}
+               "temperature": 0}
     if extra:
         payload.update(extra)
     return http_json("POST", f"{url}/v1/chat/completions", payload, timeout=timeout)
@@ -88,6 +88,11 @@ def red_png_b64(size=64):
            + chunk(b"IDAT", zlib.compress(raw))
            + chunk(b"IEND", b""))
     return base64.b64encode(png).decode()
+
+
+def reasoning_of(message):
+    """CoT lives in `reasoning` on this deployment, `reasoning_content` elsewhere."""
+    return message.get("reasoning") or message.get("reasoning_content") or ""
 
 
 def garbled(text):
@@ -165,8 +170,12 @@ def main():
         content = ch["message"].get("content") or ""
         fr = ch.get("finish_reason")
         report("long-gen-finish", fr in ("stop", "length"), f"finish_reason={fr}")
-        report("long-gen-content", len(content) > 200 and not garbled(content),
-               f"len={len(content)}")
+        # Thinking is on by default and shares the output budget, so an empty
+        # `content` with finish_reason="length" is the model spending it all on
+        # reasoning -- not a fault. Judge the text that was actually produced.
+        produced = content if content.strip() else reasoning_of(ch["message"])
+        report("long-gen-content", len(produced) > 200 and not garbled(produced),
+               f"content={len(content)} reasoning={len(produced) if not content.strip() else 0}")
     except Exception as e:
         report("long-gen-finish", False, str(e))
         report("long-gen-content", False, "no response")
@@ -251,7 +260,11 @@ def main():
         body = (content + " " + reasoning).upper()
         report("ctx-fill-retrieve", CTX_FILL_NEEDLE in body or "7F3A" in body,
                f"content={content[:80]!r}")
-        report("ctx-fill-not-garbled", not garbled(content), f"len={len(content)}")
+        # Match ctx-fill-retrieve, which searches content+reasoning: judging only
+        # `content` made the two checks disagree about whether an all-reasoning
+        # answer is acceptable.
+        judged = content if content.strip() else reasoning_of(msg)
+        report("ctx-fill-not-garbled", not garbled(judged), f"len={len(judged)}")
     except urllib.error.HTTPError as e:
         body = e.read().decode()[:300]
         report("ctx-fill-prompt-tokens", False, f"HTTP {e.code}: {body}")

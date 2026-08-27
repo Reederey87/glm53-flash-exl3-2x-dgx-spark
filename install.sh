@@ -4,13 +4,19 @@
 # cluster to serve on boot (see docs/04-bringup.md).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
+# Check BEFORE sourcing: under `set -e` a missing file aborts at the source and
+# this message -- the only guidance for the commonest first-run mistake -- would
+# never print.
+[ -f "$ROOT/cluster.env" ] || {
+  echo "FAIL: no cluster.env. Run:  cp cluster.env.example cluster.env  and edit it." >&2
+  exit 1
+}
 # shellcheck disable=SC1091
 source "$ROOT/cluster.env"; source "$ROOT/lib.sh"
 
-[ -f "$ROOT/cluster.env" ] || { echo "FAIL: copy cluster.env.example to cluster.env first" >&2; exit 1; }
-
 install_node() {
   local role="$1" unit="$2" host; host="$(node_label "$role")"
+  node_ssh "$role" "mkdir -p '$KIT_DIR'"
   node_rsync "$role" "$ROOT/" "$KIT_DIR/" \
     --exclude='.env' --exclude='.git/' --exclude='*.log' --exclude='__pycache__' \
     || { echo "FAIL: rsync to $host" >&2; exit 1; }

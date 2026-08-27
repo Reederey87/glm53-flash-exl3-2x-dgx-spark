@@ -6,7 +6,10 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
 source "$ROOT/cluster.env"; source "$ROOT/lib.sh"
 
-node_ssh head 'systemctl --user stop vllm-glm53-watchdog.timer' >/dev/null 2>&1 || true
+# Stop the SERVICE as well as the timer -- stopping a timer does not interrupt a
+# bounce already in progress, which would restart the pair moments after we
+# report it stopped.
+node_ssh head 'systemctl --user stop vllm-glm53-watchdog.timer vllm-glm53-watchdog.service' >/dev/null 2>&1 || true
 echo "== watchdog disarmed"
 node_ssh head 'systemctl --user stop vllm-glm53-head.service'   || echo "WARN: head stop non-zero" >&2
 node_ssh worker 'systemctl --user stop vllm-glm53-worker.service' || echo "WARN: worker stop non-zero" >&2
