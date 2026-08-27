@@ -1,0 +1,26 @@
+# GLM-5.3-Flash-NVFP4 worker (rank 1, headless).
+# NOT enabled by install.sh. Enable only when you want it on boot:
+#   systemctl --user enable vllm-glm53-worker.service
+[Unit]
+Description=vLLM GLM-5.3-Flash-NVFP4 worker (rank 1, headless)
+StartLimitIntervalSec=3600
+StartLimitBurst=3
+
+[Service]
+Type=simple
+WorkingDirectory=@KIT_DIR@
+# preflight waits on QSFP + docker + (head only) the worker container.
+TimeoutStartSec=2100
+TimeoutStopSec=90
+ExecStartPre=/usr/bin/bash @KIT_DIR@/preflight.sh worker
+ExecStartPre=/usr/bin/bash @KIT_DIR@/render-env.sh worker
+ExecStart=/usr/bin/docker compose --env-file @KIT_DIR@/.env -f @KIT_DIR@/docker-compose.yml up --exit-code-from vllm-glm53
+ExecStop=/usr/bin/docker compose --env-file @KIT_DIR@/.env -f @KIT_DIR@/docker-compose.yml down -t 30
+ExecStopPost=-/usr/bin/docker rm -f vllm-glm53
+# Bounded recovery. Each attempt loads ~90 GiB per node, so an unbounded
+# crash-loop is a sustained memory storm that can starve the whole machine.
+Restart=on-failure
+RestartSec=90
+
+[Install]
+WantedBy=default.target

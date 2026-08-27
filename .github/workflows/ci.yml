@@ -1,0 +1,32 @@
+name: ci
+on: [push, pull_request]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          # SC1091: we source cluster.env, which is gitignored by design.
+          find . -name '*.sh' -print0 | xargs -0 shellcheck -e SC1091
+
+      - name: bash syntax
+        run: find . -name '*.sh' -print0 | xargs -0 -n1 bash -n
+
+      - name: python syntax
+        run: |
+          python3 -m compileall -q bench image
+          echo "python OK"
+
+      - name: compose is valid yaml
+        run: python3 -c "import yaml,sys; yaml.safe_load(open('docker-compose.yml')); print('compose OK')"
+
+      - name: no secrets or private hosts committed
+        run: |
+          # cluster.env must never be committed; it is the only file with site config.
+          test ! -f cluster.env || { echo "cluster.env is committed!"; exit 1; }
+          ! grep -rEn "BEGIN [A-Z ]*PRIVATE KEY|ghp_[A-Za-z0-9]{20,}" . --exclude-dir=.git
+          echo "secret scan OK"

@@ -1,0 +1,11 @@
+# Local configuration and rendered env — never commit these.
+cluster.env
+.env
+# Build and run artefacts
+results/
+*.log
+__pycache__/
+*.pyc
+# Never commit an image tarball or weights
+*.tar
+image-archive/

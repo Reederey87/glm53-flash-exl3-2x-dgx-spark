@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the GLM-5.3 inference watchdog every 5 minutes
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Unit=vllm-glm53-watchdog.service
+
+[Install]
+WantedBy=timers.target

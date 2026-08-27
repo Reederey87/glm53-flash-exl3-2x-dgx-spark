@@ -1,0 +1,7 @@
+[Unit]
+Description=vLLM GLM-5.3 head inference watchdog (bounces the pair when /health lies)
+
+[Service]
+Type=oneshot
+TimeoutStartSec=600
+ExecStart=/usr/bin/bash @KIT_DIR@/watchdog.sh
