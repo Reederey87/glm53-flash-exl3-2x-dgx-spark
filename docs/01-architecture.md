@@ -1,83 +1,43 @@
-# Architecture: why two Sparks, and how they are wired
+# Architecture
 
-## The sizing problem
+## Hardware
 
-| Checkpoint | Size | Fits 2x DGX Spark (243 GiB total)? |
-|---|---:|---|
-| `zai-org/GLM-5.3-Flash` (native FP8) | ~306 GiB | **No** |
-| `zai-org/GLM-5.3-Flash-BF16` | ~598 GiB | No |
-| **`LibertAIDAI/GLM-5.3-Flash-NVFP4`** | **~181 GiB** | **Yes**, ~90.5 GiB/node at TP=2 |
+Two NVIDIA DGX Spark nodes (GB10 Grace Blackwell superchip, aarch64, 121 GiB **unified**
+CPU+GPU memory, 3.7 TB NVMe, CUDA 13.0, DGX OS / Ubuntu 24.04). The GPU arch is Blackwell
+~sm_121 — build for the right arch if you ever compile kernels.
 
-A DGX Spark has **121.69 GiB of unified memory** — one pool shared by CPU, GPU,
-OS, container, weights and KV cache. There is no separate VRAM. So the FP8
-checkpoint does not fit on two Sparks even at 100% utilisation, and the NVFP4
-quantisation is not a preference, it is the only option.
+The nodes are linked directly over one QSFP port each (200Gb, RoCE, MTU 9000). This kit
+runs **single-rail deliberately**: `start.sh` hardcodes `NCCL_IB_MERGE_NICS=0` (a LOCAL
+patch makes it env-overridable; dual-rail measured +1% at MNBT 1024 — not worth it).
+⚠ On this hardware only rail 1 (`enp1s0f1np1` / `rocep1s0f1`) is UP on both nodes;
+upstream's asymmetric interface pins hang `ncclCommInitRank`.
 
-The NVFP4 checkpoint quantises only the routed-expert FFN tensors (97% of
-parameters) to 4-bit and keeps everything outlier-sensitive in BF16 — both
-attention flavours, the vision tower, shared experts, routers, mHC, embeddings
-and `lm_head`.
+## Model stack
 
-## The model
+- **GLM-5.3-Flash** — 320B MoE / 18B active, served as `GLM-5.3-Flash-EXL3`. This is a
+  **hybrid** architecture (`Glm5NextForConditionalGeneration`): KDA linear-attention
+  ("mamba") layers + dense MLA attention + MoE + a DSA sparse-attention indexer. The
+  hybrid part matters operationally — it dictates the 3584-token cache page geometry
+  (see `04-prefix-caching.md`).
+- **EXL3/TR3 uniform-K4 4bpw** routed experts, ~164 GiB / 120 shards; loads 82.01 GiB
+  per node at TP=2. That figure is the proof experts stayed packed EXL3 — a BF16
+  expansion would be far larger.
+- **DFlash2 drafter** (k=7, draft TP=1 on rank 0): 8-token verify batches, structured
+  acceptance ~0.98.
+- **KV cache** `fp8` → packed `fp8_ds_mla`; sparse MLA via `FLASHINFER_MLA_SPARSE_SM120`.
+- CUDA graphs FULL_AND_PIECEWISE; capture sizes `1 2 4 8 16 24 32` are **token batches**
+  (1–4 seqs × 8 spec tokens), not sequence counts.
 
-GLM-5.3-Flash is 320B total / 18B active, and its 45-layer stack is **hybrid**:
+## Process model
 
-- **34 layers** KDA linear attention — constant-size conv state, not token-linear KV
-- **11 layers** NoPE sparse MLA — `qk_nope_head_dim=256`, `qk_rope_head_dim=0`,
-  `v_head_dim=256`, `kv_lora_rank=512`, `index_topk=2048`, `index_kpool=4`
+ONE oneshot systemd user unit on the head owns BOTH ranks: `start.sh` launches the head
+container, ssh-launches the worker, and waits for `/health`. There is no worker-side
+unit. Unified memory means no separate VRAM: `vm.min_free_kbytes` reserves memory from
+the GPU (~1.25× the value) and must be **identical on both nodes** — asymmetry shows up
+as phantom GPU-memory startup failures.
 
-Those 11 layers are the whole difficulty. See `03-tp2-kernel-fix.md`.
+## Network exposure
 
-## Topology
-
-```
-   your Mac / laptop
-        | ssh (control plane only)
-        v
-   +----------+   200Gb QSFP direct   +----------+
-   |  head    |<--------------------->|  worker  |
-   |  rank 0  |   192.168.177.10/11   |  rank 1  |
-   |  API     |   RoCE / NCCL         | headless |
-   +----------+                        +----------+
-```
-
-- **TP=2** with vLLM's native `mp` executor. No Ray.
-- The two Sparks talk over a **direct QSFP cable**, not your LAN. NCCL runs
-  RDMA over it; the LAN is only used for your ssh control plane.
-- The API binds **loopback only** on the head. Reach it with an SSH
-  port-forward: `ssh -N -L 8000:127.0.0.1:8000 <head>`. Do not bind `0.0.0.0`
-  unless you intend an unauthenticated model on your network.
-
-## One-time network setup
-
-On each node, give the QSFP interface a static address and jumbo frames:
-
-```bash
-# head
-sudo ip addr add 192.168.177.10/24 dev enp1s0f1np1
-sudo ip link set enp1s0f1np1 mtu 9000 up
-# worker
-sudo ip addr add 192.168.177.11/24 dev enp1s0f1np1
-sudo ip link set enp1s0f1np1 mtu 9000 up
-```
-
-Make it persistent with netplan/NetworkManager. Confirm the RoCE device name
-with `ibv_devices` and put it in `NCCL_IB_HCA`.
-
-The head must be able to `ssh $CLUSTER_USER@192.168.177.11` without a password:
-`preflight.sh` and `watchdog.sh` both use that path.
-
-## Memory model, and why it bites
-
-`--gpu-memory-utilization` is a claim against the **whole 121.69 GiB pool**, not
-against free VRAM. At 0.85 that is 103.44 GiB. Weights take ~90.5 GiB/node,
-leaving roughly 10 GiB for KV and activations — which is why the context window,
-not the model's native 1M, is the binding constraint.
-
-Two consequences worth internalising:
-
-1. **Nothing else may be resident.** Close remote IDE sessions and stop other
-   model services before starting. A 1 GiB co-tenant can fail the startup gate.
-2. **`vm.min_free_kbytes` must match on both nodes.** It reserves memory away
-   from the GPU on this platform; a mismatch makes the two ranks size their KV
-   caches differently. `preflight.sh` prints it on each node so you can compare.
+The API binds `127.0.0.1:8000` (LOCAL patch — upstream binds 0.0.0.0 under
+`--network host`). Clients reach it via SSH port-forwards. Residual, accepted: torch's
+TCPStore listens on `*:29521` while the pair runs.

@@ -1,77 +1,63 @@
-# Every parameter, and why
+# Parameters
 
-Values live in `cluster.env`. This explains the non-obvious ones. Where a value
-differs from the vendor recipe, the reason is the hardware.
+Every value in `env.example`, and why. The short version: **four knobs form a load-bearing
+system — `MAX_MODEL_LEN=262144`, `MAX_NUM_BATCHED_TOKENS=3584`, the KV pin, and
+`--no-async-scheduling`. Change one and you must re-derive the others.**
 
-## Deviations from the official vLLM recipe
+## MAX_MODEL_LEN=262144
 
-The [official recipe](https://recipes.vllm.ai/zai-org/GLM-5.3-Flash) targets
-H200/GB200 trays. Most of it is wrong for two Sparks.
+Not 900k. The pinned KV pool holds 318,640 tokens (89 pages × 3584): at 900k max-len
+that is 0.35× of one full request; at 262k it is 1.22×, and real agentic sessions
+(50–150k) fit several at once. 900k context sounds great on a spec sheet; it meant every
+concurrent session evicted every other session's cache.
 
-| Parameter | Recipe | Here | Why |
-|---|---|---|---|
-| checkpoint | native FP8 (~306 GiB) | **NVFP4 (~181 GiB)** | 306 GiB does not fit 2x121.69 GiB |
-| tensor parallel | 8 | **2** | two nodes, one GB10 each |
-| `--gpu-memory-utilization` | 0.95 | **0.85** | 0.95 = 115.6 GiB of a 121.69 GiB *unified* pool; the gate never clears |
-| `--max-num-seqs` | 256 | **2** | KDA conv state is per-sequence; a small KV pool is better spent on context |
-| `--max-model-len` | `auto` | **131072** | `auto` sizes against leftover memory; cap it deliberately instead |
-| `--moe-backend` | (auto) | **marlin** | native FP4 MoE is not safe on sm_121 — see below |
-| CUDA graphs | on | **`--enforce-eager`** | graph capture + cross-node NCCL + hybrid KDA is a known hang class |
-| async scheduling | on (>=0.26 default) | **off** | omitting the flag *enables* it; this is a tri-state trap |
+## MAX_NUM_BATCHED_TOKENS=3584 — do not "round" this number
 
-Kept from the recipe: `--reasoning-parser glm45`, `--tool-call-parser glm47`,
-`--enable-auto-tool-choice`, `--no-enable-flashinfer-autotune`,
-`--no-disable-hybrid-kv-cache-manager`, `--max-num-batched-tokens 8192`,
-`VLLM_ENGINE_READY_TIMEOUT_S=3600`.
+3584 **is the cache page size** vLLM derives for this hybrid model ("Setting attention
+block size to 3584 tokens…" in the boot log). Align-mode prefix caching checkpoints the
+KDA state only when a prefill chunk ends exactly on a page boundary:
 
-## `--moe-backend marlin` is load-bearing
+- MNBT **below** 3584 (upstream ships 1024): chunk ends drift, checkpoints almost never
+  land, and a missing KDA checkpoint **vetoes all attention-layer cache hits** — the
+  dashboard reads exactly 0% with nothing in the logs.
+- MNBT **8192**: OOMs the GB10 indexer's shared memory on long prefill.
+- **3584**: one page per chunk; verified clean on a 200k cold prefill at ~940 tok/s.
 
-Leave it unset and vLLM auto-selects `FLASHINFER_CUTLASS` for the NVFP4 MoE.
-That kernel is **not safe on sm_121**: it corrupts the CUDA context and the
-failure surfaces one synchronisation point later, inside the *sampler*:
+If a future image changes the page size, MNBT must move with it.
 
-```
-torch.AcceleratorError: CUDA error: operation not permitted
-  ... in gumbel_sample -> local_argmax.gather(...)
-```
+## EXTRA_ARGS: the KV pin + async off
 
-Nothing is wrong with the sampler. It is simply the first place the poisoned
-context is observed. `marlin` (dequantise to FP16) is the known-good path on
-this architecture and costs some throughput.
+`--kv-cache-memory-bytes 15414698763` (14.36 GiB) pins the pool: vLLM skips memory
+profiling and the pool is byte-identical every boot. The value is vLLM's own suggestion
+from the first unpinned boot. Rules:
 
-If you ever see `cudaErrorNotPermitted` from an unrelated-looking place, suspect
-a MoE kernel before you debug the site of the error.
+- **Never raise it.** With the pin there is no fit protection; under a 4×60k concurrent
+  burst the head node has **3.6 GiB MemFree**. An overshoot is a mid-flight OOM kill,
+  not a clean error. If boot-time free memory ever shrinks, LOWER the pin.
+- **Keep the quoted form.** Unquoted, `source` under `set -a` parses the number as a
+  command and `start.sh` dies with exit 127.
 
-## Context and KV
+`--no-async-scheduling` is mandatory, twice over: the tri-state default resolves to
+ENABLED if you merely omit the flag, and under async the sliding-window-family
+reservation is double-counted (vLLM #47728 class), which inflates the 262k/MNBT-3584
+admission check to 17.51 GiB > the pin — the engine refuses to boot. Async-off passes
+the same check and benched at/above the async reference here (structured 69.8 vs 67.4).
 
-`--max-model-len 131072` is not the model's limit — the native window is
-1,048,576. It is a deliberate cap, because KV memory left over after ~90.5 GiB
-of weights is the real constraint.
+## GPU_MEM_UTIL=0.85
 
-Measured on this deployment: **813K-834K tokens of KV pool**, about **6.2x
-concurrency** at a full 131,072-token request. If you raise `MAX_MODEL_LEN`,
-re-check the pool the engine reports at startup; it is printed as
-`GPU KV cache size: N tokens`.
+With the pin this sizes **nothing** — it is only the boot gate (`free >= total × util`),
+and the gate reads CUDA device-free, which tracks `MemFree`, NOT `MemAvailable` (page
+cache is invisible to it). 0.87 demands 105.87 GiB free against boots measured at
+104.1–106.98 and crash-loops. Leave it.
 
-`--kv-cache-dtype fp8_ds_mla` is not optional on the sparse path: it is the
-packed 656-byte layout the GLM_NSA kernel reads. `--block-size 256` is required
-because GLM's index cache must divide `index_kpool * 32`.
+## The rest
 
-## Sampling
-
-The checkpoint ships `temperature 1.0`, `top_p 0.95` in `generation_config.json`
-and vLLM applies them automatically. Do **not** lower the temperature: zai-org
-evaluate the agentic and coding benchmarks at 1.0 (0.95 for DeepSWE), so the
-model is tuned to be sampled hot. For coding-agent clients their published
-configs use `top_p 1.0`.
-
-Thinking is on by default (`reasoning_effort=high`) and **consumes the output
-budget** — a request with a small `max_tokens` can return empty content with all
-of it spent on reasoning. Give it room.
-
-## Restart policy
-
-The units use `Restart=on-failure` with `RestartSec=90` and three attempts an
-hour, deliberately bounded. Each attempt loads ~90 GiB per node, so an unbounded
-crash-loop is a sustained memory storm that can starve the machine to the point
-where sshd stops responding.
+- `MAX_NUM_SEQS=4` — matches the cudagraph capture set (4 seqs × 8 spec tokens = 32).
+- `DFLASH_TOKENS=7` — k=5 was rejected in A/B (structured −28%; the k+1 ceiling is
+  arithmetic). The capture sizes are sized for k=7; they are not free memory.
+- `READY_TIMEOUT=4800` / `VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS=1800` — a cold JIT rebuild
+  after a cache wipe is slow, not dead. Timeouts that "look generous" prevent the
+  watchdog from shooting a booting engine.
+- `IMAGE` pinned **by digest** + `SKIP_PULL=1` — a restart must never silently upgrade
+  the runtime. The weekly check-updates timer diffs the registry digest against the pin
+  so upgrades are deliberate.

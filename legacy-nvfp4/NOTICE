@@ -1,0 +1,11 @@
+GLM-5.3-Flash-NVFP4 on 2x DGX Spark
+Copyright 2026 the glm53-flash-nvfp4-2x-dgx-spark contributors
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+This product builds on, but does not redistribute, the GB10 sparse-MLA
+adaptation published at https://github.com/cyijun/glm-5.3-flash-nvfp4-gb10

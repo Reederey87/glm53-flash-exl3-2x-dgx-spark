@@ -1,0 +1,13 @@
+# GB10 hardware-fault (Xid) monitor — continuous journalctl -k -f tail.
+# Categorically NEVER bounces anything: Xid 119/154 = GPU off the bus,
+# only a cold power-cycle recovers it. Runs on BOTH nodes.
+[Unit]
+Description=GLM-5.3-Flash-EXL3: GB10 Xid hardware-fault monitor
+
+[Service]
+ExecStart=/usr/bin/bash %h/GLM-5.3-Flash-EXL3-2x-DGX-Sparks/local/xid-monitor.sh
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target

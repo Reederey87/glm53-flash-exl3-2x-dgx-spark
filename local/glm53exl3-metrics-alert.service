@@ -1,0 +1,9 @@
+# DFlash2 acceptance floor + live-argv integrity. Alert-only, never heals.
+# Exit 1 leaves the unit failed => visible in `systemctl --user --failed`.
+[Unit]
+Description=GLM-5.3-Flash-EXL3: metrics canary (acceptance + argv integrity)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash %h/GLM-5.3-Flash-EXL3-2x-DGX-Sparks/local/metrics-alert.sh
+TimeoutStartSec=120

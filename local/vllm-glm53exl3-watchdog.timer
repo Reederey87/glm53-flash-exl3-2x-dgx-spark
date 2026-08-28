@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the GLM-5.3-Flash EXL3 health canary every minute
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Unit=vllm-glm53exl3-watchdog.service
+
+[Install]
+WantedBy=timers.target

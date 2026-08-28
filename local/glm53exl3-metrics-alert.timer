@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the EXL3 metrics canary every 5 minutes
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Unit=glm53exl3-metrics-alert.service
+
+[Install]
+WantedBy=timers.target

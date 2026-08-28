@@ -1,11 +1,19 @@
-GLM-5.3-Flash-NVFP4 on 2x DGX Spark
-Copyright 2026 the glm53-flash-nvfp4-2x-dgx-spark contributors
+GLM-5.3-Flash-EXL3 on 2x DGX Spark
+Copyright 2026 the glm53-2x-dgx-spark contributors
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+Original work in this repository (docs/, local/, env.example, and the README) is
+licensed under the Apache License, Version 2.0 (see LICENSE).
 
-    http://www.apache.org/licenses/LICENSE-2.0
+This repository vendors the GLM-5.3-Flash 2x-DGX-Sparks serving kit by Mia's AI Lab
+(https://github.com/MiaAI-Lab/GLM-5.3-Flash-2x-DGX-Sparks), upstream commit c91754f,
+licensed under the MIT License (see LICENSE.MiaAI-Lab-kit). Local modifications to
+vendored files are marked with "# LOCAL:" comments and carry the repository's
+Apache-2.0 license.
 
-This product builds on, but does not redistribute, the GB10 sparse-MLA
-adaptation published at https://github.com/cyijun/glm-5.3-flash-nvfp4-gb10
+Model weights (brandonmusic/GLM-5.3-Flash-tr3-4bpw), the DFlash2 drafter
+(incoai/GLM-5.3-Flash-DFlash2), and the base GLM-5.3-Flash model (zai-org) are
+distributed under their own licenses on Hugging Face and are not part of this
+repository.
+
+The legacy-nvfp4/ directory preserves the previous GLM-5.3-Flash-NVFP4 kit and its
+original NOTICE unchanged.

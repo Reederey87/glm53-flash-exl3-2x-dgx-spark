@@ -1,12 +1,13 @@
-# Local configuration and rendered env — never commit these.
-cluster.env
 .env
-# Build and run artefacts
-results/
-*.log
+.glm53-exl3-*.inner.sh
+logs/
+tool-eval-bench/
+# Keep the published direction vectors; do not ship transplant dumps (~640 MiB).
+ablit/*
+!ablit/LAYER_MAP.json
+!ablit/refusal_direction_glm53_dealign_late.pt
+!ablit/refusal_direction_glm53_bf_oproj.pt
 __pycache__/
-*.pyc
-# Never commit an image tarball or weights
-*.tar
-image-archive/
-build-*.log
+*.py[cod]
+.pytest_cache/
+

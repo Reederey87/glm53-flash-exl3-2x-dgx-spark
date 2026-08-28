@@ -1,150 +1,90 @@
-# GLM-5.3-Flash-NVFP4 on 2x NVIDIA DGX Spark
+# GLM-5.3-Flash-EXL3 on 2× NVIDIA DGX Spark
 
-Run **GLM-5.3-Flash** — 320B total / 18B active, natively multimodal, 131K
-context — across **two DGX Sparks** at tensor-parallel 2, with **native sparse
-MLA**, driven entirely over SSH from your Mac.
+Reproduction kit for a **production** deployment of GLM-5.3-Flash (320B MoE / 18B active)
+on two NVIDIA DGX Spark (GB10 Grace Blackwell, 121 GiB unified memory each), serving
+**262k context** with DFlash2 speculative decoding at TP=2 over a direct 200Gb QSFP link.
 
-> **Tested on real hardware: 2x NVIDIA DGX Spark (GB10, sm_121, aarch64).**
-> Not a simulation, not a single-GPU extrapolation. Every number below was
-> measured on this deployment.
+This is the deployment I actually run, with every gotcha it cost to get here written down.
+It replaces the earlier NVFP4 recipe, which is preserved unchanged in
+[`legacy-nvfp4/`](legacy-nvfp4/).
 
----
+## What's in the box
 
-## Why this repo exists
-
-GLM-5.3-Flash's 11 full-attention layers are **NoPE sparse MLA**, and no stock
-kernel runs them on GB10. Excellent prior work
-([cyijun/glm-5.3-flash-nvfp4-gb10](https://github.com/cyijun/glm-5.3-flash-nvfp4-gb10))
-solved this for a **single** GB10 — but the 181 GiB checkpoint does not fit on
-one, and that image **fails at TP=2**.
-
-The reason is a one-line dispatch miss. FlashInfer keys sparse-MLA decode on
-`(num_heads, topk)`. GLM has 64 attention heads, so:
-
-| | heads per rank | needs | ships? |
-|---|---:|---|---|
-| TP=1 | 64 | `(64, 2176)` | yes |
-| **TP=2** | **32** | **`(32, 2176)`** | **no** |
-
-The lookup misses, FlashInfer falls through to a kernel that refuses batches of
-64 tokens or fewer, and the engine dies during warmup — *after* loading all
-181 GiB. **This repo adds the missing specialization** and everything needed to
-run the result as a service. See [docs/03-tp2-kernel-fix.md](docs/03-tp2-kernel-fix.md).
-
----
-
-## Measured performance
-
-Two DGX Sparks, TP=2 over a direct 200Gb QSFP link, `--enforce-eager`,
-`marlin` MoE, thinking on at `reasoning_effort=high`.
-
-| Metric | Measured |
+| | |
 |---|---|
-| **KV cache pool** | **813,181 – 834,580 tokens** |
-| **Max concurrency** @ 131,072-token request | **6.2x** |
-| **Context window** | **131,072** (native 1M; capped deliberately — see below) |
-| **Single-stream decode** | **13.6 tok/s** warm |
-| **8 concurrent, aggregate** | **26.7 tok/s** (8/8 requests, 0 errors) |
-| Weight load | ~12 min (120 shards, 181 GiB) |
-| Per-node weights | ~90.5 GiB of 121.69 GiB unified memory |
-| Correctness suite | **13/13** |
+| Weights | [`brandonmusic/GLM-5.3-Flash-tr3-4bpw`](https://huggingface.co/brandonmusic/GLM-5.3-Flash-tr3-4bpw) — uniform-K4 EXL3/TR3, ~164 GiB, pinned revision |
+| Runtime | [MiaAI-Lab/GLM-5.3-Flash-2x-DGX-Sparks](https://github.com/MiaAI-Lab/GLM-5.3-Flash-2x-DGX-Sparks) prebuilt image, **pinned by digest** |
+| Drafter | `incoai/GLM-5.3-Flash-DFlash2`, k=7 (structured accept ~0.98, ~67–70 tok/s structured) |
+| Base kit | Upstream recipe vendored at `c91754f`, with local commits on top (see below) |
 
-Correctness covers short QA, reasoning block, **tool calling** (`glm47`),
-**vision**, long generation, and a needle retrieved at **100,796 prompt tokens**
-(77% of the window).
+The upstream kit does the heavy lifting (`start.sh` owns both ranks over ssh, JIT cache
+persistence, warmup). This repo adds what production needed on top — all changes are
+marked `# LOCAL:` in-file:
 
-**Context is capped on purpose.** The model's native window is 1,048,576, but
-after ~90.5 GiB of weights per node the KV pool is the binding constraint. 131K
-at 6.2x concurrency is the useful operating point; raise it and re-read the pool
-size the engine prints at startup.
+- **`--host 127.0.0.1` hardcoded** — upstream binds `0.0.0.0` with `--network host`,
+  which is an unauthenticated model on your LAN. Verify after any update:
+  `ss -ltn | grep 8000` must show loopback only.
+- **KV pool pinned** (`--kv-cache-memory-bytes`) — byte-identical pool every boot,
+  no profiling variance. Never raise it; see `docs/02-parameters.md`.
+- **Prefix-cache geometry for a hybrid KDA model** — `MAX_NUM_BATCHED_TOKENS` must equal
+  the 3584-token page size and async scheduling must be OFF, or cache hits silently read
+  0%. The full mechanism: `docs/04-prefix-caching.md`. This one took a day to find.
+- **`local/` ops kit** — `prod-start.sh` (memory-gated restart with a config-shape hash
+  that wipes stale JIT caches), a watchdog that distinguishes crash/wedge/deliberate-stop,
+  metrics alerting with argv-integrity checks, GPU Xid monitoring, acceptance and serving
+  test batteries, and prefix-cache probes (`cache-burst.py`, `cache-probe.sh`).
+- **systemd units** (user-level, linger on) — one oneshot unit owns the pair; timers for
+  watchdog, weekly update/parity checks, and metrics alerts.
 
----
-
-## What you need
-
-- **2x NVIDIA DGX Spark** (GB10), DGX OS / Ubuntu 24.04 aarch64, CUDA 13,
-  driver 580.x
-- A **direct QSFP cable** between them (NCCL runs RDMA over it)
-- ~200 GiB free per node for weights
-- A Mac or Linux workstation with `ssh`, `rsync`, `python3` — **all deployment
-  is remote**; you never sit at the Sparks
-
----
-
-## Quick start
+## Quickstart
 
 ```bash
-cp cluster.env.example cluster.env   # hosts, user, QSFP addresses
-$EDITOR cluster.env
-
-./install.sh                          # push the kit to both nodes
-bash image/build.sh                   # build the TP=2 image on both (~tens of min)
-./start-cluster.sh                    # worker, then head; polls /health
-
-bash bench/smoke.sh                   # correctness — the gate that matters
-bash bench/probe.sh                   # throughput
+# on the head node
+git clone <this repo> glm53 && cd glm53
+cp env.example .env         # read it top to bottom — every value is a decision
+bash download.sh            # ~164 GiB of weights, verified against the pinned revision
+local/prod-start.sh         # NOT start.sh directly — see docs/03-bringup.md
+local/acceptance.sh         # 7 checks: tools, thinking, vision, long-context needle
 ```
 
-Then forward the loopback API and point any OpenAI-compatible client at it:
+Then install the units in `local/` (`systemctl --user enable ...`) so the pair survives
+reboots and heals itself. `docs/03-bringup.md` has the full drill, including why
+`ExecStart` must be restart-shaped and why the watchdog never blocks.
 
-```bash
-ssh -N -L 8000:127.0.0.1:8000 <head>
-curl http://127.0.0.1:8000/v1/models
-```
+`.env.example` is upstream's untouched original; **`env.example` is this deployment's
+annotated configuration** and the one to start from.
 
-Full walkthrough: [docs/04-bringup.md](docs/04-bringup.md).
+## Measured (2026-08-28, warm, temp 0)
 
----
-
-## What is in the box
-
-| Path | Purpose |
+| Phase | tok/s |
 |---|---|
-| `image/` | The TP=2 fix: FlashInfer patch + Dockerfile + build |
-| `docker-compose.yml` | TP=2 serve definition, one file for both roles |
-| `systemd/` | Head/worker units + an inference-level watchdog |
-| `bench/` | Correctness suite and throughput probe |
-| `docs/` | Architecture, every parameter explained, the kernel fix, dead ends |
+| Structured (count 1→200) | 69.8 |
+| Prose | 27.7 |
+| Production path (temp 1.0, thinking on) | ~30 |
+| 200k cold prefill | ~940 tok/s, no OOM |
+| 100k cached re-prefill | **7 s** (vs 110 s cold) |
 
-The watchdog is not decoration: the API process survives a lost TP peer, so
-`/health` keeps answering 200 while inference is wedged. It probes with a real
-completion and bounces the pair in the correct order.
+## Known issues
 
----
+- **Co-batched prefill inserts nothing into the prefix cache** (upstream vLLM bug, present
+  in the pinned image): any request whose prefill overlaps another in-flight request gets
+  zero cache retention. Sequential traffic hits 84–93%; concurrent agentic bursts hit 0%.
+  Mitigation and full repro data: `docs/05-known-issues.md`.
+- Requests larger than ~150k tokens prefill fine but are too big for the pool to retain
+  as reusable prefix.
 
-## Where the speed is
+## Layout
 
-This deployment is deliberately conservative. Known headroom, roughly in order:
-
-1. **Speculative decoding (MTP).** The checkpoint ships an MTP layer and the
-   upstream image validates it at n=1. Published third-party numbers on the same
-   hardware suggest a large single-stream win — but they are reported *with* MTP
-   and *without* an acceptance rate, so treat them as a hypothesis, not a target.
-2. **CUDA graphs.** We run `--enforce-eager` because graph capture plus
-   cross-node NCCL plus hybrid KDA is a known hang class. Worth retesting.
-3. **`--max-num-seqs` above 2.** Aggregate throughput here is 8 clients queued
-   behind 2 slots. The KV pool can afford more.
-4. **A native FP4 MoE kernel.** `marlin` dequantises to FP16 and costs
-   throughput; the native path is not currently safe on sm_121
-   ([docs/02-parameters.md](docs/02-parameters.md)).
-
-Long-context decode is also where sparse attention should pull away from dense —
-untested here, because the probe is a short-prompt benchmark.
-
----
-
-## Credits
-
-- [**cyijun/glm-5.3-flash-nvfp4-gb10**](https://github.com/cyijun/glm-5.3-flash-nvfp4-gb10)
-  — the GB10 NoPE sparse-MLA adaptation this builds on. This repo layers a TP=2
-  fix on top of their published image; it does not vendor their code.
-- [**LibertAIDAI/GLM-5.3-Flash-NVFP4**](https://huggingface.co/LibertAIDAI/GLM-5.3-Flash-NVFP4)
-  — the NVFP4 checkpoint that makes two Sparks enough.
-- [**zai-org/GLM-5.3-Flash**](https://huggingface.co/zai-org/GLM-5.3-Flash) — the model.
-- [**vLLM**](https://github.com/vllm-project/vllm) — PR #53906 for GLM-5.3 support.
+```
+env.example        the deployment's configuration, annotated (start here)
+start.sh stop.sh   upstream launcher (LOCAL-patched: loopback bind, overridable NCCL knobs)
+local/             production ops: prod-start, watchdog, monitors, tests, cache probes
+docs/              architecture, parameters, bringup, prefix caching, known issues
+tests/             decode benches + kit regression tests
+legacy-nvfp4/      the previous NVFP4 deployment kit, frozen as shipped
+```
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
-
-Model weights, the base image and upstream projects carry their own licenses.
+Original work in this repo: Apache-2.0 ([LICENSE](LICENSE)). Files vendored from the
+MiaAI-Lab kit: MIT ([LICENSE.MiaAI-Lab-kit](LICENSE.MiaAI-Lab-kit)). See [NOTICE](NOTICE).

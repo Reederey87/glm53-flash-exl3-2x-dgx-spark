@@ -1,0 +1,9 @@
+[Unit]
+Description=GLM-5.3-Flash EXL3 health canary and auto-heal
+Documentation=file:///home/nvidia/GLM-5.3-Flash-EXL3-2x-DGX-Sparks/local/watchdog.sh
+
+[Service]
+Type=oneshot
+Environment=PATH=/home/nvidia/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+ExecStart=/home/nvidia/GLM-5.3-Flash-EXL3-2x-DGX-Sparks/local/watchdog.sh
+TimeoutStartSec=600

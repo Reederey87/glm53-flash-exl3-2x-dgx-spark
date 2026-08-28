@@ -1,0 +1,16 @@
+# Weekly DGX OTA + parity + image/recipe drift check for GLM-5.3-Flash-EXL3.
+#
+# Deliberately NO SuccessExitStatus override: check-updates.sh exits 1 when
+# anything needs attention, the unit goes *failed*, and shows up in
+# `systemctl --user --failed`. That failed state IS the nag.
+#
+#   systemctl --user --failed                                       # anything due?
+#   journalctl --user -u glm53exl3-check-updates.service -n 40      # what exactly
+[Unit]
+Description=GLM-5.3-Flash-EXL3: OTA + node parity + image/recipe drift check
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/GLM-5.3-Flash-EXL3-2x-DGX-Sparks
+ExecStart=/usr/bin/bash %h/GLM-5.3-Flash-EXL3-2x-DGX-Sparks/local/check-updates.sh --quiet
+TimeoutStartSec=300

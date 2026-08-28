@@ -1,0 +1,335 @@
+#!/usr/bin/env python3
+"""Drive the *shipped* EXL3 path. Fail if the overlay only registered a name.
+
+This file is copied into the image at /opt/glm53/test_exl3_overlay.py and is
+the image-build / post-build self-check. It imports vLLM's registered method
+and LinearEXL3 — it does not reimplement the GEMM.
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+
+
+def _check_quant_registry() -> None:
+    from vllm.model_executor.layers.quantization import (
+        QUANTIZATION_METHODS,
+        get_quantization_config,
+    )
+    from vllm.model_executor.layers.quantization.exl3 import Exl3Config
+
+    assert "exl3" in QUANTIZATION_METHODS, QUANTIZATION_METHODS
+    cfg_cls = get_quantization_config("exl3")
+    assert cfg_cls is Exl3Config, cfg_cls
+    cfg = cfg_cls.from_config(
+        {
+            "quant_method": "exl3",
+            "bits": 4,
+            "codebook": "mcg",
+            "scope": "glm53_routed_experts_only",
+        }
+    )
+    assert cfg.get_name() == "exl3"
+    assert cfg.override_quantization_method({"quant_method": "exl3"}, None) == "exl3"
+    print("exl3 registry OK", flush=True)
+
+
+def _check_tp_shard() -> None:
+    import torch
+    from vllm.model_executor.layers.quantization.exl3 import (
+        shard_exl3_col,
+        shard_exl3_row,
+    )
+
+    trellis = torch.arange(2 * 4 * 16 * 64, dtype=torch.int16).reshape(16, 8, 64)
+    col0 = shard_exl3_col(trellis, "trellis", tp_rank=0, tp_size=2)
+    col1 = shard_exl3_col(trellis, "trellis", tp_rank=1, tp_size=2)
+    assert col0.shape == (16, 4, 64)
+    assert col1.shape == (16, 4, 64)
+    assert not torch.equal(col0, col1)
+    assert torch.equal(torch.cat([col0, col1], dim=1), trellis)
+
+    suh = torch.arange(32, dtype=torch.float16)
+    row0 = shard_exl3_row(suh, "suh", tp_rank=0, tp_size=2)
+    row1 = shard_exl3_row(suh, "suh", tp_rank=1, tp_size=2)
+    assert row0.tolist() == list(range(16))
+    assert row1.tolist() == list(range(16, 32))
+    svh = torch.arange(8, dtype=torch.float16)
+    assert torch.equal(shard_exl3_col(svh, "suh", 0, 2), svh)
+    print("exl3 TP shard rules OK (gate/up col, down row)", flush=True)
+
+
+def _check_ext_arch() -> None:
+    import exllamav3_ext
+
+    assert hasattr(exllamav3_ext, "exl3_moe"), dir(exllamav3_ext)
+    assert hasattr(exllamav3_ext, "exl3_moe_max_concurrency")
+    print("exllamav3_ext.exl3_moe present", flush=True)
+    so = exllamav3_ext.__file__
+    dump = subprocess.check_output(["cuobjdump", "-lelf", so], text=True, stderr=subprocess.STDOUT)
+    arches = {
+        line.strip().split()[-1]
+        for line in dump.splitlines()
+        if "sm_" in line or "gencode" in line.lower()
+    }
+    joined = dump.lower()
+    has_121 = "sm_121" in joined or "compute_121" in joined
+    has_120_only = ("sm_120" in joined or "compute_120" in joined) and not has_121
+    if not has_121:
+        raise AssertionError(
+            f"exllamav3_ext is not an SM121 cubin ({so}):\n{dump[-2000:]}"
+        )
+    if has_120_only:
+        raise AssertionError("exllamav3_ext is SM120-only; SM121 native kernels required")
+    print(f"exllamav3_ext arch OK {so} arches={sorted(arches) or 'see cuobjdump'}", flush=True)
+
+
+def _check_gpu_gemm() -> None:
+    import torch
+    from vllm.model_executor.layers.quantization.exl3 import (
+        MCG_MARKER_SIGNED_INT32,
+        execute_exl3_linear,
+        load_linear_exl3_cls,
+    )
+
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA required for EXL3 GEMM self-check")
+    device = torch.device("cuda:0")
+    # One 16×16-tile K4 MCG matrix (256×256). Not a mock of LinearEXL3:
+    # execute_exl3_linear is the shipped expert GEMM entry.
+    in_f, out_f, bits = 256, 256, 4
+    trellis = torch.zeros((in_f // 16, out_f // 16, bits * 16), dtype=torch.int16, device=device)
+    suh = torch.ones(in_f, dtype=torch.float16, device=device)
+    svh = torch.ones(out_f, dtype=torch.float16, device=device)
+    mcg = torch.tensor([MCG_MARKER_SIGNED_INT32], dtype=torch.int32, device=device)
+    x = torch.randn(4, in_f, dtype=torch.float16, device=device)
+    cls = load_linear_exl3_cls()
+    assert cls.__name__ == "LinearEXL3", cls
+    y = execute_exl3_linear(x, trellis, suh, svh, mcg, out_dtype=torch.float32)
+    assert y.shape == (4, out_f), y.shape
+    assert y.dtype == torch.float32
+    assert torch.isfinite(y).all(), y
+    # Persistent BF16 reconstruct of a *layer* of 288 experts would be tens of
+    # GiB; this path only materializes the working GEMM tile inside LinearEXL3.
+    print(
+        f"exl3 GPU GEMM OK LinearEXL3 y={tuple(y.shape)} "
+        f"finite mean={float(y.mean()):.4f}",
+        flush=True,
+    )
+    _check_fused_vs_loop(device)
+    _check_apply_expert_map(device)
+    _check_fused_cudagraph(device)
+
+
+def _tiny_layer(device, n_exp: int = 3, hidden: int = 256, inter: int = 256):
+    import types
+
+    import torch
+    from vllm.model_executor.layers.quantization.exl3 import (
+        MCG_MARKER_SIGNED_INT32,
+        Exl3Config,
+        Exl3MoEMethod,
+    )
+
+    moe = types.SimpleNamespace(swiglu_limit=10.0)
+    method = Exl3MoEMethod(moe, Exl3Config())
+    layer = torch.nn.Module()
+    method.create_weights(
+        layer,
+        num_experts=n_exp,
+        hidden_size=hidden,
+        intermediate_size_per_partition=inter,
+        params_dtype=torch.float16,
+    )
+    g = torch.Generator(device="cpu")
+    g.manual_seed(0)
+    with torch.no_grad():
+        layer.w13_trellis.copy_(
+            torch.randint(-30000, 30000, tuple(layer.w13_trellis.shape), dtype=torch.int16, generator=g)
+        )
+        layer.w2_trellis.copy_(
+            torch.randint(-30000, 30000, tuple(layer.w2_trellis.shape), dtype=torch.int16, generator=g)
+        )
+        layer.w13_suh.copy_(torch.randn(tuple(layer.w13_suh.shape), generator=g).half())
+        layer.w13_svh.copy_(torch.randn(tuple(layer.w13_svh.shape), generator=g).half())
+        layer.w2_suh.copy_(torch.randn(tuple(layer.w2_suh.shape), generator=g).half())
+        layer.w2_svh.copy_(torch.randn(tuple(layer.w2_svh.shape), generator=g).half())
+        layer.w13_mcg.fill_(MCG_MARKER_SIGNED_INT32)
+        layer.w2_mcg.fill_(MCG_MARKER_SIGNED_INT32)
+    layer = layer.to(device)
+    method.process_weights_after_loading(layer)
+    return method, layer
+
+
+def _check_fused_vs_loop(device) -> None:
+    import torch
+    from vllm.model_executor.layers.quantization.exl3 import apply_exl3_experts
+
+    method, layer = _tiny_layer(device)
+    del method
+    x = torch.randn(2, 256, dtype=torch.float16, device=device)
+    ids = torch.tensor([[0, 2], [0, 1]], dtype=torch.long, device=device)
+    w = torch.tensor([[0.6, 0.4], [0.5, 0.5]], dtype=torch.float16, device=device)
+    y_loop = apply_exl3_experts(x, ids, w, layer, fused=False)
+    y_fused = apply_exl3_experts(x, ids, w, layer, fused=True)
+    assert layer._exl3_last_apply == "fused", layer._exl3_last_apply
+    assert y_loop.shape == y_fused.shape == (2, 256)
+    assert torch.isfinite(y_loop).all() and torch.isfinite(y_fused).all()
+    err = (y_loop.float() - y_fused.float()).abs()
+    scale = float(y_loop.float().abs().mean().clamp_min(1e-3))
+    max_err = float(err.max())
+    # fp16 trellis GEMM noise, not bit-identical
+    bound = max(0.15, 0.08 * float(y_loop.float().abs().max().clamp_min(1.0)))
+    assert max_err < bound, f"fused vs loop maxabs={max_err} bound={bound} mean_scale={scale}"
+    print(
+        f"exl3 fused vs LinearEXL3 loop OK maxabs={max_err:.5f} bound={bound:.5f}",
+        flush=True,
+    )
+
+
+def _check_apply_expert_map(device) -> None:
+    import os
+
+    import torch
+    from vllm.model_executor.layers.quantization.exl3 import apply_exl3_experts
+
+    _method, layer = _tiny_layer(device, n_exp=3)
+    # global 1 is not on this rank
+    layer.expert_map = torch.tensor([0, -1, 2], dtype=torch.long, device=device)
+    x = torch.randn(2, 256, dtype=torch.float16, device=device)
+    ids = torch.tensor([[0, 1], [2, 1]], dtype=torch.long, device=device)
+    w = torch.tensor([[0.7, 0.3], [0.4, 0.6]], dtype=torch.float16, device=device)
+    y_fused = apply_exl3_experts(x, ids, w, layer, fused=True)
+    y_loop = apply_exl3_experts(x, ids, w, layer, fused=False)
+    assert torch.isfinite(y_fused).all() and torch.isfinite(y_loop).all()
+    err = float((y_fused.float() - y_loop.float()).abs().max())
+    bound = max(0.15, 0.08 * float(y_loop.float().abs().max().clamp_min(1.0)))
+    assert err < bound, f"expert_map -1 fused vs loop maxabs={err} bound={bound}"
+    prev = os.environ.get("EXL3_FUSED_MOE")
+    os.environ["EXL3_FUSED_MOE"] = "0"
+    try:
+        y_env = apply_exl3_experts(x, ids, w, layer)
+        assert layer._exl3_last_apply == "loop", layer._exl3_last_apply
+        assert torch.isfinite(y_env).all()
+    finally:
+        if prev is None:
+            os.environ.pop("EXL3_FUSED_MOE", None)
+        else:
+            os.environ["EXL3_FUSED_MOE"] = prev
+    print("exl3 apply expert_map -1 + EXL3_FUSED_MOE=0 loop OK", flush=True)
+
+
+def _check_fused_cudagraph(device) -> None:
+    import torch
+    from vllm.model_executor.layers.quantization.exl3 import apply_exl3_experts
+
+    _method, layer = _tiny_layer(device, n_exp=3)
+    # CPU map: first eager apply must pin it so capture does not CPU→CUDA copy.
+    layer.expert_map = torch.tensor([0, -1, 2], dtype=torch.long, device="cpu")
+    x = torch.randn(2, 256, dtype=torch.float16, device=device)
+    ids = torch.tensor([[0, 1], [2, 1]], dtype=torch.long, device=device)
+    w = torch.tensor([[0.7, 0.3], [0.4, 0.6]], dtype=torch.float16, device=device)
+    static_x = x.clone()
+    static_ids = ids.clone()
+    static_w = w.clone()
+    y_eager = apply_exl3_experts(static_x, static_ids, static_w, layer, fused=True)
+    assert layer.expert_map.device.type == "cuda", layer.expert_map.device
+    s = torch.cuda.Stream()
+    s.wait_stream(torch.cuda.current_stream())
+    with torch.cuda.stream(s):
+        for _ in range(3):
+            apply_exl3_experts(static_x, static_ids, static_w, layer, fused=True)
+    torch.cuda.current_stream().wait_stream(s)
+    g = torch.cuda.CUDAGraph()
+    with torch.cuda.graph(g):
+        y_graph = apply_exl3_experts(static_x, static_ids, static_w, layer, fused=True)
+    g.replay()
+    torch.cuda.synchronize()
+    err = float((y_graph.float() - y_eager.float()).abs().max())
+    bound = max(0.15, 0.08 * float(y_eager.float().abs().max().clamp_min(1.0)))
+    assert torch.isfinite(y_graph).all(), y_graph
+    assert err < bound, f"cudagraph vs eager maxabs={err} bound={bound}"
+    print(f"exl3 fused CUDA graph capture OK maxabs={err:.5f}", flush=True)
+
+
+def _check_dflash2() -> None:
+    from pathlib import Path
+
+    from vllm.model_executor.models.qwen3_dflash import (
+        DFlashQwen3DecoderLayer,
+        DFlashQwen3ForCausalLM,
+        DFlashQwen3Model,
+    )
+    from vllm.model_executor.models.qwen3_dflash2 import (
+        DFlash2Qwen3DecoderLayer,
+        DFlash2Qwen3ForCausalLM,
+        DFlash2Qwen3Model,
+    )
+    from vllm.model_executor.models.registry import _SPECULATIVE_DECODING_MODELS
+
+    assert DFlashQwen3Model.decoder_layer_cls is DFlashQwen3DecoderLayer
+    assert DFlashQwen3ForCausalLM.model_cls is DFlashQwen3Model
+    assert DFlash2Qwen3Model.decoder_layer_cls is DFlash2Qwen3DecoderLayer
+    assert DFlash2Qwen3ForCausalLM.model_cls is DFlash2Qwen3Model
+    assert _SPECULATIVE_DECODING_MODELS["DFlash2DraftModel"] == (
+        "qwen3_dflash2",
+        "DFlash2Qwen3ForCausalLM",
+    )
+    qwen = Path(
+        "/usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/qwen3_dflash.py"
+    ).read_text()
+    assert "self.decoder_layer_cls(" in qwen
+    assert "DFlashQwen3DecoderLayer(" not in qwen.split("self.layers")[1].split("def embed_input_ids")[0]
+    spec_init = Path(
+        "/usr/local/lib/python3.12/dist-packages/vllm/v1/worker/gpu/spec_decode/__init__.py"
+    ).read_text()
+    assert "DFlash2Speculator" in spec_init
+    assert "DFlash2DraftModel" in spec_init
+    dflash_utils = Path(
+        "/usr/local/lib/python3.12/dist-packages/vllm/v1/worker/gpu/spec_decode/dflash/utils.py"
+    ).read_text()
+    assert 'draft_kv = "auto"' in dflash_utils
+    assert '"fp8_ds_mla"' in dflash_utils
+    glm = Path(
+        "/usr/local/lib/python3.12/dist-packages/vllm/models/glm5next/nvidia/model.py"
+    ).read_text()
+    assert "class Glm5NextModel(nn.Module, EagleModelMixin):" in glm
+    assert "SupportsEagle3" in glm
+    assert "aux_hidden_state_layers" in glm
+    assert "layer.hc_post(hidden_states, residual, post, comb)" in glm
+    assert "hc_contract(" in glm
+    assert "return hidden_states, aux_hidden_states" in glm
+    kv = Path(
+        "/usr/local/lib/python3.12/dist-packages/vllm/v1/core/kv_cache_utils.py"
+    ).read_text()
+    assert "DFLASH2-DRAFTER-GROUP" in kv
+    assert "type(v) is SlidingWindowSpec" in kv
+    src = Path("/usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/qwen3_dflash.py").read_text()
+    # Top-level is_causal must win so GLM-5.3-Flash-DFlash2 (is_causal=false,
+    # all sliding_attention) does not silently draft as causal DFlash1.
+    assert 'getattr(config, "is_causal", None)' in src
+    print("dflash2 overlay OK", flush=True)
+
+
+def main() -> int:
+    require_gpu = os.environ.get("EXL3_SELFCHECK_GPU", "1") != "0"
+    _check_quant_registry()
+    _check_tp_shard()
+    _check_ext_arch()
+    _check_dflash2()
+    if require_gpu:
+        _check_gpu_gemm()
+    else:
+        print("EXL3_SELFCHECK_GPU=0 — skipped GPU GEMM", flush=True)
+    print("glm53 EXL3 overlay verify OK", flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except Exception as exc:
+        print(f"EXL3 overlay verify FAILED: {exc}", file=sys.stderr, flush=True)
+        raise
