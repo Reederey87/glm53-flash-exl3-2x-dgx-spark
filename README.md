@@ -80,6 +80,30 @@ Then install the units in `local/` (`systemctl --user enable ...`) so the pair s
 reboots and heals itself. `docs/03-bringup.md` has the full drill, including why
 `ExecStart` must be restart-shaped and why the watchdog never blocks.
 
+## API surface notes (this build)
+
+**Cache reset.** `overlay/patch_cache_reset.py` mounts the upstream dev cache
+router on the head API server, so a genuinely cold prefix cache no longer
+needs a container restart:
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/reset_prefix_cache    # -> {"success": true}
+```
+
+It returns `{"success": bool}` and reports `false` while blocks are still
+held (running requests, in-flight async KV offload) — retry after they
+drain. `GLM53_EXPOSE_CACHE_RESET=0 ./start.sh` restores the stock surface
+(restart is then the only reset); `VLLM_SERVER_DEV_MODE=1` still mounts the
+whole dev set (`/sleep`, `/rlhf`, `/rpc`, `/server_info`) if ever needed.
+Auth caveat: the bearer middleware only guards `/v1`, `/v2`, `/inference`,
+`/cohere` (upstream `GUARDED_PREFIX`), so root-mounted routes — the stock
+`/tokenize` / `/detokenize` and the cache-reset routes — answer without the
+key even with `VLLM_API_KEY` set. Set `GLM53_EXPOSE_CACHE_RESET=0` on kits
+that serve untrusted clients.
+
+**Tokenize.** It is mounted at the **root** (`/v1/tokenize` is 404) and the
+request validates `prompt` (or `messages` for the chat shape), not `text`.
+
 ## Measured (2026-08-29, warm, temp 0, median of 3)
 
 | Phase | Value |
