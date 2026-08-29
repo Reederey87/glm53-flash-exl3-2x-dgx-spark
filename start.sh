@@ -912,6 +912,15 @@ launch_cluster() {
         -e DO_NOT_TRACK=1
         -e "VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=$CG_ESTIMATE"
     )
+    # LOCAL: sparse KDA state retention (env.example sets 0 = boundaries-only).
+    # This vLLM fork extends VLLM_PREFIX_CACHE_RETENTION_INTERVAL to MambaSpec
+    # groups (replay boundaries + shared-prefix junctions always kept). 0 fixed
+    # both prefix-cache bugs on this stack (cross-session 0%->97.8%, co-batch
+    # insertion 0%->95%, solo held 98% — docs/04-prefix-caching.md). Unset =
+    # dense retention = the old multi-session thrash. 0 or a multiple of 3584.
+    if [ -n "${VLLM_PREFIX_CACHE_RETENTION_INTERVAL:-}" ]; then
+        nccl_common+=(-e "VLLM_PREFIX_CACHE_RETENTION_INTERVAL=$VLLM_PREFIX_CACHE_RETENTION_INTERVAL")
+    fi
     local worker_nccl="" e
     for e in "${nccl_common[@]}"; do
         [ "$e" = "-e" ] && continue

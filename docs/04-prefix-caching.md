@@ -32,18 +32,34 @@ re-prefills in **3.5 seconds instead of 132**; the post-power-on sweep verified 
 replay retention at 99%+ out to **~340k real tokens** on the 1M-window pool
 (1,396,551 tokens since the slot-share).
 
-## What still doesn't (upstream bugs + one accepted regression)
+## The retention fix (2026-08-29) — both remaining failure modes resolved
 
-1. **Any prefill that overlaps another in-flight request — even one merely decoding —
-   inserts nothing into the cache.** See `05-known-issues.md` for the isolation data.
-2. **Two long sessions evict each other.** Since the slot-share merge, two sessions of
-   ~68k+ each thrash cross-session retention to an exact 0% (pre-merge 84–93%); only
-   ~2×20k coexists. Accepted as the price of the 1M window — the suspect is cached
-   pages costing ~2× in pool accounting under slot-share.
+Two failure modes survived the hit-boundary fixes, and one env var resolved both:
+**`VLLM_PREFIX_CACHE_RETENTION_INTERVAL=0`** (in `env.example`, forwarded by
+`start.sh`). This fork extends the knob to MambaSpec groups: instead of densely
+keeping a KDA state per 3584-token page, retention keeps **only replay boundaries
+and shared-prefix junctions** (Marconi-style), which are always retained — so exact
+prefix replays (the append-only agentic shape) still hit, while cached prefixes stop
+being too expensive to coexist in the pool. Measured, same-day controls → arm:
 
-Both land on the same operating rule: keep long-prompt agent clients at **~1 in-flight
-request**, and size client-side compaction so sessions stay under the solo ceiling
-(we compact at 300k).
+| Shape | Dense (unset) | Sparse (`0`) |
+|---|---|---|
+| 2×68k sessions, round-2 hits | **0.0%** (163 s) | **97.8%** (5.8 s) |
+| 4×60k concurrent ×3 rounds (the co-batch shape) | **0%** all rounds (288 s) | **95.0%** (17.4 s) |
+| Solo 110k replay | 98.0% | 98.0% (held) |
+
+The co-batch "inserts nothing" bug turned out to be a **side effect of dense KDA
+retention**, not a scheduler defect — a code audit had already cleared the chunking
+path (`_mamba_block_aligned_split` floors every intermediate chunk to the 3584 grid).
+Decode was unaffected (structured acceptance 1.0000, throughput within noise), the
+pinned pool byte-identical, and the env is not in the JIT shape hash (no cache wipe).
+
+Residual cautions: soak the concurrent-hit path under real load (vLLM issue #54199
+reports a GB10 illegal-memory-access when a cache-hit request is admitted while the
+donor is in flight — zero errors in our probes, but that is the crash class that
+lives behind concurrent hits), and re-validate at the next image rebase (upstream
+#52216 changes the retention default and promotes the env to a real argument).
+Client-side compaction around **300k** (the measured solo ceiling) still stands.
 
 ## Verifying, not assuming
 

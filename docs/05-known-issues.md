@@ -1,11 +1,15 @@
 # Known issues
 
-## 1. Co-batched prefill inserts nothing into the prefix cache (open, upstream)
+## 1. Co-batched prefill inserts nothing into the prefix cache — FIXED 2026-08-29
 
 **Image:** `ghcr.io/miaai-lab/glm-5.3-flash-2x-dgx-sparks@sha256:9bb1557a…`
-(vLLM `0.1.dev20051+g487ecf187`). **Status:** open as of 2026-08-29. Upstream PRs
-#53802 (hybrid hit-boundary alignment) and #54163 (DFlash last-block prune) are the
-ones to watch — re-test with `local/cache-burst.py` when an image carries them.
+(vLLM `0.1.dev20051+g487ecf187`). **Status: RESOLVED by
+`VLLM_PREFIX_CACHE_RETENTION_INTERVAL=0`** (see `04-prefix-caching.md`, "The
+retention fix") — the zero-insertion was a side effect of dense KDA retention
+making cached pages unaffordable, not a scheduler defect. The isolation data below
+is kept as the historical record and as the regression test set (re-run
+`local/cache-burst.py --sessions 4 --ctx-tokens 60000 --rounds 3`; rounds 2–3 now
+measure 95%).
 
 A request whose prefill overlaps any other in-flight request — including one that is
 only decoding — gets **zero cache retention**. Isolation data (all with MNBT=3584,
@@ -29,16 +33,16 @@ around 300k (solo retention verified to ~340k on the 1M-window pool). Server-sid
 `MAX_NUM_SEQS=1` would force correctness at the cost of serializing decode for every
 client — we chose client discipline instead.
 
-## 2. Multi-session retention collapse under the 1M window (accepted regression)
+## 2. Multi-session retention collapse under the 1M window — FIXED 2026-08-29
 
 Since the slot-share + hybrid-prefix-hit merge that made 1M allocate, two sessions of
-~68k+ each evict each other to an exact 0% cross-session hit rate (it was 84–93%
-before); only ~2×20k coexists. Solo sessions are unaffected (99%+ retention verified
-to ~340k). Suspect: cached pages cost ~2× in pool accounting under slot-share.
-Mitigation is the same one-long-context-client rule as issue 1. Ablation lever if you
-need the old behavior back: pin `DRAFTER_PATCH_HOST` to the pre-slot-share copy of
-`patch_glm5_drafter_group.py` — restores the old accounting, forfeits the 1M window's
-pool multiple.
+~68k+ each evicted each other to an exact 0% cross-session hit rate; only ~2×20k
+coexisted. **Resolved by the same retention fix as issue 1**
+(`VLLM_PREFIX_CACHE_RETENTION_INTERVAL=0`): 2×68k now measures 97.8% cross-session
+hits with solo retention held at 98%. The one-long-context-client operating rule is
+provisionally retired (soak concurrent hits under real load first — see the #54199
+caution in `04-prefix-caching.md`). The old ablation lever (pre-slot-share
+`patch_glm5_drafter_group.py`) is obsolete.
 
 ## 3. Fit-check refusal at 17.51 GiB when experimenting with MNBT
 

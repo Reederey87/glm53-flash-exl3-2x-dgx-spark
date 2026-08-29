@@ -55,11 +55,14 @@ active (the warmup sweep pollutes counters), keep other traffic off, log the ver
    (GDR-off copies). If low, re-test dual-rail (`NCCL_IB_MERGE_NICS=1`, both HCAs)
    at the current MNBT=3584 geometry — judged on cold-prefill throughput only;
    decode all_reduces are latency-bound and cannot win from bandwidth.
-2. **`VLLM_PREFIX_CACHE_RETENTION_INTERVAL`** (env, already in the build): the only
-   zero-cost lever aimed at the multi-session thrash (`05-known-issues.md` §2). Trap:
-   the probe must serialize its prefills, or the co-batch insertion bug (§1) guarantees
-   a 0% reading regardless of the knob; pair hit-rate with admission/preemption
-   counters — retention converts hit-rate gains into admission pressure under the pin.
+2. **`VLLM_PREFIX_CACHE_RETENTION_INTERVAL=0` — ADOPTED 2026-08-29.** Ran as W3 and
+   fixed BOTH open bugs at once (see `04-prefix-caching.md` "The retention fix"):
+   2×68k cross-session 0%→97.8%, the 4×60k co-batch shape 0%→95%, solo 110k held 98%,
+   decode within noise (structured acceptance 1.0000), pool byte-identical, no JIT
+   wipe. The anticipated no-op trap never fired — insertion under the sparse mode
+   works even for concurrent prefills, which is what identified dense retention as
+   the root cause of §1. Arm `57344` skipped (arm `0` hit the solo ceiling; the
+   coarser arm only differs on mid-conversation divergence granularity).
 3. **`--long-prefill-token-threshold` / `--max-long-partial-prefills 1`**: scheduler-side
    levers against long-prefill head-of-line blocking (MNBT itself must stay 3584).
    Serializing long prefills is also the shape of the co-batch mitigation — watch
