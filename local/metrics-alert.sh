@@ -28,7 +28,11 @@ MIN_DRAFT="${MIN_DRAFT:-50}"
 # Config-critical argv fragments (pipe-separated). Every one must be present.
 # 900000 -> 1000000 2026-08-29 (the 1M Window-2 geometry; the stale value had the
 # canary failing every tick). Keep this in lockstep with MAX_MODEL_LEN in .env.
-EXPECT_ARGV="${EXPECT_ARGV:---host 127.0.0.1|--port ${PORT}|--kv-cache-memory-bytes 15414698763|--quantization exl3|--max-model-len 1000000}"
+# MNBT guarded since 2026-08-29: upstream kit default moved to 2048 (PR #40);
+# ours must stay 3584 (= hybrid page size, align-mode cache needs MNBT >= page).
+# async-off guarded for the same reason: it is a tri-state that silently
+# resolves ENABLED when the flag is dropped.
+EXPECT_ARGV="${EXPECT_ARGV:---host 127.0.0.1|--port ${PORT}|--kv-cache-memory-bytes 15414698763|--quantization exl3|--max-model-len 1000000|--max-num-batched-tokens 3584|--no-async-scheduling}"
 
 mkdir -p "$STATE_DIR"
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }

@@ -13,6 +13,11 @@
 # NOTE metric semantics: vllm:kv_cache_usage_perc counts only blocks held by
 # RUNNING requests (it reads 0.0 at idle even with a warm cache). Cached
 # reusable blocks live in the free pool and are invisible to that gauge.
+# ⚠ The global queries/hits counters over-count 1.3–2x under queue pressure
+# (vLLM RFC #37003 thread) — this probe watches OTHER clients' live traffic so
+# they are the only option here; treat the windowed hit% as directional. For
+# exact numbers use cache-burst.py, which reads per-request
+# usage.prompt_tokens_details.cached_tokens from its own requests.
 #
 # Usage: cache-probe.sh [interval_seconds] [count]
 set -uo pipefail
