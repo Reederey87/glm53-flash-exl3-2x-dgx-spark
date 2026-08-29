@@ -33,6 +33,7 @@ GHCR_REPO="miaai-lab/glm-5.3-flash-2x-dgx-sparks"
 say()  { [ "$QUIET" -eq 1 ] || printf '%s\n' "$*"; }
 warn() { printf '%s\n' "$*"; }   # always printed
 
+# shellcheck disable=SC2016  # $(...) inside single quotes expands on the REMOTE node
 PROBE='
 echo "ota=$(grep -oP "DGX_OTA_VERSION=\"\K[^\"]+" /etc/dgx-release 2>/dev/null)"
 echo "ota_candidate=$(apt-cache policy dgx-release 2>/dev/null | awk "/Candidate:/{print \$2}")"
@@ -123,12 +124,12 @@ else
 fi
 
 # --- 1b. driver branch hold (590.x CUDAGraph deadlock on GB10) ------------
-for n in h w; do
-  eval "drv=\"\$(get \"\$tmp_$n\" driver)\""
+for node in "head:$tmp_h" "worker:$tmp_w"; do
+  drv="$(get "${node#*:}" driver)"
   case "$drv" in
     590.*)
       warn ""
-      warn "*** DRIVER $drv IS ON THE 590.x BRANCH ($( [ "$n" = h ] && echo head || echo worker )) ***"
+      warn "*** DRIVER $drv IS ON THE 590.x BRANCH (${node%%:*}) ***"
       warn "    590.x deadlocks CUDA graph capture on GB10 — prod runs graphs ON."
       warn "    Roll back to the 580.x branch."
       problems=$((problems+1));;

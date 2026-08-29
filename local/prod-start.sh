@@ -18,7 +18,7 @@
 # The wait cannot live in ExecStartPre: that runs BEFORE ExecStart, i.e. before
 # the stop that frees the memory. It has to sit between stop and start.
 set -uo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 
 WORKER_SSH="${WORKER_SSH:-nvidia@192.168.177.11}"
 # Gate = GPU_MEM_UTIL x total. Wait for a little more than vLLM will demand.

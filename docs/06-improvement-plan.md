@@ -20,7 +20,7 @@ fusions, and all of EXL3 — zero EXL3 code exists in vLLM mainline). Consequenc
   container start, or as a rebuilt upstream image.
 - Upstream "merged" ≠ "in this build" — date every candidate against `b908a21f9a`.
 
-## Adopted 2026-08-29 (verified in production)
+## W1 — xgrammar backport adoption (2026-08-29, verified in production)
 
 **XGrammar termination + reasoning-window backports** (`overlay/patch_xgrammar_termination.py`,
 source-exact backports of vLLM #52805 and #53046) plus the warm-restart

@@ -18,11 +18,11 @@ hdr() { echo; echo "== $* =="; }
 
 hdr "1. tunnel reaches the API"
 m="$(curl -sS --max-time 30 "$BASE/v1/models" 2>&1)"
-echo "$m" | grep -q "$MODEL" && ok "tunnel -> $MODEL" || bad "tunnel: $(echo "$m" | head -c 300)"
+if echo "$m" | grep -q "$MODEL"; then ok "tunnel -> $MODEL"; else bad "tunnel: $(echo "$m" | head -c 300)"; fi
 
 hdr "2. non-streaming chat completion"
 r="$(curl -sS --max-time 300 -H 'Content-Type: application/json' -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly: SERVING_OK\"}],\"temperature\":0,\"max_tokens\":32,\"chat_template_kwargs\":{\"enable_thinking\":false}}" "$BASE/v1/chat/completions")"
-echo "$r" | grep -q "SERVING_OK" && ok "non-streaming" || bad "non-streaming: $(echo "$r" | head -c 300)"
+if echo "$r" | grep -q "SERVING_OK"; then ok "non-streaming"; else bad "non-streaming: $(echo "$r" | head -c 300)"; fi
 
 hdr "3. STREAMING (SSE) — the path most clients use"
 tmp=$(mktemp)
@@ -44,7 +44,7 @@ print("".join(out)[:80])
 PY
 )
 echo "    SSE chunks: $chunks | [DONE]: $done_ok | text: $text"
-[ "$chunks" -gt 5 ] && [ "$done_ok" -ge 1 ] && ok "streaming works ($chunks chunks, terminated)" || bad "streaming (chunks=$chunks done=$done_ok)"
+if [ "$chunks" -gt 5 ] && [ "$done_ok" -ge 1 ]; then ok "streaming works ($chunks chunks, terminated)"; else bad "streaming (chunks=$chunks done=$done_ok)"; fi
 rm -f "$tmp"
 
 hdr "4. concurrency — 4 simultaneous (MAX_NUM_SEQS=4)"
@@ -81,16 +81,16 @@ print(distinct if distinct == len(contents) else 0)
 PY
 )
 echo "    $good/4 completed with pairwise-distinct content in $((t1-t0))s"
-[ "$good" -eq 4 ] && ok "4-way concurrency, no cross-talk" || bad "concurrency: $good/4"
+if [ "$good" -eq 4 ]; then ok "4-way concurrency, no cross-talk"; else bad "concurrency: $good/4"; fi
 rm -f "${outs[@]}"
 
 hdr "5. tool call through the tunnel"
 r="$(curl -sS --max-time 300 -H 'Content-Type: application/json' -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"Weather in Bergen? Use the tool.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"description\":\"Get weather\",\"parameters\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"]}}}],\"tool_choice\":\"auto\",\"temperature\":0,\"max_tokens\":256,\"chat_template_kwargs\":{\"enable_thinking\":false}}" "$BASE/v1/chat/completions")"
-echo "$r" | python3 -c "
+if echo "$r" | python3 -c "
 import json,sys
 d=json.load(sys.stdin); c=d['choices'][0]; tc=c['message'].get('tool_calls') or []
 print('    finish:', c.get('finish_reason'), '| calls:', len(tc), ('| '+str(tc[0]['function']['name'])+' '+str(tc[0]['function']['arguments'])[:60]) if tc else '')
-sys.exit(0 if tc else 1)" && ok "tool call over tunnel" || bad "tool call over tunnel"
+sys.exit(0 if tc else 1)"; then ok "tool call over tunnel"; else bad "tool call over tunnel"; fi
 
 hdr "6. sustained: 5 sequential requests, all must succeed"
 # Assert what "sustained serving" actually means: every request completes with
@@ -111,7 +111,7 @@ sys.exit(0 if c.get('finish_reason')=='stop' and (c.get('message',{}).get('conte
 " && okc=$((okc+1))
 done
 echo "    $okc/5 succeeded"
-[ "$okc" -eq 5 ] && ok "sustained sequential" || bad "sustained: $okc/5"
+if [ "$okc" -eq 5 ]; then ok "sustained sequential"; else bad "sustained: $okc/5"; fi
 
 hdr "RESULT"
 echo "  passed: $pass   failed: $fail"

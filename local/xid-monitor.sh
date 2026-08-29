@@ -19,7 +19,7 @@ KIT="$(cd "$(dirname "$0")" && pwd)"
 # EXL3 deployment. No cluster.env here; notify.env stays optional.
 # shellcheck disable=SC1091
 # shellcheck disable=SC1091
-[ -f "$KIT/notify.env" ] && . "$KIT/notify.env" 2>/dev/null || true
+if [ -f "$KIT/notify.env" ]; then . "$KIT/notify.env" 2>/dev/null || true; fi
 
 INCIDENT_DIR="${INCIDENT_DIR:-$HOME/.local/state/glm53exl3-xid-incidents}"
 mkdir -p "$INCIDENT_DIR" 2>/dev/null || true

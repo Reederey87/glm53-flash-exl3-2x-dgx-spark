@@ -10,23 +10,20 @@ jobs:
       - name: shellcheck
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
-          # SC1091: we source cluster.env, which is gitignored by design.
-          find . -name '*.sh' -print0 | xargs -0 shellcheck -e SC1091
+          # SC1091: sourced .env / notify.env are gitignored by design.
+          find . -name '*.sh' -not -path './.git/*' -print0 | xargs -0 shellcheck -e SC1091
 
       - name: bash syntax
-        run: find . -name '*.sh' -print0 | xargs -0 -n1 bash -n
+        run: find . -name '*.sh' -not -path './.git/*' -print0 | xargs -0 -n1 bash -n
 
       - name: python syntax
         run: |
-          python3 -m compileall -q bench image
+          python3 -m compileall -q local overlay tests
           echo "python OK"
 
-      - name: compose is valid yaml
-        run: python3 -c "import yaml,sys; yaml.safe_load(open('docker-compose.yml')); print('compose OK')"
-
-      - name: no secrets or private hosts committed
+      - name: no secrets or private config committed
         run: |
-          # cluster.env must never be committed; it is the only file with site config.
-          test ! -f cluster.env || { echo "cluster.env is committed!"; exit 1; }
-          ! grep -rEn "BEGIN [A-Z ]*PRIVATE KEY|ghp_[A-Za-z0-9]{20,}" . --exclude-dir=.git
+          # .env is the only file with site config (and possibly an HF token).
+          test ! -f .env || { echo ".env is committed!"; exit 1; }
+          ! grep -rEn "BEGIN [A-Z ]*PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|hf_[A-Za-z0-9]{30,}" . --exclude-dir=.git
           echo "secret scan OK"

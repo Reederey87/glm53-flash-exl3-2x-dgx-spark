@@ -241,6 +241,7 @@ count_shards() {
 ensure_refs_main() {
     local ref="$MODEL_PATH/refs/main" snap
     [ -f "$ref" ] && [ -n "$(<"$ref")" ] && return 0
+    # shellcheck disable=SC2012  # HF snapshot dirs are hex ids; mtime order wanted
     snap="$(ls -1t "$MODEL_PATH/snapshots" 2>/dev/null | head -n 1 || true)"
     [ -n "$snap" ] || die "no snapshots under $MODEL_PATH — re-run download"
     mkdir -p "$MODEL_PATH/refs"
@@ -260,6 +261,7 @@ resolve_model_dir() {
 ensure_dflash_refs_main() {
     local ref="$DFLASH_PATH/refs/main" snap
     [ -f "$ref" ] && [ -n "$(<"$ref")" ] && return 0
+    # shellcheck disable=SC2012  # HF snapshot dirs are hex ids; mtime order wanted
     snap="$(ls -1t "$DFLASH_PATH/snapshots" 2>/dev/null | head -n 1 || true)"
     [ -n "$snap" ] || die "no snapshots under $DFLASH_PATH — re-run download"
     mkdir -p "$DFLASH_PATH/refs"
@@ -314,7 +316,7 @@ preflight() {
     # all-zero on the other. Fail here, in seconds, with the fix in hand.
     local gid_head gid_worker gid_path
     gid_path="/sys/class/infiniband/${HEAD_CX7_IB}/ports/1/gids/${NCCL_IB_GID_INDEX}"
-    gid_head=$(cat "$gid_path" 2>/dev/null | tr -d ':0' || true)
+    gid_head=$(tr -d ':0' < "$gid_path" 2>/dev/null || true)
     gid_path="/sys/class/infiniband/${WORKER_CX7_IB}/ports/1/gids/${NCCL_IB_GID_INDEX}"
     gid_worker=$(worker_ssh "cat '$gid_path' 2>/dev/null" | tr -d ':0' || true)
     if [ -z "$gid_head" ] || [ -z "$gid_worker" ]; then
@@ -1025,7 +1027,7 @@ wait_for_health() {
 
     local logpid=""
     _stop_logtail() {
-        [ -n "$logpid" ] && kill "$logpid" 2>/dev/null || true
+        if [ -n "$logpid" ]; then kill "$logpid" 2>/dev/null || true; fi
         wait "$logpid" 2>/dev/null || true
         logpid=""
     }
