@@ -63,11 +63,15 @@ active (the warmup sweep pollutes counters), keep other traffic off, log the ver
    works even for concurrent prefills, which is what identified dense retention as
    the root cause of §1. Arm `57344` skipped (arm `0` hit the solo ceiling; the
    coarser arm only differs on mid-conversation divergence granularity).
-3. **`--long-prefill-token-threshold` / `--max-long-partial-prefills 1`**: scheduler-side
-   levers against long-prefill head-of-line blocking (MNBT itself must stay 3584).
-   Serializing long prefills is also the shape of the co-batch mitigation — watch
-   insertion during the window. Gate on the decode floor during a 200k cold prefill
-   AND the second session's TTFT.
+3. **`LONG_PREFILL_TOKEN_THRESHOLD=1792` — ADOPTED 2026-08-29 (W4).** Head-of-line
+   blocking eliminated: a 1.2k request landing during a ~240k cold prefill got first
+   token in **7.9 s instead of 256 s** (−97%), for −5.1% solo cold prefill
+   (941→893 tok/s — sub-3584 caps force 2 steps/page via boundary re-align) and
+   +3.5% long-prefill TTFT. Decode and cache retention unaffected (2×68k held
+   97.8% — sparse retention survives sub-page chunk ends). Note: this v1 scheduler
+   has no `--max-long-partial-prefills`; the threshold alone leaves per-step budget
+   for peers. Passed through hash-neutrally (not via `EXTRA_ARGS`). Re-measure if a
+   rebase brings #52789 (it changes the prefill mechanism this tunes).
 4. **`DFLASH_TOKENS=8`** (runs last — changes shapes): with tail acceptance now 1.0,
    the marginal position-8 case strengthened. Requires capture sizes `1 2 4 9 18 27 36`
    (token batches = seqs × (k+1)), triggers the config-shape JIT cache wipe in BOTH
