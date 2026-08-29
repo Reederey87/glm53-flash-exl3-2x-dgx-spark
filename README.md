@@ -6,6 +6,28 @@ on two NVIDIA DGX Spark (GB10 Grace Blackwell, 121 GiB unified memory each), ser
 
 This is the deployment I actually run, with every gotcha it cost to get here written down.
 
+## Why this kit
+
+- **Frontier-class model on desk hardware.** A 320B-parameter MoE with a **1,000,000-token
+  context window**, served from two consumer-purchasable Sparks — no rack, no cloud bill,
+  loopback-only by default.
+- **Measured, not claimed.** Every number in this README comes off the running cluster:
+  **70.4 tok/s structured / 29.5 tok/s prose** decode, **~940 tok/s** cold prefill,
+  **1.0 speculative acceptance** on structured output (7 drafted tokens per step, zero
+  wasted verifies), a 110k-token session re-prefilling in **3.5 s** instead of 132 via
+  prefix caching. The bench scripts ship in `tests/` — reproduce them in minutes.
+- **Reproducible by construction.** Runtime image pinned **by digest**, weights pinned by
+  revision, KV pool pinned to the byte (identical every boot — no profiling variance),
+  and a config-shape hash that wipes stale JIT caches before they poison your numbers.
+- **Quality-gated like production, because it is production.** A 7-probe acceptance suite
+  (tool calls, thinking, vision, 32k needle), a 6-probe serving suite (SSE, 4-way
+  concurrency, sustained load), a 23-turn tool-call battery under concurrent cold-prefill
+  load — all passing on the shipped config, all runnable from this repo.
+- **Self-healing ops included.** Memory-gated restarts, a watchdog that tells crash from
+  wedge from deliberate stop, spec-decode acceptance alerting, GPU Xid monitoring, weekly
+  update/parity checks with a driver-branch hold. The failure modes are documented
+  *because they happened here first* — `docs/` is the postmortem you don't have to write.
+
 ## What's in the box
 
 | | |
