@@ -100,24 +100,6 @@ retention fix (the multi-session rows above were an exact 0% before it), and the
 long-prefill chunk cap — `docs/06-improvement-plan.md` documents the full program,
 including the experiments that measured *worse* and were reverted.
 
-## Known issues (both FIXED 2026-08-29)
-
-Both long-standing prefix-cache failure modes were resolved by one lever —
-**`VLLM_PREFIX_CACHE_RETENTION_INTERVAL=0`** (sparse KDA state retention, in
-`env.example`):
-
-- **Co-batched prefill inserted nothing into the cache** → concurrent 4×60k
-  sessions now retain **95%** (was an exact 0% under any config). The bug was
-  dense KDA retention making cached pages unaffordable, not a scheduler defect.
-- **Two long sessions evicted each other to 0%** → 2×68k now retains **97.8%**
-  cross-session; the one-long-context-client rule is retired (solo ceiling
-  ~340k @ 99% still bounds compaction — we compact at 300k).
-
-Mechanism, isolation data, and residual cautions: `docs/04-prefix-caching.md`
-and `docs/05-known-issues.md`. Additionally adopted the same day:
-`LONG_PREFILL_TOKEN_THRESHOLD=1792` — a short request landing behind a 240k cold
-prefill gets first token in **7.9 s instead of 256 s**, for −5.1% solo prefill.
-
 ## Rebase track
 
 Upstream vLLM is actively landing official GLM-5.3-Flash support (#53906, #53969,
