@@ -3,7 +3,9 @@
 ## 1. Co-batched prefill inserts nothing into the prefix cache (open, upstream)
 
 **Image:** `ghcr.io/miaai-lab/glm-5.3-flash-2x-dgx-sparks@sha256:9bb1557a…`
-(vLLM `0.1.dev20051+g487ecf187`). **Status:** open as of 2026-08-28.
+(vLLM `0.1.dev20051+g487ecf187`). **Status:** open as of 2026-08-29. Upstream PRs
+#53802 (hybrid hit-boundary alignment) and #54163 (DFlash last-block prune) are the
+ones to watch — re-test with `local/cache-burst.py` when an image carries them.
 
 A request whose prefill overlaps any other in-flight request — including one that is
 only decoding — gets **zero cache retention**. Isolation data (all with MNBT=3584,
@@ -22,14 +24,21 @@ Consequences for agentic serving: sequential sessions hit 84–93%; concurrent b
 read exactly 0% savings and the engine degenerates to full re-prefill of 50–200k
 tokens per turn.
 
-**Mitigations:** client-side concurrency ~1 for long-prompt agents; sessions ≤ ~150k
-(compact around 110k). Server-side `MAX_NUM_SEQS=1` would force correctness at the
-cost of serializing decode for every client — we chose client discipline instead.
+**Mitigations:** client-side concurrency ~1 for long-prompt agents; compact sessions
+around 300k (solo retention verified to ~340k on the 1M-window pool). Server-side
+`MAX_NUM_SEQS=1` would force correctness at the cost of serializing decode for every
+client — we chose client discipline instead.
 
-## 2. Requests ≳ 200k prefill fine but are not retained
+## 2. Multi-session retention collapse under the 1M window (accepted regression)
 
-The pool is 89 pages (318,640 tokens). A 200k request re-prefills from scratch every
-time. Working as sized — noted so nobody chases it as a bug.
+Since the slot-share + hybrid-prefix-hit merge that made 1M allocate, two sessions of
+~68k+ each evict each other to an exact 0% cross-session hit rate (it was 84–93%
+before); only ~2×20k coexists. Solo sessions are unaffected (99%+ retention verified
+to ~340k). Suspect: cached pages cost ~2× in pool accounting under slot-share.
+Mitigation is the same one-long-context-client rule as issue 1. Ablation lever if you
+need the old behavior back: pin `DRAFTER_PATCH_HOST` to the pre-slot-share copy of
+`patch_glm5_drafter_group.py` — restores the old accounting, forfeits the 1M window's
+pool multiple.
 
 ## 3. Fit-check refusal at 17.51 GiB when experimenting with MNBT
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# LOCAL to this cluster; not part of the upstream MiaAI-Lab kit.
+# LOCAL to this cluster; not part of the vendored upstream kit.
 #
 # Alert-only metrics canary for GLM-5.3-Flash-EXL3. Runs from a 5-min user
 # timer on spark1. NEVER heals — healing belongs to the watchdog, which is
@@ -69,7 +69,7 @@ else
   accepted="$(awk '/^vllm:spec_decode_num_accepted_tokens(_total)?[ {]/ {s+=$NF} END {printf "%.0f", s+0}' <<< "$metrics")"
   state="$STATE_DIR/spec_counters"
   prev_d=0; prev_a=0
-  [ -f "$state" ] && read -r prev_d prev_a < "$state" 2>/dev/null || true
+  if [ -f "$state" ]; then read -r prev_d prev_a < "$state" 2>/dev/null || true; fi
   printf '%s %s\n' "$drafted" "$accepted" > "$state.tmp" && mv "$state.tmp" "$state"
   d=$((drafted - prev_d)); a=$((accepted - prev_a))
   if [ "$d" -lt 0 ]; then

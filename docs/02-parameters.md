@@ -1,15 +1,22 @@
 # Parameters
 
 Every value in `env.example`, and why. The short version: **four knobs form a load-bearing
-system — `MAX_MODEL_LEN=262144`, `MAX_NUM_BATCHED_TOKENS=3584`, the KV pin, and
+system — `MAX_MODEL_LEN=1000000`, `MAX_NUM_BATCHED_TOKENS=3584`, the KV pin, and
 `--no-async-scheduling`. Change one and you must re-derive the others.**
 
-## MAX_MODEL_LEN=262144
+## MAX_MODEL_LEN=1000000
 
-Not 900k. The pinned KV pool holds 318,640 tokens (89 pages × 3584): at 900k max-len
-that is 0.35× of one full request; at 262k it is 1.22×, and real agentic sessions
-(50–150k) fit several at once. 900k context sounds great on a spec sheet; it meant every
-concurrent session evicted every other session's cache.
+This deployment started at 262k because the pinned pool then counted 318,640 tokens
+(1.22× one full request) and 900k meant every concurrent session evicted every other
+session's cache. Two allocator changes later (the drafter/MLA page **slot-share** plus
+the hybrid prefix-hit fix — see `docs/06-improvement-plan.md`), the **same pinned
+bytes** count **1,396,551 tokens = 1.40× a full 1M request**, and 1M allocates cleanly.
+Pool "tokens" are geometry-dependent; the bytes never move.
+
+Cost of the 1M window, measured: ~6–9% prose decode and longer cold prefill; structured
+decode unaffected. Solo-session cache retention holds ~340k tokens at 99%; two ≥68k
+sessions still thrash each other to 0% (see `docs/04-prefix-caching.md`) — the window
+does not repeal the one-long-context-client rule.
 
 ## MAX_NUM_BATCHED_TOKENS=3584 — do not "round" this number
 
@@ -39,7 +46,7 @@ from the first unpinned boot. Rules:
 
 `--no-async-scheduling` is mandatory, twice over: the tri-state default resolves to
 ENABLED if you merely omit the flag, and under async the sliding-window-family
-reservation is double-counted (vLLM #47728 class), which inflates the 262k/MNBT-3584
+reservation is double-counted (vLLM #47728 class), which inflates the MNBT-3584
 admission check to 17.51 GiB > the pin — the engine refuses to boot. Async-off passes
 the same check and benched at/above the async reference here (structured 69.8 vs 67.4).
 

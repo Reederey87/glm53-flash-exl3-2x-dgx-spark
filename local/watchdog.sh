@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # watchdog.sh — health canary + auto-heal for the GLM-5.3-Flash EXL3 pair.
 #
-# LOCAL to this cluster; not part of the upstream MiaAI-Lab kit.
+# LOCAL to this cluster; not part of the vendored upstream kit.
 #
 # DESIGN NOTE — why this is deliberately dumb:
 #   The NVFP4 watchdog this replaces force-killed a HEALTHY engine because it

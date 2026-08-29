@@ -4,16 +4,38 @@ Copyright 2026 the glm53-2x-dgx-spark contributors
 Original work in this repository (docs/, local/, env.example, and the README) is
 licensed under the Apache License, Version 2.0 (see LICENSE).
 
-This repository vendors the GLM-5.3-Flash 2x-DGX-Sparks serving kit by Mia's AI Lab
-(https://github.com/MiaAI-Lab/GLM-5.3-Flash-2x-DGX-Sparks), upstream commit c91754f,
-licensed under the MIT License (see LICENSE.MiaAI-Lab-kit). Local modifications to
-vendored files are marked with "# LOCAL:" comments and carry the repository's
-Apache-2.0 license.
+This repository is based on the GLM-5.3-Flash 2x-DGX-Sparks serving kit by
+Mia's AI Lab (https://github.com/MiaAI-Lab/GLM-5.3-Flash-EXL3-2x-DGX-Sparks),
+vendored at upstream commit 32db610, and its prebuilt runtime image
+(ghcr.io/miaai-lab/glm-5.3-flash-2x-dgx-sparks, pinned by digest in env.example).
+Local modifications to vendored files are marked with "# LOCAL:" comments and
+carry the repository's Apache-2.0 license. The vendored kit is MIT-licensed;
+its license is reproduced in full below.
 
 Model weights (brandonmusic/GLM-5.3-Flash-tr3-4bpw), the DFlash2 drafter
 (incoai/GLM-5.3-Flash-DFlash2), and the base GLM-5.3-Flash model (zai-org) are
 distributed under their own licenses on Hugging Face and are not part of this
 repository.
 
-The legacy-nvfp4/ directory preserves the previous GLM-5.3-Flash-NVFP4 kit and its
-original NOTICE unchanged.
+----------------------------------------------------------------------------
+MIT License (the vendored serving kit)
+
+Copyright (c) 2026 Mia's AI Lab
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

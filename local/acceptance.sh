@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # acceptance.sh — gate the EXL3 cutover BEFORE enabling units or rewriting docs.
 #
-# LOCAL to this cluster; not part of the upstream MiaAI-Lab kit.
+# LOCAL to this cluster; not part of the vendored upstream kit.
 #
 # WHY THIS EXISTS: the NVFP4 weights, its image, and the only image archive were
 # deleted in this cutover, so restoring the deposed prod is a multi-hour
@@ -24,15 +24,15 @@ post() { curl -sS --max-time "${2:-300}" -H 'Content-Type: application/json' -d 
 
 hdr "1. served model id"
 models="$(curl -sS --max-time 30 "$BASE/v1/models" || true)"
-echo "$models" | grep -q "$MODEL" && ok "/v1/models advertises $MODEL" || bad "/v1/models did not advertise $MODEL: $models"
+if echo "$models" | grep -q "$MODEL"; then ok "/v1/models advertises $MODEL"; else bad "/v1/models did not advertise $MODEL: $models"; fi
 
 hdr "2. basic completion, thinking OFF, temp 0"
 r="$(post "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly: ACCEPTANCE_OK\"}],\"temperature\":0,\"max_tokens\":32,\"chat_template_kwargs\":{\"enable_thinking\":false}}")"
-echo "$r" | grep -q "ACCEPTANCE_OK" && ok "basic completion" || bad "basic completion: $(echo "$r" | head -c 400)"
+if echo "$r" | grep -q "ACCEPTANCE_OK"; then ok "basic completion"; else bad "basic completion: $(echo "$r" | head -c 400)"; fi
 
 hdr "3. thinking ON (reasoning parser glm45)"
 r="$(post "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"A rope burns unevenly in exactly 60 minutes. How do you measure 45 minutes with two such ropes? Answer briefly.\"}],\"max_tokens\":2048,\"chat_template_kwargs\":{\"enable_thinking\":true}}")"
-python3 - "$r" <<'PY' && ok "thinking returns reasoning + content" || bad "thinking probe (see above)"
+if python3 - "$r" <<'PY'; then ok "thinking returns reasoning + content"; else bad "thinking probe (see above)"; fi
 import json,sys
 try: d=json.loads(sys.argv[1])
 except Exception as e: print("    not JSON:", str(e)[:200]); sys.exit(1)
@@ -47,7 +47,7 @@ PY
 
 hdr "4. tool call (parser glm47, auto tool choice)"
 r="$(post "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"What is the weather in Oslo right now? Use the tool.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"description\":\"Get current weather for a city\",\"parameters\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"]}}}],\"tool_choice\":\"auto\",\"temperature\":0,\"max_tokens\":512,\"chat_template_kwargs\":{\"enable_thinking\":false}}")"
-python3 - "$r" <<'PY' && ok "tool call emitted and parsed" || bad "tool call probe (see above)"
+if python3 - "$r" <<'PY'; then ok "tool call emitted and parsed"; else bad "tool call probe (see above)"; fi
 import json,sys
 try: d=json.loads(sys.argv[1])
 except Exception as e: print("    not JSON:", str(e)[:200]); sys.exit(1)
@@ -63,25 +63,25 @@ PY
 
 hdr "5. production sampling: temp 1.0, thinking ON"
 r="$(post "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"In two sentences, explain what a hash map is.\"}],\"temperature\":1.0,\"max_tokens\":1024,\"chat_template_kwargs\":{\"enable_thinking\":true}}")"
-echo "$r" | python3 -c "
+if echo "$r" | python3 -c "
 import json,sys
 d=json.load(sys.stdin); c=d['choices'][0]
 print('    finish_reason:', c.get('finish_reason'), '| content chars:', len(c['message'].get('content') or ''))
 sys.exit(0 if (c['message'].get('content') or '').strip() else 1)
-" && ok "temp 1.0 + thinking (the real production path)" || bad "temp 1.0 probe"
+"; then ok "temp 1.0 + thinking (the real production path)"; else bad "temp 1.0 probe"; fi
 
 hdr "6. vision (LANGUAGE_MODEL_ONLY=0, limit-mm image:4)"
 png="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 r="$(post "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Describe this image in one word.\"},{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,$png\"}}]}],\"temperature\":0,\"max_tokens\":64,\"chat_template_kwargs\":{\"enable_thinking\":false}}")"
-echo "$r" | python3 -c "
+if echo "$r" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
 if 'error' in d: print('    error:', str(d['error'])[:300]); sys.exit(1)
 c=d['choices'][0]; print('    content:', str(c['message'].get('content'))[:120]); sys.exit(0 if c['message'].get('content') else 1)
-" && ok "vision tower accepts an image" || bad "vision probe"
+"; then ok "vision tower accepts an image"; else bad "vision probe"; fi
 
 hdr "7. long-context needle (~32k tokens)"
-python3 - "$BASE" "$MODEL" <<'PY' && ok "needle retrieved at ~32k" || bad "needle probe"
+if python3 - "$BASE" "$MODEL" <<'PY'; then ok "needle retrieved at ~32k"; else bad "needle probe"; fi
 import json,sys,urllib.request
 base,model=sys.argv[1],sys.argv[2]
 filler=("The archives of the northern shipping guild record routine cargo manifests. ")*3000

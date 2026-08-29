@@ -17,24 +17,33 @@ Three practical consequences, all measured on this cluster:
 
 1. **MNBT must be ≥ the page size** (here: exactly 3584). At upstream's MNBT=1024,
    chunk ends land on a boundary only by arithmetic accident — near-zero hits.
-2. **Hits align to 3584-token pages**, and DFlash2's eagle-style prune costs one page:
-   expect N−1 of N complete pages. Prompts under ~3.6k tokens can never hit at all.
+2. **Hits align to 3584-token pages** — prompts under ~3.6k tokens can never hit at
+   all. (DFlash2's eagle-style prune used to cost the last page — N−1 of N — until the
+   `patch_hybrid_prefix_hit.py` overlay scoped the prune to the drafter's own group;
+   solo replays now hit the full N pages, measured 97–98%.)
 3. **`vllm:kv_cache_usage_perc` counts only RUNNING requests' blocks** (0% at idle does
    not mean a cold cache) and page-granular accounting inflates it ~2.4× vs tokens.
    Do not read it as "pool underutilised".
 
-## What works after the fix
+## What works after the fixes
 
-Sequential agentic traffic caches properly: a 100k-token session replays 26/27 pages
-(93% hit) and re-prefills in **7 seconds instead of 110**. Retention verified to ~150k
-per session; a 200k session prefills fine but exceeds what the 89-page pool retains.
+Solo agentic traffic caches properly: a 110k-token session replays at 97–98% hit and
+re-prefills in **3.5 seconds instead of 132**; the post-power-on sweep verified solo
+replay retention at 99%+ out to **~340k real tokens** on the 1M-window pool
+(1,396,551 tokens since the slot-share).
 
-## What still doesn't (upstream bug)
+## What still doesn't (upstream bugs + one accepted regression)
 
-**Any prefill that overlaps another in-flight request — even one merely decoding —
-inserts nothing into the cache.** See `05-known-issues.md` for the isolation data.
-Until it's fixed upstream, keep long-prompt agent clients at ~1 in-flight request and
-size client-side compaction so sessions stay ≤ ~150k (we compact at 110k).
+1. **Any prefill that overlaps another in-flight request — even one merely decoding —
+   inserts nothing into the cache.** See `05-known-issues.md` for the isolation data.
+2. **Two long sessions evict each other.** Since the slot-share merge, two sessions of
+   ~68k+ each thrash cross-session retention to an exact 0% (pre-merge 84–93%); only
+   ~2×20k coexists. Accepted as the price of the 1M window — the suspect is cached
+   pages costing ~2× in pool accounting under slot-share.
+
+Both land on the same operating rule: keep long-prompt agent clients at **~1 in-flight
+request**, and size client-side compaction so sessions stay under the solo ceiling
+(we compact at 300k).
 
 ## Verifying, not assuming
 

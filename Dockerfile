@@ -1,4 +1,3 @@
-# GLM-5.3-Flash NoPE sparse MLA on SM121 (NVIDIA GB10 / DGX Spark).
 #
 # EXL3 weights, not NVFP4: this overlay is the MLA/KV geometry, not the GEMM.
 # Do not pass --moe-backend marlin; that flag is the NVFP4 FLASHINFER_CUTLASS
@@ -440,21 +439,25 @@ COPY overlay/patch_glm5_drafter_group.py /opt/glm53/patch_glm5_drafter_group.py
 COPY tests/test_exl3_overlay.py /opt/glm53/test_exl3_overlay.py
 COPY files/chat_template.jinja /opt/glm53/chat_template.jinja
 COPY overlay/patch_glm_video_placeholders.py /opt/glm53/patch_glm_video_placeholders.py
-# ABLIT (o_proj refusal-direction orthogonalization): artifacts + runtime hook.
-# Inert unless ABLIT=1 is set at serve time.
-COPY ablit /opt/glm53/ablit
-COPY overlay/ablit_runtime.py /opt/glm53/ablit_runtime.py
-COPY overlay/patch_ablit.py /opt/glm53/patch_ablit.py
-COPY tests/test_ablit.py /opt/glm53/test_ablit.py
 COPY overlay/patch_suppress_stops_in_reasoning.py /opt/glm53/patch_suppress_stops_in_reasoning.py
 COPY tests/test_suppress_stops.py /opt/glm53/test_suppress_stops.py
+COPY overlay/patch_scheduler_decode_floor.py /opt/glm53/patch_scheduler_decode_floor.py
+COPY tests/test_scheduler_decode_floor.py /opt/glm53/test_scheduler_decode_floor.py
+COPY overlay/patch_hybrid_prefix_hit.py /opt/glm53/patch_hybrid_prefix_hit.py
+COPY tests/test_hybrid_prefix_hit.py /opt/glm53/test_hybrid_prefix_hit.py
+COPY overlay/patch_xgrammar_termination.py /opt/glm53/patch_xgrammar_termination.py
+COPY tests/test_xgrammar_termination.py /opt/glm53/test_xgrammar_termination.py
 RUN python3 /opt/glm53/patch_model_overrides.py
 RUN python3 /opt/glm53/patch_dflash2.py
 RUN python3 /opt/glm53/patch_glm_eagle3.py
 RUN python3 /opt/glm53/patch_glm5_drafter_group.py
-RUN python3 /opt/glm53/patch_ablit.py
 RUN python3 /opt/glm53/patch_suppress_stops_in_reasoning.py
+RUN python3 /opt/glm53/patch_scheduler_decode_floor.py
+RUN python3 /opt/glm53/patch_hybrid_prefix_hit.py
+RUN python3 /opt/glm53/patch_xgrammar_termination.py
 
 RUN EXL3_SELFCHECK_GPU=0 python3 /opt/glm53/test_exl3_overlay.py \
-    && python3 /opt/glm53/test_ablit.py \
-    && python3 /opt/glm53/test_suppress_stops.py
+    && python3 /opt/glm53/test_suppress_stops.py \
+    && python3 /opt/glm53/test_scheduler_decode_floor.py \
+    && python3 /opt/glm53/test_hybrid_prefix_hit.py \
+    && python3 /opt/glm53/test_xgrammar_termination.py

@@ -111,10 +111,10 @@ sampler_cache_combos() {
     [ -f "$ttir" ] || continue
     kuse=$(grep -oE '%K[^A-Za-z0-9_]' "$ttir" | wc -l)
     puse=$(grep -oE '%P[^A-Za-z0-9_]' "$ttir" | wc -l)
-    if [ "$kuse" -gt 1 ] && [ "$puse" -gt 1 ]; then combo=k+p
-    elif [ "$kuse" -gt 1 ]; then combo=k-only
-    elif [ "$puse" -gt 1 ]; then combo=p-only
-    else combo=neither; fi
+    if [ "$kuse" -gt 1 ] && [ "$puse" -gt 1 ]; then combo='k+p'
+    elif [ "$kuse" -gt 1 ]; then combo='k-only'
+    elif [ "$puse" -gt 1 ]; then combo='p-only'
+    else combo='neither'; fi
     printf '%s\n' "$combo"
   done | sort -u
 }

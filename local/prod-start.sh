@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # prod-start.sh — production entrypoint: stop, WAIT FOR MEMORY TO SETTLE, start.
 #
-# LOCAL to this cluster; not part of the upstream MiaAI-Lab kit.
+# LOCAL to this cluster; not part of the vendored upstream kit.
 #
 # WHY THIS EXISTS (measured 2026-08-28): `start.sh restart` tears the pair down
 # and starts the new one immediately. The kernel has not yet returned the old
@@ -18,7 +18,7 @@
 # The wait cannot live in ExecStartPre: that runs BEFORE ExecStart, i.e. before
 # the stop that frees the memory. It has to sit between stop and start.
 set -uo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 
 WORKER_SSH="${WORKER_SSH:-nvidia@192.168.177.11}"
 # Gate = GPU_MEM_UTIL x total. Wait for a little more than vLLM will demand.
