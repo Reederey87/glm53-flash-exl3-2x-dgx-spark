@@ -12,15 +12,23 @@ This is the deployment I actually run, with every gotcha it cost to get here wri
   context window**, served from two consumer-purchasable Sparks — no rack, no cloud bill,
   loopback-only by default.
 - **Measured, not claimed.** Every number in this README comes off the running cluster:
-  **70.4 tok/s structured / 29.5 tok/s prose** decode, **~940 tok/s** cold prefill,
+  **70.4 tok/s structured / 29.5 tok/s prose** decode, **~893 tok/s** cold prefill,
   **1.0 speculative acceptance** on structured output (7 drafted tokens per step, zero
-  wasted verifies), a 110k-token session re-prefilling in **3.5 s** instead of 132 via
-  prefix caching. The bench scripts ship in `tests/` — reproduce them in minutes.
-- **Reproducible by construction.** Runtime image pinned **by digest**, weights pinned by
-  revision, KV pool pinned to the byte (identical every boot — no profiling variance),
-  and a config-shape hash that wipes stale JIT caches before they poison your numbers.
+  wasted verifies), a 110k-token session re-prefilling in **~4 s** instead of 132 via
+  prefix caching — and **multi-session caching that works**: two 68k sessions retain
+  97.8%, four concurrent 60k sessions retain 95%. The bench scripts ship in `tests/`
+  and `local/` — reproduce them in minutes.
+- **Hardware-honest quantization.** GB10 lacks the `cvt.e2m1x2` instruction — NVFP4
+  can never compile for this chip. EXL3's trellis kernels are Blackwell-native and keep
+  the 320B experts packed at 82 GiB/node, which is what leaves room for the 1M-token KV
+  pool. The full rationale: `docs/01-architecture.md`.
+- **Reproducible by construction — and reproduce-TESTED.** Runtime image pinned **by
+  digest**, weights pinned by revision, KV pool pinned to the byte (identical every
+  boot — no profiling variance), a config-shape hash that wipes stale JIT caches before
+  they poison your numbers. v1.0.2 was verified by booting the production cluster from
+  a fresh clone of the tag: acceptance 7/7, byte-identical pool, loopback bind held.
 - **Quality-gated like production, because it is production.** A 7-probe acceptance suite
-  (tool calls, thinking, vision, 32k needle), a 6-probe serving suite (SSE, 4-way
+  (tool calls, thinking, vision, 36k needle), a 6-probe serving suite (SSE, 4-way
   concurrency, sustained load), a 23-turn tool-call battery under concurrent cold-prefill
   load — all passing on the shipped config, all runnable from this repo.
 - **Self-healing ops included.** Memory-gated restarts, a watchdog that tells crash from
@@ -74,18 +82,23 @@ reboots and heals itself. `docs/03-bringup.md` has the full drill, including why
 
 ## Measured (2026-08-29, warm, temp 0, median of 3)
 
-| Phase | tok/s |
+| Phase | Value |
 |---|---|
-| Structured (count 1→200) | 70.4 (acceptance 1.0, 7.0/step) |
-| Prose | 29.5 |
-| Production path (temp 1.0, thinking on) | ~30 |
-| 200k cold prefill | ~940 tok/s, no OOM |
-| 110k cached re-prefill | **3.5 s** (vs 132 s cold, 97–98% hit) |
+| Structured decode (count 1→200) | 70.4 tok/s (acceptance 1.0000, 7.0/step, all positions) |
+| Prose decode | 29.5 tok/s |
+| Production path (temp 1.0, thinking on) | ~30 tok/s |
+| Cold prefill (solo, ~133–240k) | **~893 tok/s** (941 with `LONG_PREFILL_TOKEN_THRESHOLD` unset — the −5% is the price of HOL relief) |
+| Short-request TTFT behind a 240k cold prefill | **7.9 s** (256 s without the threshold) |
+| 110k cached re-prefill | **~4 s** (vs 132 s cold; 98% hit) |
+| 2×68k sessions, cross-session retention | **97.8%** (5.8 s re-prefill) |
+| 4×60k concurrent sessions ×3 rounds | **95.0%** (271k tokens re-prefilled in 17.4 s) |
+| Bench-convergence caveat | first passes after a restart read low (prose −17%) from parked-swap fault-in — run 3–4 passes |
 
-The 2026-08-29 numbers include the xgrammar termination backports, which raised
-structured acceptance from 0.98 to 1.0 by eliminating spurious tail-draft rejections —
-`docs/06-improvement-plan.md` documents that change and the rest of the improvement
-program.
+The 2026-08-29 numbers include the xgrammar termination backports (structured
+acceptance 0.98 → 1.0 by eliminating spurious tail-draft rejections), the sparse-KDA
+retention fix (the multi-session rows above were an exact 0% before it), and the
+long-prefill chunk cap — `docs/06-improvement-plan.md` documents the full program,
+including the experiments that measured *worse* and were reverted.
 
 ## Known issues (both FIXED 2026-08-29)
 
