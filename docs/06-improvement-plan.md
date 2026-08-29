@@ -72,12 +72,14 @@ active (the warmup sweep pollutes counters), keep other traffic off, log the ver
    has no `--max-long-partial-prefills`; the threshold alone leaves per-step budget
    for peers. Passed through hash-neutrally (not via `EXTRA_ARGS`). Re-measure if a
    rebase brings #52789 (it changes the prefill mechanism this tunes).
-4. **`DFLASH_TOKENS=8`** (runs last — changes shapes): with tail acceptance now 1.0,
-   the marginal position-8 case strengthened. Requires capture sizes `1 2 4 9 18 27 36`
-   (token batches = seqs × (k+1)), triggers the config-shape JIT cache wipe in BOTH
-   directions, and is the only candidate that moves shapes under a pin with no
-   fit-check: preflight that a 4-way burst still admits, watch MemFree through capture.
-   Adopt only on structured ≥ +3% with prose ≤ −3%.
+4. **`DFLASH_TOKENS=8` — TESTED AND REVERTED 2026-08-29 (W5).** The half-win: position
+   8 accepts ~0.98 on structured output (7.87 accepted per step, +2.5–3.0% throughput,
+   the tail does not decay). The decisive loss: prose plateaued at −9.1% — at ~0.3
+   prose acceptance the eighth draft position is nearly pure overhead paid every
+   cycle. Also measured: the pinned KV bytes count 1,352,941 tokens (1.35×) at k=8 vs
+   1,396,551 (1.40×) at k=7 — the extra verify slot costs ~3% of pool accounting.
+   k=7 stands for mixed traffic; a structured-only deployment could revisit. The real
+   answer is adaptive draft length, which is upstream rebase material (item 5).
 5. **Image rebase adoption** (trigger-driven, not scheduled): the build is a fork tip
    (`b908a21f9a` + 142 GLM5Next/EXL3 commits); upstream has moved 643 commits past the
    base. A self-rebase is the highest-risk path available and buys nothing the kit's

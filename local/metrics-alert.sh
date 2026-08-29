@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# LOCAL to this cluster; not part of the vendored upstream kit.
+# LOCAL to this cluster; not part of the upstream MiaAI-Lab kit.
 #
 # Alert-only metrics canary for GLM-5.3-Flash-EXL3. Runs from a 5-min user
 # timer on spark1. NEVER heals — healing belongs to the watchdog, which is
@@ -26,7 +26,9 @@ STATE_DIR="${STATE_DIR:-$HOME/.local/state/glm53exl3-metrics}"
 ACCEPT_WARN="${ACCEPT_WARN:-0.30}"
 MIN_DRAFT="${MIN_DRAFT:-50}"
 # Config-critical argv fragments (pipe-separated). Every one must be present.
-EXPECT_ARGV="${EXPECT_ARGV:---host 127.0.0.1|--port ${PORT}|--kv-cache-memory-bytes 15414698763|--quantization exl3|--max-model-len 900000}"
+# 900000 -> 1000000 2026-08-29 (the 1M Window-2 geometry; the stale value had the
+# canary failing every tick). Keep this in lockstep with MAX_MODEL_LEN in .env.
+EXPECT_ARGV="${EXPECT_ARGV:---host 127.0.0.1|--port ${PORT}|--kv-cache-memory-bytes 15414698763|--quantization exl3|--max-model-len 1000000}"
 
 mkdir -p "$STATE_DIR"
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -69,7 +71,7 @@ else
   accepted="$(awk '/^vllm:spec_decode_num_accepted_tokens(_total)?[ {]/ {s+=$NF} END {printf "%.0f", s+0}' <<< "$metrics")"
   state="$STATE_DIR/spec_counters"
   prev_d=0; prev_a=0
-  if [ -f "$state" ]; then read -r prev_d prev_a < "$state" 2>/dev/null || true; fi
+  [ -f "$state" ] && read -r prev_d prev_a < "$state" 2>/dev/null || true
   printf '%s %s\n' "$drafted" "$accepted" > "$state.tmp" && mv "$state.tmp" "$state"
   d=$((drafted - prev_d)); a=$((accepted - prev_a))
   if [ "$d" -lt 0 ]; then
