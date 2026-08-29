@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# LOCAL to this cluster; not part of the upstream MiaAI-Lab kit.
+# LOCAL to this cluster; not part of the vendored upstream kit.
 #
 # Alert-only metrics canary for GLM-5.3-Flash-EXL3. Runs from a 5-min user
 # timer on spark1. NEVER heals — healing belongs to the watchdog, which is

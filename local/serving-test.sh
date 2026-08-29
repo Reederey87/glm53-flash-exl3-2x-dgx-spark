@@ -2,7 +2,7 @@
 # serving-test.sh — exercise the EXL3 deployment AS A CLIENT, from the Mac,
 # through the real access path (SSH port-forward -> spark1 loopback).
 #
-# LOCAL to this cluster; not part of the upstream MiaAI-Lab kit.
+# LOCAL to this cluster; not part of the vendored upstream kit.
 #
 # The acceptance battery runs ON spark1 against 127.0.0.1 and proves the model
 # works. This proves the SERVICE works: the tunnel, streaming, concurrency, and

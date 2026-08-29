@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # prod-start.sh — production entrypoint: stop, WAIT FOR MEMORY TO SETTLE, start.
 #
-# LOCAL to this cluster; not part of the upstream MiaAI-Lab kit.
+# LOCAL to this cluster; not part of the vendored upstream kit.
 #
 # WHY THIS EXISTS (measured 2026-08-28): `start.sh restart` tears the pair down
 # and starts the new one immediately. The kernel has not yet returned the old

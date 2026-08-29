@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# LOCAL to this cluster; not part of the upstream MiaAI-Lab kit.
+# LOCAL to this cluster; not part of the vendored upstream kit.
 #
 # TTFT / prefill probe: send a ~N-token prompt of RANDOM digits (defeats
 # prefix caching, which is on) and measure time-to-first-token via SSE.

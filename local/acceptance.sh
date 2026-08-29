@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # acceptance.sh — gate the EXL3 cutover BEFORE enabling units or rewriting docs.
 #
-# LOCAL to this cluster; not part of the upstream MiaAI-Lab kit.
+# LOCAL to this cluster; not part of the vendored upstream kit.
 #
 # WHY THIS EXISTS: the NVFP4 weights, its image, and the only image archive were
 # deleted in this cutover, so restoring the deposed prod is a multi-hour

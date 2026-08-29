@@ -17,10 +17,12 @@
 #
 # What we do:
 #   1. preflight  — docker/ssh/disk on both nodes
-#   2. image      — docker pull IMAGE from GHCR (public :exl3 tag), then
-#                   ship to the worker with docker save | ssh docker load.
-#                   SKIP_PULL=1 keeps a local copy. BUILD=1 rebuilds from
-#                   this repo instead. Local-only tags (no slash) skip pull.
+#   2. image      — docker pull IMAGE from GHCR (public :exl3 tag). If the
+#                   worker is missing that digest, try docker pull there,
+#                   then fall back to docker save --platform | ssh docker
+#                   load (issue #8). SKIP_PULL=1 keeps a local copy.
+#                   BUILD=1 rebuilds from this repo instead. Local-only
+#                   tags (no slash) skip pull. SKIP_SHIP=1 never copies.
 #   3. download   — EXL3/TR3 (+ DFlash2) into the local HF cache if missing
 #   4. sync       — rsync that cache to the worker (each rank loads local disk)
 #   5. launch     — worker --headless, then head + `vllm serve` (both
@@ -38,20 +40,21 @@
 #   ./start.sh logs               follow head logs
 #   ./start.sh logs worker        follow worker container logs
 #
-# Node IPs live in .env (copied from .env.example on first run).
-# Handy overrides: SKIP_DOWNLOAD=1 SKIP_SYNC=1 SKIP_PULL=1 PULL=1 BUILD=1 TAIL=1 HF_TOKEN=...
+# Node IPs live in .env (copied from env.example on first run).
+# Handy overrides: SKIP_DOWNLOAD=1 SKIP_SYNC=1 SKIP_PULL=1 SKIP_SHIP=1 PULL=1 BUILD=1 TAIL=1 HF_TOKEN=...
 # ============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 
 if [ ! -f "$SCRIPT_DIR/.env" ]; then
-    [ -f "$SCRIPT_DIR/.env.example" ] || {
-        echo "ERROR: missing .env.example" >&2
+    # LOCAL: this repo ships ONE annotated example, env.example (no leading dot).
+    [ -f "$SCRIPT_DIR/env.example" ] || {
+        echo "ERROR: missing env.example" >&2
         exit 1
     }
-    cp "$SCRIPT_DIR/.env.example" "$SCRIPT_DIR/.env"
-    printf '\033[1;36m[glm53-exl3]\033[0m wrote .env from .env.example — edit HEAD_IP / WORKER_IP if needed\n'
+    cp "$SCRIPT_DIR/env.example" "$SCRIPT_DIR/.env"
+    printf '\033[1;36m[glm53-exl3]\033[0m wrote .env from env.example — edit HEAD_IP / WORKER_IP if needed\n'
 fi
 # Caller exports (MTP_TOKENS=2 ./start.sh restart) must win over .env.
 _cli_mtp="${MTP_TOKENS-}"
@@ -61,10 +64,7 @@ _cli_fused="${EXL3_FUSED_MOE-}"
 _cli_image="${IMAGE-}"
 _cli_util="${GPU_MEM_UTIL-}"
 _cli_lm="${LANGUAGE_MODEL_ONLY-}"
-_cli_ablit="${ABLIT-}"
-_cli_ablit_direction="${ABLIT_DIRECTION-}"
-_cli_ablit_layers="${ABLIT_LAYERS-}"
-_cli_ablit_alpha="${ABLIT_ALPHA-}"
+_cli_max_num_seqs="${MAX_NUM_SEQS-}"
 set -a
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/.env"
@@ -76,10 +76,7 @@ set +a
 [ -n "${_cli_image}" ] && IMAGE="$_cli_image"
 [ -n "${_cli_util}" ] && GPU_MEM_UTIL="$_cli_util"
 [ -n "${_cli_lm}" ] && LANGUAGE_MODEL_ONLY="$_cli_lm"
-[ -n "${_cli_ablit}" ] && ABLIT="$_cli_ablit"
-[ -n "${_cli_ablit_direction}" ] && ABLIT_DIRECTION="$_cli_ablit_direction"
-[ -n "${_cli_ablit_layers}" ] && ABLIT_LAYERS="$_cli_ablit_layers"
-[ -n "${_cli_ablit_alpha}" ] && ABLIT_ALPHA="$_cli_ablit_alpha"
+[ -n "${_cli_max_num_seqs}" ] && MAX_NUM_SEQS="$_cli_max_num_seqs"
 
 # ----------------------------- configuration -------------------------------
 MODEL="${MODEL:-Mia-AiLab/GLM-5.3-Flash-EXL3-TR3-4bpw}"
@@ -110,6 +107,11 @@ HEAD_CX7_IB="${HEAD_CX7_IB:-rocep1s0f1}"
 WORKER_CX7_IB="${WORKER_CX7_IB:-rocep1s0f0}"
 NCCL_DEBUG="${NCCL_DEBUG:-WARN}"
 NCCL_IB_GID_INDEX="${NCCL_IB_GID_INDEX:-3}"
+# vLLM subtracts a CUDA-graph memory ESTIMATE from the KV pool. On this kit the
+# estimate is 2.43 GiB while the captured graphs actually consume -0.19 GiB, so
+# ~2.6 GiB of KV is reserved and never used. 0 keeps CUDA graphs ON and drops only
+# the deduction. 1 = upstream default.
+CG_ESTIMATE="${CG_ESTIMATE:-1}"
 NCCL_CROSS_NIC="${NCCL_CROSS_NIC:-0}"
 NCCL_HOST_DIR="${NCCL_HOST_DIR:-$HOME/nccl-2.30.7}"
 WORKER_NCCL_HOST_DIR="${WORKER_NCCL_HOST_DIR:-$WORKER_HOME/nccl-2.30.7}"
@@ -135,7 +137,7 @@ DFLASH_TOKENS="${DFLASH_TOKENS:-7}"
 # prefers FLASH_ATTN for non-causal dense SWA. TRITON_ATTN was an SM120
 # mask-fix copy this image does not have.
 DFLASH_DRAFT_TP="${DFLASH_DRAFT_TP-1}"
-MAX_MODEL_LEN="${MAX_MODEL_LEN:-900000}"
+MAX_MODEL_LEN="${MAX_MODEL_LEN:-1000000}"
 GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.87}"
 MAX_NUM_SEQS="${MAX_NUM_SEQS:-4}"
 # 8192 chunk × long history oversubscribes GB10 persistent_topk smem (300k crash).
@@ -144,6 +146,10 @@ CHAT_TEMPLATE_HOST="${CHAT_TEMPLATE_HOST:-$SCRIPT_DIR/files/chat_template.jinja}
 CHAT_TEMPLATE="${CHAT_TEMPLATE:-/opt/glm53/chat_template.jinja}"
 VIDEO_PATCH_HOST="${VIDEO_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_glm_video_placeholders.py}"
 STOP_PATCH_HOST="${STOP_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_suppress_stops_in_reasoning.py}"
+SCHED_PATCH_HOST="${SCHED_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_scheduler_decode_floor.py}"
+DRAFTER_PATCH_HOST="${DRAFTER_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_glm5_drafter_group.py}"
+APC_PATCH_HOST="${APC_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_hybrid_prefix_hit.py}"
+XGRAMMAR_PATCH_HOST="${XGRAMMAR_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_xgrammar_termination.py}"
 KV_CACHE_DTYPE="${KV_CACHE_DTYPE:-fp8}"
 QUANTIZATION="${QUANTIZATION:-exl3}"
 LANGUAGE_MODEL_ONLY="${LANGUAGE_MODEL_ONLY:-0}"
@@ -173,20 +179,12 @@ fi
 # 1 = fused exl3_moe (decode). 0 restores the unique-expert LinearEXL3 loop.
 EXL3_FUSED_MOE="${EXL3_FUSED_MOE:-1}"
 
-# --- abliteration (ablit/) --------------------------------------------------
-# Load-time o_proj orthogonalization (overlay/ablit_runtime.py). Published
-# recipe: layers 15-45 edited with the dealign direction, 0-14 stay stock
-# safety anchors, MTP block included. 0 = stock weights. Applied identically
-# on both TP ranks; the DFlash2 drafter is never touched.
-ABLIT="${ABLIT:-0}"
-ABLIT_DIRECTION="${ABLIT_DIRECTION:-dealign}"  # dealign | bf_oproj | /path/dir.pt
-ABLIT_LAYERS="${ABLIT_LAYERS:-15-45}"          # inclusive; 45 = checkpoint MTP block
-ABLIT_ALPHA="${ABLIT_ALPHA:-3.0}"              # 1.0 = plain projection, >1 over-projects
-ABLIT_INCLUDE_MTP="${ABLIT_INCLUDE_MTP:-1}"
-
 READY_TIMEOUT="${READY_TIMEOUT:-3600}"
 # 1 = suppress client stop strings until </think> (DSpark #42 class).
 GLM53_SUPPRESS_STOPS_IN_REASONING="${GLM53_SUPPRESS_STOPS_IN_REASONING:-1}"
+# Mixed-step prefill policy when a peer is already decoding (issue #6).
+# skip = do not mix; N>0 = cap tokens; 0 = off.
+GLM53_MIXED_PREFILL_CHUNK="${GLM53_MIXED_PREFILL_CHUNK:-skip}"
 # EngineCore stock timeout is 300s; mid-serve Triton/TileLang JIT on TP=2 can
 # exceed that without being a true hang. NCCL watchdog is still 600s.
 VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS="${VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS:-1800}"
@@ -232,7 +230,7 @@ banner() {
     printf '\n'
 }
 
-worker_ssh() { ssh -o BatchMode=yes -o ConnectTimeout=15 "$WORKER_SSH" "$@"; }
+worker_ssh() { ssh -T -o BatchMode=yes -o ConnectTimeout=15 "$WORKER_SSH" "$@"; }
 
 usage() { sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
@@ -309,6 +307,26 @@ preflight() {
     worker_ssh "nvidia-smi -L 2>/dev/null | grep -q GB10" \
         || warn "no GB10 GPU visible on worker"
 
+    # NCCL_IB_GID_INDEX must name a populated GID on BOTH nodes' CX7 devices.
+    # An empty (all-zero) entry passes every earlier check and then kills the
+    # worker rank ~60 s in with ibv_modify_qp errno 61 "No data available" —
+    # kits differ: on some GB10 pairs gid 3 is populated on one node and
+    # all-zero on the other. Fail here, in seconds, with the fix in hand.
+    local gid_head gid_worker gid_path
+    gid_path="/sys/class/infiniband/${HEAD_CX7_IB}/ports/1/gids/${NCCL_IB_GID_INDEX}"
+    gid_head=$(cat "$gid_path" 2>/dev/null | tr -d ':0' || true)
+    gid_path="/sys/class/infiniband/${WORKER_CX7_IB}/ports/1/gids/${NCCL_IB_GID_INDEX}"
+    gid_worker=$(worker_ssh "cat '$gid_path' 2>/dev/null" | tr -d ':0' || true)
+    if [ -z "$gid_head" ] || [ -z "$gid_worker" ]; then
+        warn "NCCL_IB_GID_INDEX=${NCCL_IB_GID_INDEX} is EMPTY on $( [ -z "$gid_head" ] && echo "head(${HEAD_CX7_IB})" ) $( [ -z "$gid_worker" ] && echo "worker(${WORKER_CX7_IB})" )"
+        warn "GID tables (pick an index whose entry is non-zero on BOTH nodes — the ::ffff:<ip> RoCEv2 one):"
+        for i in 0 1 2 3; do
+            printf '    head   gid%s: %s\n' "$i" "$(cat "/sys/class/infiniband/${HEAD_CX7_IB}/ports/1/gids/$i" 2>/dev/null)" >&2
+        done
+        worker_ssh "for i in 0 1 2 3; do printf '    worker gid%s: %s\n' \"\$i\" \"\$(cat /sys/class/infiniband/${WORKER_CX7_IB}/ports/1/gids/\$i 2>/dev/null)\"; done" >&2 || true
+        die "set NCCL_IB_GID_INDEX in .env to a populated index (this kills the worker rank with ibv_modify_qp errno 61 otherwise)"
+    fi
+
     [ "$TP" = "2" ] || warn "TP=${TP} on a 2×1-GPU cluster — expected TP=2"
     [ "$NNODES" = "2" ] || warn "NNODES=${NNODES} — expected 2"
 
@@ -323,16 +341,11 @@ preflight() {
     check_port_free "$PORT" PORT
     check_port_free "$MASTER_PORT" MASTER_PORT
 
-    # ablit artifacts ship into both containers on every launch — verify once
-    [ -f "$SCRIPT_DIR/ablit/LAYER_MAP.json" ] || die "$SCRIPT_DIR/ablit/LAYER_MAP.json missing — the ablit/ folder is part of this repo"
-    [ -f "$SCRIPT_DIR/ablit/refusal_direction_glm53_dealign_late.pt" ] || die "$SCRIPT_DIR/ablit/refusal_direction_glm53_dealign_late.pt missing"
-    [ -f "$SCRIPT_DIR/ablit/refusal_direction_glm53_bf_oproj.pt" ] || die "$SCRIPT_DIR/ablit/refusal_direction_glm53_bf_oproj.pt missing"
-    [ -f "$SCRIPT_DIR/overlay/ablit_runtime.py" ] || die "$SCRIPT_DIR/overlay/ablit_runtime.py missing"
-    [ -f "$SCRIPT_DIR/overlay/patch_ablit.py" ] || die "$SCRIPT_DIR/overlay/patch_ablit.py missing"
     [ -f "$STOP_PATCH_HOST" ] || die "$STOP_PATCH_HOST missing"
-    if [ "$ABLIT" = "1" ]; then
-        log "ablit: ON (direction=${ABLIT_DIRECTION} layers=${ABLIT_LAYERS} alpha=${ABLIT_ALPHA} mtp=${ABLIT_INCLUDE_MTP})"
-    fi
+    [ -f "$SCHED_PATCH_HOST" ] || die "$SCHED_PATCH_HOST missing"
+    [ -f "$DRAFTER_PATCH_HOST" ] || die "$DRAFTER_PATCH_HOST missing"
+    [ -f "$APC_PATCH_HOST" ] || die "$APC_PATCH_HOST missing"
+    [ -f "$XGRAMMAR_PATCH_HOST" ] || die "$XGRAMMAR_PATCH_HOST missing"
 
     local need_kb=$((180 * 1024 * 1024)) avail
     mkdir -p "$HF_CACHE_DIR"
@@ -358,6 +371,44 @@ login_ghcr_if_token() {
     echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin >/dev/null
 }
 
+login_ghcr_if_token_worker() {
+    [ -n "${GHCR_TOKEN:-}" ] || return 0
+    log "docker login ghcr.io on worker as ${GHCR_USER} (GHCR_TOKEN)"
+    echo "$GHCR_TOKEN" | worker_ssh "docker login ghcr.io -u '$GHCR_USER' --password-stdin" >/dev/null
+}
+
+# RepoDigest is stable across overlay2 vs containerd. Those snapshotters
+# disagree on .Id (config digest vs index digest), so start.sh used to
+# ship even after the worker had already pulled the same GHCR tag (issue #8).
+# Local builds have no RepoDigest — use RootFS layer diffs, then .Id.
+_IMAGE_KEY_FMT='{{if .RepoDigests}}{{index .RepoDigests 0}}{{else if .RootFS.Layers}}{{join .RootFS.Layers ","}}{{else}}{{.Id}}{{end}}'
+
+parse_image_key() {
+    tr -d '\r' | sed -n 's/^GLM53KEY //p' | tail -n 1
+}
+
+local_image_key() {
+    docker image inspect -f "GLM53KEY ${_IMAGE_KEY_FMT}" "$IMAGE" 2>/dev/null | parse_image_key
+}
+
+worker_image_key() {
+    worker_ssh "docker image inspect -f 'GLM53KEY ${_IMAGE_KEY_FMT}' '$IMAGE' 2>/dev/null" | parse_image_key
+}
+
+images_match() {
+    [ -n "${1:-}" ] && [ -n "${2:-}" ] && [ "$1" = "$2" ]
+}
+
+image_platform() {
+    if [ -n "${IMAGE_PLATFORM:-}" ]; then
+        printf '%s' "$IMAGE_PLATFORM"
+        return
+    fi
+    local p
+    p="$(docker image inspect -f '{{.Os}}/{{.Architecture}}' "$IMAGE" 2>/dev/null || true)"
+    printf '%s' "${p:-linux/arm64}"
+}
+
 build_image() {
     log "building ${IMAGE} from Dockerfile (log: $LOGDIR/build-sm121.log) ..."
     docker build -t "$IMAGE" "$SCRIPT_DIR" \
@@ -375,47 +426,61 @@ pull_image() {
   Or set GHCR_TOKEN + GHCR_USER in .env. Overlay rebuild: BUILD=1 ./start.sh"
 }
 
+pull_image_on_worker() {
+    login_ghcr_if_token_worker
+    log "pulling ${IMAGE} on worker ..."
+    worker_ssh "docker pull '$IMAGE'"
+}
+
 ship_image_to_worker() {
-    log "shipping ${IMAGE} to worker via docker save | ssh docker load ..."
-    docker save "$IMAGE" | worker_ssh docker load >/dev/null
+    local platform
+    platform="$(image_platform)"
+    log "shipping ${IMAGE} (${platform}) to worker via docker save | ssh docker load ..."
+    # A multi-arch OCI index references blobs docker save does not pack
+    # (only the native platform is local). docker load then dies with:
+    #   open /var/lib/docker/tmp/docker-import-*/blobs/sha256/<id>: no such file
+    # (issue #8). --platform emits a complete single-manifest tar.
+    if docker save --platform "$platform" "$IMAGE" | worker_ssh docker load; then
+        return 0
+    fi
+    warn "docker save --platform ${platform} failed — retrying without --platform"
+    docker save "$IMAGE" | worker_ssh docker load
 }
 
 ensure_image() {
     mkdir -p "$LOGDIR"
-    local head_ok=0 worker_ok=0 head_id="" worker_id="" refresh=0
+    local head_ok=0 worker_ok=0 head_key="" worker_key=""
     if docker image inspect "$IMAGE" >/dev/null 2>&1; then
         head_ok=1
-        head_id="$(docker image inspect -f '{{.Id}}' "$IMAGE")"
+        head_key="$(local_image_key)"
     fi
     if worker_ssh "docker image inspect '$IMAGE' >/dev/null 2>&1"; then
-        worker_id="$(worker_ssh "docker image inspect -f '{{.Id}}' '$IMAGE'")"
-        if [ -n "$head_id" ] && [ "$worker_id" = "$head_id" ]; then
+        worker_key="$(worker_image_key)"
+        if images_match "$head_key" "$worker_key"; then
             worker_ok=1
         else
             worker_ok=0
-            log "worker image id differs — will ship ${IMAGE}"
+            log "worker image differs (head=${head_key:-none} worker=${worker_key:-none}) — will refresh worker"
         fi
     fi
     local skip_pull="${SKIP_PULL:-0}"
     [ "${PULL:-0}" = "1" ] && skip_pull=0
     if [ "${BUILD:-0}" = "1" ]; then
         build_image
-        refresh=1
-        head_id="$(docker image inspect -f '{{.Id}}' "$IMAGE")"
+        head_key="$(local_image_key)"
         head_ok=1
         worker_ok=0
     elif image_from_registry && [ "$skip_pull" != "1" ]; then
-        local before_id="$head_id"
+        local before_key="$head_key"
         pull_image
-        head_id="$(docker image inspect -f '{{.Id}}' "$IMAGE")"
+        head_key="$(local_image_key)"
         head_ok=1
-        if [ "$head_id" != "$before_id" ]; then
-            refresh=1
-            log "pulled ${IMAGE} (${before_id:-missing} -> ${head_id})"
+        if [ "$head_key" != "$before_key" ]; then
+            log "pulled ${IMAGE} (${before_key:-missing} -> ${head_key})"
         else
             log "${IMAGE} already current"
         fi
-        if [ -n "$worker_id" ] && [ "$worker_id" = "$head_id" ]; then
+        if images_match "$worker_key" "$head_key"; then
             worker_ok=1
         else
             worker_ok=0
@@ -425,13 +490,38 @@ ensure_image() {
             die "SKIP_PULL=1 but ${IMAGE} is not on the head"
         fi
         build_image
-        refresh=1
-        head_id="$(docker image inspect -f '{{.Id}}' "$IMAGE")"
+        head_key="$(local_image_key)"
         head_ok=1
         worker_ok=0
     fi
-    if [ "$worker_ok" = "0" ] || [ "$refresh" = "1" ]; then
-        ship_image_to_worker
+    if [ "${SKIP_SHIP:-0}" = "1" ]; then
+        [ "$worker_ok" = "1" ] || warn "SKIP_SHIP=1 — not copying ${IMAGE} to the worker"
+    elif [ "$worker_ok" = "0" ]; then
+        if image_from_registry && [ "$skip_pull" != "1" ] && [ "${BUILD:-0}" != "1" ]; then
+            if pull_image_on_worker; then
+                worker_key="$(worker_image_key)"
+                if images_match "$head_key" "$worker_key"; then
+                    worker_ok=1
+                    log "worker pulled ${IMAGE} — matches head"
+                else
+                    warn "worker pull left a different image (head=${head_key:-none} worker=${worker_key:-none}) — shipping"
+                fi
+            else
+                warn "worker docker pull failed — shipping over SSH (worker does not need GHCR)"
+            fi
+        fi
+        if [ "$worker_ok" = "0" ]; then
+            ship_image_to_worker
+            worker_key="$(worker_image_key)"
+            if images_match "$head_key" "$worker_key"; then
+                worker_ok=1
+            elif worker_ssh "docker image inspect '$IMAGE' >/dev/null 2>&1"; then
+                warn "worker has ${IMAGE} after ship but keys still differ (head=${head_key:-none} worker=${worker_key:-none}) — continuing"
+                worker_ok=1
+            else
+                die "worker still missing ${IMAGE} after ship"
+            fi
+        fi
     fi
     if [ "${SKIP_OVERLAY_VERIFY:-0}" != "1" ]; then
         log "GPU EXL3 self-check on ${IMAGE} (log: $LOGDIR/overlay-verify.log) ..."
@@ -619,7 +709,7 @@ ARGS=(
 [ -n "${MAX_NUM_BATCHED_TOKENS:-}" ] && ARGS+=(--max-num-batched-tokens "${MAX_NUM_BATCHED_TOKENS}")
 [ -n "${KV_CACHE_DTYPE:-}" ] && ARGS+=(--kv-cache-dtype "${KV_CACHE_DTYPE}")
 if [ "${SPEC_METHOD:-mtp}" = "dflash" ]; then
-    ARGS+=(--speculative-config "$(python3 -c 'import json,os
+    ARGS+=(--speculative-config "$(python3 -S -c 'import json,os
 spec={"method":"dflash","model":os.environ["DFLASH_MODEL_DIR"],"num_speculative_tokens":int(os.environ.get("DFLASH_TOKENS","7")),"kv_cache_dtype":"auto","draft_sample_method":"probabilistic","rejection_sample_method":"standard"}
 tp=os.environ.get("DFLASH_DRAFT_TP","").strip()
 if tp:
@@ -651,16 +741,20 @@ fi
 if [ -f /opt/glm53/patch_glm_video_placeholders.py ]; then
     python3 /opt/glm53/patch_glm_video_placeholders.py
 fi
-if [ -f /opt/glm53/patch_ablit.py ]; then
-    python3 /opt/glm53/patch_ablit.py
-fi
 if [ -f /opt/glm53/patch_suppress_stops_in_reasoning.py ]; then
     python3 /opt/glm53/patch_suppress_stops_in_reasoning.py
 fi
-if [ "${ABLIT:-0}" = "1" ]; then
-    say "ablit: o_proj orthogonalization ON (direction=${ABLIT_DIRECTION:-dealign} layers=${ABLIT_LAYERS:-15-45} alpha=${ABLIT_ALPHA:-3.0})"
-else
-    say "ablit: off — stock o_proj weights"
+if [ -f /opt/glm53/patch_scheduler_decode_floor.py ]; then
+    python3 /opt/glm53/patch_scheduler_decode_floor.py
+fi
+if [ -f /opt/glm53/patch_glm5_drafter_group.py ]; then
+    python3 /opt/glm53/patch_glm5_drafter_group.py
+fi
+if [ -f /opt/glm53/patch_hybrid_prefix_hit.py ]; then
+    python3 /opt/glm53/patch_hybrid_prefix_hit.py
+fi
+if [ -f /opt/glm53/patch_xgrammar_termination.py ]; then
+    python3 /opt/glm53/patch_xgrammar_termination.py
 fi
 say "launching: vllm serve ${MODEL_DIR} ${ARGS[*]}"
 exec vllm serve "${MODEL_DIR}" "${ARGS[@]}"
@@ -702,7 +796,7 @@ ARGS=(
 [ -n "${MAX_NUM_BATCHED_TOKENS:-}" ] && ARGS+=(--max-num-batched-tokens "${MAX_NUM_BATCHED_TOKENS}")
 [ -n "${KV_CACHE_DTYPE:-}" ] && ARGS+=(--kv-cache-dtype "${KV_CACHE_DTYPE}")
 if [ "${SPEC_METHOD:-mtp}" = "dflash" ]; then
-    ARGS+=(--speculative-config "$(python3 -c 'import json,os
+    ARGS+=(--speculative-config "$(python3 -S -c 'import json,os
 spec={"method":"dflash","model":os.environ["DFLASH_MODEL_DIR"],"num_speculative_tokens":int(os.environ.get("DFLASH_TOKENS","7")),"kv_cache_dtype":"auto","draft_sample_method":"probabilistic","rejection_sample_method":"standard"}
 tp=os.environ.get("DFLASH_DRAFT_TP","").strip()
 if tp:
@@ -732,16 +826,20 @@ fi
 if [ -f /opt/glm53/patch_glm_video_placeholders.py ]; then
     python3 /opt/glm53/patch_glm_video_placeholders.py
 fi
-if [ -f /opt/glm53/patch_ablit.py ]; then
-    python3 /opt/glm53/patch_ablit.py
-fi
 if [ -f /opt/glm53/patch_suppress_stops_in_reasoning.py ]; then
     python3 /opt/glm53/patch_suppress_stops_in_reasoning.py
 fi
-if [ "${ABLIT:-0}" = "1" ]; then
-    say "ablit: o_proj orthogonalization ON (direction=${ABLIT_DIRECTION:-dealign} layers=${ABLIT_LAYERS:-15-45} alpha=${ABLIT_ALPHA:-3.0})"
-else
-    say "ablit: off — stock o_proj weights"
+if [ -f /opt/glm53/patch_scheduler_decode_floor.py ]; then
+    python3 /opt/glm53/patch_scheduler_decode_floor.py
+fi
+if [ -f /opt/glm53/patch_glm5_drafter_group.py ]; then
+    python3 /opt/glm53/patch_glm5_drafter_group.py
+fi
+if [ -f /opt/glm53/patch_hybrid_prefix_hit.py ]; then
+    python3 /opt/glm53/patch_hybrid_prefix_hit.py
+fi
+if [ -f /opt/glm53/patch_xgrammar_termination.py ]; then
+    python3 /opt/glm53/patch_xgrammar_termination.py
 fi
 say "joining TP2 at ${HEAD_IP}:${MASTER_PORT} as rank 1"
 exec vllm serve "${MODEL_DIR}" "${ARGS[@]}"
@@ -763,12 +861,14 @@ launch_cluster() {
     scp -q -o BatchMode=yes "$VIDEO_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_glm_video_placeholders.py"
     [ -f "$STOP_PATCH_HOST" ] || die "missing $STOP_PATCH_HOST"
     scp -q -o BatchMode=yes "$STOP_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_suppress_stops_in_reasoning.py"
-
-    # ablit artifacts + hook (read-only mounts inside both containers)
-    worker_ssh "rm -rf /tmp/glm53-ablit"
-    scp -q -r -o BatchMode=yes "$SCRIPT_DIR/ablit" "${WORKER_SSH}:/tmp/glm53-ablit"
-    scp -q -o BatchMode=yes "$SCRIPT_DIR/overlay/ablit_runtime.py" "${WORKER_SSH}:/tmp/glm53-ablit_runtime.py"
-    scp -q -o BatchMode=yes "$SCRIPT_DIR/overlay/patch_ablit.py" "${WORKER_SSH}:/tmp/patch_ablit.py"
+    [ -f "$SCHED_PATCH_HOST" ] || die "missing $SCHED_PATCH_HOST"
+    scp -q -o BatchMode=yes "$SCHED_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_scheduler_decode_floor.py"
+    [ -f "$DRAFTER_PATCH_HOST" ] || die "missing $DRAFTER_PATCH_HOST"
+    scp -q -o BatchMode=yes "$DRAFTER_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_glm5_drafter_group.py"
+    [ -f "$APC_PATCH_HOST" ] || die "missing $APC_PATCH_HOST"
+    scp -q -o BatchMode=yes "$APC_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_hybrid_prefix_hit.py"
+    [ -f "$XGRAMMAR_PATCH_HOST" ] || die "missing $XGRAMMAR_PATCH_HOST"
+    scp -q -o BatchMode=yes "$XGRAMMAR_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_xgrammar_termination.py"
 
     local -a nccl_common=(
         -e NCCL_IB_DISABLE=0
@@ -791,6 +891,7 @@ launch_cluster() {
         -e HF_HOME=/root/.cache/huggingface
         -e VLLM_CACHE_ROOT=/root/.cache/vllm
         -e "GLM53_SUPPRESS_STOPS_IN_REASONING=$GLM53_SUPPRESS_STOPS_IN_REASONING"
+        -e "GLM53_MIXED_PREFILL_CHUNK=$GLM53_MIXED_PREFILL_CHUNK"
         -e "TRITON_CACHE_DIR=$TRITON_CACHE_DIR"
         -e "TILELANG_CACHE_DIR=$TILELANG_CACHE_DIR"
         # LOCAL: upstream persists triton/tilelang but not FlashInfer's JIT
@@ -807,6 +908,7 @@ launch_cluster() {
         # thread then dumps JSONDecodeError. Stats are off on this private kit.
         -e VLLM_NO_USAGE_STATS=1
         -e DO_NOT_TRACK=1
+        -e "VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=$CG_ESTIMATE"
     )
     local worker_nccl="" e
     for e in "${nccl_common[@]}"; do
@@ -837,8 +939,7 @@ launch_cluster() {
              KV_CACHE_DTYPE MTP_TOKENS SPEC_METHOD DFLASH_TOKENS DFLASH_MODEL_DIR \
              DFLASH_DRAFT_TP \
              LANGUAGE_MODEL_ONLY SKIP_MM_PROFILING \
-             LIMIT_MM CHAT_TEMPLATE ENFORCE_EAGER EXL3_FUSED_MOE MODEL_DIR EXTRA_ARGS \
-             ABLIT ABLIT_DIRECTION ABLIT_LAYERS ABLIT_ALPHA ABLIT_INCLUDE_MTP; do
+             LIMIT_MM CHAT_TEMPLATE ENFORCE_EAGER EXL3_FUSED_MOE MODEL_DIR EXTRA_ARGS; do
         serve_env+=" -e $v='${!v:-}'"
     done
 
@@ -855,9 +956,10 @@ launch_cluster() {
         -v '/tmp/glm53-chat_template.jinja:${CHAT_TEMPLATE}:ro' \
         -v '/tmp/patch_glm_video_placeholders.py:/opt/glm53/patch_glm_video_placeholders.py:ro' \
         -v '/tmp/patch_suppress_stops_in_reasoning.py:/opt/glm53/patch_suppress_stops_in_reasoning.py:ro' \
-        -v '/tmp/glm53-ablit:/opt/glm53/ablit:ro' \
-        -v '/tmp/glm53-ablit_runtime.py:/opt/glm53/ablit_runtime.py:ro' \
-        -v '/tmp/patch_ablit.py:/opt/glm53/patch_ablit.py:ro' \
+        -v '/tmp/patch_scheduler_decode_floor.py:/opt/glm53/patch_scheduler_decode_floor.py:ro' \
+        -v '/tmp/patch_glm5_drafter_group.py:/opt/glm53/patch_glm5_drafter_group.py:ro' \
+        -v '/tmp/patch_hybrid_prefix_hit.py:/opt/glm53/patch_hybrid_prefix_hit.py:ro' \
+        -v '/tmp/patch_xgrammar_termination.py:/opt/glm53/patch_xgrammar_termination.py:ro' \
         ${worker_preload} \
         ${worker_nccl} \
         -e NCCL_SOCKET_IFNAME='$WORKER_CX7_IF' \
@@ -880,9 +982,10 @@ launch_cluster() {
         -v "$CHAT_TEMPLATE_HOST:$CHAT_TEMPLATE:ro" \
         -v "$VIDEO_PATCH_HOST:/opt/glm53/patch_glm_video_placeholders.py:ro" \
         -v "$STOP_PATCH_HOST:/opt/glm53/patch_suppress_stops_in_reasoning.py:ro" \
-        -v "$SCRIPT_DIR/ablit:/opt/glm53/ablit:ro" \
-        -v "$SCRIPT_DIR/overlay/ablit_runtime.py:/opt/glm53/ablit_runtime.py:ro" \
-        -v "$SCRIPT_DIR/overlay/patch_ablit.py:/opt/glm53/patch_ablit.py:ro" \
+        -v "$SCHED_PATCH_HOST:/opt/glm53/patch_scheduler_decode_floor.py:ro" \
+        -v "$DRAFTER_PATCH_HOST:/opt/glm53/patch_glm5_drafter_group.py:ro" \
+        -v "$APC_PATCH_HOST:/opt/glm53/patch_hybrid_prefix_hit.py:ro" \
+        -v "$XGRAMMAR_PATCH_HOST:/opt/glm53/patch_xgrammar_termination.py:ro" \
         "${head_preload[@]}" \
         "${nccl_common[@]}" \
         -e NCCL_SOCKET_IFNAME="$HEAD_CX7_IF" \
@@ -907,11 +1010,6 @@ launch_cluster() {
         -e CHAT_TEMPLATE="$CHAT_TEMPLATE" \
         -e ENFORCE_EAGER="$ENFORCE_EAGER" \
         -e EXL3_FUSED_MOE="$EXL3_FUSED_MOE" \
-        -e ABLIT="$ABLIT" \
-        -e ABLIT_DIRECTION="$ABLIT_DIRECTION" \
-        -e ABLIT_LAYERS="$ABLIT_LAYERS" \
-        -e ABLIT_ALPHA="$ABLIT_ALPHA" \
-        -e ABLIT_INCLUDE_MTP="$ABLIT_INCLUDE_MTP" \
         -e MODEL_DIR="$MODEL_DIR" \
         -e EXTRA_ARGS="${EXTRA_ARGS:-}" \
         --entrypoint bash "$IMAGE" /start.sh >/dev/null
@@ -994,10 +1092,7 @@ on_ready() {
     local spec="MTP k=${MTP_TOKENS}"
     [ "$SPEC_METHOD" = "dflash" ] && spec="DFlash2 k=${DFLASH_TOKENS} (${DFLASH_MODEL})"
     [ "$SPEC_METHOD" = "none" ] && spec=off
-    local ablit="off (stock weights)"
-    [ "$ABLIT" = "1" ] && ablit="ON direction=${ABLIT_DIRECTION} layers=${ABLIT_LAYERS} alpha=${ABLIT_ALPHA}"
     log "  features   : tools=glm47+auto, reasoning=glm45, spec=${spec}, vision=${vision}"
-    log "  ablit      : ${ablit}"
     log "  quick test :"
     log "    curl -s http://127.0.0.1:${PORT}/v1/chat/completions \\"
     log "      -H 'Content-Type: application/json' \\"
@@ -1028,7 +1123,7 @@ start() {
         log "DFlash2 load path (in-container): ${DFLASH_MODEL_DIR}"
     fi
     log "model load path (in-container): ${MODEL_DIR}"
-    log "config: image=${IMAGE} tp=${TP} nnodes=${NNODES} quant=${QUANTIZATION} spec=${SPEC_METHOD} mtp=${MTP_TOKENS} dflash_k=${DFLASH_TOKENS} max-len=${MAX_MODEL_LEN} gpu-util=${GPU_MEM_UTIL} kv=${KV_CACHE_DTYPE} lm-only=${LANGUAGE_MODEL_ONLY} ablit=${ABLIT} port=${PORT}"
+    log "config: image=${IMAGE} tp=${TP} nnodes=${NNODES} quant=${QUANTIZATION} spec=${SPEC_METHOD} mtp=${MTP_TOKENS} dflash_k=${DFLASH_TOKENS} max-len=${MAX_MODEL_LEN} gpu-util=${GPU_MEM_UTIL} kv=${KV_CACHE_DTYPE} lm-only=${LANGUAGE_MODEL_ONLY} port=${PORT}"
 
     launch_cluster
     if wait_for_health; then

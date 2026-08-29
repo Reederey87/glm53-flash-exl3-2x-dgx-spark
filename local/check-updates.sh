@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# LOCAL to this cluster; not part of the upstream MiaAI-Lab kit.
+# LOCAL to this cluster; not part of the vendored upstream kit.
 #
 # Weekly update + parity check for the GLM-5.3-Flash-EXL3 pair. READ-ONLY:
 # safe while the model serves. Adapted from glm53-flash-nvfp4/check-updates.sh.
@@ -114,10 +114,26 @@ if [ -n "$cand_h" ] && [ "$cand_h" != "$ota_h" ] && [ "$cand_h" != "(none)" ]; t
   warn "*** DGX OTA UPDATE AVAILABLE: $ota_h -> $cand_h ***"
   warn "    Plan it: stop the model, upgrade BOTH nodes, reboot both, then re-run"
   warn "    local/acceptance.sh and local/serving-test.sh."
+  warn "    ⚠ Driver hold: 590.x has a GB10 CUDAGraph deadlock (field reports,"
+  warn "    2026-08). Before applying, confirm the OTA does NOT carry a 590.x"
+  warn "    driver; stay on the 580.x branch until that is fixed."
   problems=$((problems+1))
 else
   say "DGX OTA: ${ota_h:-?} — current (no newer release offered)."
 fi
+
+# --- 1b. driver branch hold (590.x CUDAGraph deadlock on GB10) ------------
+for n in h w; do
+  eval "drv=\"\$(get \"\$tmp_$n\" driver)\""
+  case "$drv" in
+    590.*)
+      warn ""
+      warn "*** DRIVER $drv IS ON THE 590.x BRANCH ($( [ "$n" = h ] && echo head || echo worker )) ***"
+      warn "    590.x deadlocks CUDA graph capture on GB10 — prod runs graphs ON."
+      warn "    Roll back to the 580.x branch."
+      problems=$((problems+1));;
+  esac
+done
 
 # --- 2. reboot pending ----------------------------------------------------
 if [ "$(get "$tmp_h" reboot_required)" = "yes" ] || [ "$(get "$tmp_w" reboot_required)" = "yes" ]; then

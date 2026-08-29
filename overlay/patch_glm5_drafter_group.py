@@ -30,43 +30,36 @@ ids stay stable). Two modes, decided from the geometry:
   so KV capacity stays at the base model's; the sliding window bounds the
   drafter to a handful of block ids per request.
 
-  CRITICAL, learned from boot 8 (~/lane1_fail8.log): the drafter spec must
-  NOT use `page_size_padded`. A padded spec routes the runner into the
-  strided-view reshape (`_reshape_attention_kv_cache` in
-  vllm/v1/worker/gpu/attn_utils.py), and that view is INVALID whenever the
-  backend virtually splits the manager block into smaller kernel blocks
-  (FlashInfer registered int kernel sizes and picked 64 for a 2304-token
-  manager block; the strided path then applied the full per-page stride to
-  each KERNEL block: 5760 x 2,359,296 B demanded from a 160 x 2,359,296 B
-  tensor -> setStorage out of bounds). With an exact fit the ordinary
-  CONTIGUOUS view is correct under any kernel split: kernel block j of
-  manager block b lands at b * mla_page + j * kernel_page, inside block b's
-  own page, so slot-sharing with mamba stays sound. Exact fit is gated on:
+  CRITICAL, learned from boot 8 (~/lane1_fail8.log): `page_size_padded` is
+  INVALID when the backend splits a large manager block into smaller kernel
+  blocks (FlashInfer picked kernel 64 for a 2304-token manager; the strided
+  path applied the full per-page stride to each KERNEL block -> OOB). Safe
+  when manager block == kernel block (64): one kernel block per page, stride
+  is the MLA page, view stays inside the page.
+
+  Exact fit (no padding) is gated on:
     - mla_page divisible by the drafter's bytes/token;
-    - fit block divisible by 64 (covers the 16/32/64 int kernel sizes the
-      SWA backends register, so select_common_block_size never fails);
-    - fit block and MLA block divide one another (keeps
-      resolve_kv_cache_block_sizes' scheduler LCM at their max);
+    - fit block divisible by 64;
+    - fit block and MLA block divide one another;
     - at most as many drafter layers as MLA tensors to ride in.
+  656 B MLA vs 4096 B/token DFlash2 only exact-fits at MLA block 16384+.
 
-  STANDALONE (fallback for geometries that cannot exactly fill the MLA
-  page): the drafter spec is kept as-is and its layers get compact per-layer
-  tensors of their own (size draft_page * num_blocks), added to the
-  per-block byte cost everywhere it is computed. Contiguous reshape again --
-  no padding, any kernel split valid.
+  PADDED SLOT-SHARE (this geometry): compact manager block 64 +
+  page_size_padded=mla_page. Drafter layer i co-owns MLA tensor i at
+  disjoint window-bounded block ids (~49/req), like mamba. Per-block pool
+  bytes unchanged. LCM(3584, 64)=3584.
 
-`_glm5_next_tensor_layout` detects the drafter group (uniform SWA, never
-padded) and returns it as a 9th tuple element; the three consumers are
-updated in lock-step so detection, tensor emission, page accounting and the
-available-memory check can never disagree:
-  - `get_kv_cache_config_from_groups`: exact fit -> drafter layer i joins MLA
-    tensor i's shared_by; standalone -> per-layer drafter tensors + per-block
-    cost;
-  - `_pool_bytes_per_block`: standalone drafter pages only (exact fit adds
-    no bytes);
+  STANDALONE tensors (last resort): only if there are more drafter layers
+  than MLA tensors to ride.
+
+`_glm5_next_tensor_layout` detects the drafter group (uniform SWA) and
+returns it as a 9th tuple element; the three consumers stay in lock-step:
+  - `get_kv_cache_config_from_groups`: draft_page == mla_page (exact-fit or
+    padded slot-share) -> drafter layer i joins MLA tensor i's shared_by;
+    else standalone tensors + per-block cost;
+  - `_pool_bytes_per_block`: standalone drafter pages only;
   - `_max_memory_usage_bytes_from_groups`: charges the drafter's window-
-    bounded block-id demand at the per-block byte sum (incl. standalone
-    drafter pages).
+    bounded block-id demand at the per-block byte sum.
 
 Runner-side audit (no edits needed there):
   - init_attn_backend builds per-group AttentionGroups generically; the
@@ -199,16 +192,38 @@ EDIT_GROUPS_RETURN_NEW = """\
             # (like mamba) with a contiguous view: kernel block j of manager
             # block b lands at b * mla_page + j * kernel_page, inside block
             # b's own page. Per-block pool cost unchanged.
+            logger.info(
+                "DFlash2 drafter KV: exact-fit block=%d mla_page=%d",
+                fit_block,
+                mla_page,
+            )
             new_draft_specs: dict[str, KVCacheSpec] = {
                 name: replace(s, block_size=fit_block)
                 for name, s in draft_specs.items()
             }
         else:
-            # STANDALONE: the drafter's geometry cannot exactly fill the MLA
-            # page; keep its spec as-is and give its layers compact tensors
-            # of their own (emitted in get_kv_cache_config_from_groups and
-            # charged in the per-block cost).
-            new_draft_specs = dict(draft_specs)
+            # PADDED SLOT-SHARE: 656 vs 4096 cannot exact-fill on this MLA
+            # block. Manager 64 matches the SWA kernel, so padding the page
+            # to mla_page is a safe strided view (boot 8 OOB was kernel 64
+            # inside a 2304-token manager). Layer i co-owns MLA tensor i.
+            compact_block = 64
+            logger.info(
+                "DFlash2 drafter KV: padded slot-share block=%d "
+                "mla_page=%d (was block=%d); exact-fit page mismatch "
+                "draft_bytes/token=%d",
+                compact_block,
+                mla_page,
+                any_draft.block_size,
+                draft_bytes_per_token,
+            )
+            new_draft_specs = {
+                name: replace(
+                    s,
+                    block_size=compact_block,
+                    page_size_padded=mla_page,
+                )
+                for name, s in draft_specs.items()
+            }
         draft_uniform = UniformTypeKVCacheSpecs.from_specs(new_draft_specs)
         assert draft_uniform is not None
         draft_group = KVCacheGroupSpec(list(new_draft_specs), draft_uniform)
@@ -295,10 +310,10 @@ EDIT_LAYOUT_VALIDATE_NEW = """\
     if any(g.kv_cache_spec.page_size_bytes != mla_page for g in mamba_groups):
         return None
     if draft_group is not None:
-        # DFLASH2-DRAFTER-GROUP: one uniform page across drafter layers and
-        # NEVER page_size_padded (a padded drafter view is invalid under
-        # kernel block splitting; see _get_kv_cache_groups_glm5_next).
-        # page == mla_page means exact-fit slot-sharing of the MLA tensors
+        # DFLASH2-DRAFTER-GROUP: one uniform page across drafter layers.
+        # Padded slot-share (page_size_padded=mla_page, block=64) is valid
+        # because manager==kernel so the strided view does not split a page.
+        # page == mla_page means slot-sharing of the MLA tensors
         # (needs one tensor per drafter layer); any other page means
         # standalone drafter tensors.
         draft_inner = cast(
@@ -308,7 +323,11 @@ EDIT_LAYOUT_VALIDATE_NEW = """\
         if len(draft_pages) != 1:
             return None
         if any(s.page_size_padded is not None for s in draft_inner.values()):
-            return None
+            if any(
+                s.block_size != 64 or s.page_size_padded != mla_page
+                for s in draft_inner.values()
+            ):
+                return None
         if (
             draft_pages.pop() == mla_page
             and len(draft_group.layer_names) > len(mla_names)
@@ -620,9 +639,131 @@ def patch_file(path: str, dry_run: bool = False) -> int:
         text = f.read()
 
     if MARKER in text:
+        v4_old = (
+            "        if any(s.page_size_padded is not None for s in draft_inner.values()):\n"
+            "            return None\n"
+        )
+        v4_new = (
+            "        if any(s.page_size_padded is not None for s in draft_inner.values()):\n"
+            "            # Padded slot-share: manager block 64 so the kernel does not\n"
+            "            # split the page (boot 8 OOB was kernel 64 in a 2304 manager).\n"
+            "            if any(\n"
+            "                s.block_size != 64 or s.page_size_padded != mla_page\n"
+            "                for s in draft_inner.values()\n"
+            "            ):\n"
+            "                return None\n"
+        )
+        v3_marker = "padded slot-share block=%d"
+        if v4_old in text:
+            text = text.replace(v4_old, v4_new, 1)
+            try:
+                ast.parse(text, filename=path)
+            except SyntaxError as e:
+                raise AssertionError(
+                    f"POST-EDIT ast.parse FAILED for {path}: {e}"
+                ) from e
+            if v3_marker in text:
+                if dry_run:
+                    print(f"[patch_glm5_drafter_group] DRY RUN -- {path} not written.")
+                else:
+                    with open(path, "w", encoding="utf-8") as f:
+                        f.write(text)
+                print(
+                    f"[patch_glm5_drafter_group] {path}: padded slot-share v4 "
+                    "(allow padded draft in glm5 layout) applied."
+                )
+                return 0
+            # v3 grouping not yet present; keep going with mutated text.
+        elif v3_marker in text:
+            print(
+                f"[patch_glm5_drafter_group] {path}: already patched "
+                f"({MARKER} + padded slot-share); no-op."
+            )
+            return 0
+
+        new_padded = (
+            "            # PADDED SLOT-SHARE: 656 vs 4096 cannot exact-fill on this MLA\n"
+            "            # block. Manager 64 matches the SWA kernel, so padding the page\n"
+            "            # to mla_page is a safe strided view (boot 8 OOB was kernel 64\n"
+            "            # inside a 2304-token manager). Layer i co-owns MLA tensor i.\n"
+            "            compact_block = 64\n"
+            "            logger.info(\n"
+            "                \"DFlash2 drafter KV: padded slot-share block=%d \"\n"
+            "                \"mla_page=%d (was block=%d); exact-fit page mismatch \"\n"
+            "                \"draft_bytes/token=%d\",\n"
+            "                compact_block,\n"
+            "                mla_page,\n"
+            "                any_draft.block_size,\n"
+            "                draft_bytes_per_token,\n"
+            "            )\n"
+            "            new_draft_specs = {\n"
+            "                name: replace(\n"
+            "                    s,\n"
+            "                    block_size=compact_block,\n"
+            "                    page_size_padded=mla_page,\n"
+            "                )\n"
+            "                for name, s in draft_specs.items()\n"
+            "            }\n"
+        )
+
+        # v3: compact-64 standalone already present (GHCR image + v2).
+        v2_compact = (
+            "            compact_block = 64\n"
+            "            if any_draft.block_size > compact_block:\n"
+        )
+        if v2_compact in text:
+            start = text.find("            # STANDALONE: compact per-layer tensors.")
+            end = text.find("        draft_uniform = UniformTypeKVCacheSpecs.from_specs(new_draft_specs)")
+            if start < 0 or end < 0 or end <= start:
+                raise AssertionError(
+                    f"{path}: {MARKER} + compact_block present but cannot "
+                    "locate standalone block for padded slot-share v3"
+                )
+            text = text[:start] + new_padded + text[end:]
+            try:
+                ast.parse(text, filename=path)
+            except SyntaxError as e:
+                raise AssertionError(
+                    f"POST-EDIT ast.parse FAILED for {path}: {e}"
+                ) from e
+            if dry_run:
+                print(f"[patch_glm5_drafter_group] DRY RUN -- {path} not written.")
+            else:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(text)
+            print(
+                f"[patch_glm5_drafter_group] {path}: padded slot-share v3 applied."
+            )
+            return 0
+
+        # v2: shrink standalone DFlash pages off the 1152 MLA manager block.
+        old_standalone = (
+            "            # STANDALONE: the drafter's geometry cannot exactly fill the MLA\n"
+            "            # page; keep its spec as-is and give its layers compact tensors\n"
+            "            # of their own (emitted in get_kv_cache_config_from_groups and\n"
+            "            # charged in the per-block cost).\n"
+            "            new_draft_specs = dict(draft_specs)\n"
+        )
+        if old_standalone not in text:
+            raise AssertionError(
+                f"{path}: {MARKER} present but neither padded slot-share, "
+                "compact-64, nor keep-as-is standalone block found"
+            )
+        text = text.replace(old_standalone, new_padded, 1)
+        try:
+            ast.parse(text, filename=path)
+        except SyntaxError as e:
+            raise AssertionError(
+                f"POST-EDIT ast.parse FAILED for {path}: {e}"
+            ) from e
+        if dry_run:
+            print(f"[patch_glm5_drafter_group] DRY RUN -- {path} not written.")
+        else:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
         print(
-            f"[patch_glm5_drafter_group] {path}: already patched "
-            f"({MARKER} marker found); no-op."
+            f"[patch_glm5_drafter_group] {path}: padded slot-share v3 applied "
+            "(from keep-as-is)."
         )
         return 0
 

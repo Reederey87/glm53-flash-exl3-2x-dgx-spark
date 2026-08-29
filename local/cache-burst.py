@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """cache-burst.py — synthetic concurrent agentic-session load, from the Mac.
 
-LOCAL to this cluster; not part of the upstream MiaAI-Lab kit.
+LOCAL to this cluster; not part of the vendored upstream kit.
 
 Simulates N long-lived agent sessions (openclaw-shaped: big stable prompt
 prefix, tiny new suffix per turn, short answers) hitting the server

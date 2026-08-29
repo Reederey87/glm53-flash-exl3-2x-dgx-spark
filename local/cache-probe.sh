@@ -2,7 +2,7 @@
 # cache-probe.sh — windowed prefix-cache hit-rate sampler, from the Mac,
 # through the real access path (SSH port-forward -> spark1 loopback).
 #
-# LOCAL to this cluster; not part of the upstream MiaAI-Lab kit.
+# LOCAL to this cluster; not part of the vendored upstream kit.
 #
 # The engine's logged "Prefix cache hit rate" and the dashboard's lifetime
 # ratio hide short-term collapses: the counters are cumulative since boot.
