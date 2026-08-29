@@ -87,14 +87,30 @@ structured acceptance from 0.98 to 1.0 by eliminating spurious tail-draft reject
 `docs/06-improvement-plan.md` documents that change and the rest of the improvement
 program.
 
-## Known issues
+## Known issues (both FIXED 2026-08-29)
 
-- **Co-batched prefill inserts nothing into the prefix cache** (upstream vLLM bug, present
-  in the pinned image): any request whose prefill overlaps another in-flight request gets
-  zero cache retention. Mitigation and full repro data: `docs/05-known-issues.md`.
-- **Two long sessions evict each other** (accepted regression of the 1M window): sessions
-  ≥ ~68k each thrash cross-session retention to 0%; solo sessions retain 99%+ to ~340k.
-  Keep one long-context client at a time; compact around 300k.
+Both long-standing prefix-cache failure modes were resolved by one lever —
+**`VLLM_PREFIX_CACHE_RETENTION_INTERVAL=0`** (sparse KDA state retention, in
+`env.example`):
+
+- **Co-batched prefill inserted nothing into the cache** → concurrent 4×60k
+  sessions now retain **95%** (was an exact 0% under any config). The bug was
+  dense KDA retention making cached pages unaffordable, not a scheduler defect.
+- **Two long sessions evicted each other to 0%** → 2×68k now retains **97.8%**
+  cross-session; the one-long-context-client rule is retired (solo ceiling
+  ~340k @ 99% still bounds compaction — we compact at 300k).
+
+Mechanism, isolation data, and residual cautions: `docs/04-prefix-caching.md`
+and `docs/05-known-issues.md`. Additionally adopted the same day:
+`LONG_PREFILL_TOKEN_THRESHOLD=1792` — a short request landing behind a 240k cold
+prefill gets first token in **7.9 s instead of 256 s**, for −5.1% solo prefill.
+
+## Rebase track
+
+Upstream vLLM is actively landing official GLM-5.3-Flash support (#53906, #53969,
+`FLASHINFER_MLA_SPARSE_SM120` auto-selection, native DFlash2, sparse mamba
+retention). `docs/07-rebase-plan.md` is the researched plan for moving this kit
+onto that base and shrinking the fork delta to an EXL3 plugin + thin GLM ports.
 
 ## Layout
 
@@ -104,7 +120,7 @@ start.sh stop.sh   vendored launcher (LOCAL-patched: loopback bind, single env e
 overlay/           runtime patches applied to the pinned image at container start
 local/             production ops: prod-start, watchdog, monitors, tests, cache probes
 docs/              architecture, parameters, bringup, prefix caching, known issues,
-                   improvement plan
+                   improvement plan, rebase plan
 tests/             decode benches + kit regression tests
 ```
 
