@@ -23,7 +23,7 @@ set -uo pipefail
 PORT="${PORT:-8000}"
 HEAD_CONTAINER="${HEAD_CONTAINER:-glm53-exl3-head}"
 STATE_DIR="${STATE_DIR:-$HOME/.local/state/glm53exl3-metrics}"
-ACCEPT_WARN="${ACCEPT_WARN:-0.30}"
+ACCEPT_WARN="${ACCEPT_WARN:-0.22}"
 MIN_DRAFT="${MIN_DRAFT:-50}"
 # Config-critical argv fragments (pipe-separated). Every one must be present.
 # 900000 -> 1000000 2026-08-29 (the 1M Window-2 geometry; the stale value had the
