@@ -71,6 +71,17 @@ active (the warmup sweep pollutes counters), keep other traffic off, log the ver
    directions, and is the only candidate that moves shapes under a pin with no
    fit-check: preflight that a 4-way burst still admits, watch MemFree through capture.
    Adopt only on structured ≥ +3% with prose ≤ −3%.
+5. **Image rebase adoption** (trigger-driven, not scheduled): the build is a fork tip
+   (`b908a21f9a` + 142 GLM5Next/EXL3 commits); upstream has moved 643 commits past the
+   base. A self-rebase is the highest-risk path available and buys nothing the kit's
+   next image rebase won't — the weekly check-updates timer diffs staged vs upstream
+   HEAD and the GHCR digest vs the pin, and a moved digest opens this window. Protocol:
+   stage the new digest with the FULL battery (acceptance/serving/toolcall suites,
+   decode gates vs standing baselines, the cache-burst control set, loopback-bind
+   verify, KV-pool line read) and re-check every overlay — patches subsumed upstream
+   get deleted, not left to double-apply. Unlocks at rebase: #52216 (retention default
+   None→0 — re-check the retention verdict), #53479, #53945+#51295, #52789 (still
+   needs a GLM-side KDA hook + its spec-decode follow-up), and any merged #54163/#53802.
 
 ## Watch upstream (adopt via the next image rebase, not by hand)
 
