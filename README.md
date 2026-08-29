@@ -43,7 +43,7 @@ This is the deployment I actually run, with every gotcha it cost to get here wri
 | Weights | [`brandonmusic/GLM-5.3-Flash-tr3-4bpw`](https://huggingface.co/brandonmusic/GLM-5.3-Flash-tr3-4bpw) — uniform-K4 EXL3/TR3, ~164 GiB, pinned revision |
 | Runtime | Prebuilt serving image, **pinned by digest** in `env.example` (provenance and licenses: [NOTICE](NOTICE)) |
 | Drafter | `incoai/GLM-5.3-Flash-DFlash2`, k=7 (structured accept 1.0 post-xgrammar-fix, ~70 tok/s structured) |
-| Base kit | Upstream serving recipe vendored at `32db610`, with local commits on top (credited in [NOTICE](NOTICE)) |
+| Base kit | Upstream serving recipe vendored at `0e2e78f`, with local commits on top (credited in [NOTICE](NOTICE)) |
 
 The vendored kit does the heavy lifting (`start.sh` owns both ranks over ssh, JIT cache
 persistence, warmup, xgrammar termination backports). This repo adds what production
