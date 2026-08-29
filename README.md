@@ -129,6 +129,9 @@ who also host the
 this recipe stays fetchable from. The EXL3/TR3 quantization is by
 [brandonmusic](https://huggingface.co/brandonmusic/GLM-5.3-Flash-tr3-4bpw)
 (format and kernels by [turboderp's exllamav3](https://github.com/turboderp-org/exllamav3));
+the DFlash2 speculative-decode drafter is
+[incoai/GLM-5.3-Flash-DFlash2](https://huggingface.co/incoai/GLM-5.3-Flash-DFlash2)
+(CC BY-NC-ND 4.0, fetched separately — not redistributed here);
 the base model is [zai-org/GLM-5.3-Flash](https://huggingface.co/zai-org/GLM-5.3-Flash).
 
 ## License
