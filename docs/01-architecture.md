@@ -28,6 +28,33 @@ upstream's asymmetric interface pins hang `ncclCommInitRank`.
 - CUDA graphs FULL_AND_PIECEWISE; capture sizes `1 2 4 8 16 24 32` are **token batches**
   (1–4 seqs × 8 spec tokens), not sequence counts.
 
+## Why EXL3 — GB10 has no NVFP4 hardware
+
+The quantization choice is dictated by silicon, not preference. **GB10 (sm_121)
+lacks the `cvt.e2m1x2` microscaling instruction** that datacenter Blackwell
+(SM100/SM103) and even workstation SM120 carry — NVFP4 kernels *can never compile*
+for this chip; it is a hardware limitation, and any "just use the NVFP4
+checkpoint" advice you'll find for other Blackwell platforms does not transfer.
+(sm_120 cubins do run on sm_121 via forward compatibility, but not the FP4
+microscaling paths.) The predecessor NVFP4 deployment of this same model ran
+through Marlin-style emulation and was deposed for exactly this reason.
+
+EXL3 is the right fit for what GB10 actually has:
+
+- **Blackwell-native kernels.** turboderp's exllamav3 ships a dedicated
+  `CC_BLACKWELL` GEMM/mGEMM dispatch family (K=1–8 bpw variants) — the trellis
+  kernels run natively on this architecture, no emulation layer.
+- **Quality per bit.** EXL3 is a QTIP-derived trellis format; at 4 bpw the
+  routed experts keep near-lossless quality (this deployment's acceptance,
+  needle, vision, and tool-call batteries all pass at temp 0), where 4-bit
+  scalar formats measurably degrade a 320B MoE.
+- **Memory truth.** Experts stay *packed* end-to-end — one fused `exl3_moe`
+  launch per layer, 82.01 GiB loaded per node. On a 121 GiB unified-memory
+  machine that headroom **is** the 1M-token KV pool.
+- **Fork-carried, deliberately.** No EXL3 code exists in vLLM mainline; the
+  integration is this kit's overlay lineage (see `07-rebase-plan.md` for the
+  plan to carry it as an out-of-tree plugin at the next rebase).
+
 ## Process model
 
 ONE oneshot systemd user unit on the head owns BOTH ranks: `start.sh` launches the head
