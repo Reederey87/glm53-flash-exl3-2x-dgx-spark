@@ -119,6 +119,18 @@ docs/              architecture, parameters, bringup, prefix caching, known issu
 tests/             decode benches + kit regression tests
 ```
 
+## Credits
+
+The idea of serving GLM-5.3-Flash with **EXL3 weights on GB10** — and the serving
+recipe this kit builds on — comes from
+[Mia's AI Lab](https://github.com/MiaAI-Lab/GLM-5.3-Flash-EXL3-2x-DGX-Sparks),
+who also host the
+[byte-identical weights mirror](https://huggingface.co/Mia-AiLab/GLM-5.3-Flash-EXL3-TR3-4bpw)
+this recipe stays fetchable from. The EXL3/TR3 quantization is by
+[brandonmusic](https://huggingface.co/brandonmusic/GLM-5.3-Flash-tr3-4bpw)
+(format and kernels by [turboderp's exllamav3](https://github.com/turboderp-org/exllamav3));
+the base model is [zai-org/GLM-5.3-Flash](https://huggingface.co/zai-org/GLM-5.3-Flash).
+
 ## License
 
 Original work in this repo: Apache-2.0 ([LICENSE](LICENSE)). Vendored serving-kit files:
