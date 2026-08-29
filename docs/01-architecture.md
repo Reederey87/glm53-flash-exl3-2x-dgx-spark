@@ -55,6 +55,33 @@ EXL3 is the right fit for what GB10 actually has:
   integration is this kit's overlay lineage (see `07-rebase-plan.md` for the
   plan to carry it as an out-of-tree plugin at the next rebase).
 
+### The weights, qualified (independent KLD panel)
+
+The served checkpoint (`brandonmusic/GLM-5.3-Flash-tr3-4bpw`, uniform-K4 EXL3/TR3
+routed experts) sits on a community fidelity ladder measured on one sealed
+25-window / 51,175-position teacher-logit panel (malaiwah's GLM-5.3-Flash
+fidelity suite; KLD(BF16-teacher ‖ quant), five bitwise-deterministic cold runs):
+
+| Checkpoint | Mean KLD (nats) | Size | Fits 2×GB10 TP2 + 1M KV? |
+|---|---:|---:|---|
+| TR3 K8 (8bpw) | 0.0124 | 331 GB | no |
+| TR3 K6 (6bpw) | 0.0137 | 254 GB | no (127 GiB/node) |
+| Official FP8 (cross-stack) | 0.0206 | 328 GB | no (needs TP=4) |
+| **This checkpoint — TR3 4bpw** | **0.0246** | **176 GB** | **yes — 82 GiB/node** |
+| Official FP8 (same-stack measurement) | 0.0246 | 328 GB | — |
+| Dione selective Q4 | 0.0273 | 188 GB | marginal, kills the KV pool |
+| NVFP4 | 0.0605 | ~180 GB | runs only via Marlin dequant |
+
+Read the ladder: the 4bpw **statistically ties the official FP8 release**
+(0.024555 vs 0.024629 measured on the same stack) at 54% of the bytes, and is
+**2.5× closer to BF16 than NVFP4 at the same size class** — while being the only
+row that leaves room for the 1M-token KV pool on two 121 GiB nodes. The
+better-KLD rows (K6/K8) are quality upgrades only for TP4-class fleets. One
+model-card caution: the upstream HF card describes the author's own SM120 B12X
+runtime (NVFP4 MLA KV, RTX 6000 Pro) — that is *not* this kit's GB10 path; a
+byte-identical mirror pinned for this recipe exists at
+`Mia-AiLab/GLM-5.3-Flash-EXL3-TR3-4bpw`.
+
 ## Process model
 
 ONE oneshot systemd user unit on the head owns BOTH ranks: `start.sh` launches the head
