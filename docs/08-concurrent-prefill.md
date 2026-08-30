@@ -38,7 +38,7 @@ arriving five seconds later, prefix cache reset first. Three configurations:
 | Mixed cap `448` | 93 s | 856 tok/s | 8.7 tok/s |
 | `MAX_NUM_BATCHED_TOKENS=7168` (skip kept) | 157 s | 509 tok/s (+5%) | 19.1 tok/s |
 
-Three conclusions:
+Two conclusions:
 
 1. **Allowing mixed reading is a trade, not a free win.** Waiting times nearly halve,
    but whoever is receiving an answer slows to half speed while the reading happens.
@@ -47,15 +47,7 @@ Three conclusions:
    workload-specific: per-request end-to-end time depends on how much reading vs
    answering each request does (see the worked example below, where mixing wins by
    ~14%).
-2. **The trade cannot be tuned away with a smaller bite size.** Reading *any* amount
-   of new text in a step forces the server to stream all 288 expert weight matrices
-   through memory (~63% of the step cost, nearly flat in chunk size — profiled in the
-   vendored upstream kit's prefill study,
-   [MiaAI-Lab/GLM-5.3-Flash-EXL3-2x-DGX-Sparks `docs/improve-prefill.md` §P0](https://github.com/MiaAI-Lab/GLM-5.3-Flash-EXL3-2x-DGX-Sparks/blob/b5ab8091/docs/improve-prefill.md)).
-   A 448-token bite taxes the
-   decoder just as much as an 896-token bite and reads slower. If you mix at all,
-   use the biggest sensible cap.
-3. **A bigger step budget does not help while the skip rule stands.** Doubling
+2. **A bigger step budget does not help while the skip rule stands.** Doubling
    `MAX_NUM_BATCHED_TOKENS` to 7168 (two cache pages) let four prompts share each
    reading step instead of two — but each step took proportionally longer, so the
    aggregate speed moved only +5%, and the starvation rule was untouched. It also
