@@ -48,7 +48,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 
 if [ ! -f "$SCRIPT_DIR/.env" ]; then
-    # LOCAL: this repo ships ONE annotated example, env.example (no leading dot).
     [ -f "$SCRIPT_DIR/env.example" ] || {
         echo "ERROR: missing env.example" >&2
         exit 1
@@ -61,6 +60,9 @@ _cli_mtp="${MTP_TOKENS-}"
 _cli_spec="${SPEC_METHOD-}"
 _cli_eager="${ENFORCE_EAGER-}"
 _cli_fused="${EXL3_FUSED_MOE-}"
+_cli_row_tile="${EXL3_MOE_ROW_TILE-}"
+_cli_temp_rows="${EXL3_TEMP_ROWS_FUSED-}"
+_cli_mnbt="${MAX_NUM_BATCHED_TOKENS-}"
 _cli_image="${IMAGE-}"
 _cli_util="${GPU_MEM_UTIL-}"
 _cli_lm="${LANGUAGE_MODEL_ONLY-}"
@@ -73,6 +75,9 @@ set +a
 [ -n "${_cli_spec}" ] && SPEC_METHOD="$_cli_spec"
 [ -n "${_cli_eager}" ] && ENFORCE_EAGER="$_cli_eager"
 [ -n "${_cli_fused}" ] && EXL3_FUSED_MOE="$_cli_fused"
+[ -n "${_cli_row_tile}" ] && EXL3_MOE_ROW_TILE="$_cli_row_tile"
+[ -n "${_cli_temp_rows}" ] && EXL3_TEMP_ROWS_FUSED="$_cli_temp_rows"
+[ -n "${_cli_mnbt}" ] && MAX_NUM_BATCHED_TOKENS="$_cli_mnbt"
 [ -n "${_cli_image}" ] && IMAGE="$_cli_image"
 [ -n "${_cli_util}" ] && GPU_MEM_UTIL="$_cli_util"
 [ -n "${_cli_lm}" ] && LANGUAGE_MODEL_ONLY="$_cli_lm"
@@ -107,6 +112,11 @@ HEAD_CX7_IB="${HEAD_CX7_IB:-rocep1s0f1}"
 WORKER_CX7_IB="${WORKER_CX7_IB:-rocep1s0f0}"
 NCCL_DEBUG="${NCCL_DEBUG:-WARN}"
 NCCL_IB_GID_INDEX="${NCCL_IB_GID_INDEX:-3}"
+# The RoCEv2 GID index is per-NIC: the usable entry is the one whose GID matches
+# that node's own fabric IP. Most pairs share a good index; some do not (this kit
+# needs head=4, worker=3). Unset, both inherit NCCL_IB_GID_INDEX -> unchanged.
+HEAD_GID="${HEAD_GID:-$NCCL_IB_GID_INDEX}"
+WORKER_GID="${WORKER_GID:-$NCCL_IB_GID_INDEX}"
 # vLLM subtracts a CUDA-graph memory ESTIMATE from the KV pool. On this kit the
 # estimate is 2.43 GiB while the captured graphs actually consume -0.19 GiB, so
 # ~2.6 GiB of KV is reserved and never used. 0 keeps CUDA graphs ON and drops only
@@ -132,16 +142,18 @@ SPEC_METHOD="${SPEC_METHOD:-dflash}"
 DFLASH_MODEL="${DFLASH_MODEL:-incoai/GLM-5.3-Flash-DFlash2}"
 DFLASH_CACHE_NAME="${DFLASH_CACHE_NAME:-models--${DFLASH_MODEL//\//--}}"
 DFLASH_TOKENS="${DFLASH_TOKENS:-7}"
-# 1 = keep the ~2.3 GiB drafter on rank 0 (no CX7 on every draft step).
-# Empty = inherit target TP. Do not pin attention_backend: SM121 already
-# prefers FLASH_ATTN for non-causal dense SWA. TRITON_ATTN was an SM120
-# mask-fix copy this image does not have.
-DFLASH_DRAFT_TP="${DFLASH_DRAFT_TP-1}"
+# 2 = shard the ~2.3 GiB DFlash2 drafter across TP (C4 keep, 2026-08-30:
+# idle 8k 938 / 16k 972 / 100k 997; decode structured 65.1 / prose 27.1).
+# 1 = rank 0 only (no CX7 on every draft step). Empty = inherit target TP.
+# Do not pin attention_backend: SM121 already prefers FLASH_ATTN for
+# non-causal dense SWA. TRITON_ATTN was an SM120 mask-fix this image lacks.
+DFLASH_DRAFT_TP="${DFLASH_DRAFT_TP-2}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-1000000}"
 GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.87}"
 MAX_NUM_SEQS="${MAX_NUM_SEQS:-4}"
 # 8192 chunk × long history oversubscribes GB10 persistent_topk smem (300k crash).
-MAX_NUM_BATCHED_TOKENS="${MAX_NUM_BATCHED_TOKENS:-1024}"
+# P1 ladder 2026-08-29: 2048 keep; 3584/4096 revert (fat LinearEXL3 tax).
+MAX_NUM_BATCHED_TOKENS="${MAX_NUM_BATCHED_TOKENS:-2048}"
 CHAT_TEMPLATE_HOST="${CHAT_TEMPLATE_HOST:-$SCRIPT_DIR/files/chat_template.jinja}"
 CHAT_TEMPLATE="${CHAT_TEMPLATE:-/opt/glm53/chat_template.jinja}"
 VIDEO_PATCH_HOST="${VIDEO_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_glm_video_placeholders.py}"
@@ -153,6 +165,7 @@ XGRAMMAR_PATCH_HOST="${XGRAMMAR_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_xgrammar_t
 CACHE_RESET_PATCH_HOST="${CACHE_RESET_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_cache_reset.py}"
 # LOCAL: vLLM #54048 backport — cuBLAS out_dtype router GEMM on GB10 (W9)
 ROUTER_GEMM_PATCH_HOST="${ROUTER_GEMM_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_router_gemm_gb10.py}"
+KPOOL_TAIL_PATCH_HOST="${KPOOL_TAIL_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_kpool_tail_slotmap.py}"
 KV_CACHE_DTYPE="${KV_CACHE_DTYPE:-fp8}"
 QUANTIZATION="${QUANTIZATION:-exl3}"
 LANGUAGE_MODEL_ONLY="${LANGUAGE_MODEL_ONLY:-0}"
@@ -181,6 +194,15 @@ if [ "${ENFORCE_EAGER}" != "1" ]; then
 fi
 # 1 = fused exl3_moe (decode). 0 restores the unique-expert LinearEXL3 loop.
 EXL3_FUSED_MOE="${EXL3_FUSED_MOE:-1}"
+# 1 = GPU row tiles for fat experts (prefill). 0 = LinearEXL3 fallback.
+# Tile (P2a) and TEMP_ROWS=1024 (P2b) both lost at MNBT=1024 — leave 128.
+EXL3_MOE_ROW_TILE="${EXL3_MOE_ROW_TILE:-0}"
+# Fused exl3_moe temp rows/expert. 1024 was slower than 128+fallback (P2b).
+EXL3_TEMP_ROWS_FUSED="${EXL3_TEMP_ROWS_FUSED:-128}"
+
+# recipe: layers 15-45 edited with the dealign direction, 0-14 stay stock
+# safety anchors, MTP block included. 0 = stock weights. Applied identically
+# on both TP ranks; the DFlash2 drafter is never touched.
 
 READY_TIMEOUT="${READY_TIMEOUT:-3600}"
 # 1 = suppress client stop strings until </think> (DSpark #42 class).
@@ -257,7 +279,6 @@ count_shards() {
 ensure_refs_main() {
     local ref="$MODEL_PATH/refs/main" snap
     [ -f "$ref" ] && [ -n "$(<"$ref")" ] && return 0
-    # shellcheck disable=SC2012  # HF snapshot dirs are hex ids; mtime order wanted
     snap="$(ls -1t "$MODEL_PATH/snapshots" 2>/dev/null | head -n 1 || true)"
     [ -n "$snap" ] || die "no snapshots under $MODEL_PATH — re-run download"
     mkdir -p "$MODEL_PATH/refs"
@@ -277,7 +298,6 @@ resolve_model_dir() {
 ensure_dflash_refs_main() {
     local ref="$DFLASH_PATH/refs/main" snap
     [ -f "$ref" ] && [ -n "$(<"$ref")" ] && return 0
-    # shellcheck disable=SC2012  # HF snapshot dirs are hex ids; mtime order wanted
     snap="$(ls -1t "$DFLASH_PATH/snapshots" 2>/dev/null | head -n 1 || true)"
     [ -n "$snap" ] || die "no snapshots under $DFLASH_PATH — re-run download"
     mkdir -p "$DFLASH_PATH/refs"
@@ -325,24 +345,32 @@ preflight() {
     worker_ssh "nvidia-smi -L 2>/dev/null | grep -q GB10" \
         || warn "no GB10 GPU visible on worker"
 
-    # NCCL_IB_GID_INDEX must name a populated GID on BOTH nodes' CX7 devices.
-    # An empty (all-zero) entry passes every earlier check and then kills the
-    # worker rank ~60 s in with ibv_modify_qp errno 61 "No data available" —
-    # kits differ: on some GB10 pairs gid 3 is populated on one node and
-    # all-zero on the other. Fail here, in seconds, with the fix in hand.
+    # Each rank's GID index must name a populated entry on ITS OWN CX7 device.
+    # An empty (all-zero) entry passes every earlier check and then kills that
+    # rank ~60 s in with ibv_modify_qp errno 61 "No data available". The index is
+    # per-NIC, so validate head and worker separately: some pairs share one good
+    # index, others need different ones (HEAD_GID / WORKER_GID).
     local gid_head gid_worker gid_path
-    gid_path="/sys/class/infiniband/${HEAD_CX7_IB}/ports/1/gids/${NCCL_IB_GID_INDEX}"
-    gid_head=$(tr -d ':0' < "$gid_path" 2>/dev/null || true)
-    gid_path="/sys/class/infiniband/${WORKER_CX7_IB}/ports/1/gids/${NCCL_IB_GID_INDEX}"
+    gid_path="/sys/class/infiniband/${HEAD_CX7_IB}/ports/1/gids/${HEAD_GID}"
+    gid_head=$(cat "$gid_path" 2>/dev/null | tr -d ':0' || true)
+    gid_path="/sys/class/infiniband/${WORKER_CX7_IB}/ports/1/gids/${WORKER_GID}"
     gid_worker=$(worker_ssh "cat '$gid_path' 2>/dev/null" | tr -d ':0' || true)
     if [ -z "$gid_head" ] || [ -z "$gid_worker" ]; then
-        warn "NCCL_IB_GID_INDEX=${NCCL_IB_GID_INDEX} is EMPTY on $( [ -z "$gid_head" ] && echo "head(${HEAD_CX7_IB})" ) $( [ -z "$gid_worker" ] && echo "worker(${WORKER_CX7_IB})" )"
-        warn "GID tables (pick an index whose entry is non-zero on BOTH nodes — the ::ffff:<ip> RoCEv2 one):"
-        for i in 0 1 2 3; do
-            printf '    head   gid%s: %s\n' "$i" "$(cat "/sys/class/infiniband/${HEAD_CX7_IB}/ports/1/gids/$i" 2>/dev/null)" >&2
+        if [ -z "$gid_head" ]; then
+            warn "head GID index ${HEAD_GID} is EMPTY on ${HEAD_CX7_IB}"
+        fi
+        if [ -z "$gid_worker" ]; then
+            warn "worker GID index ${WORKER_GID} is EMPTY on ${WORKER_CX7_IB}"
+        fi
+        warn "GID tables — pick each node's ::ffff:<ip> entry whose type is RoCE v2;"
+        warn "the two indices need not match, and a v1 entry at the same index will not work:"
+        for i in 0 1 2 3 4 5 6 7; do
+            printf '    head   gid%s: %-40s %s\n' "$i" \
+                "$(cat "/sys/class/infiniband/${HEAD_CX7_IB}/ports/1/gids/$i" 2>/dev/null)" \
+                "$(cat "/sys/class/infiniband/${HEAD_CX7_IB}/ports/1/gid_attrs/types/$i" 2>/dev/null)" >&2
         done
-        worker_ssh "for i in 0 1 2 3; do printf '    worker gid%s: %s\n' \"\$i\" \"\$(cat /sys/class/infiniband/${WORKER_CX7_IB}/ports/1/gids/\$i 2>/dev/null)\"; done" >&2 || true
-        die "set NCCL_IB_GID_INDEX in .env to a populated index (this kills the worker rank with ibv_modify_qp errno 61 otherwise)"
+        worker_ssh "for i in 0 1 2 3 4 5 6 7; do printf '    worker gid%s: %-40s %s\n' \"\$i\" \"\$(cat /sys/class/infiniband/${WORKER_CX7_IB}/ports/1/gids/\$i 2>/dev/null)\" \"\$(cat /sys/class/infiniband/${WORKER_CX7_IB}/ports/1/gid_attrs/types/\$i 2>/dev/null)\"; done" >&2 || true
+        die "set NCCL_IB_GID_INDEX (same index both ranks) or HEAD_GID/WORKER_GID (per rank) in .env to populated indices"
     fi
 
     [ "$TP" = "2" ] || warn "TP=${TP} on a 2×1-GPU cluster — expected TP=2"
@@ -366,6 +394,7 @@ preflight() {
     [ -f "$XGRAMMAR_PATCH_HOST" ] || die "$XGRAMMAR_PATCH_HOST missing"
     [ -f "$CACHE_RESET_PATCH_HOST" ] || die "$CACHE_RESET_PATCH_HOST missing"
     [ -f "$ROUTER_GEMM_PATCH_HOST" ] || die "$ROUTER_GEMM_PATCH_HOST missing"  # LOCAL: W9
+    [ -f "$KPOOL_TAIL_PATCH_HOST" ] || die "$KPOOL_TAIL_PATCH_HOST missing"
 
     local need_kb=$((180 * 1024 * 1024)) avail
     mkdir -p "$HF_CACHE_DIR"
@@ -711,7 +740,6 @@ sync_repo_marker_rev() {
     local src="$1"
     local rev
     rev="$(cat "$src/refs/main" 2>/dev/null || true)"
-    # shellcheck disable=SC2012  # snapshot dirs are hex commit hashes; mtime order intended
     [ -n "$rev" ] || rev="$(ls -1t "$src/snapshots" 2>/dev/null | head -n 1 || true)"
     [ -n "$rev" ] || rev="unknown"
     printf '%s' "$rev"
@@ -780,10 +808,12 @@ ARGS=(
 [ -n "${GPU_MEM_UTIL:-}" ]  && ARGS+=(--gpu-memory-utilization "${GPU_MEM_UTIL}")
 [ -n "${MAX_NUM_SEQS:-}" ] && ARGS+=(--max-num-seqs "${MAX_NUM_SEQS}")
 [ -n "${MAX_NUM_BATCHED_TOKENS:-}" ] && ARGS+=(--max-num-batched-tokens "${MAX_NUM_BATCHED_TOKENS}")
-# LOCAL: long-prefill chunk cap (env.example sets 1792) — short requests
-# co-schedule instead of waiting out a long prefill (256s -> 7.9s TTFT measured
-# behind a 240k cold prefill, for -5.1% solo cold prefill). Scheduler-only:
-# kept out of EXTRA_ARGS so JIT shape guards can ignore it.
+# LOCAL: ADOPTED IN PROD 2026-08-29 (W4) — .env sets 1792. Caps each long
+# prefill's per-step chunk so short requests co-schedule instead of waiting out
+# the whole prefill: short TTFT behind a 240k cold prefill 256s -> 7.9s (-97%)
+# for -5.1% solo cold prefill; decode + cache retention unaffected. Scheduler-
+# only: deliberately NOT in EXTRA_ARGS so the JIT shape hash ignores it. Sub-
+# 3584 values force 2 steps/page (boundary re-align) — that IS the -5%.
 [ -n "${LONG_PREFILL_TOKEN_THRESHOLD:-}" ] && ARGS+=(--long-prefill-token-threshold "${LONG_PREFILL_TOKEN_THRESHOLD}")
 [ -n "${KV_CACHE_DTYPE:-}" ] && ARGS+=(--kv-cache-dtype "${KV_CACHE_DTYPE}")
 if [ "${SPEC_METHOD:-mtp}" = "dflash" ]; then
@@ -840,6 +870,9 @@ fi
 if [ -f /opt/glm53/patch_router_gemm_gb10.py ]; then
     python3 /opt/glm53/patch_router_gemm_gb10.py
 fi
+if [ -f /opt/glm53/patch_kpool_tail_slotmap.py ]; then
+    python3 /opt/glm53/patch_kpool_tail_slotmap.py
+fi
 say "launching: vllm serve ${MODEL_DIR} ${ARGS[*]}"
 exec vllm serve "${MODEL_DIR}" "${ARGS[@]}"
 EOF
@@ -878,10 +911,12 @@ ARGS=(
 [ -n "${GPU_MEM_UTIL:-}" ]  && ARGS+=(--gpu-memory-utilization "${GPU_MEM_UTIL}")
 [ -n "${MAX_NUM_SEQS:-}" ] && ARGS+=(--max-num-seqs "${MAX_NUM_SEQS}")
 [ -n "${MAX_NUM_BATCHED_TOKENS:-}" ] && ARGS+=(--max-num-batched-tokens "${MAX_NUM_BATCHED_TOKENS}")
-# LOCAL: long-prefill chunk cap (env.example sets 1792) — short requests
-# co-schedule instead of waiting out a long prefill (256s -> 7.9s TTFT measured
-# behind a 240k cold prefill, for -5.1% solo cold prefill). Scheduler-only:
-# kept out of EXTRA_ARGS so JIT shape guards can ignore it.
+# LOCAL: ADOPTED IN PROD 2026-08-29 (W4) — .env sets 1792. Caps each long
+# prefill's per-step chunk so short requests co-schedule instead of waiting out
+# the whole prefill: short TTFT behind a 240k cold prefill 256s -> 7.9s (-97%)
+# for -5.1% solo cold prefill; decode + cache retention unaffected. Scheduler-
+# only: deliberately NOT in EXTRA_ARGS so the JIT shape hash ignores it. Sub-
+# 3584 values force 2 steps/page (boundary re-align) — that IS the -5%.
 [ -n "${LONG_PREFILL_TOKEN_THRESHOLD:-}" ] && ARGS+=(--long-prefill-token-threshold "${LONG_PREFILL_TOKEN_THRESHOLD}")
 [ -n "${KV_CACHE_DTYPE:-}" ] && ARGS+=(--kv-cache-dtype "${KV_CACHE_DTYPE}")
 if [ "${SPEC_METHOD:-mtp}" = "dflash" ]; then
@@ -936,6 +971,9 @@ fi
 if [ -f /opt/glm53/patch_router_gemm_gb10.py ]; then
     python3 /opt/glm53/patch_router_gemm_gb10.py
 fi
+if [ -f /opt/glm53/patch_kpool_tail_slotmap.py ]; then
+    python3 /opt/glm53/patch_kpool_tail_slotmap.py
+fi
 say "joining TP2 at ${HEAD_IP}:${MASTER_PORT} as rank 1"
 exec vllm serve "${MODEL_DIR}" "${ARGS[@]}"
 EOF
@@ -968,11 +1006,13 @@ launch_cluster() {
     scp -q -o BatchMode=yes "$CACHE_RESET_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_cache_reset.py"
     [ -f "$ROUTER_GEMM_PATCH_HOST" ] || die "missing $ROUTER_GEMM_PATCH_HOST"
     scp -q -o BatchMode=yes "$ROUTER_GEMM_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_router_gemm_gb10.py"
+    [ -f "$KPOOL_TAIL_PATCH_HOST" ] || die "missing $KPOOL_TAIL_PATCH_HOST"
+    scp -q -o BatchMode=yes "$KPOOL_TAIL_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_kpool_tail_slotmap.py"
+
 
     local -a nccl_common=(
         -e NCCL_IB_DISABLE=0
         -e NCCL_IB_ROCE_VERSION_NUM=2
-        -e "NCCL_IB_GID_INDEX=$NCCL_IB_GID_INDEX"
         -e NCCL_NET=IB
         -e NCCL_NET_PLUGIN=none
         -e NCCL_NVLS_ENABLE=0
@@ -1014,12 +1054,12 @@ launch_cluster() {
         -e DO_NOT_TRACK=1
         -e "VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=$CG_ESTIMATE"
     )
-    # LOCAL: sparse KDA state retention (env.example sets 0 = boundaries-only).
-    # This vLLM fork extends VLLM_PREFIX_CACHE_RETENTION_INTERVAL to MambaSpec
-    # groups (replay boundaries + shared-prefix junctions always kept). 0 fixed
-    # both prefix-cache bugs on this stack (cross-session 0%->97.8%, co-batch
-    # insertion 0%->95%, solo held 98% — docs/04-prefix-caching.md). Unset =
-    # dense retention = the old multi-session thrash. 0 or a multiple of 3584.
+    # LOCAL: ADOPTED IN PROD 2026-08-29 (W3) — .env sets it to 0. This fork
+    # extends VLLM_PREFIX_CACHE_RETENTION_INTERVAL to MambaSpec groups (sparse
+    # KDA state snapshots; replay boundaries + shared-prefix junctions always
+    # kept). 0 = boundaries-only; fixed BOTH open prefix-cache bugs (cross-
+    # session 0%->97.8%, co-batch insertion 0%->95%, solo held 98%). Unset =
+    # dense caching (the old thrash). Value must be 0 or a multiple of 3584.
     if [ -n "${VLLM_PREFIX_CACHE_RETENTION_INTERVAL:-}" ]; then
         nccl_common+=(-e "VLLM_PREFIX_CACHE_RETENTION_INTERVAL=$VLLM_PREFIX_CACHE_RETENTION_INTERVAL")
     fi
@@ -1053,7 +1093,7 @@ launch_cluster() {
              KV_CACHE_DTYPE MTP_TOKENS SPEC_METHOD DFLASH_TOKENS DFLASH_MODEL_DIR \
              DFLASH_DRAFT_TP \
              LANGUAGE_MODEL_ONLY SKIP_MM_PROFILING \
-             LIMIT_MM CHAT_TEMPLATE ENFORCE_EAGER EXL3_FUSED_MOE MODEL_DIR EXTRA_ARGS; do
+             LIMIT_MM CHAT_TEMPLATE ENFORCE_EAGER EXL3_FUSED_MOE EXL3_MOE_ROW_TILE EXL3_TEMP_ROWS_FUSED MODEL_DIR EXTRA_ARGS; do
         serve_env+=" -e $v='${!v:-}'"
     done
     # VLLM_API_KEY is read by the head (rank 0) API server for bearer auth; the
@@ -1082,11 +1122,13 @@ launch_cluster() {
         -v '/tmp/patch_xgrammar_termination.py:/opt/glm53/patch_xgrammar_termination.py:ro' \
         -v '/tmp/patch_cache_reset.py:/opt/glm53/patch_cache_reset.py:ro' \
         -v '/tmp/patch_router_gemm_gb10.py:/opt/glm53/patch_router_gemm_gb10.py:ro' \
+        -v '/tmp/patch_kpool_tail_slotmap.py:/opt/glm53/patch_kpool_tail_slotmap.py:ro' \
         ${worker_preload} \
         ${worker_nccl} \
         -e NCCL_SOCKET_IFNAME='$WORKER_CX7_IF' \
         -e GLOO_SOCKET_IFNAME='$WORKER_CX7_IF' \
         -e NCCL_IB_HCA='$WORKER_CX7_IB' \
+        -e NCCL_IB_GID_INDEX='$WORKER_GID' \
         -e VLLM_HOST_IP='$WORKER_IP' \
         ${serve_env} \
         --entrypoint bash '$IMAGE' /start.sh" >/dev/null
@@ -1110,11 +1152,13 @@ launch_cluster() {
         -v "$XGRAMMAR_PATCH_HOST:/opt/glm53/patch_xgrammar_termination.py:ro" \
         -v "$CACHE_RESET_PATCH_HOST:/opt/glm53/patch_cache_reset.py:ro" \
         -v "$ROUTER_GEMM_PATCH_HOST:/opt/glm53/patch_router_gemm_gb10.py:ro" \
+        -v "$KPOOL_TAIL_PATCH_HOST:/opt/glm53/patch_kpool_tail_slotmap.py:ro" \
         "${head_preload[@]}" \
         "${nccl_common[@]}" \
         -e NCCL_SOCKET_IFNAME="$HEAD_CX7_IF" \
         -e GLOO_SOCKET_IFNAME="$HEAD_CX7_IF" \
         -e NCCL_IB_HCA="$HEAD_CX7_IB" \
+        -e NCCL_IB_GID_INDEX="$HEAD_GID" \
         -e VLLM_HOST_IP="$HEAD_IP" \
         -e SERVED_MODEL_NAME="$SERVED_MODEL_NAME" \
         -e PORT="$PORT" -e TP="$TP" -e NNODES="$NNODES" \
@@ -1135,6 +1179,8 @@ launch_cluster() {
         -e CHAT_TEMPLATE="$CHAT_TEMPLATE" \
         -e ENFORCE_EAGER="$ENFORCE_EAGER" \
         -e EXL3_FUSED_MOE="$EXL3_FUSED_MOE" \
+        -e EXL3_MOE_ROW_TILE="$EXL3_MOE_ROW_TILE" \
+        -e EXL3_TEMP_ROWS_FUSED="$EXL3_TEMP_ROWS_FUSED" \
         -e MODEL_DIR="$MODEL_DIR" \
         -e VLLM_API_KEY="$VLLM_API_KEY" \
         -e EXTRA_ARGS="${EXTRA_ARGS:-}" \
@@ -1151,7 +1197,7 @@ wait_for_health() {
 
     local logpid=""
     _stop_logtail() {
-        if [ -n "$logpid" ]; then kill "$logpid" 2>/dev/null || true; fi
+        [ -n "$logpid" ] && kill "$logpid" 2>/dev/null || true
         wait "$logpid" 2>/dev/null || true
         logpid=""
     }
