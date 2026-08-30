@@ -80,11 +80,15 @@ active (the warmup sweep pollutes counters), keep other traffic off, log the ver
    1,396,551 (1.40×) at k=7 — the extra verify slot costs ~3% of pool accounting.
    k=7 stands for mixed traffic; a structured-only deployment could revisit. The real
    answer is adaptive draft length, which is upstream rebase material (item 5).
-5. **Image rebase adoption** (trigger-driven, not scheduled): the build is a fork tip
-   (`b908a21f9a` + 142 GLM5Next/EXL3 commits); upstream has moved 643 commits past the
-   base. A self-rebase is the highest-risk path available and buys nothing the kit's
-   next image rebase won't — the weekly check-updates timer diffs staged vs upstream
-   HEAD and the GHCR digest vs the pin, and a moved digest opens this window. Protocol:
+5. **Image rebase adoption** (trigger-driven, not scheduled — **this kit builds and
+   releases its own image**; see `07-rebase-plan.md` for the full plan): the build is a
+   fork tip (`b908a21f9a` + 142 GLM5Next/EXL3 commits); upstream vLLM has moved 643+
+   commits past the base. The trigger is *vLLM upstream*, not any vendor image: when
+   official GLM-5.3 support (#53906) lands, the 142 fork commits shrink to a thin
+   overlay set and we rebase our own Dockerfile onto that base, build under our own
+   tag, and release it as this kit's next major version. Other kits' repos remain
+   sources to cherry-pick from, nothing more. Do not blind-rebase before then — the
+   risk math (fork drift across EXL3/KDA/slot-share) is unchanged. Protocol:
    stage the new digest with the FULL battery (acceptance/serving/toolcall suites,
    decode gates vs standing baselines, the cache-burst control set, loopback-bind
    verify, KV-pool line read) and re-check every overlay — patches subsumed upstream
@@ -112,8 +116,10 @@ active (the warmup sweep pollutes counters), keep other traffic off, log the ver
   verify ceiling is arithmetic.
 - **Re-enabling async scheduling** — the #47728-class double-count still fails the
   admission check at this geometry; async was throughput-neutral here anyway.
-- **Self-rebasing the vLLM fork** — 600+ commits of drift against fork-only EXL3/KDA
-  code; the upstream kit's own rebase is the sane path.
+- **Self-rebasing the vLLM fork *today*** — 600+ commits of drift against fork-only
+  EXL3/KDA code. This kit will do its own rebase and release (item 5 above), but only
+  after official GLM-5.3 support lands upstream and shrinks the fork to a thin
+  overlay; rebasing before that is the highest-risk move available for no gain.
 
 ## Operational holds picked up in this review
 
