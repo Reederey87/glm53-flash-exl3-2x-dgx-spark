@@ -1,5 +1,11 @@
 # Rebase plan — riding GLM-5.3-Flash into vLLM mainline
 
+> **Status (2026-08-30): the first stage of this plan was executed.** The day-0
+> base was field-tested on the pair (`09-rebase-draft-test.md`) and production now
+> runs an image this repo builds from it (`10-selfbuild-production.md`). What
+> remains of this plan is the *forward* rebase — moving onto vLLM main once
+> #53906 merges — for which the survey below is the map.
+
 Researched 2026-08-29 (web survey + a full inventory of a current vllm-project/vllm
 main checkout, `cacc429f62`). Goal: the next major release of this kit sits on
 **official upstream GLM-5.3-Flash support** and carries only the layers upstream

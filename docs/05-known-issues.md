@@ -2,8 +2,10 @@
 
 ## 1. Co-batched prefill inserts nothing into the prefix cache — FIXED 2026-08-29
 
-**Image:** `ghcr.io/miaai-lab/glm-5.3-flash-2x-dgx-sparks@sha256:9bb1557a…`
-(vLLM `0.1.dev20051+g487ecf187`). **Status: RESOLVED by
+**Measured on:** the previously pulled image
+(`ghcr.io/miaai-lab/…@sha256:9bb1557a…`, vLLM `0.1.dev20051+g487ecf187`); the
+self-built image production runs since 2026-08-30 is the same lineage and vLLM
+build, so every issue and fix here carries over unchanged. **Status: RESOLVED by
 `VLLM_PREFIX_CACHE_RETENTION_INTERVAL=0`** (see `04-prefix-caching.md`, "The
 retention fix") — the zero-insertion was a side effect of dense KDA retention
 making cached pages unaffordable, not a scheduler defect. The isolation data below

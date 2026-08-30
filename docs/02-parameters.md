@@ -65,6 +65,6 @@ cache is invisible to it). 0.87 demands 105.87 GiB free against boots measured a
 - `READY_TIMEOUT=4800` / `VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS=1800` — a cold JIT rebuild
   after a cache wipe is slow, not dead. Timeouts that "look generous" prevent the
   watchdog from shooting a booting engine.
-- `IMAGE` pinned **by digest** + `SKIP_PULL=1` — a restart must never silently upgrade
+- `IMAGE` names an **immutable** artifact + `SKIP_PULL=1` — since 2026-08-30 that is a local build tag produced by this repo's `Dockerfile` (previously a registry digest); either way, a restart must never silently upgrade
   the runtime. The weekly check-updates timer diffs the registry digest against the pin
   so upgrades are deliberate.
