@@ -143,3 +143,17 @@ concurrency work in [08-concurrent-prefill.md](08-concurrent-prefill.md).
   cold read (856–872 tok/s, no indexer smem failure), but concurrent aggregate moved
   only +5% under the skip rule and solo reads ~2% slower. Reverted; 3584 stands (page
   alignment unchanged).
+- **Context window 1M → 500k: rejected with data.** The suggestion (upstream issue #43)
+  is that a smaller window relieves capacity queueing. Measured here with a matched
+  probe (five concurrent ~82k cold sessions, cache reset first) the admission behavior
+  is **identical at both windows** — peak 3 of 4 slots running, capacity-reason waits
+  in ~37% of samples, worst lane ~7 minutes, aggregate ~940 tok/s — because the
+  queueing is the in-flight prefills' own accounted footprint, not the window setting.
+  Meanwhile the smaller window *costs* real capacity: the same pinned KV bytes count
+  **1,065,789 pool tokens at 500k vs 1,396,551 at 1M** (−24% — pool tokens are
+  geometry-dependent and the 1M layout packs them best on this stack), and prose decode
+  did not recover (~27 vs 27.9). So 500k buys nothing and shrinks the cache. The 1M
+  window stays.
+- **Guard fix that rode along:** `DFLASH_DRAFT_TP` is now part of the JIT shape-hash
+  guard in `local/prod-start.sh` — changing drafter tensor-parallelism changes drafter
+  kernel shapes, the same stale-cache class that once collapsed acceptance 0.96 → 0.58.
