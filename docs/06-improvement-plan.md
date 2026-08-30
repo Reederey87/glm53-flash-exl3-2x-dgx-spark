@@ -157,3 +157,11 @@ concurrency work in [08-concurrent-prefill.md](08-concurrent-prefill.md).
 - **Guard fix that rode along:** `DFLASH_DRAFT_TP` is now part of the JIT shape-hash
   guard in `local/prod-start.sh` — changing drafter tensor-parallelism changes drafter
   kernel shapes, the same stale-cache class that once collapsed acceptance 0.96 → 0.58.
+- **Drafter tensor-parallelism 2: rejected.** The upstream kit made `DFLASH_DRAFT_TP=2`
+  its default (sharding the ~2.3 GiB DFlash2 drafter across both ranks). Measured here:
+  the hoped-for head-node memory relief did not appear (spark1 idle-free actually read
+  ~0.4 GiB lower, worker ~0.5 GiB higher — the head keeps its working set either way),
+  and decode tracked 1–2% below the TP=1 band on both phases, consistent with the
+  upstream PR's own receipts (their structured 65.1 vs our 70+ at TP=1). Acceptance
+  held a perfect 1.0000 / 7.0 per step, so TP=2 is safe — just not better on a 2-node
+  pair. This deployment pins `DFLASH_DRAFT_TP=1`.
