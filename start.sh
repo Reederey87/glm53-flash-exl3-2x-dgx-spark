@@ -151,6 +151,8 @@ DRAFTER_PATCH_HOST="${DRAFTER_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_glm5_drafter
 APC_PATCH_HOST="${APC_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_hybrid_prefix_hit.py}"
 XGRAMMAR_PATCH_HOST="${XGRAMMAR_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_xgrammar_termination.py}"
 CACHE_RESET_PATCH_HOST="${CACHE_RESET_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_cache_reset.py}"
+# LOCAL: vLLM #54048 backport — cuBLAS out_dtype router GEMM on GB10 (W9)
+ROUTER_GEMM_PATCH_HOST="${ROUTER_GEMM_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_router_gemm_gb10.py}"
 KV_CACHE_DTYPE="${KV_CACHE_DTYPE:-fp8}"
 QUANTIZATION="${QUANTIZATION:-exl3}"
 LANGUAGE_MODEL_ONLY="${LANGUAGE_MODEL_ONLY:-0}"
@@ -363,6 +365,7 @@ preflight() {
     [ -f "$APC_PATCH_HOST" ] || die "$APC_PATCH_HOST missing"
     [ -f "$XGRAMMAR_PATCH_HOST" ] || die "$XGRAMMAR_PATCH_HOST missing"
     [ -f "$CACHE_RESET_PATCH_HOST" ] || die "$CACHE_RESET_PATCH_HOST missing"
+    [ -f "$ROUTER_GEMM_PATCH_HOST" ] || die "$ROUTER_GEMM_PATCH_HOST missing"  # LOCAL: W9
 
     local need_kb=$((180 * 1024 * 1024)) avail
     mkdir -p "$HF_CACHE_DIR"
@@ -834,6 +837,9 @@ fi
 if [ -f /opt/glm53/patch_cache_reset.py ]; then
     python3 /opt/glm53/patch_cache_reset.py
 fi
+if [ -f /opt/glm53/patch_router_gemm_gb10.py ]; then
+    python3 /opt/glm53/patch_router_gemm_gb10.py
+fi
 say "launching: vllm serve ${MODEL_DIR} ${ARGS[*]}"
 exec vllm serve "${MODEL_DIR}" "${ARGS[@]}"
 EOF
@@ -927,6 +933,9 @@ fi
 if [ -f /opt/glm53/patch_cache_reset.py ]; then
     python3 /opt/glm53/patch_cache_reset.py
 fi
+if [ -f /opt/glm53/patch_router_gemm_gb10.py ]; then
+    python3 /opt/glm53/patch_router_gemm_gb10.py
+fi
 say "joining TP2 at ${HEAD_IP}:${MASTER_PORT} as rank 1"
 exec vllm serve "${MODEL_DIR}" "${ARGS[@]}"
 EOF
@@ -957,6 +966,8 @@ launch_cluster() {
     scp -q -o BatchMode=yes "$XGRAMMAR_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_xgrammar_termination.py"
     [ -f "$CACHE_RESET_PATCH_HOST" ] || die "missing $CACHE_RESET_PATCH_HOST"
     scp -q -o BatchMode=yes "$CACHE_RESET_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_cache_reset.py"
+    [ -f "$ROUTER_GEMM_PATCH_HOST" ] || die "missing $ROUTER_GEMM_PATCH_HOST"
+    scp -q -o BatchMode=yes "$ROUTER_GEMM_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_router_gemm_gb10.py"
 
     local -a nccl_common=(
         -e NCCL_IB_DISABLE=0
@@ -983,6 +994,8 @@ launch_cluster() {
         # Read by the patched build_app (issue #31): mount only the cache-reset
         # dev routes when 1. Patched file is inert when 0/unset.
         -e "GLM53_EXPOSE_CACHE_RESET=$GLM53_EXPOSE_CACHE_RESET"
+        # LOCAL: W9 ablation — 0 restores stock router-GEMM eligibility exactly
+        -e "GLM53_ROUTER_GEMM_CUBLAS=${GLM53_ROUTER_GEMM_CUBLAS:-1}"
         -e "TRITON_CACHE_DIR=$TRITON_CACHE_DIR"
         -e "TILELANG_CACHE_DIR=$TILELANG_CACHE_DIR"
         # LOCAL: upstream persists triton/tilelang but not FlashInfer's JIT
@@ -1068,6 +1081,7 @@ launch_cluster() {
         -v '/tmp/patch_hybrid_prefix_hit.py:/opt/glm53/patch_hybrid_prefix_hit.py:ro' \
         -v '/tmp/patch_xgrammar_termination.py:/opt/glm53/patch_xgrammar_termination.py:ro' \
         -v '/tmp/patch_cache_reset.py:/opt/glm53/patch_cache_reset.py:ro' \
+        -v '/tmp/patch_router_gemm_gb10.py:/opt/glm53/patch_router_gemm_gb10.py:ro' \
         ${worker_preload} \
         ${worker_nccl} \
         -e NCCL_SOCKET_IFNAME='$WORKER_CX7_IF' \
@@ -1095,6 +1109,7 @@ launch_cluster() {
         -v "$APC_PATCH_HOST:/opt/glm53/patch_hybrid_prefix_hit.py:ro" \
         -v "$XGRAMMAR_PATCH_HOST:/opt/glm53/patch_xgrammar_termination.py:ro" \
         -v "$CACHE_RESET_PATCH_HOST:/opt/glm53/patch_cache_reset.py:ro" \
+        -v "$ROUTER_GEMM_PATCH_HOST:/opt/glm53/patch_router_gemm_gb10.py:ro" \
         "${head_preload[@]}" \
         "${nccl_common[@]}" \
         -e NCCL_SOCKET_IFNAME="$HEAD_CX7_IF" \
