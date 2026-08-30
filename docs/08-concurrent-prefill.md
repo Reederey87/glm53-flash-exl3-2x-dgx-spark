@@ -103,7 +103,7 @@ still slipping in behind a 240k read. We tested it on production for one window:
 | Solo cold prefill, 240k | 893 tok/s | 926 tok/s (**+3.7%**) |
 | Short-request TTFT behind the 240k read | 7.9 s | **6.0 s** |
 | 30k cached replay | ~15× | ~15× (intact) |
-| Structured decode, converged | 69.7–70.2 tok/s | **67.4 (−3.3%)** |
+| Structured decode, converged | 69.7–70.2 tok/s | **67.4 (−3.3% to −4.0%)** |
 | KV pool tokens (same pinned bytes) | 1,396,551 @ 1.40× | **1,227,272 @ 1.23× (−12%)** |
 
 The claimed benefits are real but arrive smaller here, and two costs the report

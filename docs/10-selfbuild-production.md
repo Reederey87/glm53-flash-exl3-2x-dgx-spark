@@ -4,8 +4,9 @@
 the draft proved the official day-0 base end to end; this document records moving
 production onto an image built by this repo's own `Dockerfile`, and the three A/B
 windows run the same night on top of it. Same rules as everywhere in this kit: one
-variable per window, pre-registered gates, rejected experiments recorded with their
-numbers.*
+experimental treatment per window (the prefill window below is a paired two-knob
+treatment — the knobs only make sense together), gates written down before the
+restart, rejected experiments recorded with their numbers.*
 
 ## The cutover
 
@@ -14,24 +15,30 @@ image and bakes in the EXL3 kernels, the DFlash2 drafter support (model, specula
 aux-hidden-state capture), and the correctness backports; `start.sh` applies the
 remaining runtime patches at container start. Building it and pointing the systemd
 unit's `IMAGE` at the result — with the previous image digest kept as a one-line
-rollback — replaced a pulled artifact with a build this repo fully owns.
+rollback — replaced the previously pulled serving artifact with a locally built
+image whose Dockerfile, overlays, and runtime patching this repo maintains (the
+base remains the digest-pinned official image; the supply chain below it is
+upstream's).
 
-Cutover gates, all green on the first boot:
+Cutover gates, all green on the first boot (gate definitions and the exact bench
+commands are the ones this kit ships: `local/acceptance.sh`, `local/serving-test.sh`,
+`tests/bench_decode.py` at 3–4 converged passes — see doc 06 for the program):
 
 | Gate | Result |
 |---|---|
-| KV pool | **1,396,551 tokens @ 1.40×** — byte-identical to the previous image |
+| KV pool | **1,396,551 tokens @ 1.40×** — the identical count/geometry the previous image reported (the byte pin `--kv-cache-memory-bytes` is unchanged, so the pool cannot differ) |
 | Bind | loopback-only (`127.0.0.1:8000`) |
 | Acceptance suite | 7/7 (tool calls, thinking, vision, 32k needle) |
 | Serving suite | 6/6 (SSE, concurrency, sustained) |
 | Structured decode | 69.3–70.2 tok/s @ **1.0000 acceptance / 7.0 per step**, every converged pass |
 | Prose decode | 27.9-band (25–28.5 ambient variance under live traffic) |
-| 30k replay, drafter active | 15–17× (2.2–2.4 s warm) |
+| 30k replay, drafter active | 15–17× (32–42 s cold → 2.2–2.4 s warm) |
 | 500k fill, drafter active | **854 tok/s cold**, needle retrieved, warm replay **111×** |
 
-One honest asterisk: structured throughput on the self-build reads ~1–2% below the
-best boots of the previous image (69.3–70.2 vs a 70.2–72.8 band whose high-water was
-a 4-hour-warm boot). That is inside the observed boot-to-boot spread, and the
+One honest asterisk: the self-build measured 69.3–70.2 tok/s structured; the previous
+image's boots measured 70.2–72.8, with the 72.8 high-water recorded after four hours
+warm. The ranges meet only at 70.2 — whether the residual gap is warmth or a real
+~1–4% build difference is an open question a warm re-bench will settle, and the
 xgrammar backports were verified present on both ranks (`#52805` and `#53046` both
 log "already present" — baked at build, confirmed at start).
 
@@ -52,8 +59,8 @@ recommended `LONG_PREFILL_TOKEN_THRESHOLD=3584` (page-aligned chunk cap) +
 `MAX_NUM_BATCHED_TOKENS=7168` for +11% cold prefill. Measured here: the wins are
 real but smaller — **+3.7%** solo cold prefill (893 → 926 tok/s at 240k) and a
 short-request TTFT behind that prefill of **6.0 s** (actually better than this
-kit's standing 7.9 s) — but the config costs a converged **−3.3% structured
-decode** (67.4 vs 69.7–70.2) and **−12% pool tokens** (1,227,272 @ 1.23× from the
+kit's standing 7.9 s) — but the config costs a converged **−3.3% to −4.0% structured
+decode** (67.4 vs the 69.7–70.2 baseline range) and **−12% pool tokens** (1,227,272 @ 1.23× from the
 same pinned bytes; pool token counts are geometry-dependent). A constant decode tax
 on every token loses to occasional cold-prefill gains; reverted. If your workload
 is prefill-dominated, the trade may point the other way — the knobs are two `.env`
@@ -85,7 +92,16 @@ four items, each with a measured consequence if removed:
 
 ## Rollback
 
-Every change above is one file: the `.env` backups (`.env.bak-*`) form a ladder
-back through each window to the pre-cutover image digest. Restore the file, restart
-through `local/prod-start.sh`, verify the pool token count and a converged bench
-pass — the same three checks every window used.
+The `.env` backups form a ladder, and each rung names an immutable image, so
+restoring a backup restores both config and code for that window (source-level
+changes were always shipped as a new image tag, never edited in place):
+
+| Restore | Image it selects | State |
+|---|---|---|
+| `.env.bak-pre-w15b` | the salted self-build | post-cutover + #54282 salt (current production) |
+| `.env.bak-pre-w14` | the salted self-build | same image; pre-prefill-experiment knobs |
+| `.env.bak-pre-w15a` | the plain self-build | cutover state, pre-salt |
+| `.env.bak-ghcr-pin-*` | the previous pulled image digest | full pre-cutover rollback |
+
+Restore the file, restart through `local/prod-start.sh`, verify the pool token
+count and a converged bench pass — the same three checks every window used.

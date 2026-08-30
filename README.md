@@ -6,7 +6,7 @@ on two NVIDIA DGX Spark (GB10 Grace Blackwell, 121 GiB unified memory each), ser
 
 This is the deployment I actually run, with every gotcha it cost to get here written down.
 Since 2026-08-30 the serving image is **built by this repo's `Dockerfile`** from the official
-day-0 GLM-5.3 arm64 base (digest-pinned `FROM`) — production runs the build, not a pull.
+day-0 GLM-5.3 arm64 base (digest-pinned `FROM`) — production runs the locally built image, not a pull.
 
 ## Why this kit
 
@@ -14,8 +14,8 @@ day-0 GLM-5.3 arm64 base (digest-pinned `FROM`) — production runs the build, n
   context window**, served from two consumer-purchasable Sparks — no rack, no cloud bill,
   loopback-only by default.
 - **Measured, not claimed.** Every number in this README comes off the running cluster:
-  **~70 tok/s structured / 27.9 tok/s prose** decode at the 1M window (best recorded 72.8),
-  **~893 tok/s** cold prefill, **1.0 speculative acceptance** on structured output (7 drafted
+  **~70 tok/s structured / 27.9 tok/s prose** decode at the 1M window (previous-image high-water 72.8),
+  **~893 tok/s** cold prefill at 240k, **1.0 speculative acceptance** on structured output (7 drafted
   tokens per step, zero wasted verifies), a **500,000-token prompt prefilled at 854 tok/s with
   the drafter active and replayed 111× faster** from cache, a 110k-token session re-prefilling
   in **~4 s** instead of 132 — and **multi-session caching that works**: two 68k sessions retain
