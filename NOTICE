@@ -5,12 +5,20 @@ Original work in this repository (docs/, local/, env.example, and the README) is
 licensed under the Apache License, Version 2.0 (see LICENSE).
 
 This repository is based on the GLM-5.3-Flash 2x-DGX-Sparks serving kit by
-Mia's AI Lab (https://github.com/MiaAI-Lab/GLM-5.3-Flash-EXL3-2x-DGX-Sparks),
-vendored at upstream commit 32db610, and its prebuilt runtime image
-(ghcr.io/miaai-lab/glm-5.3-flash-2x-dgx-sparks, pinned by digest in env.example).
-Local modifications to vendored files are marked with "# LOCAL:" comments and
-carry the repository's Apache-2.0 license. The vendored kit is MIT-licensed;
-its license is reproduced in full below.
+Mia's AI Lab (https://github.com/MiaAI-Lab/GLM-5.3-Flash-EXL3-2x-dgx-sparks),
+vendored at upstream commit b5ab8091 (originally 32db610). Local modifications
+to vendored files are marked with "# LOCAL:" comments and carry the
+repository's Apache-2.0 license. The vendored kit is MIT-licensed; its license
+is reproduced in full below.
+
+Since 2026-08-30 the serving image is built by this repository's Dockerfile
+(previously a prebuilt image was pulled from
+ghcr.io/miaai-lab/glm-5.3-flash-2x-dgx-sparks). The build starts FROM the
+official vLLM day-0 GLM-5.3 preview image (vllm/vllm-openai:glm53-flash-
+arm64-cu130, pinned by digest; vLLM is Apache-2.0-licensed by its
+contributors) and compiles in exllamav3 by turboderp
+(https://github.com/turboderp-org/exllamav3, MIT-licensed) at a pinned
+commit.
 
 Model weights (brandonmusic/GLM-5.3-Flash-tr3-4bpw), the DFlash2 drafter
 (incoai/GLM-5.3-Flash-DFlash2), and the base GLM-5.3-Flash model (zai-org) are
