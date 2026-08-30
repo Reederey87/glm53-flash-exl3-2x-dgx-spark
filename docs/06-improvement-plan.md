@@ -171,3 +171,17 @@ concurrency work in [08-concurrent-prefill.md](08-concurrent-prefill.md).
   upstream PR's own receipts (their structured 65.1 vs our 70+ at TP=1). Acceptance
   held a perfect 1.0000 / 7.0 per step, so TP=2 is safe — just not better on a 2-node
   pair. This deployment pins `DFLASH_DRAFT_TP=1`.
+
+## Addendum, 2026-08-30 evening: the program moved onto a self-built image
+
+Production cut over to the image this repo's `Dockerfile` builds (gates and specs:
+`10-selfbuild-production.md`). Three windows ran the same night on the new
+baseline, same method as everything above: the vLLM #54282 draft-noise salt was
+**adopted** (acceptance held 1.0000/7.0 — the fix changes which random stream
+feeds the draft, not the accept path); a community prefill config (batch budget
+7168 + chunk cap 3584) was **tested and rejected** (+3.7% cold prefill and better
+short-request TTFT, but −3.3 to −4% on every decoded token and −12% pool tokens);
+FlashInfer's radix top-k in the candidate selector was **tested and rejected**
+(bit-exact but zero gain at ≤7-row draft batches). Open follow-ups: a long-warm
+re-bench of the self-build's structured decode, and upstream #54163 as a future
+window with cache-battery gates.

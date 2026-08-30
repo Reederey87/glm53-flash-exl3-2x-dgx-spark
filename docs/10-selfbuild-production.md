@@ -20,6 +20,21 @@ image whose Dockerfile, overlays, and runtime patching this repo maintains (the
 base remains the digest-pinned official image; the supply chain below it is
 upstream's).
 
+## The image, spec'd
+
+| Spec | Value |
+|---|---|
+| Base image | `vllm/vllm-openai:glm53-flash-arm64-cu130` @ `sha256:905c0293…` (day-0 GLM-5.3 **preview** image, digest-pinned `FROM`) |
+| vLLM inside | `0.1.dev20051+g487ecf187` — pre-release dev build from the official enablement lineage, cut **before** #53906 merged and before vLLM's native DFlash2 |
+| Attention/CUDA stack | FlashInfer 0.6.17 (`FLASHINFER_MLA_SPARSE_SM120`), CUDA 13, CUDA graphs on (token-batch capture sizes 1–32 to cover k=7 verify) |
+| Quantization | EXL3 4 bpw (`--quantization exl3`, fused `exl3_moe`), `exllamav3` built in-image at commit `c5d9c657` for aarch64/sm_121 — weights load **82 GiB/node packed** |
+| Weights | `brandonmusic/GLM-5.3-Flash-tr3-4bpw`, snapshot `1ae6d704…` (~164 GiB, 120 shards) |
+| Drafter | `incoai/GLM-5.3-Flash-DFlash2`, snapshot `7d74cdd8…`, BF16, k=7, draft TP=1, **#54282 noise salt applied** |
+| Topology | TP=2 across two GB10 nodes (`--nnodes 2`), single RoCE rail, MTU 9000 |
+| KV cache | `fp8_ds_mla` packed, pool **pinned to 15,414,698,763 bytes** → 1,396,551 tokens @ the 1M geometry (1.40× concurrency), profiling skipped |
+| Scheduler | `MAX_NUM_BATCHED_TOKENS=3584` (= the KDA page size), async scheduling **off**, long-prefill chunk cap 1,792, sparse retention on |
+| Window / bind | 1,000,000-token context, API on `127.0.0.1:8000` only |
+
 Cutover gates, all green on the first boot (gate definitions and the exact bench
 commands are the ones this kit ships: `local/acceptance.sh`, `local/serving-test.sh`,
 `tests/bench_decode.py` at 3–4 converged passes — see doc 06 for the program):

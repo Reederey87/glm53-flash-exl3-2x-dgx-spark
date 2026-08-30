@@ -1,5 +1,9 @@
 # Bring-up and operations
 
+> Since 2026-08-30 bringup starts one step earlier: `docker build` the serving
+> image from this repo (see the README quickstart) and load it on both nodes
+> before anything below. `IMAGE` in `.env` names that build.
+
 ## First start
 
 ```bash
