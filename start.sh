@@ -153,6 +153,11 @@ XGRAMMAR_PATCH_HOST="${XGRAMMAR_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_xgrammar_t
 CACHE_RESET_PATCH_HOST="${CACHE_RESET_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_cache_reset.py}"
 # LOCAL: vLLM #54048 backport — cuBLAS out_dtype router GEMM on GB10 (W9)
 ROUTER_GEMM_PATCH_HOST="${ROUTER_GEMM_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_router_gemm_gb10.py}"
+# LOCAL: Dynamic KV Cache Pruning & Sparse Retention (Strategy 3)
+KV_PRUNE_PATCH_HOST="${KV_PRUNE_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_kv_sparse_prune.py}"
+SWAP_SPACE_GB="${SWAP_SPACE_GB:-0}"
+GLM53_ENABLE_KV_PRUNING="${GLM53_ENABLE_KV_PRUNING:-0}"
+GLM53_KV_COMPRESSION_RATIO="${GLM53_KV_COMPRESSION_RATIO:-0.30}"
 KV_CACHE_DTYPE="${KV_CACHE_DTYPE:-fp8}"
 QUANTIZATION="${QUANTIZATION:-exl3}"
 LANGUAGE_MODEL_ONLY="${LANGUAGE_MODEL_ONLY:-0}"
@@ -785,6 +790,7 @@ ARGS=(
 # behind a 240k cold prefill, for -5.1% solo cold prefill). Scheduler-only:
 # kept out of EXTRA_ARGS so JIT shape guards can ignore it.
 [ -n "${LONG_PREFILL_TOKEN_THRESHOLD:-}" ] && ARGS+=(--long-prefill-token-threshold "${LONG_PREFILL_TOKEN_THRESHOLD}")
+[ -n "${SWAP_SPACE_GB:-}" ] && [ "${SWAP_SPACE_GB}" != "0" ] && ARGS+=(--swap-space "${SWAP_SPACE_GB}")
 [ -n "${KV_CACHE_DTYPE:-}" ] && ARGS+=(--kv-cache-dtype "${KV_CACHE_DTYPE}")
 if [ "${SPEC_METHOD:-mtp}" = "dflash" ]; then
     ARGS+=(--speculative-config "$(python3 -S -c 'import json,os
@@ -840,6 +846,9 @@ fi
 if [ -f /opt/glm53/patch_router_gemm_gb10.py ]; then
     python3 /opt/glm53/patch_router_gemm_gb10.py
 fi
+if [ -f /opt/glm53/patch_kv_sparse_prune.py ]; then
+    python3 /opt/glm53/patch_kv_sparse_prune.py
+fi
 say "launching: vllm serve ${MODEL_DIR} ${ARGS[*]}"
 exec vllm serve "${MODEL_DIR}" "${ARGS[@]}"
 EOF
@@ -883,6 +892,7 @@ ARGS=(
 # behind a 240k cold prefill, for -5.1% solo cold prefill). Scheduler-only:
 # kept out of EXTRA_ARGS so JIT shape guards can ignore it.
 [ -n "${LONG_PREFILL_TOKEN_THRESHOLD:-}" ] && ARGS+=(--long-prefill-token-threshold "${LONG_PREFILL_TOKEN_THRESHOLD}")
+[ -n "${SWAP_SPACE_GB:-}" ] && [ "${SWAP_SPACE_GB}" != "0" ] && ARGS+=(--swap-space "${SWAP_SPACE_GB}")
 [ -n "${KV_CACHE_DTYPE:-}" ] && ARGS+=(--kv-cache-dtype "${KV_CACHE_DTYPE}")
 if [ "${SPEC_METHOD:-mtp}" = "dflash" ]; then
     ARGS+=(--speculative-config "$(python3 -S -c 'import json,os
@@ -936,6 +946,9 @@ fi
 if [ -f /opt/glm53/patch_router_gemm_gb10.py ]; then
     python3 /opt/glm53/patch_router_gemm_gb10.py
 fi
+if [ -f /opt/glm53/patch_kv_sparse_prune.py ]; then
+    python3 /opt/glm53/patch_kv_sparse_prune.py
+fi
 say "joining TP2 at ${HEAD_IP}:${MASTER_PORT} as rank 1"
 exec vllm serve "${MODEL_DIR}" "${ARGS[@]}"
 EOF
@@ -968,6 +981,9 @@ launch_cluster() {
     scp -q -o BatchMode=yes "$CACHE_RESET_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_cache_reset.py"
     [ -f "$ROUTER_GEMM_PATCH_HOST" ] || die "missing $ROUTER_GEMM_PATCH_HOST"
     scp -q -o BatchMode=yes "$ROUTER_GEMM_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_router_gemm_gb10.py"
+    if [ -f "$KV_PRUNE_PATCH_HOST" ]; then
+        scp -q -o BatchMode=yes "$KV_PRUNE_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_kv_sparse_prune.py"
+    fi
 
     local -a nccl_common=(
         -e NCCL_IB_DISABLE=0
@@ -996,6 +1012,8 @@ launch_cluster() {
         -e "GLM53_EXPOSE_CACHE_RESET=$GLM53_EXPOSE_CACHE_RESET"
         # LOCAL: W9 ablation — 0 restores stock router-GEMM eligibility exactly
         -e "GLM53_ROUTER_GEMM_CUBLAS=${GLM53_ROUTER_GEMM_CUBLAS:-1}"
+        -e "GLM53_ENABLE_KV_PRUNING=$GLM53_ENABLE_KV_PRUNING"
+        -e "GLM53_KV_COMPRESSION_RATIO=$GLM53_KV_COMPRESSION_RATIO"
         -e "TRITON_CACHE_DIR=$TRITON_CACHE_DIR"
         -e "TILELANG_CACHE_DIR=$TILELANG_CACHE_DIR"
         # LOCAL: upstream persists triton/tilelang but not FlashInfer's JIT
@@ -1049,7 +1067,7 @@ launch_cluster() {
     local v
     for v in SERVED_MODEL_NAME PORT TP NNODES HEAD_IP MASTER_PORT QUANTIZATION \
              MAX_MODEL_LEN GPU_MEM_UTIL MAX_NUM_SEQS MAX_NUM_BATCHED_TOKENS \
-             LONG_PREFILL_TOKEN_THRESHOLD \
+             LONG_PREFILL_TOKEN_THRESHOLD SWAP_SPACE_GB \
              KV_CACHE_DTYPE MTP_TOKENS SPEC_METHOD DFLASH_TOKENS DFLASH_MODEL_DIR \
              DFLASH_DRAFT_TP \
              LANGUAGE_MODEL_ONLY SKIP_MM_PROFILING \
@@ -1082,6 +1100,7 @@ launch_cluster() {
         -v '/tmp/patch_xgrammar_termination.py:/opt/glm53/patch_xgrammar_termination.py:ro' \
         -v '/tmp/patch_cache_reset.py:/opt/glm53/patch_cache_reset.py:ro' \
         -v '/tmp/patch_router_gemm_gb10.py:/opt/glm53/patch_router_gemm_gb10.py:ro' \
+        -v '/tmp/patch_kv_sparse_prune.py:/opt/glm53/patch_kv_sparse_prune.py:ro' \
         ${worker_preload} \
         ${worker_nccl} \
         -e NCCL_SOCKET_IFNAME='$WORKER_CX7_IF' \
@@ -1110,6 +1129,7 @@ launch_cluster() {
         -v "$XGRAMMAR_PATCH_HOST:/opt/glm53/patch_xgrammar_termination.py:ro" \
         -v "$CACHE_RESET_PATCH_HOST:/opt/glm53/patch_cache_reset.py:ro" \
         -v "$ROUTER_GEMM_PATCH_HOST:/opt/glm53/patch_router_gemm_gb10.py:ro" \
+        -v "$KV_PRUNE_PATCH_HOST:/opt/glm53/patch_kv_sparse_prune.py:ro" \
         "${head_preload[@]}" \
         "${nccl_common[@]}" \
         -e NCCL_SOCKET_IFNAME="$HEAD_CX7_IF" \
