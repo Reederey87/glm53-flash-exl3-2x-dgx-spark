@@ -12,7 +12,7 @@ This is the deployment I actually run, with every gotcha it cost to get here wri
   context window**, served from two consumer-purchasable Sparks — no rack, no cloud bill,
   loopback-only by default.
 - **Measured, not claimed.** Every number in this README comes off the running cluster:
-  **70.4 tok/s structured / 29.5 tok/s prose** decode, **~893 tok/s** cold prefill,
+  **71–73 tok/s structured / 27.9 tok/s prose** decode at the 1M window, **~893 tok/s** cold prefill,
   **1.0 speculative acceptance** on structured output (7 drafted tokens per step, zero
   wasted verifies), a 110k-token session re-prefilling in **~4 s** instead of 132 via
   prefix caching — and **multi-session caching that works**: two 68k sessions retain
@@ -108,9 +108,9 @@ request validates `prompt` (or `messages` for the chat shape), not `text`.
 
 | Phase | Value |
 |---|---|
-| Structured decode (count 1→200) | 70.4 tok/s (acceptance 1.0000, 7.0/step, all positions) |
-| Prose decode | 29.5 tok/s |
-| Production path (temp 1.0, thinking on) | ~30 tok/s |
+| Structured decode (count 1→200) | 71–73 tok/s across boots (best recorded 72.8; acceptance 1.0000, 7.0/step, all positions) |
+| Prose decode | **27.9 tok/s at the 1M window** — the earlier 29.5 was measured at a 262k window; the 1M window costs ~6% prose decode (29.5 × 0.94 ≈ 27.7), so 27.9 is the healthy number, not a regression. A 26.5 reading seen after restart churn was swap-depression noise, not real |
+| Production path (temp 1.0, thinking on) | ~28–30 tok/s |
 | Cold prefill (solo, ~133–240k) | **~893 tok/s** (941 with `LONG_PREFILL_TOKEN_THRESHOLD` unset — the −5% is the price of HOL relief) |
 | Short-request TTFT behind a 240k cold prefill | **7.9 s** (256 s without the threshold) |
 | 110k cached re-prefill | **~4 s** (vs 132 s cold; 98% hit) |

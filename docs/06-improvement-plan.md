@@ -119,3 +119,27 @@ active (the warmup sweep pollutes counters), keep other traffic off, log the ver
 
 - **Driver stays on the 580.x branch** — 590.x deadlocks CUDAGraph capture on GB10;
   `local/check-updates.sh` now warns on any 590.x driver and flags it in OTA planning.
+
+## 2026-08-30 window results (appended)
+
+Three windows ran on the production pair; full plain-language write-up of the
+concurrency work in [08-concurrent-prefill.md](08-concurrent-prefill.md).
+
+- **Baseline correction.** Prose decode at the 1M window converges at **27.9 tok/s** —
+  the earlier 29.5 was measured at a 262k window, and the 1M window's documented ~6%
+  prose cost lands exactly there (29.5 × 0.94 ≈ 27.7). A 26.5 reading after restart
+  churn was swap-depression, not real. Structured varies 71–73 across boots (best
+  72.8) at acceptance 1.0000 / 7.0 per step. Judge any boot only after 3–4 converged
+  bench passes.
+- **Kpool tail slot-map clamp: adopted.** Applied as a runtime overlay onto the pinned
+  image (no rebuild): patched on both ranks, idempotent, tests green. Evidence battery:
+  five solo 2,600-token generations and a 4-way concurrent 2,600-token burst past the
+  ~2.2k corruption line, zero NaN; acceptance 7/7; serving 6/6; pool byte-identical.
+- **Mixed-prefill cap: measured, not adopted.** Cap 896 halves concurrent prompt-read
+  waits (−46%) at the cost of halved decode during the read (−50%); cap 448 is strictly
+  worse; the trade is flat because fat-expert MoE streaming dominates any mixed step.
+  Left off; documented as a one-line operator option.
+- **MAX_NUM_BATCHED_TOKENS=7168: safe but useless.** Boots and survives a 266k-token
+  cold read (856–872 tok/s, no indexer smem failure), but concurrent aggregate moved
+  only +5% under the skip rule and solo reads ~2% slower. Reverted; 3584 stands (page
+  alignment unchanged).
