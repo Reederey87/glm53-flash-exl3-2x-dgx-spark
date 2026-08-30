@@ -1,74 +1,81 @@
 # GLM-5.3-Flash-EXL3 on 2× NVIDIA DGX Spark
 
-Reproduction kit for a **production** deployment of GLM-5.3-Flash (320B MoE / 18B active)
-on two NVIDIA DGX Spark (GB10 Grace Blackwell, 121 GiB unified memory each), serving
-**1M context** with DFlash2 speculative decoding at TP=2 over a direct 200Gb QSFP link.
+Reproduction kit for a **production** deployment of GLM-5.3-Flash (320B MoE / 18B
+active) on two NVIDIA DGX Spark (GB10 Grace Blackwell, 121 GiB unified memory each):
+a **1,000,000-token context window** with DFlash2 speculative decoding, TP=2 over a
+direct 200Gb QSFP link, loopback-only by default.
 
-This is the deployment I actually run, with every gotcha it cost to get here written down.
-Since 2026-08-30 the serving image is **built by this repo's `Dockerfile`** from the official
-day-0 GLM-5.3 arm64 base (digest-pinned `FROM`) — production runs the locally built image, not a pull.
+This is the deployment I actually run, with every gotcha written down. Since
+2026-08-30 the serving image is **built by this repo's `Dockerfile`** — production
+runs the local build, not a pulled artifact.
 
-## Why this kit
+## Why this kit, in numbers
 
-- **Frontier-class model on desk hardware.** A 320B-parameter MoE with a **1,000,000-token
-  context window**, served from two consumer-purchasable Sparks — no rack, no cloud bill,
-  loopback-only by default.
-- **Measured, not claimed.** Every number in this README comes off the running cluster:
-  **~70 tok/s structured / 27.9 tok/s prose** decode at the 1M window (previous-image high-water 72.8),
-  **~893 tok/s** cold prefill at 240k, **1.0 speculative acceptance** on structured output (7 drafted
-  tokens per step, zero wasted verifies), a **500,000-token prompt prefilled at 854 tok/s with
-  the drafter active and replayed 111× faster** from cache, a 110k-token session re-prefilling
-  in **~4 s** instead of 132 — and **multi-session caching that works**: two 68k sessions retain
-  97.8%, four concurrent 60k sessions retain 95%. The bench scripts ship in `tests/`
-  and `local/` — reproduce them in minutes.
-- **Hardware-honest quantization.** GB10 lacks the `cvt.e2m1x2` instruction — NVFP4
-  can never compile for this chip. EXL3's trellis kernels are Blackwell-native and keep
-  the 320B experts packed at 82 GiB/node, which is what leaves room for the 1M-token KV
-  pool. The full rationale: `docs/01-architecture.md`.
-- **Reproducible by construction — and reproduce-TESTED.** The serving image is built by
-  this repo's `Dockerfile` from the official day-0 arm64 base (pinned **by digest**), weights
-  pinned by revision, KV pool pinned to the byte (identical every boot — no profiling
-  variance), a config-shape hash that wipes stale JIT caches before they poison your numbers.
-  The 2026-08-30 cutover was gated by booting production on the fresh build: acceptance 7/7,
-  serving 6/6, byte-identical pool (1,396,551 tokens), loopback bind held, structured
-  acceptance 1.0000/7.0.
-- **Quality-gated like production, because it is production.** A 7-probe acceptance suite
-  (tool calls, thinking, vision, 36k needle), a 6-probe serving suite (SSE, 4-way
-  concurrency, sustained load), a 23-turn tool-call battery under concurrent cold-prefill
-  load — all passing on the shipped config, all runnable from this repo.
-- **Self-healing ops included.** Memory-gated restarts, a watchdog that tells crash from
-  wedge from deliberate stop, spec-decode acceptance alerting, GPU Xid monitoring, weekly
-  update/parity checks with a driver-branch hold. The failure modes are documented
-  *because they happened here first* — `docs/` is the postmortem you don't have to write.
+| | |
+|---|---|
+| Context window | **1,000,000 tokens**, with speculation active — on two desk machines |
+| Structured decode | **~70 tok/s** at speculative acceptance **1.0000** (7/7 drafted tokens accepted, every converged pass) |
+| Prose decode | **27.9 tok/s** at the 1M window |
+| Cold prefill | **~893 tok/s** solo (133–240k prompts) |
+| 500k prompt, drafter on | **854 tok/s** cold; same prompt replayed from cache **111× faster** (5.3 s) |
+| Short request behind a 240k read | **7.9 s** to first token (256 s without this kit's fairness cap) |
+| Multi-session caching | 2×68k sessions retain **97.8%**; 4×60k concurrent retain **95%** |
+
+No other public recipe serves this model on this hardware with all four of: EXL3
+(the only quantization GB10 can actually run — it lacks the instruction NVFP4
+compiles to), a 1M window that *coexists* with speculative decoding, prefix caching
+that survives the hybrid-KDA architecture and the drafter, and perfect structured
+acceptance. Each of those is a specific fix in this tree, and removing any one of
+them has a measured cost (`docs/10-selfbuild-production.md`, "load-bearing set").
+
+Metric provenance, honestly: decode figures are medians of 3–4 converged temp-0
+passes; the ~70 structured is the 2026-08-30 self-built image (the earlier pulled
+image read 70.2–72.8 across boots, its 72.8 high-water after four hours warm — a
+long-warm re-bench of the self-build is the open follow-up); 27.9 prose and the
+caching rows were measured 08-29 on the previous image, whose cache mechanisms are
+baked into this build and spot-verified by the 500k/30k replay runs (15–17× at 30k);
+prefill and replay figures are single timed runs. Every bench script ships in
+`tests/` and `local/` — reproduce any row in minutes.
+
+## The serving image: preview vLLM, pinned and completed
+
+The base is `vllm/vllm-openai:glm53-flash-arm64-cu130` — the **day-0 GLM-5.3 preview
+image**, carrying a *pre-release* vLLM dev build (`0.1.dev20051+g487ecf187`) cut from
+the official enablement lineage **before** it merged upstream (#53906 is still open,
+and the tree predates vLLM's native DFlash2). Preview code is why this kit pins the
+base **by digest** and adds every capability explicitly, verified on the real pair:
+
+- **EXL3 kernels** — `exllamav3` built for aarch64/sm_121 at a pinned commit; keeps
+  the 320B experts packed at 82 GiB/node, which is what leaves room for the 1M pool.
+- **The DFlash2 drafter end to end** — model, speculator, aux-hidden-state capture;
+  none of it exists in the preview tree (we booted the raw base nine times to prove
+  exactly what's missing — `docs/09-rebase-draft-test.md`).
+- **KV slot-share** — without it the drafter caps the servable window near 358k;
+  with it, 1M + speculation coexist.
+- **Correctness backports** the preview tree predates: xgrammar termination
+  (#52805/#53046 — acceptance 0.98→1.0000), the #54282 draft-noise salt, a
+  long-generation kernel clamp.
+- **Hybrid-KDA prefix caching under speculation** — page-aligned geometry, sparse
+  retention, drafter-group fixes; upstream is converging on the same (#54163).
+
+When official support merges, `docs/07`/`docs/09` are the map forward — with the
+known landmine flagged (upstream's Aug-22 refactor broke DFlash2 loading on main).
 
 ## What's in the box
 
 | | |
 |---|---|
 | Weights | [`brandonmusic/GLM-5.3-Flash-tr3-4bpw`](https://huggingface.co/brandonmusic/GLM-5.3-Flash-tr3-4bpw) — uniform-K4 EXL3/TR3, ~164 GiB, pinned revision |
-| Runtime | **Built by `Dockerfile` in this repo** from `vllm/vllm-openai:glm53-flash-arm64-cu130` (digest-pinned `FROM`; provenance and licenses: [NOTICE](NOTICE)) |
-| Drafter | `incoai/GLM-5.3-Flash-DFlash2`, k=7 (structured accept 1.0 post-xgrammar-fix, ~70 tok/s structured) |
-| Base kit | Upstream serving recipe vendored at `0e2e78f`, with local commits on top (credited in [NOTICE](NOTICE)) |
+| Runtime | **Built by `Dockerfile` here** from the digest-pinned preview base ([NOTICE](NOTICE)) |
+| Drafter | `incoai/GLM-5.3-Flash-DFlash2`, k=7, BF16 (keep it BF16 — quantized-drafter handling is broken upstream) |
+| Ops | memory-gated restarts, crash/wedge/stop-aware watchdog, acceptance alerting, Xid monitoring, systemd units |
 
-The vendored kit does the heavy lifting (`start.sh` owns both ranks over ssh, JIT cache
-persistence, warmup, xgrammar termination backports). This repo adds what production
-needed on top — all changes are marked `# LOCAL:` in-file:
-
-- **`--host 127.0.0.1` hardcoded** — upstream binds `0.0.0.0` with `--network host`,
-  which is an unauthenticated model on your LAN. Verify after any update:
-  `ss -ltn | grep 8000` must show loopback only.
-- **KV pool pinned** (`--kv-cache-memory-bytes`) — byte-identical pool every boot,
-  no profiling variance. Never raise it; see `docs/02-parameters.md`.
-- **Prefix-cache geometry for a hybrid KDA model** — `MAX_NUM_BATCHED_TOKENS` must equal
-  the 3584-token page size and async scheduling must be OFF, or cache hits silently read
-  0%. The full mechanism: `docs/04-prefix-caching.md`. This one took a day to find.
-- **`local/` ops kit** — `prod-start.sh` (memory-gated restart with a config-shape hash
-  that wipes stale JIT caches), a watchdog that distinguishes crash/wedge/deliberate-stop,
-  metrics alerting with argv-integrity checks, GPU Xid monitoring, a driver-branch hold
-  (590.x deadlocks CUDAGraph capture on GB10), acceptance and serving test batteries,
-  and prefix-cache probes (`cache-burst.py`, `cache-probe.sh`, `toolcall-probe.py`).
-- **systemd units** (user-level, linger on) — one oneshot unit owns the pair; timers for
-  watchdog, weekly update/parity checks, and metrics alerts.
+Key local hardening, all marked `# LOCAL:` in-file: **loopback bind hardcoded**
+(upstream ships `0.0.0.0` on `--network host` — an open model on your LAN; verify
+with `ss -ltn | grep 8000` after any update), **KV pool pinned to the byte** (never
+raise it — `docs/02`), and **`MAX_NUM_BATCHED_TOKENS` = the 3,584-token page size
+with async scheduling OFF** — get either wrong and cache hits silently read 0%
+(`docs/04`).
 
 ## Quickstart
 
@@ -76,75 +83,38 @@ needed on top — all changes are marked `# LOCAL:` in-file:
 # on the head node
 git clone <this repo> glm53 && cd glm53
 cp env.example .env         # read it top to bottom — every value is a decision
-docker build -t glm53-selfbuild .   # from the digest-pinned day-0 base; ship to the worker too
+docker build -t glm53-selfbuild .   # from the digest-pinned base; ship to the worker too
 bash download.sh            # ~164 GiB of weights, verified against the pinned revision
 local/prod-start.sh         # NOT start.sh directly — see docs/03-bringup.md
 local/acceptance.sh         # 7 checks: tools, thinking, vision, long-context needle
 ```
 
-Then install the units in `local/` (`systemctl --user enable ...`) so the pair survives
-reboots and heals itself. `docs/03-bringup.md` has the full drill, including why
-`ExecStart` must be restart-shaped and why the watchdog never blocks.
+Then install the units in `local/` (`systemctl --user enable ...`) so the pair
+survives reboots and heals itself. Full drill: `docs/03-bringup.md`.
+
+This release is reproduce-tested: this exact tree was rebuilt on the production head
+and booted **as production**, passing acceptance 7/7, serving 6/6, a byte-identical
+KV pool (1,396,551 tokens), and 1.0000/7.0 structured acceptance on first boot.
 
 ## API surface notes (this build)
 
-**Cache reset.** `overlay/patch_cache_reset.py` mounts the upstream dev cache
-router on the head API server, so a genuinely cold prefix cache no longer
-needs a container restart:
+**Cache reset** — `POST /reset_prefix_cache` (from `overlay/patch_cache_reset.py`)
+empties a cold cache without a restart; returns `{"success": false}` while blocks
+are held, retry after requests drain. Auth caveat: the bearer middleware guards only
+`/v1`-style prefixes, so root-mounted routes (`/tokenize`, `/detokenize`, the cache
+reset) answer without the key — set `GLM53_EXPOSE_CACHE_RESET=0` for untrusted
+clients. **Tokenize** is mounted at the root (`/v1/tokenize` is 404) and validates
+`prompt`/`messages`, not `text`.
 
-```bash
-curl -s -X POST http://127.0.0.1:8000/reset_prefix_cache    # -> {"success": true}
-```
+## The experiments that lost (read before "optimizing")
 
-It returns `{"success": bool}` and reports `false` while blocks are still
-held (running requests, in-flight async KV offload) — retry after they
-drain. `GLM53_EXPOSE_CACHE_RESET=0 ./start.sh` restores the stock surface
-(restart is then the only reset); `VLLM_SERVER_DEV_MODE=1` still mounts the
-whole dev set (`/sleep`, `/rlhf`, `/rpc`, `/server_info`) if ever needed.
-Auth caveat: the bearer middleware only guards `/v1`, `/v2`, `/inference`,
-`/cohere` (upstream `GUARDED_PREFIX`), so root-mounted routes — the stock
-`/tokenize` / `/detokenize` and the cache-reset routes — answer without the
-key even with `VLLM_API_KEY` set. Set `GLM53_EXPOSE_CACHE_RESET=0` on kits
-that serve untrusted clients.
-
-**Tokenize.** It is mounted at the **root** (`/v1/tokenize` is 404) and the
-request validates `prompt` (or `messages` for the chat shape), not `text`.
-
-## Measured (2026-08-29 → 08-30, warm, temp 0, converged medians — run 3–4 passes before judging a boot; decode rows re-measured on the 08-30 self-built image)
-
-| Phase | Value |
-|---|---|
-| Structured decode (count 1→200) | **69–70 tok/s on the self-built image** (fork-image boots read 70.2–72.8 — within the observed boot-to-boot band; acceptance 1.0000, 7.0/step, all positions, every converged pass) |
-| Prose decode | **27.9 tok/s at the 1M window** — the earlier 29.5 was measured at a 262k window; the 1M window costs ~6% prose decode (29.5 × 0.94 ≈ 27.7), so 27.9 is the healthy number, not a regression. A 26.5 reading seen after restart churn was swap-depression noise, not real |
-| Production path (temp 1.0, thinking on) | ~28–30 tok/s |
-| Cold prefill (solo, ~133–240k) | **~893 tok/s** (941 with `LONG_PREFILL_TOKEN_THRESHOLD` unset — the −5% is the price of HOL relief) |
-| Short-request TTFT behind a 240k cold prefill | **7.9 s** (256 s without the threshold) |
-| 110k cached re-prefill | **~4 s** (vs 132 s cold; 98% hit) |
-| 2×68k sessions, cross-session retention | **97.8%** (5.8 s re-prefill) |
-| 4×60k concurrent sessions ×3 rounds | **95.0%** (271k tokens re-prefilled in 17.4 s) |
-| 500k fill with the drafter active | **854 tok/s cold**, needle retrieved, warm replay **111×** (585.7 s → 5.3 s) |
-| 30k replay with the drafter active | **15–17×** (2.2–2.4 s warm) |
-| Bench-convergence caveat | first passes after a restart read low (prose −17%) from parked-swap fault-in — run 3–4 passes |
-
-The 2026-08-29 numbers include the xgrammar termination backports (structured
-acceptance 0.98 → 1.0 by eliminating spurious tail-draft rejections), the sparse-KDA
-retention fix (the multi-session rows above were an exact 0% before it), and the
-long-prefill chunk cap — `docs/06-improvement-plan.md` documents the full program,
-including the experiments that measured *worse* and were reverted.
-
-## Rebase track — executed
-
-The plan in `docs/07-rebase-plan.md` was carried out on 2026-08-30 and the results are
-written down: `docs/09-rebase-draft-test.md` is the field report of testing the official
-day-0 base + an out-of-tree EXL3 plugin + a DFlash2 port on the real pair (with the boot
-traps that cost nine rounds), and `docs/10-selfbuild-production.md` is the production
-cutover to the self-built image plus the A/B ledger — including the upstream #54282
-draft-noise-salt backport this kit now ships, and the experiments that measured *worse*
-and were reverted with numbers (the community LPTT/MNBT prefill config, FlashInfer's
-radix top-k at draft-batch sizes). What still separates this kit from vanilla upstream:
-the EXL3 kernels, the DFlash2 KV slot-share, the spec×prefix-cache fixes (upstream
-#54163 is the designated successor), and the xgrammar termination backports —
-each one measured load-bearing.
+The improvement program (`docs/06`, `docs/08`, `docs/10`) records every tested
+change, including the rejections — with numbers, so you don't re-pay for them:
+a community-recommended prefill config (+3.7% cold prefill, but −3.3–4% on every
+decoded token and −12% pool); FlashInfer's radix top-k (zero gain at draft-batch
+sizes); a bigger draft length (k=8: prose −9%); dual-rail NCCL (loses at production
+geometry). If a knob isn't set the way upstream defaults it, there's a measured
+reason in those three docs.
 
 ## Layout
 
@@ -152,10 +122,11 @@ each one measured load-bearing.
 env.example        the deployment's configuration, annotated (start here)
 Dockerfile         builds the serving image from the digest-pinned day-0 base
 start.sh stop.sh   vendored launcher (LOCAL-patched: loopback bind, single env example)
-overlay/           runtime patches applied to the pinned image at container start
+overlay/           runtime patches applied at container start
 local/             production ops: prod-start, watchdog, monitors, tests, cache probes
-docs/              architecture, parameters, bringup, prefix caching, known issues,
-                   improvement plan, rebase plan, rebase field test, self-build cutover
+docs/              01 architecture · 02 parameters · 03 bringup · 04 prefix caching ·
+                   05 known issues · 06 improvement plan · 07 rebase plan ·
+                   08 concurrent prefill · 09 rebase field test · 10 self-build cutover
 tests/             decode benches + kit regression tests
 ```
 
@@ -176,5 +147,5 @@ the base model is [zai-org/GLM-5.3-Flash](https://huggingface.co/zai-org/GLM-5.3
 
 ## License
 
-Original work in this repo: Apache-2.0 ([LICENSE](LICENSE)). Vendored serving-kit files:
-MIT, reproduced in [NOTICE](NOTICE) together with full provenance.
+Original work in this repo: Apache-2.0 ([LICENSE](LICENSE)). Vendored serving-kit
+files: MIT, reproduced in [NOTICE](NOTICE) together with full provenance.
