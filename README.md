@@ -104,7 +104,7 @@ that serve untrusted clients.
 **Tokenize.** It is mounted at the **root** (`/v1/tokenize` is 404) and the
 request validates `prompt` (or `messages` for the chat shape), not `text`.
 
-## Measured (2026-08-29, warm, temp 0, median of 3)
+## Measured (2026-08-29 → 08-30, warm, temp 0, converged medians — run 3–4 passes before judging a boot)
 
 | Phase | Value |
 |---|---|
