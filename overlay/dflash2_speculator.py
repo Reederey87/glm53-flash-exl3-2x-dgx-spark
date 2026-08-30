@@ -17,6 +17,17 @@ from vllm.v1.worker.gpu.sample.gumbel import tl_rand32, tl_rand64
 from vllm.v1.worker.gpu.spec_decode.dflash.speculator import DFlashSpeculator
 
 
+# LOCAL: W15a — vLLM #54282 backport. Verification is a probability-ratio
+# test, not a Gumbel coupling, so the draft's noise must not share a Philox
+# stream with the target sampler's (same per-request seed, overlapping pos):
+# shared noise under-weights the draft's high-q losers in the rejection
+# residual at temp>0 with probabilistic drafting. Every call site in this
+# file IS a draft site, so the salt is unconditional here (upstream plumbs
+# IS_DRAFTING because its helper also serves the target sampler). Positions
+# are int64 and never approach 2**30, so the streams cannot collide.
+_DRAFT_NOISE_SALT = tl.constexpr(1 << 30)
+
+
 @triton.jit
 def gumbel_noised_argmax(
     logits,
@@ -35,7 +46,7 @@ def gumbel_noised_argmax(
     if USE_FP64:
         logits = logits.to(tl.float64)
     if temp != 0.0:
-        gumbel_seed = tl.randint(seed, pos)
+        gumbel_seed = tl.randint(seed, pos + _DRAFT_NOISE_SALT)
         if USE_FP64:
             u = tl_rand64(gumbel_seed, keys, includes_zero=False)
             gumbel_noise = -tl.log(-tl.log(u))
