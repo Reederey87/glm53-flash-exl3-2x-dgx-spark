@@ -80,7 +80,7 @@ log "starting pair"
 # and recovered only after wiping both caches on both nodes (upstream #41871
 # class). Hash the shape-affecting knobs; on change, wipe triton+tilelang on
 # BOTH nodes (via the image, as root — the container writes them as root).
-shape_hash="$(grep -E '^(DFLASH_TOKENS|MTP_TOKENS|SPEC_METHOD|MAX_NUM_BATCHED_TOKENS|MAX_NUM_SEQS|MAX_MODEL_LEN|IMAGE|EXTRA_ARGS)=' .env 2>/dev/null | sort | md5sum | cut -d' ' -f1)"
+shape_hash="$(grep -E '^(DFLASH_TOKENS|DFLASH_DRAFT_TP|MTP_TOKENS|SPEC_METHOD|MAX_NUM_BATCHED_TOKENS|MAX_NUM_SEQS|MAX_MODEL_LEN|IMAGE|EXTRA_ARGS)=' .env 2>/dev/null | sort | md5sum | cut -d' ' -f1)"
 stamp="$HOME/.cache/vllm-glm53-flash/.config-shape"
 if [ -n "$shape_hash" ] && [ "$(cat "$stamp" 2>/dev/null)" != "$shape_hash" ]; then
     echo "[prod-start] config shape changed — wiping Triton/TileLang JIT caches on both nodes"

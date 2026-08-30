@@ -80,11 +80,15 @@ active (the warmup sweep pollutes counters), keep other traffic off, log the ver
    1,396,551 (1.40×) at k=7 — the extra verify slot costs ~3% of pool accounting.
    k=7 stands for mixed traffic; a structured-only deployment could revisit. The real
    answer is adaptive draft length, which is upstream rebase material (item 5).
-5. **Image rebase adoption** (trigger-driven, not scheduled): the build is a fork tip
-   (`b908a21f9a` + 142 GLM5Next/EXL3 commits); upstream has moved 643 commits past the
-   base. A self-rebase is the highest-risk path available and buys nothing the kit's
-   next image rebase won't — the weekly check-updates timer diffs staged vs upstream
-   HEAD and the GHCR digest vs the pin, and a moved digest opens this window. Protocol:
+5. **Image rebase adoption** (trigger-driven, not scheduled — **this kit builds and
+   releases its own image**; see `07-rebase-plan.md` for the full plan): the build is a
+   fork tip (`b908a21f9a` + 142 GLM5Next/EXL3 commits); upstream vLLM has moved 643+
+   commits past the base. The trigger is *vLLM upstream*, not any vendor image: when
+   official GLM-5.3 support (#53906) lands, the 142 fork commits shrink to a thin
+   overlay set and we rebase our own Dockerfile onto that base, build under our own
+   tag, and release it as this kit's next major version. Other kits' repos remain
+   sources to cherry-pick from, nothing more. Do not blind-rebase before then — the
+   risk math (fork drift across EXL3/KDA/slot-share) is unchanged. Protocol:
    stage the new digest with the FULL battery (acceptance/serving/toolcall suites,
    decode gates vs standing baselines, the cache-burst control set, loopback-bind
    verify, KV-pool line read) and re-check every overlay — patches subsumed upstream
@@ -112,10 +116,58 @@ active (the warmup sweep pollutes counters), keep other traffic off, log the ver
   verify ceiling is arithmetic.
 - **Re-enabling async scheduling** — the #47728-class double-count still fails the
   admission check at this geometry; async was throughput-neutral here anyway.
-- **Self-rebasing the vLLM fork** — 600+ commits of drift against fork-only EXL3/KDA
-  code; the upstream kit's own rebase is the sane path.
+- **Self-rebasing the vLLM fork *today*** — 600+ commits of drift against fork-only
+  EXL3/KDA code. This kit will do its own rebase and release (item 5 above), but only
+  after official GLM-5.3 support lands upstream and shrinks the fork to a thin
+  overlay; rebasing before that is the highest-risk move available for no gain.
 
 ## Operational holds picked up in this review
 
 - **Driver stays on the 580.x branch** — 590.x deadlocks CUDAGraph capture on GB10;
   `local/check-updates.sh` now warns on any 590.x driver and flags it in OTA planning.
+
+## 2026-08-30 window results (appended)
+
+Three windows ran on the production pair; full plain-language write-up of the
+concurrency work in [08-concurrent-prefill.md](08-concurrent-prefill.md).
+
+- **Baseline correction.** Prose decode at the 1M window converges at **27.9 tok/s** —
+  the earlier 29.5 was measured at a 262k window, and the 1M window's documented ~6%
+  prose cost lands exactly there (29.5 × 0.94 ≈ 27.7). A 26.5 reading after restart
+  churn was swap-depression, not real. Structured varies 71–73 across boots (best
+  72.8) at acceptance 1.0000 / 7.0 per step. Judge any boot only after 3–4 converged
+  bench passes.
+- **Kpool tail slot-map clamp: adopted.** Applied as a runtime overlay onto the pinned
+  image (no rebuild): patched on both ranks, idempotent, tests green. Evidence battery:
+  five solo 2,600-token generations and a 4-way concurrent 2,600-token burst past the
+  ~2.2k corruption line, zero NaN; acceptance 7/7; serving 6/6; pool byte-identical.
+- **Mixed-prefill cap: measured, not adopted.** Cap 896 halves concurrent prompt-read
+  waits (−46%) at the cost of halved decode during the read (−50%); cap 448 is strictly
+  worse; the trade is flat because fat-expert MoE streaming dominates any mixed step.
+  Left off; documented as a one-line operator option.
+- **MAX_NUM_BATCHED_TOKENS=7168: safe but useless.** Boots and survives a 266k-token
+  cold read (856–872 tok/s, no indexer smem failure), but concurrent aggregate moved
+  only +5% under the skip rule and solo reads ~2% slower. Reverted; 3584 stands (page
+  alignment unchanged).
+- **Context window 1M → 500k: rejected with data.** The suggestion (upstream issue #43)
+  is that a smaller window relieves capacity queueing. Measured here with a matched
+  probe (five concurrent ~82k cold sessions, cache reset first) the admission behavior
+  is **identical at both windows** — peak 3 of 4 slots running, capacity-reason waits
+  in ~37% of samples, worst lane ~7 minutes, aggregate ~940 tok/s — because the
+  queueing is the in-flight prefills' own accounted footprint, not the window setting.
+  Meanwhile the smaller window *costs* real capacity: the same pinned KV bytes count
+  **1,065,789 pool tokens at 500k vs 1,396,551 at 1M** (−24% — pool tokens are
+  geometry-dependent and the 1M layout packs them best on this stack), and prose decode
+  did not recover (~27 vs 27.9). So 500k buys nothing and shrinks the cache. The 1M
+  window stays.
+- **Guard fix that rode along:** `DFLASH_DRAFT_TP` is now part of the JIT shape-hash
+  guard in `local/prod-start.sh` — changing drafter tensor-parallelism changes drafter
+  kernel shapes, the same stale-cache class that once collapsed acceptance 0.96 → 0.58.
+- **Drafter tensor-parallelism 2: rejected.** The upstream kit made `DFLASH_DRAFT_TP=2`
+  its default (sharding the ~2.3 GiB DFlash2 drafter across both ranks). Measured here:
+  the hoped-for head-node memory relief did not appear (spark1 idle-free actually read
+  ~0.4 GiB lower, worker ~0.5 GiB higher — the head keeps its working set either way),
+  and decode tracked 1–2% below the TP=1 band on both phases, consistent with the
+  upstream PR's own receipts (their structured 65.1 vs our 70+ at TP=1). Acceptance
+  held a perfect 1.0000 / 7.0 per step, so TP=2 is safe — just not better on a 2-node
+  pair. This deployment pins `DFLASH_DRAFT_TP=1`.
