@@ -49,10 +49,99 @@ MCG_MULTIPLIER = 0xCBAC1FED
 MCG_MARKER_SIGNED_INT32 = -877912083
 EXL3_SUFFIXES = ("trellis", "suh", "svh", "mcg")
 SWIGLU_LIMIT_DEFAULT = 10.0
+# Default fused-kernel temp rows/expert. 1024 covers MNBT=1024 in one launch
+# but measured slower than 128+fallback (P2b). Override with EXL3_TEMP_ROWS_FUSED.
 TEMP_ROWS_FUSED = 128
 MOE_ACT_SILU = 0
 # Shared fused scratch: decode is sequential across layers.
 _FUSED_TEMP_CACHE: dict[tuple, tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]] = {}
+_FAT_BUCKET_EDGES = (16, 32, 64, 128, 256, 512, 1024, 2048)
+_FAT_STATS: dict[str, Any] = {
+    "layers": 0,
+    "fat_layers": 0,
+    "fat_experts": 0,
+    "max_rows": 0,
+    "sum_max_rows": 0,
+    "hist": [0] * (len(_FAT_BUCKET_EDGES) + 1),
+}
+
+
+def fused_moe_row_tile_enabled() -> bool:
+    """GPU row tiles instead of LinearEXL3 fallback. Prefill-only; decode stays one launch.
+
+    Measured slower than the 128-row fallback at MNBT=1024 (8 full-grid launches).
+    Default off; keep for MNBT > temp rows if a later bump still overflows.
+    """
+    return os.environ.get("EXL3_MOE_ROW_TILE", "0") != "0"
+
+
+def temp_rows_fused() -> int:
+    raw = os.environ.get("EXL3_TEMP_ROWS_FUSED", "").strip()
+    if not raw:
+        return int(TEMP_ROWS_FUSED)
+    return max(1, int(raw))
+
+
+def fat_expert_log_enabled() -> bool:
+    return os.environ.get("EXL3_FAT_EXPERT_LOG", "1") != "0"
+
+
+def reset_exl3_fat_expert_stats() -> None:
+    _FAT_STATS["layers"] = 0
+    _FAT_STATS["fat_layers"] = 0
+    _FAT_STATS["fat_experts"] = 0
+    _FAT_STATS["max_rows"] = 0
+    _FAT_STATS["sum_max_rows"] = 0
+    _FAT_STATS["hist"] = [0] * (len(_FAT_BUCKET_EDGES) + 1)
+
+
+def _fat_bucket(n: int) -> int:
+    for i, edge in enumerate(_FAT_BUCKET_EDGES):
+        if n <= edge:
+            return i
+    return len(_FAT_BUCKET_EDGES)
+
+
+def record_exl3_fat_expert_stats(
+    counts: torch.Tensor, *, max_rows: int | None = None
+) -> dict[str, Any]:
+    """Prefill-only. `counts` is (n_exp,) GPU int64. Syncs if max_rows is omitted."""
+    if max_rows is None:
+        max_rows = int(counts.max().item())
+    n_fat = int((counts > temp_rows_fused()).sum().item())
+    st = _FAT_STATS
+    st["layers"] += 1
+    st["sum_max_rows"] += max_rows
+    st["hist"][_fat_bucket(max_rows)] += 1
+    if max_rows > st["max_rows"]:
+        st["max_rows"] = max_rows
+    if n_fat:
+        st["fat_layers"] += 1
+        st["fat_experts"] += n_fat
+    # 42 routed-MoE layers per engine step (MoE from layer 3 of 45).
+    if st["layers"] % 42 == 0:
+        avg = st["sum_max_rows"] / st["layers"]
+        le128 = sum(st["hist"][:4])
+        gt128 = sum(st["hist"][4:])
+        logger.info(
+            "exl3 fat-expert P0: layers=%d fat_layers=%d (%.1f%%) fat_expert_slots=%d "
+            "max_rows=%d avg_max_rows=%.1f hist_le128=%d hist_gt128=%d hist=%s",
+            st["layers"],
+            st["fat_layers"],
+            100.0 * st["fat_layers"] / st["layers"],
+            st["fat_experts"],
+            st["max_rows"],
+            avg,
+            le128,
+            gt128,
+            st["hist"],
+        )
+    return {
+        "max_rows": max_rows,
+        "n_fat": n_fat,
+        "layers": st["layers"],
+        "fat_layers": st["fat_layers"],
+    }
 
 
 def _narrow_tp(tensor: torch.Tensor, dim: int, tp_rank: int, tp_size: int) -> torch.Tensor:
@@ -293,14 +382,15 @@ def build_exl3_fused_state(layer: torch.nn.Module, inners: list[dict[str, Any]])
     concurrency = int(exllamav3_ext.exl3_moe_max_concurrency(idx))
     if concurrency < 1:
         concurrency = 1
-    key = (str(device), hidden, intermediate, concurrency)
+    rows = temp_rows_fused()
+    key = (str(device), hidden, intermediate, concurrency, rows)
     temps = _FUSED_TEMP_CACHE.get(key)
     if temps is None:
         temps = (
-            torch.empty((concurrency, TEMP_ROWS_FUSED, hidden), dtype=torch.float16, device=device),
-            torch.empty((concurrency, TEMP_ROWS_FUSED, hidden), dtype=torch.float16, device=device),
-            torch.empty((concurrency, TEMP_ROWS_FUSED, intermediate), dtype=torch.float16, device=device),
-            torch.empty((concurrency, TEMP_ROWS_FUSED, intermediate), dtype=torch.float16, device=device),
+            torch.empty((concurrency, rows, hidden), dtype=torch.float16, device=device),
+            torch.empty((concurrency, rows, hidden), dtype=torch.float16, device=device),
+            torch.empty((concurrency, rows, intermediate), dtype=torch.float16, device=device),
+            torch.empty((concurrency, rows, intermediate), dtype=torch.float16, device=device),
         )
         _FUSED_TEMP_CACHE[key] = temps
     layer._exl3_fused_temps = temps
@@ -308,46 +398,19 @@ def build_exl3_fused_state(layer: torch.nn.Module, inners: list[dict[str, Any]])
     layer._exl3_k = int(layer._exl3_bits)
 
 
-def apply_exl3_fused_moe(
-    x2d: torch.Tensor,
-    ids: torch.Tensor,
-    weights: torch.Tensor,
-    layer: torch.nn.Module,
-    inners: list[dict[str, Any]],
-    expert_map: torch.Tensor | None,
+def _exl3_moe_launch(
+    fn: Any,
+    xh: torch.Tensor,
+    out: torch.Tensor,
+    expert_count: torch.Tensor,
+    token_sorted: torch.Tensor,
+    weight_sorted: torch.Tensor,
+    temps: tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
+    ptrs: dict[str, torch.Tensor],
+    k: int,
     limit: float,
-) -> torch.Tensor:
-    """One exl3_moe launch per layer. Experts with count > 128 fall back to LinearEXL3."""
-    import exllamav3_ext
-
-    tokens, hidden = x2d.shape
-    n_exp = len(inners)
-    ptrs = getattr(layer, "_exl3_ptrs", None)
-    temps = getattr(layer, "_exl3_fused_temps", None)
-    if not ptrs or temps is None:
-        raise RuntimeError("EXL3 fused pointer tables were not built after weight load")
-
-    local = map_topk_to_local(ids, n_exp, expert_map)
-    topk = int(ids.shape[-1])
-    flat_token = torch.arange(tokens, device=x2d.device, dtype=torch.long).repeat_interleave(topk)
-    flat_weight = weights.reshape(-1).to(dtype=torch.float16)
-    order = local.argsort()
-    token_sorted = flat_token[order]
-    weight_sorted = flat_weight[order]
-    # scatter_add stays on GPU. torch.bincount can host-stage and break CUDA graphs.
-    expert_count = torch.zeros(n_exp + 1, dtype=torch.long, device=local.device)
-    expert_count.scatter_add_(
-        0, local.long(), torch.ones(local.shape, dtype=torch.long, device=local.device)
-    )
-    out = torch.zeros(tokens, hidden, dtype=torch.float32, device=x2d.device)
-    xh = x2d.contiguous().half()
-
-    counts = expert_count[:n_exp]
-    fn = exllamav3_ext.exl3_moe
-    # -1 = unknown active count: max-concurrency grid, no .item() host sync.
-    n_active_host = -1 if _exl3_moe_accepts_num_active(fn) else None
-
-    k = int(getattr(layer, "_exl3_k", 4))
+    n_active_host: int | None,
+) -> None:
     args = (
         xh,
         out,
@@ -384,19 +447,152 @@ def apply_exl3_fused_moe(
     else:
         fn(*args)
 
-    if tokens > TEMP_ROWS_FUSED:
-        fat = (counts > TEMP_ROWS_FUSED).nonzero(as_tuple=False).view(-1)
-        if fat.numel():
-            apply_exl3_python_loop(
-                x2d,
-                ids,
-                weights,
-                inners,
-                expert_map,
-                limit,
-                only_experts=set(int(i) for i in fat.tolist()),
-                out=out,
-            )
+
+def _exl3_moe_row_tiles(
+    fn: Any,
+    xh: torch.Tensor,
+    out: torch.Tensor,
+    counts: torch.Tensor,
+    token_sorted: torch.Tensor,
+    weight_sorted: torch.Tensor,
+    temps: tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
+    ptrs: dict[str, torch.Tensor],
+    k: int,
+    limit: float,
+    n_active_host: int | None,
+    max_rows: int,
+) -> None:
+    """Launch exl3_moe once per 128-row slice of the sorted expert-token buffer.
+
+    Prefill-only (host syncs). Decode never reaches here: tokens <= temp rows.
+    Kernel skips experts with count > temp rows; tiles keep every expert inside temps.
+    """
+    n_exp = int(counts.shape[0])
+    device = counts.device
+    tile = int(temps[0].shape[1])
+    n_tiles = (max_rows + tile - 1) // tile
+    prefix = torch.empty(n_exp, dtype=torch.long, device=device)
+    prefix[0] = 0
+    if n_exp > 1:
+        prefix[1:] = counts[:-1].cumsum(0)
+    for t in range(n_tiles):
+        row0 = t * tile
+        tile_counts = (counts - row0).clamp(min=0, max=tile)
+        n_tile = int(tile_counts.sum().item())
+        if n_tile == 0:
+            continue
+        cum = tile_counts.cumsum(0)
+        idx = torch.arange(n_tile, device=device)
+        expert_id = torch.searchsorted(cum, idx, right=True)
+        local_row = idx - (cum[expert_id] - tile_counts[expert_id])
+        src = prefix[expert_id] + row0 + local_row
+        tile_ec = torch.zeros(n_exp + 1, dtype=torch.long, device=device)
+        tile_ec[:n_exp] = tile_counts
+        _exl3_moe_launch(
+            fn,
+            xh,
+            out,
+            tile_ec,
+            token_sorted.index_select(0, src),
+            weight_sorted.index_select(0, src),
+            temps,
+            ptrs,
+            k,
+            limit,
+            n_active_host,
+        )
+
+
+def apply_exl3_fused_moe(
+    x2d: torch.Tensor,
+    ids: torch.Tensor,
+    weights: torch.Tensor,
+    layer: torch.nn.Module,
+    inners: list[dict[str, Any]],
+    expert_map: torch.Tensor | None,
+    limit: float,
+) -> torch.Tensor:
+    """One exl3_moe launch per layer when tokens or hottest expert fit temp rows.
+
+    Cap is temps dim1 (`EXL3_TEMP_ROWS_FUSED`, default 128). Overflow uses GPU
+    row tiles if EXL3_MOE_ROW_TILE=1, else LinearEXL3 for fat experts only.
+    Decode (tokens ≤ cap) stays a single graph-safe launch: no .item() / .tolist().
+    """
+    import exllamav3_ext
+
+    tokens, hidden = x2d.shape
+    n_exp = len(inners)
+    ptrs = getattr(layer, "_exl3_ptrs", None)
+    temps = getattr(layer, "_exl3_fused_temps", None)
+    if not ptrs or temps is None:
+        raise RuntimeError("EXL3 fused pointer tables were not built after weight load")
+
+    local = map_topk_to_local(ids, n_exp, expert_map)
+    topk = int(ids.shape[-1])
+    flat_token = torch.arange(tokens, device=x2d.device, dtype=torch.long).repeat_interleave(topk)
+    flat_weight = weights.reshape(-1).to(dtype=torch.float16)
+    order = local.argsort()
+    token_sorted = flat_token[order]
+    weight_sorted = flat_weight[order]
+    # scatter_add stays on GPU. torch.bincount can host-stage and break CUDA graphs.
+    expert_count = torch.zeros(n_exp + 1, dtype=torch.long, device=local.device)
+    expert_count.scatter_add_(
+        0, local.long(), torch.ones(local.shape, dtype=torch.long, device=local.device)
+    )
+    out = torch.zeros(tokens, hidden, dtype=torch.float32, device=x2d.device)
+    xh = x2d.contiguous().half()
+
+    counts = expert_count[:n_exp]
+    fn = exllamav3_ext.exl3_moe
+    # -1 = unknown active count: max-concurrency grid, no .item() host sync.
+    n_active_host = -1 if _exl3_moe_accepts_num_active(fn) else None
+    k = int(getattr(layer, "_exl3_k", 4))
+    # Actual kernel cap is the allocated temp dim1 (env-selected at load).
+    cap = int(temps[0].shape[1])
+
+    if tokens <= cap:
+        _exl3_moe_launch(
+            fn, xh, out, expert_count, token_sorted, weight_sorted,
+            temps, ptrs, k, limit, n_active_host,
+        )
+        return out
+
+    # Prefill larger than temps: one extra sync to know the hottest expert.
+    # Decode never reaches here (capture sizes << cap).
+    max_rows = int(counts.max().item())
+    if fat_expert_log_enabled():
+        record_exl3_fat_expert_stats(counts, max_rows=max_rows)
+
+    if max_rows <= cap:
+        _exl3_moe_launch(
+            fn, xh, out, expert_count, token_sorted, weight_sorted,
+            temps, ptrs, k, limit, n_active_host,
+        )
+        return out
+
+    if fused_moe_row_tile_enabled():
+        _exl3_moe_row_tiles(
+            fn, xh, out, counts, token_sorted, weight_sorted,
+            temps, ptrs, k, limit, n_active_host, max_rows,
+        )
+        return out
+
+    _exl3_moe_launch(
+        fn, xh, out, expert_count, token_sorted, weight_sorted,
+        temps, ptrs, k, limit, n_active_host,
+    )
+    fat = (counts > cap).nonzero(as_tuple=False).view(-1)
+    if fat.numel():
+        apply_exl3_python_loop(
+            x2d,
+            ids,
+            weights,
+            inners,
+            expert_map,
+            limit,
+            only_experts=set(int(i) for i in fat.tolist()),
+            out=out,
+        )
     return out
 
 

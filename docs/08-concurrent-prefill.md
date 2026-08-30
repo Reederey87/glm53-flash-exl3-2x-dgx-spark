@@ -90,3 +90,25 @@ leave it off.
   prompt reading) and the kit's own P7 idea (co-scheduling a second prefill into a
   capped step) are the structural fixes; both arrive via a future image rebase, not
   an overlay.
+
+## Postscript (2026-08-30): the "double the budget, cap at page size" config, measured
+
+A community field report recommended raising the batch budget to 7,168 while capping
+long-prefill chunks at the 3,584-token page size (`MAX_NUM_BATCHED_TOKENS=7168` +
+`LONG_PREFILL_TOKEN_THRESHOLD=3584`), claiming +11% cold prefill with short requests
+still slipping in behind a 240k read. We tested it on production for one window:
+
+| Metric | This kit's standing config | The 7168/3584 config |
+|---|---|---|
+| Solo cold prefill, 240k | 893 tok/s | 926 tok/s (**+3.7%**) |
+| Short-request TTFT behind the 240k read | 7.9 s | **6.0 s** |
+| 30k cached replay | ~15× | ~15× (intact) |
+| Structured decode, converged | 69.7–70.2 tok/s | **67.4 (−3.3% to −4.0%)** |
+| KV pool tokens (same pinned bytes) | 1,396,551 @ 1.40× | **1,227,272 @ 1.23× (−12%)** |
+
+The claimed benefits are real but arrive smaller here, and two costs the report
+didn't mention are not: a **constant** decode tax on every generated token, and a
+12% smaller pool from the geometry-dependent token accounting. For an agent
+workload that decodes far more than it cold-reads, the trade loses; we reverted.
+If your workload is dominated by long cold prefills, the two `.env` lines above
+may genuinely pay — measure both decode and pool before keeping them.

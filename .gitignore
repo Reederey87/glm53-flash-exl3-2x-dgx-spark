@@ -2,11 +2,6 @@
 .glm53-exl3-*.inner.sh
 logs/
 tool-eval-bench/
-# Keep the published direction vectors; do not ship transplant dumps (~640 MiB).
-ablit/*
-!ablit/LAYER_MAP.json
-!ablit/refusal_direction_glm53_dealign_late.pt
-!ablit/refusal_direction_glm53_bf_oproj.pt
 __pycache__/
 *.py[cod]
 .pytest_cache/
