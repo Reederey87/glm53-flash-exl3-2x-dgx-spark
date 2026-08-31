@@ -200,6 +200,41 @@ WAITING_NEW = """                    threshold = self.scheduler_config.long_pref
 """
 
 
+MARK_V2 = "[glm53-decode-floor-v2]"
+
+# The self-built production image BAKES the v1 overlay into scheduler.py at
+# image build time, so at container start this patcher meets a v1-marked file,
+# not a pristine one. These are the exact v1 forms (byte-verified against the
+# running container) that the upgrade path replaces with the v2 forms.
+V1_RUNNING = """            mixed_cap = _glm53_mixed_prefill_policy(self.running, request)  # [glm53-decode-floor]
+            if mixed_cap is not None and request.num_computed_tokens < request.num_prompt_tokens:
+                num_new_tokens = min(num_new_tokens, mixed_cap)
+"""
+V2_RUNNING = """            mixed_cap = _glm53_mixed_prefill_gate(self.running, request, request.num_computed_tokens)  # [glm53-decode-floor] [glm53-decode-floor-v2]
+            if mixed_cap is not None:
+                num_new_tokens = min(num_new_tokens, mixed_cap)
+"""
+V1_WAITING = """                    mixed_cap = _glm53_mixed_prefill_policy(self.running, request)  # [glm53-decode-floor]
+                    if mixed_cap is not None and num_computed_tokens < request.num_prompt_tokens:
+"""
+V2_WAITING = """                    mixed_cap = _glm53_mixed_prefill_gate(self.running, request, num_computed_tokens)  # [glm53-decode-floor] [glm53-decode-floor-v2]
+                    if mixed_cap is not None:
+"""
+# v2-only helper portion = everything in HELPER before the v1 policy def
+HELPER_V2_ONLY = HELPER.split("def _glm53_mixed_prefill_policy(", 1)[0]
+
+
+def upgrade_v1_to_v2(text: str) -> str:
+    """v1-baked file -> v2: swap both call sites, insert the v2 helper before the v1 policy def."""
+    text = replace_once(text, V1_RUNNING, V2_RUNNING, "v1 running call site")
+    text = replace_once(text, V1_WAITING, V2_WAITING, "v1 waiting call site")
+    needle = "def _glm53_mixed_prefill_policy(running, current):"
+    if text.count(needle) != 1:
+        raise SystemExit(f"{P}: expected one v1 helper def, found {text.count(needle)}")
+    text = text.replace(needle, HELPER_V2_ONLY + needle, 1)
+    return text
+
+
 def replace_once(text: str, old: str, new: str, label: str) -> str:
     n = text.count(old)
     if n != 1:
@@ -211,8 +246,16 @@ def main() -> int:
     if not P.is_file():
         raise SystemExit(f"missing {P}")
     text = P.read_text()
+    if MARK_V2 in text:
+        print(f"{P.name}: {MARK_V2} already present — skipping")
+        return 0
     if MARK in text:
-        print(f"{P.name}: {MARK} already present — skipping")
+        # v1 baked into the image (self-built production path): upgrade in place.
+        text = upgrade_v1_to_v2(text)
+        import ast as _ast
+        _ast.parse(text, filename=str(P))
+        P.write_text(text)
+        print(f"{P.name}: upgraded v1 -> v2 (mixed-prefill gate v2 active)")
         return 0
     if "import os\n" not in text.split("import time\n", 1)[0]:
         text = replace_once(text, IMPORT_OLD, IMPORT_NEW, "import os")
