@@ -226,7 +226,7 @@ so the two shapes diverge at token ~2); toggle back on 99.6%.
 | W18 | `GLM53_FINE_GRAINED_APC=1` — exempt `KpoolTailManager` from the partial-hash veto so hits reconcile at hash grain 64 instead of the 3584 page (kit PR #59) | sub-page follow-ups hit; output-stability control; zero IMA; universal gates | **ADOPTED 2026-08-31 (owner call on a −2.7% structured tax)** — see below |
 | W19 | Drafter `dc77ff1` then `bf582e4` (shape hash → JIT wipe) | accept ≥ 1.0000/7.0 structured and prose ≥ 27.9 | **TESTED 2026-08-31 — `7d74cdd` pin stands** (below) |
 | W20 | `DFLASH_DRAFT_TP=2` measured at **C4** (kit issue #56: +37% per-stream at C4; our earlier rejection was single-stream) | pool ≥ 1.0× 1M; C4 per-stream ≥ +15% and single-stream ≥ −3% | **TESTED 2026-08-31 — REJECTED, TP=1 stands** (below) |
-| W21 | KV offload to per-node NVMe (kit PR #58 port) — own go/no-go, last | universal + zero corruption + pool unmoved; kill on rank death / MemFree < 2.5 GiB / any output diff | queued |
+| W21 | KV offload to per-node NVMe (kit PR #58 port) — own go/no-go, last | universal + zero corruption + pool unmoved; kill on rank death / MemFree < 2.5 GiB / any output diff | **PARKED 2026-08-31 (owner call)** — take it on a fresh session after a soak of W16–W18; track upstream #54413/#54414/#54415 meanwhile |
 | W22+ | Long-context draft-length ladder (k∈{5,3} at 50k/150k, capture sizes re-picked per k+1) | informational | **CLOSED 2026-08-31 by F0** — no long-context decay to fix (below) |
 
 Skipped with reasons: #65 indexer top-k backports (MNBT 3584 already holds; 7168
