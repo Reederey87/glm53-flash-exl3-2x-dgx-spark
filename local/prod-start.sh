@@ -111,4 +111,12 @@ if [ -n "$shape_hash" ] && [ "$(cat "$stamp" 2>/dev/null)" != "$shape_hash" ]; t
     fi
 fi
 
-exec ./start.sh start
+./start.sh start
+rc=$?
+# LOCAL: content-prefix warmup — replay standing clients' anchors (local/warmup-anchors/)
+# through the normal prefill path once the pair is ready. Best-effort: an empty or
+# missing anchor dir is a no-op, and a warmup failure never fails the unit.
+if [ "$rc" -eq 0 ] && [ -x "$(command -v python3)" ]; then
+    python3 local/prefix-warmup.py || echo "[prod-start] WARN: prefix warmup failed (non-fatal)"
+fi
+exit "$rc"
