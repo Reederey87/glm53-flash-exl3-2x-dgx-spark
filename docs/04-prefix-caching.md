@@ -76,3 +76,18 @@ local/cache-probe.sh 30
 
 Round 1 is cold by construction; rounds 2+ are the verdict. A healthy config shows
 >90% on round 2 sequential and the same sessions re-prefilling in seconds.
+
+## 2026-08-31 addendum: the sub-page floor has a candidate fix (W18)
+
+The "hits align to 3584-token pages" rule above is not a property of the model —
+it is the coordinator's *partial-hash veto*: fine-grained hits are disabled when
+any KV-cache manager lacks `supports_fine_grained_hash_lookup`, and on this hybrid
+the only such manager is `KpoolTailManager`, the 4-token indexer tail scratch that
+never prefix-caches at all (its lookup returns 0). The boot log says so verbatim:
+`Disabling fine-grained prefix-cache hits because these KV cache managers require
+block-aligned lookups: KpoolTailManager.` Upstream kit PR #59 exempts that manager
+from the veto so MLA + mamba(align) hits reconcile at the hash grain (64 tokens).
+Ported here as `overlay/patch_fine_grained_apc.py` behind `GLM53_FINE_GRAINED_APC=1`
+(default off) for the W18 window — expected gain is bounded by where mamba
+checkpoints exist under `VLLM_PREFIX_CACHE_RETENTION_INTERVAL=0`, so it is a
+hypothesis to measure, not a promise. See `06-improvement-plan.md`.

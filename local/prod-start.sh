@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # prod-start.sh — production entrypoint: stop, WAIT FOR MEMORY TO SETTLE, start.
 #
-# LOCAL to this cluster; not part of the vendored upstream kit.
+# LOCAL to this cluster; not part of the upstream MiaAI-Lab kit.
 #
 # WHY THIS EXISTS (measured 2026-08-28): `start.sh restart` tears the pair down
 # and starts the new one immediately. The kernel has not yet returned the old
@@ -18,7 +18,7 @@
 # The wait cannot live in ExecStartPre: that runs BEFORE ExecStart, i.e. before
 # the stop that frees the memory. It has to sit between stop and start.
 set -uo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 WORKER_SSH="${WORKER_SSH:-nvidia@192.168.177.11}"
 # Gate = GPU_MEM_UTIL x total. Wait for a little more than vLLM will demand.
@@ -80,16 +80,35 @@ log "starting pair"
 # and recovered only after wiping both caches on both nodes (upstream #41871
 # class). Hash the shape-affecting knobs; on change, wipe triton+tilelang on
 # BOTH nodes (via the image, as root — the container writes them as root).
-shape_hash="$(grep -E '^(DFLASH_TOKENS|DFLASH_DRAFT_TP|MTP_TOKENS|SPEC_METHOD|MAX_NUM_BATCHED_TOKENS|MAX_NUM_SEQS|MAX_MODEL_LEN|IMAGE|EXTRA_ARGS)=' .env 2>/dev/null | sort | md5sum | cut -d' ' -f1)"
+# DFLASH_MODEL/DFLASH_REVISION are in the hash too: a drafter checkpoint swap
+# changes the drafter kernel shapes — same wipe class as DFLASH_TOKENS.
+# The launcher's own default pin line is hashed too, so a default change in
+# start.sh still wipes even when .env carries no DFLASH_REVISION= line.
+shape_hash="$( { grep -E '^(DFLASH_TOKENS|DFLASH_DRAFT_TP|DFLASH_MODEL|DFLASH_REVISION|MTP_TOKENS|SPEC_METHOD|MAX_NUM_BATCHED_TOKENS|MAX_NUM_SEQS|MAX_MODEL_LEN|IMAGE|EXTRA_ARGS)=' .env 2>/dev/null; grep -E '^DFLASH_REVISION=' start.sh 2>/dev/null; } | sort | md5sum | cut -d' ' -f1)"
 stamp="$HOME/.cache/vllm-glm53-flash/.config-shape"
 if [ -n "$shape_hash" ] && [ "$(cat "$stamp" 2>/dev/null)" != "$shape_hash" ]; then
     echo "[prod-start] config shape changed — wiping Triton/TileLang JIT caches on both nodes"
-    img="$(grep -oE 'ghcr.io[^"'"'"']*sha256:[0-9a-f]{64}' .env | head -1)"
+    # Resolve the wipe container from the IMAGE= line verbatim (the self-built
+    # image has no ghcr digest — the old digest-only grep matched nothing and
+    # the wipe silently no-op'd while the stamp still advanced). Fallback: any
+    # ghcr digest pin in .env.
+    img="$(sed -n 's/^IMAGE=//p' .env | tail -1 | tr -d '"'"'"'"' | tr -d '[:space:]')"
+    [ -n "$img" ] || img="$(grep -oE 'ghcr.io[^"'"'"']*sha256:[0-9a-f]{64}' .env | head -1)"
     if [ -n "$img" ]; then
-        docker run --rm --entrypoint /bin/bash -v "$HOME/.cache/vllm-glm53-flash:/c" "$img"             -c 'rm -rf /c/triton /c/tilelang' || echo "[prod-start] WARN: head cache wipe failed"
-        ssh -o BatchMode=yes -o ConnectTimeout=10 "$WORKER_SSH"             "docker run --rm --entrypoint /bin/bash -v \$HOME/.cache/vllm-glm53-flash:/c '$img' -c 'rm -rf /c/triton /c/tilelang'"             || echo "[prod-start] WARN: worker cache wipe failed"
+        wipe_ok=1
+        docker run --rm --entrypoint /bin/bash -v "$HOME/.cache/vllm-glm53-flash:/c" "$img"             -c 'rm -rf /c/triton /c/tilelang' || { echo "[prod-start] WARN: head cache wipe failed"; wipe_ok=0; }
+        ssh -o BatchMode=yes -o ConnectTimeout=10 "$WORKER_SSH"             "docker run --rm --entrypoint /bin/bash -v \$HOME/.cache/vllm-glm53-flash:/c '$img' -c 'rm -rf /c/triton /c/tilelang'"             || { echo "[prod-start] WARN: worker cache wipe failed"; wipe_ok=0; }
+        # Advance the stamp ONLY when both nodes were wiped; a half-wipe must
+        # retry on the next start (one rank on stale kernels is the 0.96->0.58 class).
+        if [ "$wipe_ok" = 1 ]; then
+            mkdir -p "$(dirname "$stamp")" && printf '%s\n' "$shape_hash" > "$stamp"
+        else
+            echo "[prod-start] WARN: JIT cache wipe incomplete — stamp left unchanged, will retry next start"
+        fi
+    else
+        # Do NOT advance the stamp: a missed wipe must retry on the next start.
+        echo "[prod-start] WARN: could not resolve IMAGE from .env — JIT caches NOT wiped, stamp left unchanged"
     fi
-    mkdir -p "$(dirname "$stamp")" && printf '%s\n' "$shape_hash" > "$stamp"
 fi
 
 exec ./start.sh start

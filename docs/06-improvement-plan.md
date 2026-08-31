@@ -185,3 +185,54 @@ FlashInfer's radix top-k in the candidate selector was **tested and rejected**
 (bit-exact but zero gain at ≤7-row draft batches). Open follow-ups: a long-warm
 re-bench of the self-build's structured decode, and upstream #54163 as a future
 window with cache-battery gates.
+
+## 2026-08-31: fourth sweep — two hygiene bugs, then W16–W22 (queued, one per restart)
+
+A full re-survey of the upstream kit (20 open issues, 17 open PRs; nothing
+runtime-affecting merged since our base) and vLLM upstream, qualified against
+this production. Every candidate below is an *open* proposal: each is ported
+behind an opt-in knob, Codex-reviewed, then measured in its own window against
+the standing gates (pool byte-identical 1,396,551; acceptance 7/7; serving 6/6;
+toolcall 23/23; structured ≥ 68.5 @ 1.0000/7.0; prose ≥ 27.0; cache-burst 2×68k
+≥ 95% / 4×60k ≥ 90%; no Xid; loopback-only bind).
+
+**Found on our side first (fixed in this tree, no restart):**
+
+- **The JIT-wipe guard had been a silent no-op since the self-build cutover.**
+  `local/prod-start.sh` resolved the wipe container by grepping a `ghcr.io…sha256:`
+  digest out of `.env`; `IMAGE=glm53-selfbuild:…` matches nothing, so the wipe
+  skipped while the stamp still advanced — the exact stale-JIT class (acceptance
+  0.96 → 0.58) the guard exists for. Now it reads `IMAGE=` verbatim (digest as
+  fallback) and never advances the stamp on a missed wipe.
+- **The DFlash2 drafter was unpinned and off the shape hash.** `incoai/GLM-5.3-Flash-DFlash2`
+  has shipped three different `model.safetensors` under `main` (08-27 `7d74cdd`,
+  08-28 `dc77ff1`, 08-31 `bf582e4`); production runs `7d74cdd` (sha256 `8931dc52…`)
+  only because nothing ever re-downloaded. `DFLASH_REVISION` (default = that sha)
+  is now threaded through download / resolve / worker sync-marker (kit PR #67
+  shape, also closes the stale-`refs/main` boot failure from issue #52), and
+  `DFLASH_MODEL|DFLASH_REVISION` join the hash — a drafter swap is the same
+  kernel-shape class as `DFLASH_TOKENS`.
+
+**Pre-W16 baseline for the template fix (kit PR #63), measured on production
+with `local/w16-toggle-probe.py`, one unique 50k-token prompt:** thinking-on
+warm replay 99.6% hits / 1.3 s; **thinking-off toggle 0% hits / 56.8 s** (full
+re-prefill — the `Reasoning Effort` head line was gated on `thinking_enabled`,
+so the two shapes diverge at token ~2); toggle back on 99.6%.
+
+| Window | Change (knob) | Gate | Status |
+|---|---|---|---|
+| W16 | Template emits the effort line unconditionally (off-shape = on-shape + `</think>`) + `DEFAULT_MAX_NEW_TOKENS=65536` (own `--override-generation-config` arg, hash-neutral) | toggle hits ≥ 95%; boot log shows the override; universal gates | queued |
+| W17 | `GLM53_SPINWAIT_2MS=1` — vLLM `SpinCondition` reader spin 1 s → 2 ms (kit PR #69; frees 3–4 spinning P-cores on GB10) | reader-thread CPU < 50% of prior; decode in band; TTFT-behind-240k ≤ 7.9 s; **re-baseline after** | queued |
+| W18 | `GLM53_FINE_GRAINED_APC=1` — exempt `KpoolTailManager` from the partial-hash veto so hits reconcile at hash grain 64 instead of the 3584 page (kit PR #59; the boot log today says `Disabling fine-grained prefix-cache hits … KpoolTailManager`) | sub-page follow-ups hit; temp-0 byte-identical cold vs replay; zero IMA; universal gates | queued |
+| W19 | Drafter `dc77ff1` then `bf582e4` (shape hash → JIT wipe) | accept ≥ 1.0000/7.0 structured and prose ≥ 27.9 | queued |
+| W20 | `DFLASH_DRAFT_TP=2` measured at **C4** (kit issue #56: +37% per-stream at C4; our earlier rejection was single-stream) | pool ≥ 1.0× 1M; C4 per-stream ≥ +15% and single-stream ≥ −3% | queued |
+| W21 | KV offload to per-node NVMe (kit PR #58 port) — own go/no-go, last | universal + zero corruption + pool unmoved; kill on rank death / MemFree < 2.5 GiB / any output diff | queued |
+| W22+ | Long-context draft-length ladder (k∈{5,3} at 50k/150k, capture sizes re-picked per k+1) | informational | queued |
+
+Skipped with reasons: #65 indexer top-k backports (MNBT 3584 already holds; 7168
+measured useless); PR #39 (`MemAvailable` gate — wrong signal here); PR #72
+dual-rail (closed earlier: loses at prod geometry); PR #70 (vllm#53030's
+signature is mean-accept-length 1.00 = zero drafts accepted — ours is 7.0/step);
+PR #66 (no `VLLM_API_KEY` here). vLLM upstream items (#54373 draft RoPE layout,
+#53802 hit boundaries, #52495 SWA accounting, #53426 K=0 skip) are rebase-time
+carries, not overlays.
