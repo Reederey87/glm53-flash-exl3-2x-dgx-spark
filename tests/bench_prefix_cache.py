@@ -51,7 +51,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-BASE = "http://127.0.0.1:8888/v1"
+BASE = os.environ.get("GLM53_BASE", "http://127.0.0.1:8000") + "/v1"  # LOCAL: this cluster serves :8000
 MODEL = "GLM-5.3-Flash-EXL3"
 API_KEY_ENV = "API_KEY"
 RESULTS_DIR = Path(__file__).resolve().parents[1] / "results"

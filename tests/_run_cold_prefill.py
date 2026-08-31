@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Live cold-prefill ladder for GLM-5.3-Flash-EXL3 on :8888.
+"""Live cold-prefill ladder for GLM-5.3-Flash-EXL3 (GLM53_BASE, default :8000).
 
 Protocol matches the published kit receipts: temp 0, thinking off via
 top-level chat_template_kwargs, stream + include_usage, max_tokens=8,
@@ -7,6 +7,7 @@ unique salt per cold request, one-at-a-time, TTFT = first content token.
 """
 from __future__ import annotations
 
+import os
 import json
 import secrets
 import time
@@ -15,7 +16,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-BASE = "http://127.0.0.1:8888"
+BASE = os.environ.get("GLM53_BASE", "http://127.0.0.1:8000")  # LOCAL: this cluster serves :8000
 SERVED = "GLM-5.3-Flash-EXL3"
 FILLER = "the "
 TASK = "Reply with OK."

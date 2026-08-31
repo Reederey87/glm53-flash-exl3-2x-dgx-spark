@@ -9,6 +9,7 @@ Decode tok/s = (completion_tokens - 1) / (last - first_token).
 """
 from __future__ import annotations
 
+import os
 import argparse
 import json
 import threading
@@ -16,7 +17,7 @@ import time
 import urllib.request
 from typing import Any
 
-BASE = "http://127.0.0.1:8888"
+BASE = os.environ.get("GLM53_BASE", "http://127.0.0.1:8000")  # LOCAL: this cluster serves :8000
 MODEL = "GLM-5.3-Flash-EXL3"
 TASK = " Count from 1 to 80. Output only the numbers, separated by spaces. No other text."
 
