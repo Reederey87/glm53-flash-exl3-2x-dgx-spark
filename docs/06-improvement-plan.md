@@ -405,3 +405,35 @@ The overlay now carries a three-state installer — pristine → v2, **v1-baked 
 upgrade** (byte-verified v1 anchors), v2 → no-op — with fixture tests for every
 transition (`tests/test_gate_v2_upgrade.py`). Rule for every future overlay in this
 repo: the baked state, not the pristine state, is what a production boot meets.
+
+### W24 — fat-expert prefill (upstream PR #77) ADOPTED (2026-08-31 night)
+
+The MoE fat-expert wall (weight streaming ≈ 63% of every prefill step) finally moved.
+The PR adds three opt-in tiers — sorted expert slices, batched persistent-scratch
+reconstruction, and a fused SM121 trellis GEMM (`exl3_fat_gemm` + scatter epilogue)
+compiled into the image's exllamav3 extension. Reviewed before porting: Grok on the
+CUDA (verdict: sound for our single-stream engine once the scatter contract and shape
+divisibility were verified — GLM's hidden 4096 / moe_intermediate 2048 divide cleanly;
+prefill is never CUDA-graph-captured here), Codex on the Python (no blocker for
+vLLM's serial forwards; the ~300 MiB one-time workspace and the kernel-only flag edge
+noted — we enable all three tiers explicitly).
+
+Image `glm53-selfbuild:b5ab8091-w24` (kernel baked, flags default OFF — the rebuild
+alone is behavior-neutral). A/B on the same image, same boot class, warm JIT both arms:
+
+| probe | flags off | flags on | Δ |
+|---|---|---|---|
+| 240k cold read (HoL probe) | 836.9 tok/s | **931.9 / 990.9** | **+11–18%** |
+| 178k cold read | 895 | **1038 / 1041** | **+16%** |
+| 254k cold read | 891 | **972** | **+9%** |
+| short TTFT behind the 240k read | 7.95 s | **6.8–7.4 s** | −9–14% |
+| structured decode (converged) | 66.0–66.5 @ 1.0000/7.0 | 65.9–66.2 @ 1.0000/7.0 | wash |
+| prose decode | in band | 27.5–29.8 | in band |
+
+Acceptance 7/7, pool byte-identical (1,396,551), 0 errors / 0 illegal-memory-access,
+head MemFree 4.06 GiB with the fat workspace resident, and the fat path demonstrably
+engaged (stats: 99.7% of prefill layer-steps carried fat experts at max_rows 3584).
+The author's receipts (+19% at 64–100k, prose −2.9%) largely reproduce — our prose
+cost did not materialize at this geometry. Production now runs the w24 image with
+`EXL3_FAT_SORTED/BATCHED/KERNEL=1`. Rollback ladder: `.env.w24-control` (flags off,
+same image) → `.env.bak-pre-w24` (w15a image).
