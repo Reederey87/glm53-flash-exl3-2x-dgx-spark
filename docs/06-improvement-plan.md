@@ -221,7 +221,7 @@ so the two shapes diverge at token ~2); toggle back on 99.6%.
 
 | Window | Change (knob) | Gate | Status |
 |---|---|---|---|
-| W16 | Template emits the effort line unconditionally (off-shape = on-shape + `</think>`) + `DEFAULT_MAX_NEW_TOKENS=65536` (own `--override-generation-config` arg, hash-neutral) | toggle hits ≥ 95%; boot log shows the override; universal gates | queued |
+| W16 | Template emits the effort line unconditionally (off-shape = on-shape + `</think>`) + `DEFAULT_MAX_NEW_TOKENS=65536` (own `--override-generation-config` arg, hash-neutral) | toggle hits ≥ 95%; boot log shows the override; universal gates | **ADOPTED 2026-08-31** — see below |
 | W17 | `GLM53_SPINWAIT_2MS=1` — vLLM `SpinCondition` reader spin 1 s → 2 ms (kit PR #69; frees 3–4 spinning P-cores on GB10) | reader-thread CPU < 50% of prior; decode in band; TTFT-behind-240k ≤ 7.9 s; **re-baseline after** | queued |
 | W18 | `GLM53_FINE_GRAINED_APC=1` — exempt `KpoolTailManager` from the partial-hash veto so hits reconcile at hash grain 64 instead of the 3584 page (kit PR #59; the boot log today says `Disabling fine-grained prefix-cache hits … KpoolTailManager`) | sub-page follow-ups hit; temp-0 byte-identical cold vs replay; zero IMA; universal gates | queued |
 | W19 | Drafter `dc77ff1` then `bf582e4` (shape hash → JIT wipe) | accept ≥ 1.0000/7.0 structured and prose ≥ 27.9 | queued |
@@ -236,3 +236,24 @@ signature is mean-accept-length 1.00 = zero drafts accepted — ours is 7.0/step
 PR #66 (no `VLLM_API_KEY` here). vLLM upstream items (#54373 draft RoPE layout,
 #53802 hit boundaries, #52495 SWA accounting, #53426 K=0 skip) are rebase-time
 carries, not overlays.
+
+### W16 result — ADOPTED (2026-08-31, boot 11:26Z, one-time JIT wipe by the repaired guard)
+
+Same probe, same shape, after the change: thinking-on cold 58.9 s → warm 100% / 0.38 s →
+**thinking-off toggle 100% hits / 0.26 s** (was 0% / 56.8 s) → toggle back 100% / 0.26 s.
+The one remaining fork is deliberate and documented: a *different* `reasoning_effort`
+(turn 5, `low` vs the default `max`) renders a different head line and misses (0%,
+56.9 s) — clients must keep the effort constant within a session, exactly as upstream
+zai's template behaves. `DEFAULT_MAX_NEW_TOKENS`: the boot log shows the override
+merged **on top of** the model's `generation_config` (`{'temperature': 1.0,
+'top_p': 0.95, 'max_tokens': 65536}`), so production sampling is unchanged; a
+request omitting `max_tokens` ends `finish_reason=stop`.
+
+Gates, all green: pool byte-identical **1,396,551 / 1.40×**; loopback-only bind;
+acceptance **7/7**; serving **6/6**; toolcall **23/23, 0 blank args** (incl. two
+concurrent 60k cold-pad waves); structured converged **68.3–68.5 tok/s @
+1.0000 / 7.0** (pass 1 read 59.6 — cold JIT after the wipe, then flat; −1.2% vs the
+69.3 band floor, within boot-to-boot variance — the change touches no decode kernel);
+prose **30.3–31.2** (above the 27.9 baseline); `cache-burst` 2×68k round-2 **97.8%**
+(5.1 s), cold prefill 892 tok/s; 0 FSM errors, 0 ERROR lines, no Xid; MemFree idle
+3.3 / 4.0 GiB. Rollback: `.env.bak-pre-w16` + the pre-change template.
