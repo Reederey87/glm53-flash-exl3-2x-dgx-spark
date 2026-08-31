@@ -224,7 +224,7 @@ so the two shapes diverge at token ~2); toggle back on 99.6%.
 | W16 | Template emits the effort line unconditionally (off-shape = on-shape + `</think>`) + `DEFAULT_MAX_NEW_TOKENS=65536` (own `--override-generation-config` arg, hash-neutral) | toggle hits ≥ 95%; boot log shows the override; universal gates | **ADOPTED 2026-08-31** — see below |
 | W17 | `GLM53_SPINWAIT_2MS=1` — vLLM `SpinCondition` reader spin 1 s → 2 ms (kit PR #69; frees 3–4 spinning P-cores on GB10) | reader-thread CPU < 50% of prior; decode in band; TTFT-behind-240k ≤ 7.9 s; **re-baseline after** | **ADOPTED 2026-08-31** — see below |
 | W18 | `GLM53_FINE_GRAINED_APC=1` — exempt `KpoolTailManager` from the partial-hash veto so hits reconcile at hash grain 64 instead of the 3584 page (kit PR #59) | sub-page follow-ups hit; output-stability control; zero IMA; universal gates | **ADOPTED 2026-08-31 (owner call on a −2.7% structured tax)** — see below |
-| W19 | Drafter `dc77ff1` then `bf582e4` (shape hash → JIT wipe) | accept ≥ 1.0000/7.0 structured and prose ≥ 27.9 | queued |
+| W19 | Drafter `dc77ff1` then `bf582e4` (shape hash → JIT wipe) | accept ≥ 1.0000/7.0 structured and prose ≥ 27.9 | **TESTED 2026-08-31 — `7d74cdd` pin stands** (below) |
 | W20 | `DFLASH_DRAFT_TP=2` measured at **C4** (kit issue #56: +37% per-stream at C4; our earlier rejection was single-stream) | pool ≥ 1.0× 1M; C4 per-stream ≥ +15% and single-stream ≥ −3% | queued |
 | W21 | KV offload to per-node NVMe (kit PR #58 port) — own go/no-go, last | universal + zero corruption + pool unmoved; kill on rank death / MemFree < 2.5 GiB / any output diff | queued |
 | W22+ | Long-context draft-length ladder (k∈{5,3} at 50k/150k, capture sizes re-picked per k+1) | informational | **CLOSED 2026-08-31 by F0** — no long-context decay to fix (below) |
@@ -324,3 +324,22 @@ draft TP=2) is absent on this stack at k=7. The W22 draft-length ladder is close
 unless a real workload shows long-context pain; adaptive-K remains a rebase-era item
 (#51303). Probe caveat: the ctx≈0 rows under-read (37-token prompts, SSE timing) —
 use `tests/bench_decode.py` for short-context absolutes.
+
+### W19 result — both newer drafter checkpoints tested, the `7d74cdd` pin stands
+
+incoai has shipped three `model.safetensors` under `main`; with the pin machinery in
+place this was a clean three-way A/B (each arm: `.env` pin flip → verified JIT wipe on
+both nodes → restart → 3+ converged passes per phase, same day, same image):
+
+| checkpoint | structured (tok/s @ accept) | prose (tok/s) | verdict |
+|---|---|---|---|
+| `7d74cdd` (08-27, production) | 66.5–66.7 @ 1.0000/7.0 | 28.3–30.0 | **KEEP** |
+| `dc77ff1` (08-28) | 66.7–66.9 @ 1.0000/7.0 | **26.3–29.4** (4 of 5 passes below band, median ≈26.6) | reject (−6% prose median) |
+| `bf582e4` (08-31) | 66.3–66.5 @ 1.0000/7.0 | 28.1–28.8 | reject (wash — no win) |
+
+Acceptance stayed a perfect 1.0000 / 7.0-per-step structured on every arm and the 50k
+spot was unchanged — the newer checkpoints buy nothing on this stack, and `dc77ff1`
+reads a real prose loss. Adopt-only-on-measurable-win applies: reverted to `7d74cdd`.
+The A/B also live-verified the repaired wipe guard three times (stamp advanced only
+after both node wipes). Both alternate snapshots stay in the HF caches on both nodes
+for future re-tests; acceptance 7/7 on every arm.
