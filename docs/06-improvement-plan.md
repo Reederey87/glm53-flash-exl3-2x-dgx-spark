@@ -222,7 +222,7 @@ so the two shapes diverge at token ~2); toggle back on 99.6%.
 | Window | Change (knob) | Gate | Status |
 |---|---|---|---|
 | W16 | Template emits the effort line unconditionally (off-shape = on-shape + `</think>`) + `DEFAULT_MAX_NEW_TOKENS=65536` (own `--override-generation-config` arg, hash-neutral) | toggle hits ≥ 95%; boot log shows the override; universal gates | **ADOPTED 2026-08-31** — see below |
-| W17 | `GLM53_SPINWAIT_2MS=1` — vLLM `SpinCondition` reader spin 1 s → 2 ms (kit PR #69; frees 3–4 spinning P-cores on GB10) | reader-thread CPU < 50% of prior; decode in band; TTFT-behind-240k ≤ 7.9 s; **re-baseline after** | queued |
+| W17 | `GLM53_SPINWAIT_2MS=1` — vLLM `SpinCondition` reader spin 1 s → 2 ms (kit PR #69; frees 3–4 spinning P-cores on GB10) | reader-thread CPU < 50% of prior; decode in band; TTFT-behind-240k ≤ 7.9 s; **re-baseline after** | **ADOPTED 2026-08-31** — see below |
 | W18 | `GLM53_FINE_GRAINED_APC=1` — exempt `KpoolTailManager` from the partial-hash veto so hits reconcile at hash grain 64 instead of the 3584 page (kit PR #59; the boot log today says `Disabling fine-grained prefix-cache hits … KpoolTailManager`) | sub-page follow-ups hit; temp-0 byte-identical cold vs replay; zero IMA; universal gates | queued |
 | W19 | Drafter `dc77ff1` then `bf582e4` (shape hash → JIT wipe) | accept ≥ 1.0000/7.0 structured and prose ≥ 27.9 | queued |
 | W20 | `DFLASH_DRAFT_TP=2` measured at **C4** (kit issue #56: +37% per-stream at C4; our earlier rejection was single-stream) | pool ≥ 1.0× 1M; C4 per-stream ≥ +15% and single-stream ≥ −3% | queued |
@@ -257,3 +257,28 @@ concurrent 60k cold-pad waves); structured converged **68.3–68.5 tok/s @
 prose **30.3–31.2** (above the 27.9 baseline); `cache-burst` 2×68k round-2 **97.8%**
 (5.1 s), cold prefill 892 tok/s; 0 FSM errors, 0 ERROR lines, no Xid; MemFree idle
 3.3 / 4.0 GiB. Rollback: `.env.bak-pre-w16` + the pre-change template.
+
+### W17 result — ADOPTED (2026-08-31; arm boot 11:54Z, matched control 12:32Z, arm re-applied)
+
+**Mechanism confirmed on this pair.** Under a single decode, the head ran two threads
+pinned at 92% / 85% (`VLLM::EngineCore`, `VLLM::Worker_TP`) — the `sched_yield` spin
+that `busy_loop_s = 1 s` guarantees during decode (messages arrive every few ms, so
+the park path never triggers). With the 2 ms window the `EngineCore` spinner is gone
+(only the GPU-driving `Worker_TP` stays busy, as it should); head hot zones read
+**83 → 78 °C** in the same 10-s sample (worker unchanged: its busy thread *is* the
+GPU driver). No NCCL / shm / timeout warnings on either rank across the boot.
+
+**Cost: none measurable — but only a same-day matched control could show that.**
+The arm's first read looked like a −4% cold-prefill tax against the standing 893 tok/s
+reference (857 / 860 at 240k, 836 at 178k). Reverting to the pre-W17 `.env` on the
+same image and re-running the identical probes gave **860 / 871 at 240k and 862 at
+178k** — the reference had drifted, the arm is a wash (−0.5%). Short-request TTFT
+behind the 240k read: arm 6.5 / 6.0 s vs control 7.0 / 5.3 s (equal within noise, both
+under the 7.9 s W4 gate). Decode on the arm boot converged to structured **68.4–68.7 @
+1.0000/7.0** and prose **28.2–31.2** — identical to the W16 boot (passes 1–4 read
+~1% low while warming, the usual post-restart curve). Acceptance 7/7, serving 6/6,
+toolcall 23/23 / 0 blank, pool byte-identical, no wipe (env-only knob).
+
+**Re-baseline for W18+ (post-C, same image, converged):** structured 68.4–68.7 @
+1.0000/7.0 · prose 28.2–31.2 · solo cold prefill 857–871 tok/s @ 240k · short-TTFT-
+behind-240k 5.3–7.0 s · retention 2×68k 97.8%. Rollback: `.env.bak-pre-w17`.
