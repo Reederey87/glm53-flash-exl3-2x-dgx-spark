@@ -437,3 +437,37 @@ The author's receipts (+19% at 64–100k, prose −2.9%) largely reproduce — o
 cost did not materialize at this geometry. Production now runs the w24 image with
 `EXL3_FAT_SORTED/BATCHED/KERNEL=1`. Rollback ladder: `.env.w24-control` (flags off,
 same image) → `.env.bak-pre-w24` (w15a image).
+
+### W25 — per-group prefix-cache retention (upstream PR #83) IN PROGRESS (2026-08-31)
+
+The mechanism behind the retention ceiling: block ids are global across KV-cache
+groups in one LRU pool, and a cached 3,584-token segment costs **38 ids of which 33
+are DFlash2 drafter SWA blocks** — hashed and freed mid-prefill to the LRU tail for a
+group whose hit length the hybrid `min()` discards anyway (the drafter is
+EAGLE-exempt). The overlay (`overlay/patch_apc_per_group_retention.py`) makes
+retention per-group: the drafter gets `VLLM_PREFIX_CACHE_RETENTION_INTERVAL_SWA`
+(0 = reachable boundaries only), every other group keeps the global value.
+
+Pre-window review (Codex), findings that shape the arms:
+
+- **Auto mode is inert on this config** — the overlay compares the drafter window
+  (2048) against `scheduler_block_size` (64), not the 3,584 hybrid page, so
+  "unset = auto" falls through to the global value. **Always set `SWA=0`
+  explicitly**; never rely on unset.
+- **Dense global has a capacity ceiling**: ~642 usable ids; dense non-drafter
+  retention costs 5 ids per 3,584-token segment, so 4 agents × 300k ≈ 1,680 ids —
+  over the pool. The 2×120k receipts (98.5%) don't prove the 4-agent ceiling; ramp
+  1 → 2 → 4 agents with the all-zero rollback one env line away.
+- Composition with the baked `patch_hybrid_prefix_hit` verified by applying the
+  overlay to a copy of the **baked** coordinator (applies, compiles, idempotent,
+  helper not duplicated); upstream's own composition tests cover pristine files —
+  the day-0 base predates the fork's cache-blocks loop shape, so the pristine
+  composition phase is upstream's to run.
+
+Arms: **(0) no-op canary** — keep `VLLM_PREFIX_CACHE_RETENTION_INTERVAL=0`, add
+`_SWA=0`: semantically identical to production, exercises the new tuple/env/boot
+paths. **(1) meaningful arm** — global dense (unset) + `_SWA=0`: drafter sparse,
+MLA/mamba dense at the fine grid; the author's receipt configuration. Gates:
+standing decode/acceptance gates, cache-burst 2×68k ≥ 95% / 4×60k ≥ 90%, solo 110k
+replay ≥ 97%, pool byte-identical, 0 IMA, plus a capacity-edge probe (4×~120k).
+Rollback: `.env.bak-pre-w25`.
