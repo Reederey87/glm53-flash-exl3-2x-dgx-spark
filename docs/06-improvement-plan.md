@@ -223,7 +223,7 @@ so the two shapes diverge at token ~2); toggle back on 99.6%.
 |---|---|---|---|
 | W16 | Template emits the effort line unconditionally (off-shape = on-shape + `</think>`) + `DEFAULT_MAX_NEW_TOKENS=65536` (own `--override-generation-config` arg, hash-neutral) | toggle hits ≥ 95%; boot log shows the override; universal gates | **ADOPTED 2026-08-31** — see below |
 | W17 | `GLM53_SPINWAIT_2MS=1` — vLLM `SpinCondition` reader spin 1 s → 2 ms (kit PR #69; frees 3–4 spinning P-cores on GB10) | reader-thread CPU < 50% of prior; decode in band; TTFT-behind-240k ≤ 7.9 s; **re-baseline after** | **ADOPTED 2026-08-31** — see below |
-| W18 | `GLM53_FINE_GRAINED_APC=1` — exempt `KpoolTailManager` from the partial-hash veto so hits reconcile at hash grain 64 instead of the 3584 page (kit PR #59; the boot log today says `Disabling fine-grained prefix-cache hits … KpoolTailManager`) | sub-page follow-ups hit; temp-0 byte-identical cold vs replay; zero IMA; universal gates | queued |
+| W18 | `GLM53_FINE_GRAINED_APC=1` — exempt `KpoolTailManager` from the partial-hash veto so hits reconcile at hash grain 64 instead of the 3584 page (kit PR #59) | sub-page follow-ups hit; output-stability control; zero IMA; universal gates | **ADOPTED 2026-08-31 (owner call on a −2.7% structured tax)** — see below |
 | W19 | Drafter `dc77ff1` then `bf582e4` (shape hash → JIT wipe) | accept ≥ 1.0000/7.0 structured and prose ≥ 27.9 | queued |
 | W20 | `DFLASH_DRAFT_TP=2` measured at **C4** (kit issue #56: +37% per-stream at C4; our earlier rejection was single-stream) | pool ≥ 1.0× 1M; C4 per-stream ≥ +15% and single-stream ≥ −3% | queued |
 | W21 | KV offload to per-node NVMe (kit PR #58 port) — own go/no-go, last | universal + zero corruption + pool unmoved; kill on rank death / MemFree < 2.5 GiB / any output diff | queued |
@@ -282,3 +282,31 @@ toolcall 23/23 / 0 blank, pool byte-identical, no wipe (env-only knob).
 **Re-baseline for W18+ (post-C, same image, converged):** structured 68.4–68.7 @
 1.0000/7.0 · prose 28.2–31.2 · solo cold prefill 857–871 tok/s @ 240k · short-TTFT-
 behind-240k 5.3–7.0 s · retention 2×68k 97.8%. Rollback: `.env.bak-pre-w17`.
+
+### W18 result — ADOPTED (2026-08-31, boot 13:11Z; owner accepted a −2.7% structured-decode tax)
+
+**The sub-page floor is gone.** Same follow-up ladder, control (page-aligned) → arm
+(hash grain 64): 2.6k-token prompt **0 → 2,816 reused tokens**; 6.5k **3,584 → 6,464**
+(52.7% → 96.2% of the prompt); 10.4k 7,168 → 10,368; 39k 35,840 → 39,040. Follow-up
+wall time **~4.1 s → ~1.0 s** — that saving lands on *every* agent turn. Multi-session:
+2×68k round-2 **97.8% → 100%** (5.1 s → 1.3 s); 4×60k × 3 rounds concurrent
+**95.0% → 98.7%** with **0 errors, 0 illegal-memory-access, 0 Xid, 0 preemptions**
+(the #54199-class concurrent-hit risk did not fire in this soak). Boot log:
+`[glm53-fgapc] partial_hash=True hash_block=64` and the veto warning gone; pool
+byte-identical; acceptance 7/7; serving 6/6; toolcall 23/23.
+
+**Cost, measured and accepted:** structured decode converged at **66.5–66.7 tok/s
+@ 1.0000/7.0** vs the same-day W17 re-baseline 68.4–68.7 (−2.7%, 6 flat passes,
+si/so≈0 — real, not warm-up; prose unchanged at 28.3–30.0). Prime suspect: with
+partial hits enabled `_align_cacheable()` stops rounding, so decode registers cache
+state at finer granularity every step. For agentic traffic the trade is lopsided —
++0.17 s on a 400-token reply vs −3 s on the preceding follow-up prefill — and the
+owner adopted on that calculus. **Standing structured gate is now 66.5–66.7.**
+Open research item: whether the per-step registration cost can be reduced.
+
+**Gate lesson (measured):** "temp-0 byte-identical cold vs replay" is NOT a usable
+correctness gate on this stack — cold-vs-cold with a cache reset between is already
+**0/3 identical** (and was 1/3 before W18). Temp-0 nondeterminism pre-exists the
+cache change (prime suspect: DFlash2 probabilistic draft sampling); filed as its own
+open item. Output *quality* gates (needle, acceptance, coherent summaries) all hold.
+Rollback: `.env.bak-pre-w18` (env-only, no JIT wipe).
