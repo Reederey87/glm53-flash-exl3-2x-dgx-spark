@@ -339,6 +339,7 @@ usage() { sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 count_shards() {
     local repo_path="$1" ref
     ref="$(cat "$repo_path/refs/main" 2>/dev/null || true)"
+    # shellcheck disable=SC2012  # newest-snapshot fallback; snapshot dirnames are hex shas
     [ -n "$ref" ] || ref="$(ls -1t "$repo_path/snapshots" 2>/dev/null | head -n 1 || true)"
     if [ -z "$ref" ]; then
         printf '0'
@@ -351,6 +352,7 @@ count_shards() {
 ensure_refs_main() {
     local ref="$MODEL_PATH/refs/main" snap
     [ -f "$ref" ] && [ -n "$(<"$ref")" ] && return 0
+    # shellcheck disable=SC2012  # newest-snapshot fallback; snapshot dirnames are hex shas
     snap="$(ls -1t "$MODEL_PATH/snapshots" 2>/dev/null | head -n 1 || true)"
     [ -n "$snap" ] || die "no snapshots under $MODEL_PATH — re-run download"
     mkdir -p "$MODEL_PATH/refs"
@@ -370,6 +372,7 @@ resolve_model_dir() {
 ensure_dflash_refs_main() {
     local ref="$DFLASH_PATH/refs/main" snap
     [ -f "$ref" ] && [ -n "$(<"$ref")" ] && return 0
+    # shellcheck disable=SC2012  # newest-snapshot fallback; snapshot dirnames are hex shas
     snap="$(ls -1t "$DFLASH_PATH/snapshots" 2>/dev/null | head -n 1 || true)"
     [ -n "$snap" ] || die "no snapshots under $DFLASH_PATH — re-run download"
     mkdir -p "$DFLASH_PATH/refs"
@@ -431,7 +434,7 @@ preflight() {
     # index, others need different ones (HEAD_GID / WORKER_GID).
     local gid_head gid_worker gid_path
     gid_path="/sys/class/infiniband/${HEAD_CX7_IB}/ports/1/gids/${HEAD_GID}"
-    gid_head=$(cat "$gid_path" 2>/dev/null | tr -d ':0' || true)
+    gid_head=$(tr -d ':0' < "$gid_path" 2>/dev/null || true)
     gid_path="/sys/class/infiniband/${WORKER_CX7_IB}/ports/1/gids/${WORKER_GID}"
     gid_worker=$(worker_ssh "cat '$gid_path' 2>/dev/null" | tr -d ':0' || true)
     if [ -z "$gid_head" ] || [ -z "$gid_worker" ]; then
@@ -833,6 +836,7 @@ sync_repo_marker_rev() {
     else
         rev="$(cat "$src/refs/main" 2>/dev/null || true)"
     fi
+    # shellcheck disable=SC2012  # newest-snapshot fallback; snapshot dirnames are hex shas
     [ -n "$rev" ] || rev="$(ls -1t "$src/snapshots" 2>/dev/null | head -n 1 || true)"
     [ -n "$rev" ] || rev="unknown"
     printf '%s' "$rev"
@@ -1318,7 +1322,7 @@ wait_for_health() {
 
     local logpid=""
     _stop_logtail() {
-        [ -n "$logpid" ] && kill "$logpid" 2>/dev/null || true
+        if [ -n "$logpid" ]; then kill "$logpid" 2>/dev/null || true; fi
         wait "$logpid" 2>/dev/null || true
         logpid=""
     }
