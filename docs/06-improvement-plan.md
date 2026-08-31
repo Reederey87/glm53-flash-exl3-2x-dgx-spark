@@ -225,7 +225,7 @@ so the two shapes diverge at token ~2); toggle back on 99.6%.
 | W17 | `GLM53_SPINWAIT_2MS=1` — vLLM `SpinCondition` reader spin 1 s → 2 ms (kit PR #69; frees 3–4 spinning P-cores on GB10) | reader-thread CPU < 50% of prior; decode in band; TTFT-behind-240k ≤ 7.9 s; **re-baseline after** | **ADOPTED 2026-08-31** — see below |
 | W18 | `GLM53_FINE_GRAINED_APC=1` — exempt `KpoolTailManager` from the partial-hash veto so hits reconcile at hash grain 64 instead of the 3584 page (kit PR #59) | sub-page follow-ups hit; output-stability control; zero IMA; universal gates | **ADOPTED 2026-08-31 (owner call on a −2.7% structured tax)** — see below |
 | W19 | Drafter `dc77ff1` then `bf582e4` (shape hash → JIT wipe) | accept ≥ 1.0000/7.0 structured and prose ≥ 27.9 | **TESTED 2026-08-31 — `7d74cdd` pin stands** (below) |
-| W20 | `DFLASH_DRAFT_TP=2` measured at **C4** (kit issue #56: +37% per-stream at C4; our earlier rejection was single-stream) | pool ≥ 1.0× 1M; C4 per-stream ≥ +15% and single-stream ≥ −3% | queued |
+| W20 | `DFLASH_DRAFT_TP=2` measured at **C4** (kit issue #56: +37% per-stream at C4; our earlier rejection was single-stream) | pool ≥ 1.0× 1M; C4 per-stream ≥ +15% and single-stream ≥ −3% | **TESTED 2026-08-31 — REJECTED, TP=1 stands** (below) |
 | W21 | KV offload to per-node NVMe (kit PR #58 port) — own go/no-go, last | universal + zero corruption + pool unmoved; kill on rank death / MemFree < 2.5 GiB / any output diff | queued |
 | W22+ | Long-context draft-length ladder (k∈{5,3} at 50k/150k, capture sizes re-picked per k+1) | informational | **CLOSED 2026-08-31 by F0** — no long-context decay to fix (below) |
 
@@ -343,3 +343,22 @@ reads a real prose loss. Adopt-only-on-measurable-win applies: reverted to `7d74
 The A/B also live-verified the repaired wipe guard three times (stamp advanced only
 after both node wipes). Both alternate snapshots stay in the HF caches on both nodes
 for future re-tests; acceptance 7/7 on every arm.
+
+### W20 result — draft TP=2 re-tested at C4: the +37% does not reproduce, TP=1 stands
+
+Kit issue #56 reported +37% per-stream at C4 for `DFLASH_DRAFT_TP=2`; our earlier
+rejection had only measured single-stream, so the window re-opened with a C4
+protocol (issue #56's shape: 4 threads, unique ~8k prompts, decode timed
+first-token-to-last). Same day, same image, wipe-verified flips both ways:
+
+| | C1 per-stream | C4 per-stream mean (2 samples) | pool | head MemFree |
+|---|---|---|---|---|
+| TP=1 (baseline) | 18.9 | 20.1 / 21.2 | 1,396,551 | ~3.3 GiB idle |
+| TP=2 (arm) | 18.0 | 19.8 / 21.6 | 1,396,551 (byte-pinned) | 3.10 idle → 2.57 after |
+
+A wash everywhere (gate was C4 ≥ +15%), and the head's memory got slightly worse —
+the same direction as the first rejection. Issue #56's win was measured on an
+unpinned pool at MNBT 2048 / util 0.87; it does not transfer to this pinned
+geometry. Note the byte-pinned pool also makes their −18% pool cost a non-event
+here (token count unchanged). Reverted; `DFLASH_DRAFT_TP=1` pinned, hash guard
+wiped correctly on both flips.
