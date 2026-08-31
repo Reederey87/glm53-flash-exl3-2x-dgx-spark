@@ -227,7 +227,7 @@ so the two shapes diverge at token ~2); toggle back on 99.6%.
 | W19 | Drafter `dc77ff1` then `bf582e4` (shape hash → JIT wipe) | accept ≥ 1.0000/7.0 structured and prose ≥ 27.9 | queued |
 | W20 | `DFLASH_DRAFT_TP=2` measured at **C4** (kit issue #56: +37% per-stream at C4; our earlier rejection was single-stream) | pool ≥ 1.0× 1M; C4 per-stream ≥ +15% and single-stream ≥ −3% | queued |
 | W21 | KV offload to per-node NVMe (kit PR #58 port) — own go/no-go, last | universal + zero corruption + pool unmoved; kill on rank death / MemFree < 2.5 GiB / any output diff | queued |
-| W22+ | Long-context draft-length ladder (k∈{5,3} at 50k/150k, capture sizes re-picked per k+1) | informational | queued |
+| W22+ | Long-context draft-length ladder (k∈{5,3} at 50k/150k, capture sizes re-picked per k+1) | informational | **CLOSED 2026-08-31 by F0** — no long-context decay to fix (below) |
 
 Skipped with reasons: #65 indexer top-k backports (MNBT 3584 already holds; 7168
 measured useless); PR #39 (`MemAvailable` gate — wrong signal here); PR #72
@@ -310,3 +310,17 @@ correctness gate on this stack — cold-vs-cold with a cache reset between is al
 cache change (prime suspect: DFlash2 probabilistic draft sampling); filed as its own
 open item. Output *quality* gates (needle, acceptance, coherent summaries) all hold.
 Rollback: `.env.bak-pre-w18` (env-only, no JIT wipe).
+
+### F0 result — the issue-#73 long-context decode collapse does NOT reproduce here
+
+Ladder (`local/f0-longctx-probe.py`, unique docs, warm prefix, temp 0, SSE-timed
+decode, spec counters per request), run **in both orders** to separate warm-in from
+context effects: structured decode is flat **56–65 tok/s @ acceptance 0.93–0.98 per
+position** from 0 through ~195k prompt tokens; prose bounces 15–28 tok/s with **no
+monotone context trend** (acceptance 0.15–0.36 — its usual short-context band; the
+forward run's scary "rises with context" pattern was warm-in order, and the reversed
+run inverted it). Issue #73's 70% → 16% decay (measured on ABLIT=1 / MNBT 2048 /
+draft TP=2) is absent on this stack at k=7. The W22 draft-length ladder is closed
+unless a real workload shows long-context pain; adaptive-K remains a rebase-era item
+(#51303). Probe caveat: the ctx≈0 rows under-read (37-token prompts, SSE timing) —
+use `tests/bench_decode.py` for short-context absolutes.
