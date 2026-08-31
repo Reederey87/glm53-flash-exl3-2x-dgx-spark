@@ -362,3 +362,46 @@ unpinned pool at MNBT 2048 / util 0.87; it does not transfer to this pinned
 geometry. Note the byte-pinned pool also makes their −18% pool cost a non-event
 here (token count unchanged). Reverted; `DFLASH_DRAFT_TP=1` pinned, hash guard
 wiped correctly on both flips.
+
+## 2026-08-31 late: fifth sweep + W23 (mixed-prefill gate v2) — ADOPTED
+
+The upstream kit grew seven new PRs in one afternoon (#77–#84). Qualified against this
+production: **#80 (gate v2) adopted as W23** (below); **#77 (fat-expert prefill CUDA
+kernels, +19% at 64–100k in the author's receipts) queued as W24** behind a Codex +
+Grok review and an image rebuild; **#83 (per-group retention — the drafter's 33 SWA
+block-ids per 3584-token segment flood the LRU) queued as W25**; #84 is the hardened
+twin of our fine-grained-APC overlay (adopt at kit sync when merged); #79 is a weaker
+setting than our retention=0; #81/#82 ride along at sync. Issue #78 (agentic
+tool-call repeat lock): the never-returns half is already bounded by our
+`DEFAULT_MAX_NEW_TOKENS`; the repeat loop is in-context model behaviour — client-side
+loop detection is the mitigation.
+
+### W23 — ADOPTED (owner call on the late-crawl decode trade)
+
+The v1 `skip` gate held **every** prefill while any lane decoded — including a fully
+cached follow-up, because its guard tested `num_computed < num_prompt`, which a cache
+hit (capped at N−1) always satisfies. With fine-grained hits (W18) that had become the
+dominant residual: our control measured a warm 50k follow-up waiting **45.8 s** for a
+running generation to finish. Gate v2 (upstream PR #80): uncached remainder ≤ 3,584
+tokens bypasses the hold; a held cold prefill proceeds after 1.5 s at 512 tokens/step.
+
+Measured here, same day, control → arm: warm follow-up during a generation **45.8 s →
+2.64 s**; cold 20k arrival time-to-first-service **2.53 s** (was: the whole generation);
+2×68k retention **100%** under 512-chunk contention (align-mode checkpoints survive the
+crawl); acceptance 7/7, serving 6/6, toolcall 23/23, structured 66.3–66.5 @ 1.0000/7.0,
+prose in band, pool byte-identical, 0 IMA / 0 preemptions. **The accepted cost:** while
+a late-admitted cold read crawls, a running decode drops 8.4 → 1.5 tok/s for the
+read's duration — matching the PR's own receipt (1.6 vs 8.3), and only on cold
+long reads, which fine-grained caching makes rare. Tunables: `GLM53_MIXED_PREFILL_MAX_WAIT_MS`
+(0 = v1 hold-forever), `_LATE_CAP`, `_WARM_TOKENS`.
+
+### Found on the way: overlays need an upgrade path on self-built images
+
+The PR #80 installer skips when it sees the v1 marker — correct for the pulled image
+(pristine `scheduler.py`), wrong for this repo's **self-built image, which bakes the
+overlays at build time**: the first W23 boot silently ran the v1 gate (caught because
+the `gate config` line never appeared and the container's source had zero v2 markers).
+The overlay now carries a three-state installer — pristine → v2, **v1-baked → in-place
+upgrade** (byte-verified v1 anchors), v2 → no-op — with fixture tests for every
+transition (`tests/test_gate_v2_upgrade.py`). Rule for every future overlay in this
+repo: the baked state, not the pristine state, is what a production boot meets.
