@@ -193,6 +193,7 @@ STOP_PATCH_HOST="${STOP_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_suppress_stops_in_
 SCHED_PATCH_HOST="${SCHED_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_scheduler_decode_floor.py}"
 DRAFTER_PATCH_HOST="${DRAFTER_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_glm5_drafter_group.py}"
 APC_PATCH_HOST="${APC_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_hybrid_prefix_hit.py}"
+PERGROUP_PATCH_HOST="${PERGROUP_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_apc_per_group_retention.py}"  # LOCAL: W25
 XGRAMMAR_PATCH_HOST="${XGRAMMAR_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_xgrammar_termination.py}"
 CACHE_RESET_PATCH_HOST="${CACHE_RESET_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_cache_reset.py}"
 # LOCAL: vLLM #54048 backport — cuBLAS out_dtype router GEMM on GB10 (W9)
@@ -516,6 +517,7 @@ preflight() {
     [ -f "$SCHED_PATCH_HOST" ] || die "$SCHED_PATCH_HOST missing"
     [ -f "$DRAFTER_PATCH_HOST" ] || die "$DRAFTER_PATCH_HOST missing"
     [ -f "$APC_PATCH_HOST" ] || die "$APC_PATCH_HOST missing"
+    [ -f "$PERGROUP_PATCH_HOST" ] || die "$PERGROUP_PATCH_HOST missing"  # LOCAL: W25
     [ -f "$XGRAMMAR_PATCH_HOST" ] || die "$XGRAMMAR_PATCH_HOST missing"
     [ -f "$CACHE_RESET_PATCH_HOST" ] || die "$CACHE_RESET_PATCH_HOST missing"
     [ -f "$ROUTER_GEMM_PATCH_HOST" ] || die "$ROUTER_GEMM_PATCH_HOST missing"  # LOCAL: W9
@@ -1004,6 +1006,9 @@ fi
 if [ -f /opt/glm53/patch_hybrid_prefix_hit.py ]; then
     python3 /opt/glm53/patch_hybrid_prefix_hit.py
 fi
+if [ -f /opt/glm53/patch_apc_per_group_retention.py ]; then  # LOCAL: W25
+    python3 /opt/glm53/patch_apc_per_group_retention.py
+fi
 if [ -f /opt/glm53/patch_xgrammar_termination.py ]; then
     python3 /opt/glm53/patch_xgrammar_termination.py
 fi
@@ -1112,6 +1117,9 @@ fi
 if [ -f /opt/glm53/patch_hybrid_prefix_hit.py ]; then
     python3 /opt/glm53/patch_hybrid_prefix_hit.py
 fi
+if [ -f /opt/glm53/patch_apc_per_group_retention.py ]; then  # LOCAL: W25
+    python3 /opt/glm53/patch_apc_per_group_retention.py
+fi
 if [ -f /opt/glm53/patch_xgrammar_termination.py ]; then
     python3 /opt/glm53/patch_xgrammar_termination.py
 fi
@@ -1156,6 +1164,8 @@ launch_cluster() {
     scp -q -o BatchMode=yes "$DRAFTER_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_glm5_drafter_group.py"
     [ -f "$APC_PATCH_HOST" ] || die "missing $APC_PATCH_HOST"
     scp -q -o BatchMode=yes "$APC_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_hybrid_prefix_hit.py"
+    [ -f "$PERGROUP_PATCH_HOST" ] || die "missing $PERGROUP_PATCH_HOST"  # LOCAL: W25
+    scp -q -o BatchMode=yes "$PERGROUP_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_apc_per_group_retention.py"
     [ -f "$XGRAMMAR_PATCH_HOST" ] || die "missing $XGRAMMAR_PATCH_HOST"
     scp -q -o BatchMode=yes "$XGRAMMAR_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_xgrammar_termination.py"
     [ -f "$CACHE_RESET_PATCH_HOST" ] || die "missing $CACHE_RESET_PATCH_HOST"
@@ -1229,6 +1239,11 @@ launch_cluster() {
     # dense caching (the old thrash). Value must be 0 or a multiple of 3584.
     if [ -n "${VLLM_PREFIX_CACHE_RETENTION_INTERVAL:-}" ]; then
         nccl_common+=(-e "VLLM_PREFIX_CACHE_RETENTION_INTERVAL=$VLLM_PREFIX_CACHE_RETENTION_INTERVAL")
+        # LOCAL: W25 — per-group drafter retention (overlay patch_apc_per_group_retention.py);
+        # "0" = boundaries only for the DFlash2 SWA group, others keep the global value.
+        if [ -n "${VLLM_PREFIX_CACHE_RETENTION_INTERVAL_SWA:-}" ]; then
+            nccl_common+=(-e "VLLM_PREFIX_CACHE_RETENTION_INTERVAL_SWA=$VLLM_PREFIX_CACHE_RETENTION_INTERVAL_SWA")
+        fi
     fi
     local worker_nccl="" e
     for e in "${nccl_common[@]}"; do
@@ -1286,6 +1301,7 @@ launch_cluster() {
         -v '/tmp/patch_scheduler_decode_floor.py:/opt/glm53/patch_scheduler_decode_floor.py:ro' \
         -v '/tmp/patch_glm5_drafter_group.py:/opt/glm53/patch_glm5_drafter_group.py:ro' \
         -v '/tmp/patch_hybrid_prefix_hit.py:/opt/glm53/patch_hybrid_prefix_hit.py:ro' \
+        -v '/tmp/patch_apc_per_group_retention.py:/opt/glm53/patch_apc_per_group_retention.py:ro' \
         -v '/tmp/patch_xgrammar_termination.py:/opt/glm53/patch_xgrammar_termination.py:ro' \
         -v '/tmp/patch_cache_reset.py:/opt/glm53/patch_cache_reset.py:ro' \
         -v '/tmp/patch_router_gemm_gb10.py:/opt/glm53/patch_router_gemm_gb10.py:ro' \
@@ -1318,6 +1334,7 @@ launch_cluster() {
         -v "$SCHED_PATCH_HOST:/opt/glm53/patch_scheduler_decode_floor.py:ro" \
         -v "$DRAFTER_PATCH_HOST:/opt/glm53/patch_glm5_drafter_group.py:ro" \
         -v "$APC_PATCH_HOST:/opt/glm53/patch_hybrid_prefix_hit.py:ro" \
+        -v "$PERGROUP_PATCH_HOST:/opt/glm53/patch_apc_per_group_retention.py:ro" \
         -v "$XGRAMMAR_PATCH_HOST:/opt/glm53/patch_xgrammar_termination.py:ro" \
         -v "$CACHE_RESET_PATCH_HOST:/opt/glm53/patch_cache_reset.py:ro" \
         -v "$ROUTER_GEMM_PATCH_HOST:/opt/glm53/patch_router_gemm_gb10.py:ro" \
