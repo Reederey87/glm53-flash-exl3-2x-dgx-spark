@@ -86,10 +86,15 @@ leave it off.
   (block) size for the hybrid KDA model (which is also why `MAX_NUM_BATCHED_TOKENS`
   is pinned to the same value — see `docs/04-prefix-caching.md`), so shorter prompts
   can never produce a cache hit.
-- **Upstream watch**: vLLM #52789 (mid-forward mamba checkpoints, 9–25% faster
-  prompt reading) and the kit's own P7 idea (co-scheduling a second prefill into a
-  capped step) are the structural fixes; both arrive via a future image rebase, not
-  an overlay.
+- **Upstream watch**: the kit's own P7 idea (co-scheduling a second prefill into a
+  capped step) remains the structural fix to hope for at a future rebase. vLLM
+  #52789 (mid-forward mamba checkpoints, 9–25% faster reads on Kimi K3) was sized
+  for backport on 2026-08-31 and ruled out — not by risk but by arithmetic: it
+  hard-disables under eagle-style speculative decoding (our drafter is always on;
+  the fix, #53614, is still open), its kernel half exists only for Kimi's FlashKDA
+  (GLM's KDA kernels have no checkpoint emission to port), and its entire win
+  requires a scheduled chunk to span a page boundary — impossible at this stack's
+  MNBT = page = 3584. Revisit only if all three change.
 
 ## Postscript (2026-08-30): the "double the budget, cap at page size" config, measured
 
