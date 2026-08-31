@@ -68,7 +68,8 @@ temp-0 passes; prefill and latency rows are matched same-day probe runs — we l
 hard way that a reference from another day or image drifts by a few percent, so every
 A/B here runs its control arm the same day). The 500k/111× replay row is from the
 2026-08-30 cutover battery on the same image. Every bench and probe ships in `tests/`
-and `local/` — reproduce any row in minutes.
+and `local/` — reproduce any row in minutes. The offline regression suite runs with
+`pip install -r requirements-dev.txt && pytest tests/ -q`.
 
 ## The serving image: preview vLLM, pinned and completed
 

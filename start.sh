@@ -925,8 +925,8 @@ say() { echo "[glm53-exl3-head] $*"; }
 ARGS=(
     --served-model-name "${SERVED_MODEL_NAME}"
     # LOCAL: upstream ships 0.0.0.0. These containers run --network host, so on
-    # this cluster that would bind the model unauthenticated on the home LAN
-    # (10.0.0.214) and the tailnet (100.125.23.98). AGENTS.md forbids it:
+    # this cluster that would bind the model unauthenticated on the local LAN
+    # and any overlay VPN the host joins. House rule:
     # remote access here is an SSH port-forward onto loopback, never a bound port.
     # Deliberately NOT env-overridable - there is no legitimate reason to widen
     # this bind on this cluster, and a knob here would only ever be a footgun.
@@ -1034,8 +1034,8 @@ say() { echo "[glm53-exl3-worker] $*"; }
 ARGS=(
     --served-model-name "${SERVED_MODEL_NAME}"
     # LOCAL: upstream ships 0.0.0.0. These containers run --network host, so on
-    # this cluster that would bind the model unauthenticated on the home LAN
-    # (10.0.0.214) and the tailnet (100.125.23.98). AGENTS.md forbids it:
+    # this cluster that would bind the model unauthenticated on the local LAN
+    # and any overlay VPN the host joins. House rule:
     # remote access here is an SSH port-forward onto loopback, never a bound port.
     # Deliberately NOT env-overridable - there is no legitimate reason to widen
     # this bind on this cluster, and a knob here would only ever be a footgun.

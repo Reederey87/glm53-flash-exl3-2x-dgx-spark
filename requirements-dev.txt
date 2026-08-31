@@ -1,0 +1,4 @@
+# Dev/test dependencies — the kit itself needs only Docker + bash.
+# Run the suite:  pip install -r requirements-dev.txt && pytest tests/ -q
+pytest
+jinja2

@@ -10,7 +10,7 @@
     content token only arrives after the whole prefill (20K at LATE_CAP tokens/step), which is reported for information.
     G's stream rate before / during / after is reported in SSE chunks per second (DFlash2 emits several tokens per chunk,
     so this is NOT tokens/s; only ratios are meaningful).
-Env: GLM53_BASE_URL (default http://127.0.0.1:8888), VLLM_API_KEY (bearer), GLM53_MIXED_PREFILL_WARM_TOKENS/MAX_WAIT_MS
+Env: GLM53_BASE_URL (default http://127.0.0.1:8000), VLLM_API_KEY (bearer), GLM53_MIXED_PREFILL_WARM_TOKENS/MAX_WAIT_MS
 (defaults 3584 / 1500, used for the thresholds).
 """
 from __future__ import annotations
@@ -24,7 +24,7 @@ import time
 import urllib.request
 import uuid
 
-BASE = os.environ.get("GLM53_BASE_URL", "http://127.0.0.1:8888")
+BASE = os.environ.get("GLM53_BASE_URL", "http://127.0.0.1:8000")
 MODEL = "GLM-5.3-Flash-EXL3"
 API_KEY = os.environ.get("VLLM_API_KEY", "")
 WARM_TOKENS = int(os.environ.get("GLM53_MIXED_PREFILL_WARM_TOKENS", "3584"))

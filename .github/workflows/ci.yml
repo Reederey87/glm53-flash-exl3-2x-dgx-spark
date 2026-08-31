@@ -21,6 +21,11 @@ jobs:
           python3 -m compileall -q local overlay tests
           echo "python OK"
 
+      - name: python tests
+        run: |
+          python3 -m pip install --quiet -r requirements-dev.txt
+          python3 -m pytest tests/ -q
+
       - name: no secrets or private config committed
         run: |
           # .env is the only file with site config (and possibly an HF token).

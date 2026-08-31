@@ -105,7 +105,7 @@ process_line() {  # $1 = one journalctl -k line; isolated for testability (see -
 # Xid lines arrive via _TRANSPORT=kernel (journalctl -k / --dmesg), but a
 # synthetic injection via userspace `logger` lands via _TRANSPORT=syslog
 # instead — `journalctl -k` would NOT see it, and the `nvidia` cluster user
-# has no sudo to write /dev/kmsg directly (AGENTS.md: docker group only, no
+# has no sudo to write /dev/kmsg directly (cluster user: docker group only, no
 # sudo). So the gate test calls this script with a fake line argument and
 # verifies the alert/capture/no-bounce behavior in isolation — see
 # docs/xid-monitor-README.md for the exact invocation.
