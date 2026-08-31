@@ -68,3 +68,23 @@ cache is invisible to it). 0.87 demands 105.87 GiB free against boots measured a
 - `IMAGE` names an **immutable** artifact + `SKIP_PULL=1` — since 2026-08-30 that is a local build tag produced by this repo's `Dockerfile` (previously a registry digest); either way, a restart must never silently upgrade
   the runtime. The weekly check-updates timer diffs the registry digest against the pin
   so upgrades are deliberate.
+
+## Added 2026-08-31
+
+- `DFLASH_REVISION=7d74cdd…` — the drafter checkpoint, pinned. The Hub repo mutates
+  under a fixed name; without the pin, a re-download quietly swaps drafter weights,
+  which is the same stale-kernel hazard as changing `DFLASH_TOKENS` (it is in the JIT
+  shape hash for that reason). The newer checkpoints were benched and rejected.
+- `DEFAULT_MAX_NEW_TOKENS=65536` — server-side ceiling for requests that omit
+  `max_tokens`. Without it, one forgetful client can decode toward a million tokens
+  and starve everyone. Passed as its own `--override-generation-config` argument so
+  the JIT shape hash ignores it; the model's own sampling defaults (temperature 1.0)
+  survive the merge — verify the boot log line says so.
+- `GLM53_SPINWAIT_2MS=1` — cuts vLLM's shared-memory reader spin from 1 s to 2 ms.
+  On a 20-core GB10 the default keeps two threads busy-spinning at ~90% through every
+  decode; with the patch the spinner parks and the head's hot zones drop ~5 °C.
+  Throughput measured unchanged against a same-day control.
+- `GLM53_FINE_GRAINED_APC=1` — lets prefix-cache hits land on 64-token boundaries
+  instead of full 3,584-token pages (the coordinator's veto came from a scratch
+  buffer that never caches anyway — `docs/04`). This is what makes small prompts and
+  follow-up turns cache; it costs ~3% structured decode, accepted deliberately.

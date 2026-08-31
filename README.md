@@ -29,10 +29,13 @@ this tree from the recipe it started from:
 |---|---|---|
 | Hits read 0% at upstream `MNBT=1024` (chunk ends miss the page boundary) | `MAX_NUM_BATCHED_TOKENS` = the 3,584 page size, async scheduling OFF | solo 110k replay **97–98%** |
 | Every hit lost its last page (N−1 of N) | `overlay/patch_hybrid_prefix_hit.py` — prune scoped to the drafter's own group | full-N-page hits |
-| Multi-session retention collapse — 2×68k sessions **0%** (163 s) | `VLLM_PREFIX_CACHE_RETENTION_INTERVAL=0` (sparse KDA retention, extended to the mamba groups) | **97.8%** (5.8 s) |
-| Co-batch zero-insertion — 4×60k concurrent **0%** (288 s) | same knob | **95.0%** (17.4 s) |
-| Short request stuck behind a 240k read — **256 s** TTFT | `LONG_PREFILL_TOKEN_THRESHOLD=1792` fairness cap | **7.9 s** |
+| Multi-session retention collapse — 2×68k sessions **0%** (163 s) | `VLLM_PREFIX_CACHE_RETENTION_INTERVAL=0` (sparse KDA retention, extended to the mamba groups) | **100%** (1.3 s) |
+| Co-batch zero-insertion — 4×60k concurrent **0%** (288 s) | same knob | **98.7%** (16.5 s) |
+| Prompts under ~3.6k could never hit, and every follow-up re-read up to a page | `overlay/patch_fine_grained_apc.py` — hits reconcile at the 64-token hash grain instead of the 3,584-token page | a 2.6k prompt reuses **2,816** tokens; follow-ups reuse **96–99%** (~4.1 s → ~1.0 s per turn) |
+| Toggling thinking on/off threw the whole prefix away (50k prompt: 56.8 s re-read) | chat template emits the `Reasoning Effort` line unconditionally — the off-shape is a strict extension of the on-shape | toggle hits **100%** (0.26 s) |
+| Short request stuck behind a 240k read — **256 s** TTFT | `LONG_PREFILL_TOKEN_THRESHOLD=1792` fairness cap | **5.3–7.0 s** |
 | First turn after every restart cold | `local/content-warmup.sh` pre-reads the shared system prompt at boot | warm on turn 1 |
+| Two CPU cores spinning flat-out during every decode (SoC heat, no work) | `overlay/patch_spinwait_gb10.py` — vLLM's 1 s reader spin cut to 2 ms | spinning core freed, head hot zones **−5 °C**, throughput unchanged (same-day control) |
 
 Mechanism, the remaining cautions, and how to verify on your own pair (a lifetime
 hit-rate on a dashboard hides all of this): `docs/04-prefix-caching.md`,
@@ -44,12 +47,13 @@ The headline figures, same pair:
 | | |
 |---|---|
 | Context window | **1,000,000 tokens**, with speculation active — on two desk machines |
-| Structured decode | **~70 tok/s** at speculative acceptance **1.0000** (7/7 drafted tokens accepted, every converged pass) |
-| Prose decode | **27.9 tok/s** at the 1M window |
-| Cold prefill | **~893 tok/s** solo (133–240k prompts) |
+| Structured decode | **~67 tok/s** at speculative acceptance **1.0000** (7/7 drafted tokens accepted, every converged pass; ~70 with fine-grained caching off — the ~3% is the price of sub-page cache hits, and worth it) |
+| Prose decode | **~28–31 tok/s** at the 1M window |
+| Cold prefill | **~860–870 tok/s** solo (178–240k prompts) |
 | 500k prompt, drafter on | **854 tok/s** cold; same prompt replayed from cache **111× faster** (5.3 s) |
 | Short request behind a 240k read | **7.9 s** to first token (256 s without this kit's fairness cap) |
-| Multi-session caching | 2×68k sessions retain **97.8%**; 4×60k concurrent retain **95%** |
+| Multi-session caching | 2×68k sessions retain **100%**; 4×60k concurrent retain **98.7%** |
+| Follow-up turns | reuse **96–99%** of the prompt at 64-token grain — even prompts under one 3,584-token page |
 
 No other public recipe serves this model on this hardware with all four of: EXL3
 (the only quantization GB10 can actually run — it lacks the instruction NVFP4
@@ -58,14 +62,13 @@ that survives the hybrid-KDA architecture and the drafter, and perfect structure
 acceptance. Each of those is a specific fix in this tree, and removing any one of
 them has a measured cost (`docs/10-selfbuild-production.md`, "load-bearing set").
 
-Metric provenance, honestly: decode figures are medians of 3–4 converged temp-0
-passes; the ~70 structured is the 2026-08-30 self-built image (the earlier pulled
-image read 70.2–72.8 across boots, its 72.8 high-water after four hours warm — a
-long-warm re-bench of the self-build is the open follow-up); 27.9 prose and the
-caching rows were measured 08-29 on the previous image, whose cache mechanisms are
-baked into this build and spot-verified by the 500k/30k replay runs (15–17× at 30k);
-prefill and replay figures are single timed runs. Every bench script ships in
-`tests/` and `local/` — reproduce any row in minutes.
+Metric provenance, honestly: every figure above was re-measured on 2026-08-31 on the
+self-built image with all of this repo's fixes active (decode = medians of 3+ converged
+temp-0 passes; prefill and latency rows are matched same-day probe runs — we learned the
+hard way that a reference from another day or image drifts by a few percent, so every
+A/B here runs its control arm the same day). The 500k/111× replay row is from the
+2026-08-30 cutover battery on the same image. Every bench and probe ships in `tests/`
+and `local/` — reproduce any row in minutes.
 
 ## The serving image: preview vLLM, pinned and completed
 
@@ -97,7 +100,7 @@ known landmine flagged (upstream's Aug-22 refactor broke DFlash2 loading on main
 |---|---|
 | Weights | [`brandonmusic/GLM-5.3-Flash-tr3-4bpw`](https://huggingface.co/brandonmusic/GLM-5.3-Flash-tr3-4bpw) — uniform-K4 EXL3/TR3, ~164 GiB, pinned revision |
 | Runtime | **Built by `Dockerfile` here** from the digest-pinned preview base ([NOTICE](NOTICE)) |
-| Drafter | `incoai/GLM-5.3-Flash-DFlash2`, k=7, BF16 (keep it BF16 — quantized-drafter handling is broken upstream) |
+| Drafter | `incoai/GLM-5.3-Flash-DFlash2`, k=7, BF16, **pinned to commit `7d74cdd`** — the Hub repo has shipped three different weights under the same name; the two newer ones were A/B-tested here and won nothing (one loses 6% on prose) |
 | Ops | memory-gated restarts, crash/wedge/stop-aware watchdog, acceptance alerting, Xid monitoring, systemd units |
 
 Key local hardening, all marked `# LOCAL:` in-file: **loopback bind hardcoded**
@@ -143,8 +146,13 @@ change, including the rejections — with numbers, so you don't re-pay for them:
 a community-recommended prefill config (+3.7% cold prefill, but −3.3–4% on every
 decoded token and −12% pool); FlashInfer's radix top-k (zero gain at draft-batch
 sizes); a bigger draft length (k=8: prose −9%); dual-rail NCCL (loses at production
-geometry). If a knob isn't set the way upstream defaults it, there's a measured
-reason in those three docs.
+geometry); both newer DFlash2 drafter checkpoints (no win, one −6% prose — the pin
+stays on `7d74cdd`); sharding the drafter across ranks (`DFLASH_DRAFT_TP=2` — tested
+twice, single-stream *and* at 4-way concurrency: a wash here, and the head node's
+memory gets slightly worse). We also chased the reported long-context decode collapse
+(acceptance falling to 16% past 100k) and could not reproduce it on this stack —
+structured acceptance stays 0.93–0.98 per position out to ~195k tokens. If a knob
+isn't set the way upstream defaults it, there's a measured reason in those docs.
 
 ## Layout
 
