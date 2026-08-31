@@ -11,6 +11,36 @@ runs the local build, not a pulled artifact.
 
 ## Why this kit, in numbers
 
+The most frustrating thing about every GLM-5.3-Flash config I ran before this one
+was not decode speed — it was **prefix-cache misses and prefill latency**. A config
+that passed every acceptance check would read **0% cache hits** under real agentic
+traffic (each turn re-read the whole history), and with a few coding agents attached
+time-to-first-token ran **80–160 s** while effective prefill collapsed from ~900 to
+**~160 tok/s**. Nothing was logged; the counters just read zero.
+
+The cause is the model, not a mis-set flag: GLM-5.3-Flash is a hybrid KDA(mamba)+MLA
+architecture, cached in **3,584-token pages** whose KDA state is checkpointed only
+when a scheduler step ends exactly on a page boundary — and one missing checkpoint
+vetoes every attention hit. On top of that, the DFlash2 drafter's eagle-style prune
+silently dropped the last page of every hit. Fixing this is most of what separates
+this tree from the recipe it started from:
+
+| Measured before | Fix in this tree | Measured after |
+|---|---|---|
+| Hits read 0% at upstream `MNBT=1024` (chunk ends miss the page boundary) | `MAX_NUM_BATCHED_TOKENS` = the 3,584 page size, async scheduling OFF | solo 110k replay **97–98%** |
+| Every hit lost its last page (N−1 of N) | `overlay/patch_hybrid_prefix_hit.py` — prune scoped to the drafter's own group | full-N-page hits |
+| Multi-session retention collapse — 2×68k sessions **0%** (163 s) | `VLLM_PREFIX_CACHE_RETENTION_INTERVAL=0` (sparse KDA retention, extended to the mamba groups) | **97.8%** (5.8 s) |
+| Co-batch zero-insertion — 4×60k concurrent **0%** (288 s) | same knob | **95.0%** (17.4 s) |
+| Short request stuck behind a 240k read — **256 s** TTFT | `LONG_PREFILL_TOKEN_THRESHOLD=1792` fairness cap | **7.9 s** |
+| First turn after every restart cold | `local/content-warmup.sh` pre-reads the shared system prompt at boot | warm on turn 1 |
+
+Mechanism, the remaining cautions, and how to verify on your own pair (a lifetime
+hit-rate on a dashboard hides all of this): `docs/04-prefix-caching.md`,
+`docs/08-concurrent-prefill.md`; probes `local/cache-burst.py`, `local/cache-probe.sh`,
+`local/ttft-probe.py`.
+
+The headline figures, same pair:
+
 | | |
 |---|---|
 | Context window | **1,000,000 tokens**, with speculation active — on two desk machines |
