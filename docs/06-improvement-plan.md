@@ -185,3 +185,180 @@ FlashInfer's radix top-k in the candidate selector was **tested and rejected**
 (bit-exact but zero gain at ≤7-row draft batches). Open follow-ups: a long-warm
 re-bench of the self-build's structured decode, and upstream #54163 as a future
 window with cache-battery gates.
+
+## 2026-08-31: fourth sweep — two hygiene bugs, then W16–W22 (queued, one per restart)
+
+A full re-survey of the upstream kit (20 open issues, 17 open PRs; nothing
+runtime-affecting merged since our base) and vLLM upstream, qualified against
+this production. Every candidate below is an *open* proposal: each is ported
+behind an opt-in knob, Codex-reviewed, then measured in its own window against
+the standing gates (pool byte-identical 1,396,551; acceptance 7/7; serving 6/6;
+toolcall 23/23; structured ≥ 68.5 @ 1.0000/7.0; prose ≥ 27.0; cache-burst 2×68k
+≥ 95% / 4×60k ≥ 90%; no Xid; loopback-only bind).
+
+**Found on our side first (fixed in this tree, no restart):**
+
+- **The JIT-wipe guard had been a silent no-op since the self-build cutover.**
+  `local/prod-start.sh` resolved the wipe container by grepping a `ghcr.io…sha256:`
+  digest out of `.env`; `IMAGE=glm53-selfbuild:…` matches nothing, so the wipe
+  skipped while the stamp still advanced — the exact stale-JIT class (acceptance
+  0.96 → 0.58) the guard exists for. Now it reads `IMAGE=` verbatim (digest as
+  fallback) and never advances the stamp on a missed wipe.
+- **The DFlash2 drafter was unpinned and off the shape hash.** `incoai/GLM-5.3-Flash-DFlash2`
+  has shipped three different `model.safetensors` under `main` (08-27 `7d74cdd`,
+  08-28 `dc77ff1`, 08-31 `bf582e4`); production runs `7d74cdd` (sha256 `8931dc52…`)
+  only because nothing ever re-downloaded. `DFLASH_REVISION` (default = that sha)
+  is now threaded through download / resolve / worker sync-marker (kit PR #67
+  shape, also closes the stale-`refs/main` boot failure from issue #52), and
+  `DFLASH_MODEL|DFLASH_REVISION` join the hash — a drafter swap is the same
+  kernel-shape class as `DFLASH_TOKENS`.
+
+**Pre-W16 baseline for the template fix (kit PR #63), measured on production
+with `local/w16-toggle-probe.py`, one unique 50k-token prompt:** thinking-on
+warm replay 99.6% hits / 1.3 s; **thinking-off toggle 0% hits / 56.8 s** (full
+re-prefill — the `Reasoning Effort` head line was gated on `thinking_enabled`,
+so the two shapes diverge at token ~2); toggle back on 99.6%.
+
+| Window | Change (knob) | Gate | Status |
+|---|---|---|---|
+| W16 | Template emits the effort line unconditionally (off-shape = on-shape + `</think>`) + `DEFAULT_MAX_NEW_TOKENS=65536` (own `--override-generation-config` arg, hash-neutral) | toggle hits ≥ 95%; boot log shows the override; universal gates | **ADOPTED 2026-08-31** — see below |
+| W17 | `GLM53_SPINWAIT_2MS=1` — vLLM `SpinCondition` reader spin 1 s → 2 ms (kit PR #69; frees 3–4 spinning P-cores on GB10) | reader-thread CPU < 50% of prior; decode in band; TTFT-behind-240k ≤ 7.9 s; **re-baseline after** | **ADOPTED 2026-08-31** — see below |
+| W18 | `GLM53_FINE_GRAINED_APC=1` — exempt `KpoolTailManager` from the partial-hash veto so hits reconcile at hash grain 64 instead of the 3584 page (kit PR #59) | sub-page follow-ups hit; output-stability control; zero IMA; universal gates | **ADOPTED 2026-08-31 (owner call on a −2.7% structured tax)** — see below |
+| W19 | Drafter `dc77ff1` then `bf582e4` (shape hash → JIT wipe) | accept ≥ 1.0000/7.0 structured and prose ≥ 27.9 | **TESTED 2026-08-31 — `7d74cdd` pin stands** (below) |
+| W20 | `DFLASH_DRAFT_TP=2` measured at **C4** (kit issue #56: +37% per-stream at C4; our earlier rejection was single-stream) | pool ≥ 1.0× 1M; C4 per-stream ≥ +15% and single-stream ≥ −3% | **TESTED 2026-08-31 — REJECTED, TP=1 stands** (below) |
+| W21 | KV offload to per-node NVMe (kit PR #58 port) — own go/no-go, last | universal + zero corruption + pool unmoved; kill on rank death / MemFree < 2.5 GiB / any output diff | **PARKED 2026-08-31 (owner call)** — take it on a fresh session after a soak of W16–W18; track upstream #54413/#54414/#54415 meanwhile |
+| W22+ | Long-context draft-length ladder (k∈{5,3} at 50k/150k, capture sizes re-picked per k+1) | informational | **CLOSED 2026-08-31 by F0** — no long-context decay to fix (below) |
+
+Skipped with reasons: #65 indexer top-k backports (MNBT 3584 already holds; 7168
+measured useless); PR #39 (`MemAvailable` gate — wrong signal here); PR #72
+dual-rail (closed earlier: loses at prod geometry); PR #70 (vllm#53030's
+signature is mean-accept-length 1.00 = zero drafts accepted — ours is 7.0/step);
+PR #66 (no `VLLM_API_KEY` here). vLLM upstream items (#54373 draft RoPE layout,
+#53802 hit boundaries, #52495 SWA accounting, #53426 K=0 skip) are rebase-time
+carries, not overlays.
+
+### W16 result — ADOPTED (2026-08-31, boot 11:26Z, one-time JIT wipe by the repaired guard)
+
+Same probe, same shape, after the change: thinking-on cold 58.9 s → warm 100% / 0.38 s →
+**thinking-off toggle 100% hits / 0.26 s** (was 0% / 56.8 s) → toggle back 100% / 0.26 s.
+The one remaining fork is deliberate and documented: a *different* `reasoning_effort`
+(turn 5, `low` vs the default `max`) renders a different head line and misses (0%,
+56.9 s) — clients must keep the effort constant within a session, exactly as upstream
+zai's template behaves. `DEFAULT_MAX_NEW_TOKENS`: the boot log shows the override
+merged **on top of** the model's `generation_config` (`{'temperature': 1.0,
+'top_p': 0.95, 'max_tokens': 65536}`), so production sampling is unchanged; a
+request omitting `max_tokens` ends `finish_reason=stop`.
+
+Gates, all green: pool byte-identical **1,396,551 / 1.40×**; loopback-only bind;
+acceptance **7/7**; serving **6/6**; toolcall **23/23, 0 blank args** (incl. two
+concurrent 60k cold-pad waves); structured converged **68.3–68.5 tok/s @
+1.0000 / 7.0** (pass 1 read 59.6 — cold JIT after the wipe, then flat; −1.2% vs the
+69.3 band floor, within boot-to-boot variance — the change touches no decode kernel);
+prose **30.3–31.2** (above the 27.9 baseline); `cache-burst` 2×68k round-2 **97.8%**
+(5.1 s), cold prefill 892 tok/s; 0 FSM errors, 0 ERROR lines, no Xid; MemFree idle
+3.3 / 4.0 GiB. Rollback: `.env.bak-pre-w16` + the pre-change template.
+
+### W17 result — ADOPTED (2026-08-31; arm boot 11:54Z, matched control 12:32Z, arm re-applied)
+
+**Mechanism confirmed on this pair.** Under a single decode, the head ran two threads
+pinned at 92% / 85% (`VLLM::EngineCore`, `VLLM::Worker_TP`) — the `sched_yield` spin
+that `busy_loop_s = 1 s` guarantees during decode (messages arrive every few ms, so
+the park path never triggers). With the 2 ms window the `EngineCore` spinner is gone
+(only the GPU-driving `Worker_TP` stays busy, as it should); head hot zones read
+**83 → 78 °C** in the same 10-s sample (worker unchanged: its busy thread *is* the
+GPU driver). No NCCL / shm / timeout warnings on either rank across the boot.
+
+**Cost: none measurable — but only a same-day matched control could show that.**
+The arm's first read looked like a −4% cold-prefill tax against the standing 893 tok/s
+reference (857 / 860 at 240k, 836 at 178k). Reverting to the pre-W17 `.env` on the
+same image and re-running the identical probes gave **860 / 871 at 240k and 862 at
+178k** — the reference had drifted, the arm is a wash (−0.5%). Short-request TTFT
+behind the 240k read: arm 6.5 / 6.0 s vs control 7.0 / 5.3 s (equal within noise, both
+under the 7.9 s W4 gate). Decode on the arm boot converged to structured **68.4–68.7 @
+1.0000/7.0** and prose **28.2–31.2** — identical to the W16 boot (passes 1–4 read
+~1% low while warming, the usual post-restart curve). Acceptance 7/7, serving 6/6,
+toolcall 23/23 / 0 blank, pool byte-identical, no wipe (env-only knob).
+
+**Re-baseline for W18+ (post-C, same image, converged):** structured 68.4–68.7 @
+1.0000/7.0 · prose 28.2–31.2 · solo cold prefill 857–871 tok/s @ 240k · short-TTFT-
+behind-240k 5.3–7.0 s · retention 2×68k 97.8%. Rollback: `.env.bak-pre-w17`.
+
+### W18 result — ADOPTED (2026-08-31, boot 13:11Z; owner accepted a −2.7% structured-decode tax)
+
+**The sub-page floor is gone.** Same follow-up ladder, control (page-aligned) → arm
+(hash grain 64): 2.6k-token prompt **0 → 2,816 reused tokens**; 6.5k **3,584 → 6,464**
+(52.7% → 96.2% of the prompt); 10.4k 7,168 → 10,368; 39k 35,840 → 39,040. Follow-up
+wall time **~4.1 s → ~1.0 s** — that saving lands on *every* agent turn. Multi-session:
+2×68k round-2 **97.8% → 100%** (5.1 s → 1.3 s); 4×60k × 3 rounds concurrent
+**95.0% → 98.7%** with **0 errors, 0 illegal-memory-access, 0 Xid, 0 preemptions**
+(the #54199-class concurrent-hit risk did not fire in this soak). Boot log:
+`[glm53-fgapc] partial_hash=True hash_block=64` and the veto warning gone; pool
+byte-identical; acceptance 7/7; serving 6/6; toolcall 23/23.
+
+**Cost, measured and accepted:** structured decode converged at **66.5–66.7 tok/s
+@ 1.0000/7.0** vs the same-day W17 re-baseline 68.4–68.7 (−2.7%, 6 flat passes,
+si/so≈0 — real, not warm-up; prose unchanged at 28.3–30.0). Prime suspect: with
+partial hits enabled `_align_cacheable()` stops rounding, so decode registers cache
+state at finer granularity every step. For agentic traffic the trade is lopsided —
++0.17 s on a 400-token reply vs −3 s on the preceding follow-up prefill — and the
+owner adopted on that calculus. **Standing structured gate is now 66.5–66.7.**
+Open research item: whether the per-step registration cost can be reduced.
+
+**Gate lesson (measured):** "temp-0 byte-identical cold vs replay" is NOT a usable
+correctness gate on this stack — cold-vs-cold with a cache reset between is already
+**0/3 identical** (and was 1/3 before W18). Temp-0 nondeterminism pre-exists the
+cache change (prime suspect: DFlash2 probabilistic draft sampling); filed as its own
+open item. Output *quality* gates (needle, acceptance, coherent summaries) all hold.
+Rollback: `.env.bak-pre-w18` (env-only, no JIT wipe).
+
+### F0 result — the issue-#73 long-context decode collapse does NOT reproduce here
+
+Ladder (`local/f0-longctx-probe.py`, unique docs, warm prefix, temp 0, SSE-timed
+decode, spec counters per request), run **in both orders** to separate warm-in from
+context effects: structured decode is flat **56–65 tok/s @ acceptance 0.93–0.98 per
+position** from 0 through ~195k prompt tokens; prose bounces 15–28 tok/s with **no
+monotone context trend** (acceptance 0.15–0.36 — its usual short-context band; the
+forward run's scary "rises with context" pattern was warm-in order, and the reversed
+run inverted it). Issue #73's 70% → 16% decay (measured on ABLIT=1 / MNBT 2048 /
+draft TP=2) is absent on this stack at k=7. The W22 draft-length ladder is closed
+unless a real workload shows long-context pain; adaptive-K remains a rebase-era item
+(#51303). Probe caveat: the ctx≈0 rows under-read (37-token prompts, SSE timing) —
+use `tests/bench_decode.py` for short-context absolutes.
+
+### W19 result — both newer drafter checkpoints tested, the `7d74cdd` pin stands
+
+incoai has shipped three `model.safetensors` under `main`; with the pin machinery in
+place this was a clean three-way A/B (each arm: `.env` pin flip → verified JIT wipe on
+both nodes → restart → 3+ converged passes per phase, same day, same image):
+
+| checkpoint | structured (tok/s @ accept) | prose (tok/s) | verdict |
+|---|---|---|---|
+| `7d74cdd` (08-27, production) | 66.5–66.7 @ 1.0000/7.0 | 28.3–30.0 | **KEEP** |
+| `dc77ff1` (08-28) | 66.7–66.9 @ 1.0000/7.0 | **26.3–29.4** (4 of 5 passes below band, median ≈26.6) | reject (−6% prose median) |
+| `bf582e4` (08-31) | 66.3–66.5 @ 1.0000/7.0 | 28.1–28.8 | reject (wash — no win) |
+
+Acceptance stayed a perfect 1.0000 / 7.0-per-step structured on every arm and the 50k
+spot was unchanged — the newer checkpoints buy nothing on this stack, and `dc77ff1`
+reads a real prose loss. Adopt-only-on-measurable-win applies: reverted to `7d74cdd`.
+The A/B also live-verified the repaired wipe guard three times (stamp advanced only
+after both node wipes). Both alternate snapshots stay in the HF caches on both nodes
+for future re-tests; acceptance 7/7 on every arm.
+
+### W20 result — draft TP=2 re-tested at C4: the +37% does not reproduce, TP=1 stands
+
+Kit issue #56 reported +37% per-stream at C4 for `DFLASH_DRAFT_TP=2`; our earlier
+rejection had only measured single-stream, so the window re-opened with a C4
+protocol (issue #56's shape: 4 threads, unique ~8k prompts, decode timed
+first-token-to-last). Same day, same image, wipe-verified flips both ways:
+
+| | C1 per-stream | C4 per-stream mean (2 samples) | pool | head MemFree |
+|---|---|---|---|---|
+| TP=1 (baseline) | 18.9 | 20.1 / 21.2 | 1,396,551 | ~3.3 GiB idle |
+| TP=2 (arm) | 18.0 | 19.8 / 21.6 | 1,396,551 (byte-pinned) | 3.10 idle → 2.57 after |
+
+A wash everywhere (gate was C4 ≥ +15%), and the head's memory got slightly worse —
+the same direction as the first rejection. Issue #56's win was measured on an
+unpinned pool at MNBT 2048 / util 0.87; it does not transfer to this pinned
+geometry. Note the byte-pinned pool also makes their −18% pool cost a non-event
+here (token count unchanged). Reverted; `DFLASH_DRAFT_TP=1` pinned, hash guard
+wiped correctly on both flips.

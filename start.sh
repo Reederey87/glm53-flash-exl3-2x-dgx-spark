@@ -141,6 +141,18 @@ MTP_TOKENS="${MTP_TOKENS:-2}"
 SPEC_METHOD="${SPEC_METHOD:-dflash}"
 DFLASH_MODEL="${DFLASH_MODEL:-incoai/GLM-5.3-Flash-DFlash2}"
 DFLASH_CACHE_NAME="${DFLASH_CACHE_NAME:-models--${DFLASH_MODEL//\//--}}"
+# LOCAL: pin the drafter checkpoint (upstream kit PR #67 shape). incoai has
+# shipped three different model.safetensors under Hub main (08-27 7d74cdd,
+# 08-28 dc77ff1, 08-31 bf582e4); this deployment's receipts were all taken
+# on 7d74cdd (sha256 8931dc52…). Empty = track main deliberately. A drafter
+# swap is a JIT-shape change: prod-start.sh hashes DFLASH_REVISION too.
+DFLASH_REVISION="${DFLASH_REVISION-7d74cdd881ed7e32c31175984a67823127b66cfe}"
+# Only immutable full commit hashes are accepted (a tag/branch would resolve to a
+# differently-named snapshot dir and silently fall back to refs/main).
+if [ -n "${DFLASH_REVISION:-}" ] && ! [[ "$DFLASH_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
+    printf '\033[1;31m[glm53-exl3]\033[0m ERROR: DFLASH_REVISION must be a 40-hex commit sha or empty (got: %s)\n' "$DFLASH_REVISION" >&2
+    exit 1
+fi
 DFLASH_TOKENS="${DFLASH_TOKENS:-7}"
 # 2 = shard the ~2.3 GiB DFlash2 drafter across TP (C4 keep, 2026-08-30:
 # idle 8k 938 / 16k 972 / 100k 997; decode structured 65.1 / prose 27.1).
@@ -154,6 +166,12 @@ MAX_NUM_SEQS="${MAX_NUM_SEQS:-4}"
 # 8192 chunk × long history oversubscribes GB10 persistent_topk smem (300k crash).
 # P1 ladder 2026-08-29: 2048 keep; 3584/4096 revert (fat LinearEXL3 tax).
 MAX_NUM_BATCHED_TOKENS="${MAX_NUM_BATCHED_TOKENS:-2048}"
+# LOCAL: server-side default for requests that omit max_tokens (upstream kit
+# PR #51 shape, W16). Empty = stock unbounded fallback (max_model_len-prompt).
+# Wired as its own --override-generation-config arg, NOT via EXTRA_ARGS, so
+# prod-start.sh's JIT shape hash ignores it (merge semantics: config.update,
+# the model's generation_config temperature 1.0 is kept).
+DEFAULT_MAX_NEW_TOKENS="${DEFAULT_MAX_NEW_TOKENS:-}"
 CHAT_TEMPLATE_HOST="${CHAT_TEMPLATE_HOST:-$SCRIPT_DIR/files/chat_template.jinja}"
 CHAT_TEMPLATE="${CHAT_TEMPLATE:-/opt/glm53/chat_template.jinja}"
 VIDEO_PATCH_HOST="${VIDEO_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_glm_video_placeholders.py}"
@@ -166,6 +184,10 @@ CACHE_RESET_PATCH_HOST="${CACHE_RESET_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_cach
 # LOCAL: vLLM #54048 backport — cuBLAS out_dtype router GEMM on GB10 (W9)
 ROUTER_GEMM_PATCH_HOST="${ROUTER_GEMM_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_router_gemm_gb10.py}"
 KPOOL_TAIL_PATCH_HOST="${KPOOL_TAIL_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_kpool_tail_slotmap.py}"
+# LOCAL: W17 (kit PR #69) SpinCondition 1 s -> 2 ms, opt-in GLM53_SPINWAIT_2MS=1
+SPINWAIT_PATCH_HOST="${SPINWAIT_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_spinwait_gb10.py}"
+# LOCAL: W18 (kit PR #59) fine-grained APC (KpoolTail veto exemption), opt-in GLM53_FINE_GRAINED_APC=1
+FGAPC_PATCH_HOST="${FGAPC_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_fine_grained_apc.py}"
 KV_CACHE_DTYPE="${KV_CACHE_DTYPE:-fp8}"
 QUANTIZATION="${QUANTIZATION:-exl3}"
 LANGUAGE_MODEL_ONLY="${LANGUAGE_MODEL_ONLY:-0}"
@@ -210,6 +232,10 @@ GLM53_SUPPRESS_STOPS_IN_REASONING="${GLM53_SUPPRESS_STOPS_IN_REASONING:-1}"
 # Mixed-step prefill policy when a peer is already decoding (issue #6).
 # skip = do not mix; N>0 = cap tokens; 0 = off.
 GLM53_MIXED_PREFILL_CHUNK="${GLM53_MIXED_PREFILL_CHUNK:-skip}"
+# LOCAL: 1 = shrink vLLM SpinCondition busy_loop_s 1 s -> 2 ms (GB10 core relief, W17). Off by default.
+GLM53_SPINWAIT_2MS="${GLM53_SPINWAIT_2MS:-0}"
+# LOCAL: 1 = exempt KpoolTailManager from the partial-hash veto -> hash-grain (64) prefix hits (W18). Off by default.
+GLM53_FINE_GRAINED_APC="${GLM53_FINE_GRAINED_APC:-0}"
 # EngineCore stock timeout is 300s; mid-serve Triton/TileLang JIT on TP=2 can
 # exceed that without being a true hang. NCCL watchdog is still 600s.
 VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS="${VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS:-1800}"
@@ -259,6 +285,44 @@ log()  { printf '\033[1;36m[glm53-exl3]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[glm53-exl3]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31m[glm53-exl3]\033[0m ERROR: %s\n' "$*" >&2; exit 1; }
 
+# GLM53 numeric config guard (begin)
+_glm53_canonical_positive_int() {
+    local name="$1" value="$2" maximum="$3" canonical
+    if ! [[ "$value" =~ ^[0-9]+$ ]]; then
+        echo "$name must be a positive base-10 integer (got: $value)" >&2
+        return 2
+    fi
+    canonical="$value"
+    while [ "${canonical#0}" != "$canonical" ]; do canonical="${canonical#0}"; done
+    [ -n "$canonical" ] || canonical=0
+    if [ "$canonical" = 0 ] \
+       || [ "${#canonical}" -gt "${#maximum}" ] \
+       || [ "$canonical" -gt "$maximum" ]; then
+        echo "$name must be between 1 and $maximum (got: $value)" >&2
+        return 2
+    fi
+    printf -v "$name" '%s' "$canonical"
+    # $name is one of three fixed names below.
+    # shellcheck disable=SC2163
+    export "$name"
+}
+
+validate_numeric_config() {
+    if ! [[ "$GPU_MEM_UTIL" =~ ^(0([.][0-9]+)?|[.][0-9]+|1([.]0+)?)$ ]] \
+       || ! awk -v u="$GPU_MEM_UTIL" 'BEGIN { exit !(u > 0 && u <= 1) }'; then
+        echo "GPU_MEM_UTIL must be greater than 0 and at most 1 (got: $GPU_MEM_UTIL)" >&2
+        return 2
+    fi
+    _glm53_canonical_positive_int MAX_MODEL_LEN "$MAX_MODEL_LEN" 1000000 || return
+    _glm53_canonical_positive_int MAX_NUM_SEQS "$MAX_NUM_SEQS" 4096 || return
+    _glm53_canonical_positive_int MAX_NUM_BATCHED_TOKENS "$MAX_NUM_BATCHED_TOKENS" 8388608 || return
+    # LOCAL: DEFAULT_MAX_NEW_TOKENS is spliced into generated shell + JSON; empty = off.
+    if [ -n "${DEFAULT_MAX_NEW_TOKENS:-}" ]; then
+        _glm53_canonical_positive_int DEFAULT_MAX_NEW_TOKENS "$DEFAULT_MAX_NEW_TOKENS" 1000000 || return
+    fi
+}
+# GLM53 numeric config guard (end)
+
 banner() {
     local label="${1:-start.sh}"
     printf '\n'
@@ -273,12 +337,22 @@ worker_ssh() { ssh -T -o BatchMode=yes -o ConnectTimeout=15 "$WORKER_SSH" "$@"; 
 usage() { sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 count_shards() {
-    find "$1/snapshots" -name '*.safetensors' 2>/dev/null | wc -l | tr -d '[:space:]' || true
+    local repo_path="$1" ref
+    ref="$(cat "$repo_path/refs/main" 2>/dev/null || true)"
+    # shellcheck disable=SC2012  # newest-snapshot fallback; snapshot dirnames are hex shas
+    [ -n "$ref" ] || ref="$(ls -1t "$repo_path/snapshots" 2>/dev/null | head -n 1 || true)"
+    if [ -z "$ref" ]; then
+        printf '0'
+        return
+    fi
+    find "$repo_path/snapshots/$ref" -maxdepth 1 -type f -name '*.safetensors' 2>/dev/null \
+        | wc -l | tr -d '[:space:]' || true
 }
 
 ensure_refs_main() {
     local ref="$MODEL_PATH/refs/main" snap
     [ -f "$ref" ] && [ -n "$(<"$ref")" ] && return 0
+    # shellcheck disable=SC2012  # newest-snapshot fallback; snapshot dirnames are hex shas
     snap="$(ls -1t "$MODEL_PATH/snapshots" 2>/dev/null | head -n 1 || true)"
     [ -n "$snap" ] || die "no snapshots under $MODEL_PATH — re-run download"
     mkdir -p "$MODEL_PATH/refs"
@@ -298,6 +372,7 @@ resolve_model_dir() {
 ensure_dflash_refs_main() {
     local ref="$DFLASH_PATH/refs/main" snap
     [ -f "$ref" ] && [ -n "$(<"$ref")" ] && return 0
+    # shellcheck disable=SC2012  # newest-snapshot fallback; snapshot dirnames are hex shas
     snap="$(ls -1t "$DFLASH_PATH/snapshots" 2>/dev/null | head -n 1 || true)"
     [ -n "$snap" ] || die "no snapshots under $DFLASH_PATH — re-run download"
     mkdir -p "$DFLASH_PATH/refs"
@@ -307,10 +382,17 @@ ensure_dflash_refs_main() {
 
 resolve_dflash_dir() {
     local ref="$DFLASH_PATH/refs/main" hash dir
-    ensure_dflash_refs_main
-    hash="$(<"$ref")"
+    # LOCAL: prefer the pinned snapshot even if refs/main points elsewhere (PR #67)
+    if [ -n "${DFLASH_REVISION:-}" ]; then
+        hash="$DFLASH_REVISION"
+        [ -d "$DFLASH_PATH/snapshots/$hash" ] || die "DFlash2 pinned snapshot $hash missing under $DFLASH_PATH/snapshots — run without SKIP_DOWNLOAD (or REFRESH_WEIGHTS=1)"
+    else
+        ensure_dflash_refs_main
+        hash="$(<"$ref")"
+    fi
     dir="$DFLASH_PATH/snapshots/$hash"
     [ -f "$dir/config.json" ] || die "DFlash2 config.json missing in $dir"
+    [ -f "$dir/model.safetensors" ] || die "DFlash2 model.safetensors missing in $dir"
     printf '/root/.cache/huggingface/hub/%s/snapshots/%s' "$DFLASH_CACHE_NAME" "$hash"
 }
 
@@ -352,7 +434,7 @@ preflight() {
     # index, others need different ones (HEAD_GID / WORKER_GID).
     local gid_head gid_worker gid_path
     gid_path="/sys/class/infiniband/${HEAD_CX7_IB}/ports/1/gids/${HEAD_GID}"
-    gid_head=$(cat "$gid_path" 2>/dev/null | tr -d ':0' || true)
+    gid_head=$(tr -d ':0' < "$gid_path" 2>/dev/null || true)
     gid_path="/sys/class/infiniband/${WORKER_CX7_IB}/ports/1/gids/${WORKER_GID}"
     gid_worker=$(worker_ssh "cat '$gid_path' 2>/dev/null" | tr -d ':0' || true)
     if [ -z "$gid_head" ] || [ -z "$gid_worker" ]; then
@@ -395,6 +477,8 @@ preflight() {
     [ -f "$CACHE_RESET_PATCH_HOST" ] || die "$CACHE_RESET_PATCH_HOST missing"
     [ -f "$ROUTER_GEMM_PATCH_HOST" ] || die "$ROUTER_GEMM_PATCH_HOST missing"  # LOCAL: W9
     [ -f "$KPOOL_TAIL_PATCH_HOST" ] || die "$KPOOL_TAIL_PATCH_HOST missing"
+    [ -f "$SPINWAIT_PATCH_HOST" ] || die "$SPINWAIT_PATCH_HOST missing"  # LOCAL: W17
+    [ -f "$FGAPC_PATCH_HOST" ] || die "$FGAPC_PATCH_HOST missing"  # LOCAL: W18
 
     local need_kb=$((180 * 1024 * 1024)) avail
     mkdir -p "$HF_CACHE_DIR"
@@ -682,8 +766,14 @@ download_weights() {
 download_dflash() {
     [ "$SPEC_METHOD" = "dflash" ] || return 0
     [ "${SKIP_DOWNLOAD:-0}" = "1" ] && { log "SKIP_DOWNLOAD=1 — skipping DFlash2 download check"; return; }
-    local have
-    have="$(find "$DFLASH_PATH/snapshots" -name 'model.safetensors' 2>/dev/null | wc -l | tr -d '[:space:]' || true)"
+    local have=0 selected=""
+    # LOCAL: completeness is judged on the SELECTED snapshot (pin, else refs/main), not any snapshot (PR #67/#68)
+    if [ -n "${DFLASH_REVISION:-}" ]; then
+        selected="$DFLASH_PATH/snapshots/$DFLASH_REVISION"
+    elif [ -s "$DFLASH_PATH/refs/main" ]; then
+        selected="$DFLASH_PATH/snapshots/$(<"$DFLASH_PATH/refs/main")"
+    fi
+    [ -n "$selected" ] && [ -f "$selected/model.safetensors" ] && have=1
     if [ "${have:-0}" -ge 1 ] && [ "${REFRESH_WEIGHTS:-0}" != "1" ]; then
         log "DFlash2 already present: $DFLASH_PATH"
         ensure_dflash_refs_main
@@ -692,9 +782,11 @@ download_dflash() {
     resolve_hf_bin || die "no 'hf' / 'huggingface-cli' on PATH and no python huggingface_hub — pip install --user -U 'huggingface_hub[cli]' (or set HF_BIN=/path/to/hf)"
     mkdir -p "$HF_CACHE_DIR"
     log "downloading ${DFLASH_MODEL} (~2.3 GiB) into ${HF_CACHE_DIR} ..."
-    HF_HOME="$HF_CACHE_DIR" "${HF_BIN_CMD[@]}" download "$DFLASH_MODEL"
-    ensure_dflash_refs_main
-    have="$(find "$DFLASH_PATH/snapshots" -name 'model.safetensors' 2>/dev/null | wc -l | tr -d '[:space:]' || true)"
+    local -a dflash_args=("$DFLASH_MODEL")
+    [ -n "${DFLASH_REVISION:-}" ] && dflash_args+=(--revision "$DFLASH_REVISION")
+    HF_HOME="$HF_CACHE_DIR" "${HF_BIN_CMD[@]}" download "${dflash_args[@]}"
+    selected="$(resolve_dflash_dir)"
+    have=1
     [ "${have:-0}" -ge 1 ] || die "DFlash2 download finished without model.safetensors"
     log "DFlash2 download complete"
 }
@@ -737,20 +829,27 @@ download_only() {
 # (issue #22, item 2). FORCE_SYNC=1 bypasses the marker; deleting the
 # marker file on the worker has the same effect.
 sync_repo_marker_rev() {
-    local src="$1"
+    local src="$1" preferred="${2:-}"
     local rev
-    rev="$(cat "$src/refs/main" 2>/dev/null || true)"
+    if [ -n "$preferred" ] && [ -d "$src/snapshots/$preferred" ]; then
+        rev="$preferred"
+    else
+        rev="$(cat "$src/refs/main" 2>/dev/null || true)"
+    fi
+    # shellcheck disable=SC2012  # newest-snapshot fallback; snapshot dirnames are hex shas
     [ -n "$rev" ] || rev="$(ls -1t "$src/snapshots" 2>/dev/null | head -n 1 || true)"
     [ -n "$rev" ] || rev="unknown"
     printf '%s' "$rev"
 }
 
 sync_repo_to_worker() {
-    local src="$1" cache_name="$2" label="$3"
+    local src="$1" cache_name="$2" label="$3" preferred="${4:-}"
     local marker rev
     marker="${WORKER_CACHE_DIR}/hub/${cache_name}/.glm53-exl3-synced"
-    rev="$(sync_repo_marker_rev "$src")"
-    if [ "${FORCE_SYNC:-0}" != "1" ] \
+    rev="$(sync_repo_marker_rev "$src" "$preferred")"
+    # LOCAL: REFRESH_WEIGHTS=1 re-downloaded locally — the worker must not keep a
+    # stale copy behind an unchanged revision marker.
+    if [ "${FORCE_SYNC:-0}" != "1" ] && [ "${REFRESH_WEIGHTS:-0}" != "1" ] \
        && [ "$(worker_ssh "cat '$marker' 2>/dev/null" || true)" = "$rev" ]; then
         log "worker ${cache_name} already at ${rev} — rsync skipped (FORCE_SYNC=1 to force)"
         return 0
@@ -768,7 +867,7 @@ sync_weights() {
     sync_repo_to_worker "$MODEL_PATH" "$MODEL_CACHE_NAME" "weights"
     if [ "$SPEC_METHOD" = "dflash" ]; then
         [ -d "$DFLASH_PATH" ] || die "DFlash2 weights missing at $DFLASH_PATH"
-        sync_repo_to_worker "$DFLASH_PATH" "$DFLASH_CACHE_NAME" "DFlash2 draft"
+        sync_repo_to_worker "$DFLASH_PATH" "$DFLASH_CACHE_NAME" "DFlash2 draft" "$DFLASH_REVISION"
     fi
     log "worker weights in sync"
 }
@@ -808,6 +907,7 @@ ARGS=(
 [ -n "${GPU_MEM_UTIL:-}" ]  && ARGS+=(--gpu-memory-utilization "${GPU_MEM_UTIL}")
 [ -n "${MAX_NUM_SEQS:-}" ] && ARGS+=(--max-num-seqs "${MAX_NUM_SEQS}")
 [ -n "${MAX_NUM_BATCHED_TOKENS:-}" ] && ARGS+=(--max-num-batched-tokens "${MAX_NUM_BATCHED_TOKENS}")
+[ -n "${DEFAULT_MAX_NEW_TOKENS:-}" ] && ARGS+=(--override-generation-config "{\"max_new_tokens\": ${DEFAULT_MAX_NEW_TOKENS}}")
 # LOCAL: ADOPTED IN PROD 2026-08-29 (W4) — .env sets 1792. Caps each long
 # prefill's per-step chunk so short requests co-schedule instead of waiting out
 # the whole prefill: short TTFT behind a 240k cold prefill 256s -> 7.9s (-97%)
@@ -873,6 +973,12 @@ fi
 if [ -f /opt/glm53/patch_kpool_tail_slotmap.py ]; then
     python3 /opt/glm53/patch_kpool_tail_slotmap.py
 fi
+if [ -f /opt/glm53/patch_spinwait_gb10.py ]; then
+    python3 /opt/glm53/patch_spinwait_gb10.py
+fi
+if [ -f /opt/glm53/patch_fine_grained_apc.py ]; then
+    python3 /opt/glm53/patch_fine_grained_apc.py
+fi
 say "launching: vllm serve ${MODEL_DIR} ${ARGS[*]}"
 exec vllm serve "${MODEL_DIR}" "${ARGS[@]}"
 EOF
@@ -911,6 +1017,7 @@ ARGS=(
 [ -n "${GPU_MEM_UTIL:-}" ]  && ARGS+=(--gpu-memory-utilization "${GPU_MEM_UTIL}")
 [ -n "${MAX_NUM_SEQS:-}" ] && ARGS+=(--max-num-seqs "${MAX_NUM_SEQS}")
 [ -n "${MAX_NUM_BATCHED_TOKENS:-}" ] && ARGS+=(--max-num-batched-tokens "${MAX_NUM_BATCHED_TOKENS}")
+[ -n "${DEFAULT_MAX_NEW_TOKENS:-}" ] && ARGS+=(--override-generation-config "{\"max_new_tokens\": ${DEFAULT_MAX_NEW_TOKENS}}")
 # LOCAL: ADOPTED IN PROD 2026-08-29 (W4) — .env sets 1792. Caps each long
 # prefill's per-step chunk so short requests co-schedule instead of waiting out
 # the whole prefill: short TTFT behind a 240k cold prefill 256s -> 7.9s (-97%)
@@ -974,6 +1081,12 @@ fi
 if [ -f /opt/glm53/patch_kpool_tail_slotmap.py ]; then
     python3 /opt/glm53/patch_kpool_tail_slotmap.py
 fi
+if [ -f /opt/glm53/patch_spinwait_gb10.py ]; then
+    python3 /opt/glm53/patch_spinwait_gb10.py
+fi
+if [ -f /opt/glm53/patch_fine_grained_apc.py ]; then
+    python3 /opt/glm53/patch_fine_grained_apc.py
+fi
 say "joining TP2 at ${HEAD_IP}:${MASTER_PORT} as rank 1"
 exec vllm serve "${MODEL_DIR}" "${ARGS[@]}"
 EOF
@@ -1008,6 +1121,10 @@ launch_cluster() {
     scp -q -o BatchMode=yes "$ROUTER_GEMM_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_router_gemm_gb10.py"
     [ -f "$KPOOL_TAIL_PATCH_HOST" ] || die "missing $KPOOL_TAIL_PATCH_HOST"
     scp -q -o BatchMode=yes "$KPOOL_TAIL_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_kpool_tail_slotmap.py"
+    [ -f "$SPINWAIT_PATCH_HOST" ] || die "missing $SPINWAIT_PATCH_HOST"
+    scp -q -o BatchMode=yes "$SPINWAIT_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_spinwait_gb10.py"
+    [ -f "$FGAPC_PATCH_HOST" ] || die "missing $FGAPC_PATCH_HOST"
+    scp -q -o BatchMode=yes "$FGAPC_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_fine_grained_apc.py"
 
 
     local -a nccl_common=(
@@ -1036,6 +1153,10 @@ launch_cluster() {
         -e "GLM53_EXPOSE_CACHE_RESET=$GLM53_EXPOSE_CACHE_RESET"
         # LOCAL: W9 ablation — 0 restores stock router-GEMM eligibility exactly
         -e "GLM53_ROUTER_GEMM_CUBLAS=${GLM53_ROUTER_GEMM_CUBLAS:-1}"
+        # LOCAL: W17/W18 opt-in overlays (both ranks read these at patch time)
+        -e "GLM53_SPINWAIT_2MS=$GLM53_SPINWAIT_2MS"
+        -e "GLM53_FINE_GRAINED_APC=$GLM53_FINE_GRAINED_APC"
+        -e "DEFAULT_MAX_NEW_TOKENS=$DEFAULT_MAX_NEW_TOKENS"
         -e "TRITON_CACHE_DIR=$TRITON_CACHE_DIR"
         -e "TILELANG_CACHE_DIR=$TILELANG_CACHE_DIR"
         # LOCAL: upstream persists triton/tilelang but not FlashInfer's JIT
@@ -1123,6 +1244,8 @@ launch_cluster() {
         -v '/tmp/patch_cache_reset.py:/opt/glm53/patch_cache_reset.py:ro' \
         -v '/tmp/patch_router_gemm_gb10.py:/opt/glm53/patch_router_gemm_gb10.py:ro' \
         -v '/tmp/patch_kpool_tail_slotmap.py:/opt/glm53/patch_kpool_tail_slotmap.py:ro' \
+        -v '/tmp/patch_spinwait_gb10.py:/opt/glm53/patch_spinwait_gb10.py:ro' \
+        -v '/tmp/patch_fine_grained_apc.py:/opt/glm53/patch_fine_grained_apc.py:ro' \
         ${worker_preload} \
         ${worker_nccl} \
         -e NCCL_SOCKET_IFNAME='$WORKER_CX7_IF' \
@@ -1153,6 +1276,8 @@ launch_cluster() {
         -v "$CACHE_RESET_PATCH_HOST:/opt/glm53/patch_cache_reset.py:ro" \
         -v "$ROUTER_GEMM_PATCH_HOST:/opt/glm53/patch_router_gemm_gb10.py:ro" \
         -v "$KPOOL_TAIL_PATCH_HOST:/opt/glm53/patch_kpool_tail_slotmap.py:ro" \
+        -v "$SPINWAIT_PATCH_HOST:/opt/glm53/patch_spinwait_gb10.py:ro" \
+        -v "$FGAPC_PATCH_HOST:/opt/glm53/patch_fine_grained_apc.py:ro" \
         "${head_preload[@]}" \
         "${nccl_common[@]}" \
         -e NCCL_SOCKET_IFNAME="$HEAD_CX7_IF" \
@@ -1197,7 +1322,7 @@ wait_for_health() {
 
     local logpid=""
     _stop_logtail() {
-        [ -n "$logpid" ] && kill "$logpid" 2>/dev/null || true
+        if [ -n "$logpid" ]; then kill "$logpid" 2>/dev/null || true; fi
         wait "$logpid" 2>/dev/null || true
         logpid=""
     }
@@ -1278,7 +1403,9 @@ on_ready() {
     local spec="MTP k=${MTP_TOKENS}"
     [ "$SPEC_METHOD" = "dflash" ] && spec="DFlash2 k=${DFLASH_TOKENS} (${DFLASH_MODEL})"
     [ "$SPEC_METHOD" = "none" ] && spec=off
-    log "  features   : tools=glm47+auto, reasoning=glm45, spec=${spec}, vision=${vision}"
+    local mt_line="mt_default=off (omitted max_tokens unbounded)"
+    [ -n "${DEFAULT_MAX_NEW_TOKENS:-}" ] && mt_line="mt_default=${DEFAULT_MAX_NEW_TOKENS}"
+    log "  features   : tools=glm47+auto, reasoning=glm45, spec=${spec}, vision=${vision}, ${mt_line}, spinwait2ms=${GLM53_SPINWAIT_2MS}, fgapc=${GLM53_FINE_GRAINED_APC}"
     local auth_line="none (VLLM_API_KEY empty)"
     if [ -n "${VLLM_API_KEY:-}" ]; then
         auth_line="bearer token set (VLLM_API_KEY) — send Authorization: Bearer <key> on /v1 requests"
@@ -1378,6 +1505,9 @@ logs() {
 # ------------------------------- main --------------------------------------
 main() {
     local cmd="${1:-start}"
+    case "$cmd" in
+        start|restart) validate_numeric_config ;;
+    esac
     case "$cmd" in
         stop)     banner stop.sh ;;
         download) banner download.sh ;;

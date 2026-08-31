@@ -120,3 +120,15 @@ changes were always shipped as a new image tag, never edited in place):
 
 Restore the file, restart through `local/prod-start.sh`, verify the pool token
 count and a converged bench pass — the same three checks every window used.
+
+## 2026-08-31 addendum — the config this doc describes gained four adopted changes
+
+The same-day A/B program (`docs/06`, W16–W20) landed on top of the cutover state:
+the chat template's effort line is unconditional (thinking toggles keep the cache),
+`DEFAULT_MAX_NEW_TOKENS=65536`, `GLM53_SPINWAIT_2MS=1`, `GLM53_FINE_GRAINED_APC=1`,
+and the drafter is pinned (`DFLASH_REVISION=7d74cdd…`). Standing gates moved
+accordingly: structured 66.5–66.7 @ 1.0000/7.0 (the fine-grained-cache trade),
+prose 28.2–31.2, solo cold prefill 857–871 @ 240k, 2×68k retention 100%.
+The JIT-wipe guard in `local/prod-start.sh` was also repaired (it had been a silent
+no-op since the image cutover — it now resolves the wipe container from `IMAGE=`
+verbatim and only advances its stamp when both nodes actually wiped).
