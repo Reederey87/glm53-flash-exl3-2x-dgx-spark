@@ -450,10 +450,16 @@ retention per-group: the drafter gets `VLLM_PREFIX_CACHE_RETENTION_INTERVAL_SWA`
 
 Pre-window review (Codex), findings that shape the arms:
 
-- **Auto mode is inert on this config** — the overlay compares the drafter window
-  (2048) against `scheduler_block_size` (64), not the 3,584 hybrid page, so
-  "unset = auto" falls through to the global value. **Always set `SWA=0`
-  explicitly**; never rely on unset.
+- **Auto mode — Codex flagged it as inert here (drafter window 2048 vs a 64-token
+  scheduler block), and the live boot disproved that:** on this model the
+  scheduler block is the 3,584-token attention page (align mode: "attention page
+  size ≥ mamba page size"; only the indexer group sits at 64), so the auto rule
+  resolves `2048 < 3584 → 0` for the drafter. The arm-1 boot line reads
+  `retention_by_group=[None,…,None,0] (global=None swa_env=None)` — the drafter
+  went sparse with the SWA env *not even delivered* (a `start.sh` wiring bug
+  nested the SWA passthrough under the global knob; fixed in `67df477`). We
+  still set `SWA=0` explicitly as the contract; auto is a working safety net,
+  not the intended path.
 - **Dense global has a capacity ceiling**: ~642 usable ids; dense non-drafter
   retention costs 5 ids per 3,584-token segment, so 4 agents × 300k ≈ 1,680 ids —
   over the pool. The 2×120k receipts (98.5%) don't prove the 4-agent ceiling; ramp
