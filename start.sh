@@ -1239,11 +1239,12 @@ launch_cluster() {
     # dense caching (the old thrash). Value must be 0 or a multiple of 3584.
     if [ -n "${VLLM_PREFIX_CACHE_RETENTION_INTERVAL:-}" ]; then
         nccl_common+=(-e "VLLM_PREFIX_CACHE_RETENTION_INTERVAL=$VLLM_PREFIX_CACHE_RETENTION_INTERVAL")
-        # LOCAL: W25 — per-group drafter retention (overlay patch_apc_per_group_retention.py);
-        # "0" = boundaries only for the DFlash2 SWA group, others keep the global value.
-        if [ -n "${VLLM_PREFIX_CACHE_RETENTION_INTERVAL_SWA:-}" ]; then
-            nccl_common+=(-e "VLLM_PREFIX_CACHE_RETENTION_INTERVAL_SWA=$VLLM_PREFIX_CACHE_RETENTION_INTERVAL_SWA")
-        fi
+    fi
+    # LOCAL: W25 — per-group drafter retention (overlay patch_apc_per_group_retention.py);
+    # "0" = boundaries only for the DFlash2 SWA group, others keep the global value.
+    # Independent of the global knob: a dense global (unset) + SWA=0 is the meaningful arm.
+    if [ -n "${VLLM_PREFIX_CACHE_RETENTION_INTERVAL_SWA:-}" ]; then
+        nccl_common+=(-e "VLLM_PREFIX_CACHE_RETENTION_INTERVAL_SWA=$VLLM_PREFIX_CACHE_RETENTION_INTERVAL_SWA")
     fi
     local worker_nccl="" e
     for e in "${nccl_common[@]}"; do
