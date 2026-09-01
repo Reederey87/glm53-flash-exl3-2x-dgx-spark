@@ -772,3 +772,187 @@ ground without giving up dense MLA retention — a real alternative to compare a
 **#54373 merged 2026-08-31** (DFlash draft RoPE layout), the first tracked item to
 land; it arrives free at the rebase. Upstream GLM-5.3-Flash support (**#53906**) is
 still open, so our fork remains the only path.
+
+## 2026-09-01 late: seventh sweep — measurement windows, the align-floor overlay, W27 ADOPTED
+
+Six measurement-only windows ran between W26 and W27, none of which changed a
+production knob but two of which changed what this document claims. They are recorded
+here in the order their findings depend on each other, then W27.
+
+### W29 — long-context ladder extended to 518k. OVERTURNS the F0 "no decay" negative
+
+Measurement only, no restart. The sixth-sweep note that the long-context speculation
+question was "closed, not open" was true **only inside F0's measured range**. The
+prompt generator overshoots ~1.3×, so `--ctx 150000 250000 320000 400000` produced
+194,615 / 324,457 / 415,350 / 518,850-token prompts — well past the ~195k where F0
+stopped.
+
+| ctx (actual tokens) | structured acceptance | accepted / step | per-position tail |
+|---|---|---|---|
+| 194,615 | 0.978 | 6.85 | 0.97 flat |
+| 324,457 | 0.971 | 6.79 | 0.97 flat |
+| 415,350 | **0.909** | 6.36 | 0.94 → 0.83 |
+| 518,850 | **0.888** | 6.21 | 1.00 → 0.83 |
+
+Past ~325k DFlash2 acceptance decays monotonically, costing ~9% of accepted tokens per
+step by 518k; the per-position tail degrades progressively rather than randomly, which
+is what makes it read as structural (#54691's profiled mechanism — the drafter re-scans
+its full accumulated KV each cycle — fits). One sample per point: **suggestive, not
+settled; a confirming repeat is queued.** Do not use this run's tok/s (single
+observations, first row is textbook fault-in); acceptance is the stable metric.
+Practical read: droid compacts at 300k, so today's sessions stay in the healthy band;
+anything pushing true context to 400k+ pays a measurable drafting penalty. Memory floors
+at 518k: spark1 3.29 / spark2 3.49 GiB, both above the 3.0 tripwire.
+
+### W34a — `LONG_PREFILL_TOKEN_THRESHOLD` 1792 → 3584, TESTED AND REVERTED
+
+Same-boot control on the self-built image: cold prefill **+9.7%** (1026.5 → 1126.5
+tok/s at 120k), chunks 67 → 35, row-work conserved to 0.05% (the gain is per-launch
+amortisation, not fewer iterations); decode held (structured 66.69 @ 1.0000/7.0, prose
+27.89). **Rejected on head-of-line: short TTFT behind a 318k cold prefill 298.4 /
+280.1 s against the 6.65–7.9 s gate (~40×)** — the full pre-W4 starvation. Grok's
+qualification asked whether that gate was pre-selfbuild folklore; re-measured on the
+current image, LPTT=1792, three passes: 6.80 / 7.31 / 7.02 s — the band reproduces, so
+the 40× stands against a same-image control. Calibration on the way: `exl3.py:149`
+gives exactly 42 layer-steps per chunk, 30,070 / 1792 = 17 chunks, so **LPTT=1792 is
+empirically the binding per-step cap** and raising MNBT alone would have done nothing.
+Chunk size is not closed — only static 3584 is dead; the interior statics (2048–2560)
+and an adaptive threshold remain candidates, the latter blocked below.
+
+### W36 / W37 / W38 — memory floors: the swap tax and the head-only blind spot
+
+- **W36** (measurement only, LPTT=1792, lone ~160k cold prefill, MemFree sampled at 1 s
+  on both nodes): spark1 in-flight floor **2.27 / 2.72 GiB**, spark2 3.75 / 4.47,
+  prefill 930.8 / 942.8 tok/s. Its pre-registered gate was void as written (it compared
+  a sampled minimum against W34a's before/after pair). The pre-ship review of
+  **adaptive LPTT** (3584 with no peer, 1792 otherwise) returned Codex DO NOT SHIP,
+  Grok upheld: with `LPTT >= block_size` and a sub-block mixed-prefill cap, the mamba
+  align split floors the chunk to **0 tokens** (`start=0, cap=512 → end=512;
+  aligned_end=0; block_size<=max_prefill → end=0`) — no forward progress while the
+  peer decodes. Latent at static 1792 (the disjunct is false), live at 3584 — which
+  means W34a's arm carried it and never tripped it only because no cold prefill
+  co-scheduled with a decoder.
+- **W37** (owner-approved cluster bounce): parked swap was held by the vLLM processes
+  themselves (`VmSwap` 2.36 GB in `VLLM::Worker_TP`, ~4.3 GB across the tree), so a
+  unit restart reclaims it. Same probe, three passes, before → after: spark1 in-flight
+  floor 2.27 / 2.72 → **3.94 / 3.78 / 3.71 GiB (+1.2–1.4)**, cold prefill 930.8 / 942.8
+  → **1034.1 / 1035.0 / 1035.5 tok/s (+10.3%)**. **A swap-degraded head costs ~10% cold
+  prefill and ~1.3 GiB of floor, silently** — check MemFree before trusting any prefill
+  baseline (swap-used refills to ~4.6 GB during weight load; MemFree is the metric).
+  The healthy 1792 baseline is ~1035 tok/s, consistent with W34a's control.
+- **W38** (paired same-window control and arm, ~160k prompt, **both nodes** sampled —
+  Codex's pre-ship NO-GO demanded the pairing, a two-knob rollback and the worker
+  sample, and all three changed the result): cold prefill 1022–1044 → **1109 tok/s
+  (+7.1%)**; spark1 floor 3.20–3.46 → **3.96–4.05 GiB (+0.7 better)**; spark2 floor
+  3.98–4.07 → **2.78–2.84 GiB (−1.2 worse)**. **Chunk size does not cost memory — it
+  relocates it from head to worker.** Every earlier memory figure in this program is
+  head-only and therefore half a measurement. The pre-registered tripwire (abort if
+  either node < 3.0 GiB) was breached on all three passes; the arm was stopped and
+  rolled back without post-hoc re-argument. Consequence: adaptive LPTT is harder to
+  justify, not easier — its premise (a lone prefill takes the full budget) is exactly
+  the case that drains the worker. A3 (proving the align floor acts) is still unrun and
+  needs LPTT ≥ 3584 at 60k with the worker tripwire armed from the first sample.
+
+### Align-floor overlay — SHIPPED DORMANT (`overlay/patch_align_floor.py`, `GLM53_ALIGN_FLOOR=1`)
+
+Fixes the site-A zeroing above. Wired in `start.sh` (host default, preflight, both
+rank scripts, worker scp + mounts, shared `-e`); rollback `GLM53_ALIGN_FLOOR=0`,
+hash-neutral, no JIT wipe; the value is read once at import, so flipping needs a
+restart. Dormant at production LPTT=1792 and proven so: the patched function was
+unit-extracted and swept enabled-vs-disabled — **0 mismatches over 608 combinations**,
+the bug reproduced (upstream 0 vs fixed 512 / 1024 / 1792), mid-block starts never cross
+the 3584 boundary, zero input stays zero; Codex confirmed the helper is never called at
+1792. Codex High finding accepted: marker-only idempotence was fail-open, so
+`validate_installed()` now asserts patched-block-once + upstream-gone + helper-intact,
+runs the AST check on the early-return path, rejects partial or conflicting state and
+writes via `os.replace` (verified against a real copy of the container's scheduler on
+three corruption modes). Gates after ship: structured 66.52 / 66.57 / 66.69 @
+1.0000/7.0, acceptance 7/7, pool 1,396,551 byte-identical, loopback bind, both ranks log
+`patched scheduler.py (align floor=1)`.
+
+### W35 — mixed-prefill warm-bypass knee (owner-requested), CLEAN
+
+24 randomised rows, two reps per point, fresh tool seed every rep, a peer generation
+held throughout (`ignore_eos` + `min_tokens` — a "count to 9000" peer had stopped before
+row 1 and would have made every row a silent no-peer bypass). **Knee bracket: 3452 <
+knee ≤ 3534 uncached-remainder tokens** (configured `WARM_TOKENS=3584`; the offset is
+the hit cap at n−1 plus APC grain 64). BYPASS 1005–3452 tokens → TTFT 1.89–4.39 s;
+LATE-ADMIT 3534–10,010 → 6.00–14.87 s; monotone with zero inversions, paired repeats
+agree. Crossing the knee roughly doubles TTFT at once, then scales with size. Practical
+answer: a tool result keeps a cached follow-up at ~2–4 s while the appended remainder
+stays under ~3.45k tokens. Not tested: prefix forking, which loses the whole prefix
+regardless of size and remains the bigger risk.
+
+### W27 — `GLM53_DEFAULT_REASONING_EFFORT=high` ADOPTED SERVER-SIDE (2026-09-01, boot 19:35Z)
+
+**Why it exists.** The W16 template maps *unset* → `Max` and emits the effort line
+unconditionally, so any client that sends only `enable_thinking` — droid did — runs at
+the most expensive setting. Verified with `/tokenize`: unset and explicit `max` render
+the same token (7487), `high` 5124, `low` 12035; High and Max are the same prompt
+length, so the fork is a one-time cache miss, not a per-request tax.
+
+**What shipped** (kit PR #87, reshaped). `start.sh` gains
+`GLM53_DEFAULT_REASONING_EFFORT` (empty = no flag = Max as before; `low|high|max`),
+injected as one argv element `--default-chat-template-kwargs
+'{"reasoning_effort":"<v>"}'` in both rank scripts, deliberately **not** in
+`EXTRA_ARGS` (hash-neutral; shape stamp unchanged across the boot); validated as a
+strict enum inside `validate_numeric_config` — the enum is also the safety boundary for
+the worker's word-split `-e` transport. Per-request `chat_template_kwargs` still win.
+
+**Codex pre-ship review — three findings.** (1) the first draft validated at top-level
+and would have blocked `stop` / `status` / `logs` on a bad value — **fixed** (moved
+into the start/restart-only validator, tested: `High` → exit 2, `high` / `max` / empty
+→ 0); (2) the worker transport word-splits `-e` values, so anything with spaces or
+quotes would break — **recorded**, the enum guard is the mitigation and the comment
+says never to widen it without quoting; (3) confirm the live vLLM accepts the flag —
+**verified** (argv present at rank 0, worker env + argv parity).
+
+**The prior Codex verdict was honoured, not overruled.** `spec/TODO.md` already
+carried a Codex disposition on this exact window: *TEST FIRST — do not change the
+server default*, because the upstream 3.6× (2,160 → 593 s, 60,663 → 16,541 completion
+tokens, same 80/80 grader) is n=2 on one task where both `max` runs compacted twice
+and both `high` runs never did, and a saturated grader cannot see the silent failure
+modes (plausible-but-wrong root cause, dropped early requirement, partial completion
+claimed). The window was staged before that entry was re-read — a process error,
+recorded. The resolution the owner approved keeps its substance: the **server** default
+becomes High (correct for every client that omits the field), while the owner's coding
+client pins `reasoning_effort: max` explicitly (new sessions only — effort forks the
+prefix at the system header), so **nothing the owner runs changed effort**. Droid moves
+to High only if the blind paired test in `spec/TODO.md` (four real backlog tasks,
+randomised, graded blind, asymmetric stopping rule) finds it non-inferior.
+
+**Gates (arm = production, converged passes).** Boot 19:35Z → active 19:44Z; pool
+1,396,551 byte-identical; acceptance 7/7; serving 6/6; structured **69.07 / 69.07 /
+69.36 tok/s @ 1.0000 / 7.0**; prose 29.18 / 31.03 / 30.08. Render gate: all four request
+shapes (omit / `high` / `max` / `low`) produce the expected effort token. Effort probe,
+thinking on, High vs Max, all completions terminated normally:
+
+| task | High tokens / wall | Max tokens / wall |
+|---|---|---|
+| rope explanation | 297 / 9.0 s | 1,636 / 68.5 s |
+| code | 542 / 13.6 s | 1,181 / 29.4 s |
+| plan | 492 / 26.4 s | 2,002 / 83.1 s |
+
+**Grok verdict qualification: ADOPT-WITH-CONDITIONS.** (A) do not let the owner's
+client silently change effort → met by the explicit `max` pin; (B) its "prose gate
+failed" finding was **overruled**: the prose band (28.6–29.5) is a floor and the arm
+read 29.2–31.0, above it — the correct reading is "no regression, above-band, treat as
+a boot-to-boot confound" and it is recorded as such; (C) adoption for droid must wait
+on task-quality evidence → the blind paired test. Rollback `.env.w27-control` (knob
+absent → template renders Max), `.env.bak-pre-w27`, `start.sh.bak-pre-w27` on spark1.
+
+### What the sweep changes in the queue
+
+- **W40 (batch-size dynamic spec decoding) is re-scoped from "config-only" to
+  "needs a runner decision".** `num_speculative_tokens_per_batch_size` exists in the
+  image, but `_maybe_override_dynamic_sd_cudagraph_mode` forces FULL_AND_PIECEWISE →
+  PIECEWISE on the v1 runner (only `VLLM_USE_V2_MODEL_RUNNER=1` keeps full graphs) and
+  the scheduler drops uniform spec padding under DSD — both are decode-path changes,
+  not a knob. Evaluate v2-runner compatibility with the overlays first, or drop.
+- **W43 (new): `MAX_NUM_SEQS` 4 → 8** with capture sizes extended to 40 48 56 64 (k+1 =
+  8 tokens per sequence). `MAX_NUM_SEQS=4` is a hard admission cap today and is the
+  cheapest concurrency lever left; it is in the JIT shape hash (one-time wipe) and needs
+  the both-node memory tripwire from W38.
+- W41 + W42 (kit PR #94 KV-capacity log, PR #95 `APC_NO_STORE`) stay next, one restart,
+  Codex pre-ship first; A3 after them; the W29 confirming repeat whenever the box is
+  idle.
