@@ -508,3 +508,30 @@ Production `.env`: `VLLM_PREFIX_CACHE_RETENTION_INTERVAL` **commented out** (den
 previous behavior, overlay still installed as a no-op) → `.env.bak-pre-w25`.
 Queued as **W25b**: the middle arm (global=14336, every four pages, + SWA=0) to see
 whether it keeps most of the fork-shape gain without the pool-edge eviction cost.
+
+### W26 — mixed-prefill gate v3: aging + late-path instrumentation STAGED (2026-09-01)
+
+The W23 gate shipped with upstream's defaults, never tuned for this hardware, and its
+late path had no instrumentation at all. Two weaknesses: `LATE_CAP=512` is the wrong
+operating point on an MoE whose per-step prefill cost is mostly expert-weight
+streaming (a 512-token chunk costs nearly as much per step as a 1,792-token one, so
+the flat cap multiplies expensive steps and taxes running decodes for ~3.5× longer
+than the `LPTT=1792` ceiling would); and there is no aging after admission — a cold
+read behind a long generation crawls at the floor for minutes.
+
+v3 (`overlay/patch_scheduler_decode_floor.py`, same helper, call sites unchanged):
+once late, the cap doubles every `GLM53_MIXED_PREFILL_ESCALATE_MS` (default **0 = v2
+behavior**) up to `GLM53_MIXED_PREFILL_LATE_CAP_MAX` (default 1792); one log line per
+late admission / escalation / crawl end (`grep decode-floor-v3`); per-request state on
+the `Request` (crawl episode resets on preemption rollback, hold age survives; bounded
+id-keyed fallback if the Request type rejects attributes). Installer: pristine /
+v1-baked / **v2-baked (the w24 image)** → v3, verified on the container's real
+`scheduler.py`. Codex review applied; fake-clock tests cover bypass, hold, deadline,
+escalation, episode reset and the fallback.
+
+Window plan: control = v3 with aging off (the next boot's default), arms
+`ESCALATE_MS=10000` and flat `LATE_CAP=1024`. Probes: `mixed-decode-probe` (decode
+rate **and inter-token gap p99** during a co-running cold read, the read's wall time,
+decode tokens in a fixed 240 s window), `w4-hol-probe` (short TTFT behind a 240k
+read), `w20-concurrency-probe` at C4. Pre-registered gates: short TTFT ≤ 7.4 s, gap
+p99 during a crawl ≤ ~2 s, cold-read completion ↓, decode tokens per window ↑.
