@@ -433,8 +433,13 @@ alone is behavior-neutral). A/B on the same image, same boot class, warm JIT bot
 Acceptance 7/7, pool byte-identical (1,396,551), 0 errors / 0 illegal-memory-access,
 head MemFree 4.06 GiB with the fat workspace resident, and the fat path demonstrably
 engaged (stats: 99.7% of prefill layer-steps carried fat experts at max_rows 3584).
-The author's receipts (+19% at 64–100k, prose −2.9%) largely reproduce — our prose
-cost did not materialize at this geometry. Production now runs the w24 image with
+⚠ **Receipt correction (2026-09-01):** the sentence that used to stand here cited the
+author's +19% at 64–100k / prose −2.9% as reproducing ours. The author has since
+**withdrawn those receipts** — "after auditing the earlier 64K/100K receipts, those runs
+had APC hits and should not be cited as cold-prefill evidence" (implementation and GPU
+parity checks unaffected; only the performance methodology). **W24's adoption is
+unaffected** — every number in the table above is our own same-image, same-boot-class,
+warm-JIT A/B, and our prose cost did not materialize at this geometry. Production now runs the w24 image with
 `EXL3_FAT_SORTED/BATCHED/KERNEL=1`. Rollback ladder: `.env.w24-control` (flags off,
 same image) → `.env.bak-pre-w24` (w15a image).
 
@@ -686,3 +691,84 @@ collapse the reporter reproduced at every temperature and seed, and their untest
 #79 superseded by #83 (W25). #75 (EXL3 SM121 kernel lab) has no artifact to test yet.
 #65/#39/#72/#70/#66/#64/#58/#57/#56/#74/#47/#52/#31/#10 — previously qualified, no new
 activity that changes the verdict.
+
+### Sixth sweep, addendum — three parallel surveys (kit / vLLM upstream / web)
+
+Four findings change the queue above; two of them close items rather than open them.
+
+**W30 is already done — `/reset_prefix_cache` is live.** `start.sh:285` defaults
+`GLM53_EXPOSE_CACHE_RESET=1` and `overlay/patch_cache_reset.py` is wired at both ranks;
+`POST http://127.0.0.1:8000/reset_prefix_cache` returns **200** on the running server.
+Kit PR #37 is ALREADY HAVE, not a candidate. The consequence is a protocol change we
+should have been using for weeks: **cache A/Bs no longer need a unit restart** for a
+cold round, which also removes the parked-swap fault-in that contaminates every first
+probe pass. `cache-burst.py` / `cache-probe.sh` cold rounds should call the endpoint.
+
+**The #54713 alignment-unit defect does not apply to our overlay.** Upstream's fix for
+the same bug class backs the EAGLE lookup off by one unit, and its review thread warns
+that backing off one *Mamba block* is wrong when alignment ≠ block size — the back-off
+must be one *alignment unit* in tokens. `patch_hybrid_prefix_hit.py` does not back off
+at all: it scopes the drop to `eagle_group_ids=[6]` and leaves the drafter group's
+blocks **empty** so a fresh window is allocated, keeping the MLA/mamba hit intact. Our
+mechanism sidesteps the defect rather than sharing it. #54713 stays worth diffing at
+the rebase — it is the upstream trajectory for this patch — but it is not a live bug
+report against us.
+
+**`VLLM_EXL3_PREFILL_BLOCK_M` does not exist in our build — but the mechanism has a
+local analogue that is currently OFF.** The web survey's largest single claim (+44.7%
+prefill 8K, +36.2% at 128K, **+21.8% decode**, KV capacity unchanged, measured on
+`brandonmusic/GLM-5.2-EXL3-TR3v4-3.5bpw-MTP78`, 4× RTX PRO 6000 TP4/DCP4) attributes
+the win to zero-padding in a 64-row MoE route block (DRAM throughput 24.03% → 64.22%,
+kernel 1530 → 575 µs). Grepped our container: no `VLLM_EXL3_*` symbol anywhere, and
+exllamav3 is 0.0.43. What our `exl3.py` **does** expose is the same family of row
+knobs — `EXL3_MOE_ROW_TILE` (live value **0**, i.e. row tiling off),
+`EXL3_TEMP_ROWS_FUSED` (**128**), `EXL3_FAT_SCRATCH_ROWS` (defaults to MNBT),
+`EXL3_FAT_SORTED/BATCHED/KERNEL` (all 1 since W24), `EXL3_FUSED_MOE` (1). Since the
+claimed mechanism is row-block occupancy in the fat-expert path we already run, the
+honest translation is **a row-tiling sweep on the knobs we have**, not a backport:
+`EXL3_MOE_ROW_TILE=1` and an `EXL3_TEMP_ROWS_FUSED` ladder, gated on cold prefill,
+structured 66.5–70.4 @ 1.0000/7.0, prose, and pool bytes. All are plain env, not in
+the JIT shape hash — a cheap window. Caveat before believing the headline: their stack
+is 3.5 bpw on discrete GPUs with ~7× our memory bandwidth, and their own report says
+the routed-expert MoE kernel plateaus near 490 GB/s ≈ 27% of HBM — a kernel ceiling,
+not a config one, and our bandwidth ceiling is far lower.
+
+**Do not build a per-request `k` cut on DFlash2.** vLLM #49164 was closed *by its own
+author* on correctness grounds: for a non-causal DFlash drafter, shortening the
+physical draft block is not equivalent to computing the full trained block and
+truncating verification, because later mask positions influence earlier draft logits
+and acceptance. Any adaptive-k here must truncate at **verification**, never at
+drafting. This retires the DIY version of the long-context idea entirely and leaves
+only upstream work worth tracking: **#52228** (online acceptance estimator / adaptive
+verification — lossless, +9.8–21.8% tok/s and −10–19% TPOT on a DFlash2 target at c64,
++44.5% on Kimi-K2.5+DFlash, cold-start viable) and **#52559** (graph-aware adaptive K,
+stalled on merge conflicts, and graph-tied to a candidate set our capture sizes do not
+match). **#49548** is the counter-evidence to adopting either casually: measured *on a
+GB10 Spark*, dynamic spec decoding collapsed 8-concurrent aggregate throughput from
+232 to 24–157 tok/s at the batch threshold.
+
+Two low-risk correctness backports surfaced that are worth taking ahead of any
+performance window, both validated on 2× DGX Spark hybrid deployments:
+
+- **vLLM #53798** — `add_request` seeds a resumed request's mamba running-state column
+  using the *scheduler* block divisor instead of the *Mamba* block divisor. Under a
+  retention interval (which we run), a request admitted with `num_computed_tokens > 0`
+  reads a neighbour's row — silent wrong state — or past the table, a deterministic
+  IMA. One-line divisor swap plus lazy kv-cache-config resolution. This is a plausible
+  sibling of the #54199 crash class we have been soaking for.
+- **vLLM #54057** — `FlashInferMLASparseSM120Impl` sets `is_sparse=True` but never
+  declares `masked_mha_available`, which the prefill dispatcher reads for any sparse
+  impl once `num_mha_tokens > 0`. Two-line class attribute on our exact backend;
+  costs nothing and removes a rebase landmine.
+
+Also noted, no action yet: **#52527** exports
+`vllm:prefix_cache_sparse_retention_misses` (reuse the attention groups found and the
+mamba veto then discarded) — today that loss is indistinguishable from "no shared
+prefix", which is exactly the silent 0% we chased through W3/W18/W25; a metrics-only
+backport would make future retention A/Bs directly measurable instead of inferred from
+timing. **#53945** (cache the mamba state at the block-grid position of an EAGLE
+resume) targets the shared-prefix-ends-early shape W25 addresses and may win the same
+ground without giving up dense MLA retention — a real alternative to compare against.
+**#54373 merged 2026-08-31** (DFlash draft RoPE layout), the first tracked item to
+land; it arrives free at the rebase. Upstream GLM-5.3-Flash support (**#53906**) is
+still open, so our fork remains the only path.
