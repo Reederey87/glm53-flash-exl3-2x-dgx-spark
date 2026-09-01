@@ -207,6 +207,8 @@ KPOOL_TAIL_PATCH_HOST="${KPOOL_TAIL_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_kpool_
 SPINWAIT_PATCH_HOST="${SPINWAIT_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_spinwait_gb10.py}"
 # LOCAL: W18 (kit PR #59) fine-grained APC (KpoolTail veto exemption), opt-in GLM53_FINE_GRAINED_APC=1
 FGAPC_PATCH_HOST="${FGAPC_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_fine_grained_apc.py}"
+# LOCAL: align-floor -- stop the mamba align split zeroing a sub-block chunk when LPTT >= block_size
+ALIGN_FLOOR_PATCH_HOST="${ALIGN_FLOOR_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_align_floor.py}"
 KV_CACHE_DTYPE="${KV_CACHE_DTYPE:-fp8}"
 QUANTIZATION="${QUANTIZATION:-exl3}"
 LANGUAGE_MODEL_ONLY="${LANGUAGE_MODEL_ONLY:-0}"
@@ -255,6 +257,13 @@ EXL3_FAT_KERNEL="${EXL3_FAT_KERNEL:-0}"
 READY_TIMEOUT="${READY_TIMEOUT:-3600}"
 # 1 = suppress client stop strings until </think> (DSpark #42 class).
 GLM53_SUPPRESS_STOPS_IN_REASONING="${GLM53_SUPPRESS_STOPS_IN_REASONING:-1}"
+# LOCAL (W27, kit PR #87): server-side default reasoning effort, injected as
+# --default-chat-template-kwargs '{"reasoning_effort":"<v>"}'. EMPTY (default)
+# sends no flag and the template renders Max for any client that omits it.
+# low | high | max (validated in validate_numeric_config — start/restart only,
+# so a bad value never blocks stop/status/logs). Per-request
+# chat_template_kwargs.reasoning_effort overrides the default.
+GLM53_DEFAULT_REASONING_EFFORT="${GLM53_DEFAULT_REASONING_EFFORT-}"
 # Mixed-step prefill policy when a peer is already decoding (issue #6).
 # skip = do not mix; N>0 = cap tokens; 0 = off.
 GLM53_MIXED_PREFILL_CHUNK="${GLM53_MIXED_PREFILL_CHUNK:-skip}"
@@ -270,6 +279,9 @@ GLM53_MIXED_PREFILL_LATE_CAP_MAX="${GLM53_MIXED_PREFILL_LATE_CAP_MAX:-1792}"  # 
 GLM53_SPINWAIT_2MS="${GLM53_SPINWAIT_2MS:-0}"
 # LOCAL: 1 = exempt KpoolTailManager from the partial-hash veto -> hash-grain (64) prefix hits (W18). Off by default.
 GLM53_FINE_GRAINED_APC="${GLM53_FINE_GRAINED_APC:-0}"
+# LOCAL: 1 = floor a sub-block mixed-prefill chunk at the mixed cap instead of 0 when LPTT >= block_size
+# (scheduler livelock, dormant at LPTT=1792 — proven 0 mismatches over 608 combinations). Read once at import.
+GLM53_ALIGN_FLOOR="${GLM53_ALIGN_FLOOR:-1}"
 # EngineCore stock timeout is 300s; mid-serve Triton/TileLang JIT on TP=2 can
 # exceed that without being a true hang. NCCL watchdog is still 600s.
 VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS="${VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS:-1800}"
@@ -350,6 +362,12 @@ validate_numeric_config() {
     _glm53_canonical_positive_int MAX_MODEL_LEN "$MAX_MODEL_LEN" 1000000 || return
     _glm53_canonical_positive_int MAX_NUM_SEQS "$MAX_NUM_SEQS" 4096 || return
     _glm53_canonical_positive_int MAX_NUM_BATCHED_TOKENS "$MAX_NUM_BATCHED_TOKENS" 8388608 || return
+    # LOCAL: W27 — strict enum; it is also the safety boundary for the worker's
+    # word-split `-e` transport (never widen it without adding quoting).
+    case "${GLM53_DEFAULT_REASONING_EFFORT-}" in
+        ""|low|high|max) ;;
+        *) echo "GLM53_DEFAULT_REASONING_EFFORT must be one of: low high max (got: ${GLM53_DEFAULT_REASONING_EFFORT})" >&2; return 2 ;;
+    esac
     # LOCAL: DEFAULT_MAX_NEW_TOKENS is spliced into generated shell + JSON; empty = off.
     if [ -n "${DEFAULT_MAX_NEW_TOKENS:-}" ]; then
         _glm53_canonical_positive_int DEFAULT_MAX_NEW_TOKENS "$DEFAULT_MAX_NEW_TOKENS" 1000000 || return
@@ -541,6 +559,7 @@ preflight() {
     [ -f "$KPOOL_TAIL_PATCH_HOST" ] || die "$KPOOL_TAIL_PATCH_HOST missing"
     [ -f "$SPINWAIT_PATCH_HOST" ] || die "$SPINWAIT_PATCH_HOST missing"  # LOCAL: W17
     [ -f "$FGAPC_PATCH_HOST" ] || die "$FGAPC_PATCH_HOST missing"  # LOCAL: W18
+    [ -f "$ALIGN_FLOOR_PATCH_HOST" ] || die "$ALIGN_FLOOR_PATCH_HOST missing"  # LOCAL: align-floor
 
     local need_kb=$((180 * 1024 * 1024)) avail
     mkdir -p "$HF_CACHE_DIR"
@@ -977,6 +996,10 @@ ARGS=(
 # only: deliberately NOT in EXTRA_ARGS so the JIT shape hash ignores it. Sub-
 # 3584 values force 2 steps/page (boundary re-align) — that IS the -5%.
 [ -n "${LONG_PREFILL_TOKEN_THRESHOLD:-}" ] && ARGS+=(--long-prefill-token-threshold "${LONG_PREFILL_TOKEN_THRESHOLD}")
+# LOCAL (W27): single argv element, no spaces; NOT in EXTRA_ARGS (JIT shape hash ignores it).
+if [ -n "${GLM53_DEFAULT_REASONING_EFFORT:-}" ]; then
+    ARGS+=(--default-chat-template-kwargs "{\"reasoning_effort\":\"${GLM53_DEFAULT_REASONING_EFFORT}\"}")
+fi
 [ -n "${KV_CACHE_DTYPE:-}" ] && ARGS+=(--kv-cache-dtype "${KV_CACHE_DTYPE}")
 if [ "${SPEC_METHOD:-mtp}" = "dflash" ]; then
     ARGS+=(--speculative-config "$(python3 -S -c 'import json,os
@@ -1044,6 +1067,9 @@ fi
 if [ -f /opt/glm53/patch_fine_grained_apc.py ]; then
     python3 /opt/glm53/patch_fine_grained_apc.py
 fi
+if [ -f /opt/glm53/patch_align_floor.py ]; then
+    python3 /opt/glm53/patch_align_floor.py
+fi
 say "launching: vllm serve ${MODEL_DIR} ${ARGS[*]}"
 exec vllm serve "${MODEL_DIR}" "${ARGS[@]}"
 EOF
@@ -1090,6 +1116,10 @@ ARGS=(
 # only: deliberately NOT in EXTRA_ARGS so the JIT shape hash ignores it. Sub-
 # 3584 values force 2 steps/page (boundary re-align) — that IS the -5%.
 [ -n "${LONG_PREFILL_TOKEN_THRESHOLD:-}" ] && ARGS+=(--long-prefill-token-threshold "${LONG_PREFILL_TOKEN_THRESHOLD}")
+# LOCAL (W27): single argv element, no spaces; NOT in EXTRA_ARGS (JIT shape hash ignores it).
+if [ -n "${GLM53_DEFAULT_REASONING_EFFORT:-}" ]; then
+    ARGS+=(--default-chat-template-kwargs "{\"reasoning_effort\":\"${GLM53_DEFAULT_REASONING_EFFORT}\"}")
+fi
 [ -n "${KV_CACHE_DTYPE:-}" ] && ARGS+=(--kv-cache-dtype "${KV_CACHE_DTYPE}")
 if [ "${SPEC_METHOD:-mtp}" = "dflash" ]; then
     ARGS+=(--speculative-config "$(python3 -S -c 'import json,os
@@ -1155,6 +1185,9 @@ fi
 if [ -f /opt/glm53/patch_fine_grained_apc.py ]; then
     python3 /opt/glm53/patch_fine_grained_apc.py
 fi
+if [ -f /opt/glm53/patch_align_floor.py ]; then
+    python3 /opt/glm53/patch_align_floor.py
+fi
 say "joining TP2 at ${HEAD_IP}:${MASTER_PORT} as rank 1"
 exec vllm serve "${MODEL_DIR}" "${ARGS[@]}"
 EOF
@@ -1195,6 +1228,8 @@ launch_cluster() {
     scp -q -o BatchMode=yes "$SPINWAIT_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_spinwait_gb10.py"
     [ -f "$FGAPC_PATCH_HOST" ] || die "missing $FGAPC_PATCH_HOST"
     scp -q -o BatchMode=yes "$FGAPC_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_fine_grained_apc.py"
+    [ -f "$ALIGN_FLOOR_PATCH_HOST" ] || die "missing $ALIGN_FLOOR_PATCH_HOST"
+    scp -q -o BatchMode=yes "$ALIGN_FLOOR_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_align_floor.py"
 
 
     local -a nccl_common=(
@@ -1223,9 +1258,11 @@ launch_cluster() {
         -e "GLM53_MIXED_PREFILL_LATE_CAP=$GLM53_MIXED_PREFILL_LATE_CAP"
         -e "GLM53_MIXED_PREFILL_ESCALATE_MS=$GLM53_MIXED_PREFILL_ESCALATE_MS"
         -e "GLM53_MIXED_PREFILL_LATE_CAP_MAX=$GLM53_MIXED_PREFILL_LATE_CAP_MAX"
+        -e "GLM53_DEFAULT_REASONING_EFFORT=${GLM53_DEFAULT_REASONING_EFFORT:-}"  # LOCAL: W27 (frontend knob; enum-guarded for the worker word-split path)
         # Read by the patched build_app (issue #31): mount only the cache-reset
         # dev routes when 1. Patched file is inert when 0/unset.
         -e "GLM53_EXPOSE_CACHE_RESET=$GLM53_EXPOSE_CACHE_RESET"
+        -e "GLM53_ALIGN_FLOOR=$GLM53_ALIGN_FLOOR"
         # LOCAL: W9 ablation — 0 restores stock router-GEMM eligibility exactly
         -e "GLM53_ROUTER_GEMM_CUBLAS=${GLM53_ROUTER_GEMM_CUBLAS:-1}"
         # LOCAL: W17/W18 opt-in overlays (both ranks read these at patch time)
@@ -1328,6 +1365,7 @@ launch_cluster() {
         -v '/tmp/patch_kpool_tail_slotmap.py:/opt/glm53/patch_kpool_tail_slotmap.py:ro' \
         -v '/tmp/patch_spinwait_gb10.py:/opt/glm53/patch_spinwait_gb10.py:ro' \
         -v '/tmp/patch_fine_grained_apc.py:/opt/glm53/patch_fine_grained_apc.py:ro' \
+        -v '/tmp/patch_align_floor.py:/opt/glm53/patch_align_floor.py:ro' \
         ${worker_preload} \
         ${worker_nccl} \
         -e NCCL_SOCKET_IFNAME='$WORKER_CX7_IF' \
@@ -1361,6 +1399,7 @@ launch_cluster() {
         -v "$KPOOL_TAIL_PATCH_HOST:/opt/glm53/patch_kpool_tail_slotmap.py:ro" \
         -v "$SPINWAIT_PATCH_HOST:/opt/glm53/patch_spinwait_gb10.py:ro" \
         -v "$FGAPC_PATCH_HOST:/opt/glm53/patch_fine_grained_apc.py:ro" \
+        -v "$ALIGN_FLOOR_PATCH_HOST:/opt/glm53/patch_align_floor.py:ro" \
         "${head_preload[@]}" \
         "${nccl_common[@]}" \
         -e NCCL_SOCKET_IFNAME="$HEAD_CX7_IF" \

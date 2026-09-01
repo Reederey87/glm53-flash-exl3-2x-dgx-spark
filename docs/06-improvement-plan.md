@@ -433,8 +433,13 @@ alone is behavior-neutral). A/B on the same image, same boot class, warm JIT bot
 Acceptance 7/7, pool byte-identical (1,396,551), 0 errors / 0 illegal-memory-access,
 head MemFree 4.06 GiB with the fat workspace resident, and the fat path demonstrably
 engaged (stats: 99.7% of prefill layer-steps carried fat experts at max_rows 3584).
-The author's receipts (+19% at 64–100k, prose −2.9%) largely reproduce — our prose
-cost did not materialize at this geometry. Production now runs the w24 image with
+⚠ **Receipt correction (2026-09-01):** the sentence that used to stand here cited the
+author's +19% at 64–100k / prose −2.9% as reproducing ours. The author has since
+**withdrawn those receipts** — "after auditing the earlier 64K/100K receipts, those runs
+had APC hits and should not be cited as cold-prefill evidence" (implementation and GPU
+parity checks unaffected; only the performance methodology). **W24's adoption is
+unaffected** — every number in the table above is our own same-image, same-boot-class,
+warm-JIT A/B, and our prose cost did not materialize at this geometry. Production now runs the w24 image with
 `EXL3_FAT_SORTED/BATCHED/KERNEL=1`. Rollback ladder: `.env.w24-control` (flags off,
 same image) → `.env.bak-pre-w24` (w15a image).
 
@@ -527,7 +532,7 @@ merely sparser, it keeps exactly the replay-relevant checkpoints, which is what
 matters when 800k tokens are live. 14336 therefore buys nothing over dense; production
 returns to the adopted arm 1. Recorded so the middle arm is not re-run.
 
-### W26 — mixed-prefill gate v3: aging + late-path instrumentation STAGED (2026-09-01)
+### W26 — mixed-prefill gate v3: aging + late-path instrumentation ADOPTED (2026-09-01)
 
 The W23 gate shipped with upstream's defaults, never tuned for this hardware, and its
 late path had no instrumentation at all. Two weaknesses: `LATE_CAP=512` is the wrong
@@ -553,3 +558,401 @@ rate **and inter-token gap p99** during a co-running cold read, the read's wall 
 decode tokens in a fixed 240 s window), `w4-hol-probe` (short TTFT behind a 240k
 read), `w20-concurrency-probe` at C4. Pre-registered gates: short TTFT ≤ 7.4 s, gap
 p99 during a crawl ≤ ~2 s, cold-read completion ↓, decode tokens per window ↑.
+
+**Result — arm A (`ESCALATE_MS=10000`) adopted.** Three boots, probes run to
+convergence (the first pass after any restart reads low from parked-swap fault-in —
+arm A's pass 1 showed decode-before 2.9 tok/s and gap p99 6.67 s, both artifacts that
+self-cleared on pass 2).
+
+| Arm | peer 60k cold read | decode gap p50 / p99 | decode tokens / 240 s | short TTFT behind 240k | C4 per-stream / agg |
+|---|---|---|---|---|---|
+| control (v3, aging off = v2) | 78.3 s (crawl 71.7) | 0.64 / 1.39 s | 677 | 6.93 s | 10.0 / 40.2 |
+| **A — `ESCALATE_MS=10000`** | **63.1 s (crawl 58.4)** | 0.71 / 1.78 s | **863 (+27%)** | **6.65 s** | 9.9 / 39.7 |
+| B — flat `LATE_CAP=1024` | 65.2 s (crawl 60.1) | **1.07** / 1.86 s | 862 | 7.58 s | 9.7 / 38.9 |
+
+All four pre-registered gates pass on arm A: short TTFT 6.65 s ≤ 7.4, gap p99 1.78 s
+≤ 2, cold read 78.3 → 63.1 s, decode tokens 677 → 863. Pool byte-identical
+(1,396,551), zero errors, C4 within noise of control.
+
+Arm B is the control that makes the aging worth having: a flat 1,024 buys arm A's
+throughput (862 tokens, 65.2 s read) but pays on **every** late read — gap p50 1.07 s
+vs 0.71, short TTFT 7.58 s vs 6.65. Aging keeps the first 10 s at the 512 floor, where
+short cached reads finish and never escalate, and only lets the minutes-long crawls
+climb to 1,792.
+
+Mechanism confirmed by the log lines: a 60k read escalates 512 → 1,024 → 1,792 in its
+first 20 s and finishes at the ceiling; the two ~6–9k reads behind a decoder in the C4
+probe finish at 512 and 1,024 respectively — exactly the intended split. The earlier
+"a 512 crawl already runs at ~840 tok/s (84% of solo)" measurement is why the
+throughput gain is real but bounded: the cap costs per-step overhead, not bandwidth.
+
+⚠ `crawl_ms` semantics: the line measures **wall time from late-admit to bypass**, not
+capped-step time. If the peer decoder stops mid-crawl the request finishes at full
+chunks while the timer keeps running — the 240k HoL probe logged `crawl_ms=206898`
+with `final_cap=512` for exactly this reason. Read it as "time spent late", not "time
+spent capped". A v3.1 could split the two.
+
+Production setting: `GLM53_MIXED_PREFILL_ESCALATE_MS=10000`,
+`GLM53_MIXED_PREFILL_LATE_CAP=512` (default), `GLM53_MIXED_PREFILL_LATE_CAP_MAX=1792`
+(default). Rollback = `ESCALATE_MS=0` (exact v2 behavior, no restart-shape change —
+the gate knobs are not in the JIT shape hash); `.env.bak-pre-w26`, `.env.w26-control`,
+`.env.w26-armA`, `.env.w26-armB` on spark1.
+
+
+## 2026-09-01: sixth sweep — candidate queue after W26
+
+Survey inputs: the kit's 29 open PRs / 19 open issues, vLLM upstream items updated
+since 2026-08-25 on the GLM-5.3 / DFlash / hybrid-KDA / GB10 / indexer paths, web
+research on spec-decode context-axis work and GB10 field measurements, a Codex
+review of kit PR #86, and a source read of the live container on spark1.
+
+**Upstream recipe drift is a chore, not a window.** The weekly nag fires on HEAD
+`493cb88` vs our staged `b5ab8091`; all five commits between them are docs/tests
+(#71 cold-prefill harness, #38 numeric-knob validation, #53 Pi configs, #55 README
+credits). Everything of substance upstream is still an **open PR** — an unreviewed
+proposal that must pass our own review and gates.
+
+| # | Candidate | Source | Effect here | Restart / shape hash |
+|---|---|---|---|---|
+| W27 | `GLM53_DEFAULT_REASONING_EFFORT=high` | kit PR #87 | Our template maps **unset → `Max`**, so any client omitting `chat_template_kwargs.reasoning_effort` runs at max. Author measured 2,160 s / 60,663 completion tokens at unset vs 593 s / 16,541 at `high`, same 80/80 grader, and two compactions vs zero. Cheapest big win available. | restart, no shape hash |
+| W28 | `GLM53_INDEXER_WORKSPACE=rightsize` | kit PR #86 | Verified in our container: `models/glm5next/nvidia/attention.py:302` calls `get_max_prefill_buffer_size()` **without** the `// compress_ratio` that `models/deepseek_v4/attention.py:777` applies — 40,000,000 entries × 132 B = **5,035 MiB** locked at our 1M window. Under the byte-pinned pool the reclaim becomes free device headroom (our binding constraint: MemFree floors 2.95–3.6 GiB), which is what would make a **pin raise** safe. That pin raise, not the reclaim, is the prize. | restart; env not in shape hash, a pin raise is a real memory change |
+| W29 | Extend the F0 ladder past 195k (measurement only) | vLLM #54691/#52258/#48944, kit #73, **our F0** | **Not a speculation gate.** F0 (2026-08-31) already found no long-context decay here — structured flat 56–65 tok/s @ 0.93–0.98 to ~195k, both ladder orders; #73's 70%→16% was on ABLIT=1 / MNBT 2048 / draft TP=2. But F0 stopped at 195k, droid compacts at 300k and the window is 1M, so 195k–400k is unmeasured and is where #54691's profiled mechanism (drafter re-scans the full accumulated drafter KV each cycle) would first bite. | none |
+| W30 | `/reset_prefix_cache` endpoint | kit PR #37 | Every cache A/B so far (W3, W18, W25, W25b) needed a full restart for a cold cache — 8–12 min, and restart churn contaminates the first probe pass with swap fault-in. An endpoint removes that confound from the protocol. | restart once to install |
+| W31 | Fine-grained APC #59 → #84 | kit PR #84 | #84 excludes every non-participating manager (not just `KpoolTailManager`), enforces `hash_block_size % index_kpool == 0` at init, composes with `patch_hybrid_prefix_hit` both orders, and no-ops on a future image where upstream scopes the veto. Author: re-turn hit 96.4–99.4% → 99.9–100%, TTFT 0.9–4.0 s → 0.3–0.5 s. We already have the 64 grid from W18, so this needs a same-day A/B against our own numbers. | restart |
+| W32 | Caller-export precedence | kit PR #92 / issue #91 | Caller exports beat `.env` for only 17 allowlisted knobs while the README promises the general rule; `GLM53_MIXED_PREFILL_CHUNK`, `CG_ESTIMATE`, `MAX_MODEL_LEN` silently lose. Our protocol edits `.env` and is accidentally safe — the trap is one export away and fails as a silent null result. | restart |
+| W33 | Gate v3.1 — split crawl accounting | ours (W26) | `crawl_ms` is wall time since late-admit, not time spent capped. Bundle with the next restart. | none |
+
+### Codex review of PR #86 — DO NOT RUN AS WRITTEN
+
+Three defects, confirmed against the live container source:
+
+1. **Fail-open in the chunk splitter** (`indexer.py:117`, verified). The inner loop
+   rejects a row wider than the workspace, then `if end == start:` **admits it
+   anyway**, and the query sub-chunking that follows reduces M, never N — so a chunk
+   with `N > workspace_size` is emitted. The stock 40× workspace makes that
+   unreachable today; right-sizing converts a silent safety margin into a possible
+   device-memory overrun. Fix first: raise on
+   `compressed_seq_lens[start] > workspace_size` and assert every emitted chunk's N
+   before the kernel call. (At our geometry the workspace is 4× a single max-length
+   row — the margin is real, just unchecked.)
+2. **Double compression on the DeepSeek-V4 call site** — the patch changes the shared
+   helper, but `deepseek_v4/attention.py` already divides by `compress_ratio`, so
+   that path would get `stock / ratio²`. Latent for us (we never instantiate it),
+   real upstream. Correct shape: a GLM-scoped helper taking `_index_kpool` explicitly.
+3. **Unscoped cross-check can abort one rank** — the `index_kpool != compress_ratio`
+   raise runs in the generic builder for any model whenever the process-wide env says
+   rightsize, including potentially the **rank-0-only DFlash2 draft** whose
+   `index_kpool` may be absent (parsed as 1). A rank-0 raise while rank 1 enters a
+   collective presents as an NCCL hang, not a clean failure.
+
+Also: drop `max_num_batched_tokens` from the row multiplier (inert at our
+`min(4, 3584) = 4`, invariant unproven), and make a rightsize arm that silently falls
+back to stock **fail readiness** instead of reporting a successful experiment. Boot
+gates: an unconditional role/rank/mode/entries/bytes line on **both** target ranks,
+pool bytes unmoved at 14.36 GiB, no `keeping stock sizing` warning, and free memory
+sampled *after* the workspace allocation point (it may be lazy — re-measure after the
+first long prefill).
+
+### Watchlist — new
+
+- **vLLM #54521** — greedy decoding non-deterministic above `indexer_budget` on
+  **sm121/GB10, TP=2**. Different model (Qwen3.8-Flash-Next), our exact platform and
+  subsystem: five byte-identical temp-0 requests return up to 4 distinct completions
+  once the prompt crosses the indexer's dense→top-k switch, HTTP 200 throughout. A
+  direct hazard for W28 — a temp-0 determinism probe above and below the budget
+  belongs in that window's gates, and is worth running once against production as-is.
+- **vLLM #48874** — the Anthropic `/v1/messages` frontend renders `system`-role
+  entries inside `messages[]` positionally, breaking Claude Code ≥2.1.2xx tool calling
+  (~90% of long-prompt tasks died as 1-turn completions). Filed on a DGX Spark GB10.
+  We serve droid/Hermes over the OpenAI route so we are not exposed — it is a trap the
+  moment anyone points Claude Code at `:18000`.
+- **`--kv-cache-dtype fp8` contradiction.** Two GB10 sources argue against KV
+  quantization on this hardware: a Memoriant benchmark measures generation **−37% at
+  110k** for q4_0/q8_0 vs f16 (dequant compute dominates, because the 273 GB/s LPDDR5X
+  pool is capacity-abundant and bandwidth-poor — the inverse of a discrete GPU), and
+  vLLM's own DGX Spark post advises avoiding fp8 KV unless memory pressure requires
+  it. Not directly transferable (those are llama.cpp software-dequant paths; ours is
+  packed `fp8_ds_mla` that MLA needs and that roughly halves the pool), so this is a
+  recorded tension rather than a window — but it predicts a long-context decode
+  dequant tax nobody has measured here.
+- **vLLM #54094 / #53477** — DFlash2 gets zero prefix-cache reuse on an identical ~1M
+  prompt while target-only reuses ~1.039M tokens. Same family as what W3/W25 fixed for
+  us, but our retention work was measured at ≤200k; worth one 1M replay check.
+
+### Considered and not proposed
+
+kit #43 (default `MAX_MODEL_LEN` 200k) = W12, tested and rejected. #85 ("concurrency
+totally dead") does not reproduce — we get 4 streams at ~39 tok/s aggregate. #88/#93
+are the MTP path; we run DFlash2. #78 (agentic tool-call repetition, never returns
+without `max_tokens`) — the never-returns half is already closed by W16's
+`DEFAULT_MAX_NEW_TOKENS=65536`; the repetition half is in-context distribution
+collapse the reporter reproduced at every temperature and seed, and their untested
+"is the drafter reinforcing it?" hypothesis is cheap to answer with a spec-off replay.
+#79 superseded by #83 (W25). #75 (EXL3 SM121 kernel lab) has no artifact to test yet.
+#65/#39/#72/#70/#66/#64/#58/#57/#56/#74/#47/#52/#31/#10 — previously qualified, no new
+activity that changes the verdict.
+
+### Sixth sweep, addendum — three parallel surveys (kit / vLLM upstream / web)
+
+Four findings change the queue above; two of them close items rather than open them.
+
+**W30 is already done — `/reset_prefix_cache` is live.** `start.sh:285` defaults
+`GLM53_EXPOSE_CACHE_RESET=1` and `overlay/patch_cache_reset.py` is wired at both ranks;
+`POST http://127.0.0.1:8000/reset_prefix_cache` returns **200** on the running server.
+Kit PR #37 is ALREADY HAVE, not a candidate. The consequence is a protocol change we
+should have been using for weeks: **cache A/Bs no longer need a unit restart** for a
+cold round, which also removes the parked-swap fault-in that contaminates every first
+probe pass. `cache-burst.py` / `cache-probe.sh` cold rounds should call the endpoint.
+
+**The #54713 alignment-unit defect does not apply to our overlay.** Upstream's fix for
+the same bug class backs the EAGLE lookup off by one unit, and its review thread warns
+that backing off one *Mamba block* is wrong when alignment ≠ block size — the back-off
+must be one *alignment unit* in tokens. `patch_hybrid_prefix_hit.py` does not back off
+at all: it scopes the drop to `eagle_group_ids=[6]` and leaves the drafter group's
+blocks **empty** so a fresh window is allocated, keeping the MLA/mamba hit intact. Our
+mechanism sidesteps the defect rather than sharing it. #54713 stays worth diffing at
+the rebase — it is the upstream trajectory for this patch — but it is not a live bug
+report against us.
+
+**`VLLM_EXL3_PREFILL_BLOCK_M` does not exist in our build — but the mechanism has a
+local analogue that is currently OFF.** The web survey's largest single claim (+44.7%
+prefill 8K, +36.2% at 128K, **+21.8% decode**, KV capacity unchanged, measured on
+`brandonmusic/GLM-5.2-EXL3-TR3v4-3.5bpw-MTP78`, 4× RTX PRO 6000 TP4/DCP4) attributes
+the win to zero-padding in a 64-row MoE route block (DRAM throughput 24.03% → 64.22%,
+kernel 1530 → 575 µs). Grepped our container: no `VLLM_EXL3_*` symbol anywhere, and
+exllamav3 is 0.0.43. What our `exl3.py` **does** expose is the same family of row
+knobs — `EXL3_MOE_ROW_TILE` (live value **0**, i.e. row tiling off),
+`EXL3_TEMP_ROWS_FUSED` (**128**), `EXL3_FAT_SCRATCH_ROWS` (defaults to MNBT),
+`EXL3_FAT_SORTED/BATCHED/KERNEL` (all 1 since W24), `EXL3_FUSED_MOE` (1). Since the
+claimed mechanism is row-block occupancy in the fat-expert path we already run, the
+honest translation is **a row-tiling sweep on the knobs we have**, not a backport:
+`EXL3_MOE_ROW_TILE=1` and an `EXL3_TEMP_ROWS_FUSED` ladder, gated on cold prefill,
+structured 66.5–70.4 @ 1.0000/7.0, prose, and pool bytes. All are plain env, not in
+the JIT shape hash — a cheap window. Caveat before believing the headline: their stack
+is 3.5 bpw on discrete GPUs with ~7× our memory bandwidth, and their own report says
+the routed-expert MoE kernel plateaus near 490 GB/s ≈ 27% of HBM — a kernel ceiling,
+not a config one, and our bandwidth ceiling is far lower.
+
+**Do not build a per-request `k` cut on DFlash2.** vLLM #49164 was closed *by its own
+author* on correctness grounds: for a non-causal DFlash drafter, shortening the
+physical draft block is not equivalent to computing the full trained block and
+truncating verification, because later mask positions influence earlier draft logits
+and acceptance. Any adaptive-k here must truncate at **verification**, never at
+drafting. This retires the DIY version of the long-context idea entirely and leaves
+only upstream work worth tracking: **#52228** (online acceptance estimator / adaptive
+verification — lossless, +9.8–21.8% tok/s and −10–19% TPOT on a DFlash2 target at c64,
++44.5% on Kimi-K2.5+DFlash, cold-start viable) and **#52559** (graph-aware adaptive K,
+stalled on merge conflicts, and graph-tied to a candidate set our capture sizes do not
+match). **#49548** is the counter-evidence to adopting either casually: measured *on a
+GB10 Spark*, dynamic spec decoding collapsed 8-concurrent aggregate throughput from
+232 to 24–157 tok/s at the batch threshold.
+
+Two low-risk correctness backports surfaced that are worth taking ahead of any
+performance window, both validated on 2× DGX Spark hybrid deployments:
+
+- **vLLM #53798** — `add_request` seeds a resumed request's mamba running-state column
+  using the *scheduler* block divisor instead of the *Mamba* block divisor. Under a
+  retention interval (which we run), a request admitted with `num_computed_tokens > 0`
+  reads a neighbour's row — silent wrong state — or past the table, a deterministic
+  IMA. One-line divisor swap plus lazy kv-cache-config resolution. This is a plausible
+  sibling of the #54199 crash class we have been soaking for.
+- **vLLM #54057** — `FlashInferMLASparseSM120Impl` sets `is_sparse=True` but never
+  declares `masked_mha_available`, which the prefill dispatcher reads for any sparse
+  impl once `num_mha_tokens > 0`. Two-line class attribute on our exact backend;
+  costs nothing and removes a rebase landmine.
+
+Also noted, no action yet: **#52527** exports
+`vllm:prefix_cache_sparse_retention_misses` (reuse the attention groups found and the
+mamba veto then discarded) — today that loss is indistinguishable from "no shared
+prefix", which is exactly the silent 0% we chased through W3/W18/W25; a metrics-only
+backport would make future retention A/Bs directly measurable instead of inferred from
+timing. **#53945** (cache the mamba state at the block-grid position of an EAGLE
+resume) targets the shared-prefix-ends-early shape W25 addresses and may win the same
+ground without giving up dense MLA retention — a real alternative to compare against.
+**#54373 merged 2026-08-31** (DFlash draft RoPE layout), the first tracked item to
+land; it arrives free at the rebase. Upstream GLM-5.3-Flash support (**#53906**) is
+still open, so our fork remains the only path.
+
+## 2026-09-01 late: seventh sweep — measurement windows, the align-floor overlay, W27 ADOPTED
+
+Six measurement-only windows ran between W26 and W27, none of which changed a
+production knob but two of which changed what this document claims. They are recorded
+here in the order their findings depend on each other, then W27.
+
+### W29 — long-context ladder extended to 518k. OVERTURNS the F0 "no decay" negative
+
+Measurement only, no restart. The sixth-sweep note that the long-context speculation
+question was "closed, not open" was true **only inside F0's measured range**. The
+prompt generator overshoots ~1.3×, so `--ctx 150000 250000 320000 400000` produced
+194,615 / 324,457 / 415,350 / 518,850-token prompts — well past the ~195k where F0
+stopped.
+
+| ctx (actual tokens) | structured acceptance | accepted / step | per-position tail |
+|---|---|---|---|
+| 194,615 | 0.978 | 6.85 | 0.97 flat |
+| 324,457 | 0.971 | 6.79 | 0.97 flat |
+| 415,350 | **0.909** | 6.36 | 0.94 → 0.83 |
+| 518,850 | **0.888** | 6.21 | 1.00 → 0.83 |
+
+Past ~325k DFlash2 acceptance decays monotonically, costing ~9% of accepted tokens per
+step by 518k; the per-position tail degrades progressively rather than randomly, which
+is what makes it read as structural (#54691's profiled mechanism — the drafter re-scans
+its full accumulated KV each cycle — fits). One sample per point: **suggestive, not
+settled; a confirming repeat is queued.** Do not use this run's tok/s (single
+observations, first row is textbook fault-in); acceptance is the stable metric.
+Practical read: droid compacts at 300k, so today's sessions stay in the healthy band;
+anything pushing true context to 400k+ pays a measurable drafting penalty. Memory floors
+at 518k: spark1 3.29 / spark2 3.49 GiB, both above the 3.0 tripwire.
+
+### W34a — `LONG_PREFILL_TOKEN_THRESHOLD` 1792 → 3584, TESTED AND REVERTED
+
+Same-boot control on the self-built image: cold prefill **+9.7%** (1026.5 → 1126.5
+tok/s at 120k), chunks 67 → 35, row-work conserved to 0.05% (the gain is per-launch
+amortisation, not fewer iterations); decode held (structured 66.69 @ 1.0000/7.0, prose
+27.89). **Rejected on head-of-line: short TTFT behind a 318k cold prefill 298.4 /
+280.1 s against the 6.65–7.9 s gate (~40×)** — the full pre-W4 starvation. Grok's
+qualification asked whether that gate was pre-selfbuild folklore; re-measured on the
+current image, LPTT=1792, three passes: 6.80 / 7.31 / 7.02 s — the band reproduces, so
+the 40× stands against a same-image control. Calibration on the way: `exl3.py:149`
+gives exactly 42 layer-steps per chunk, 30,070 / 1792 = 17 chunks, so **LPTT=1792 is
+empirically the binding per-step cap** and raising MNBT alone would have done nothing.
+Chunk size is not closed — only static 3584 is dead; the interior statics (2048–2560)
+and an adaptive threshold remain candidates, the latter blocked below.
+
+### W36 / W37 / W38 — memory floors: the swap tax and the head-only blind spot
+
+- **W36** (measurement only, LPTT=1792, lone ~160k cold prefill, MemFree sampled at 1 s
+  on both nodes): spark1 in-flight floor **2.27 / 2.72 GiB**, spark2 3.75 / 4.47,
+  prefill 930.8 / 942.8 tok/s. Its pre-registered gate was void as written (it compared
+  a sampled minimum against W34a's before/after pair). The pre-ship review of
+  **adaptive LPTT** (3584 with no peer, 1792 otherwise) returned Codex DO NOT SHIP,
+  Grok upheld: with `LPTT >= block_size` and a sub-block mixed-prefill cap, the mamba
+  align split floors the chunk to **0 tokens** (`start=0, cap=512 → end=512;
+  aligned_end=0; block_size<=max_prefill → end=0`) — no forward progress while the
+  peer decodes. Latent at static 1792 (the disjunct is false), live at 3584 — which
+  means W34a's arm carried it and never tripped it only because no cold prefill
+  co-scheduled with a decoder.
+- **W37** (owner-approved cluster bounce): parked swap was held by the vLLM processes
+  themselves (`VmSwap` 2.36 GB in `VLLM::Worker_TP`, ~4.3 GB across the tree), so a
+  unit restart reclaims it. Same probe, three passes, before → after: spark1 in-flight
+  floor 2.27 / 2.72 → **3.94 / 3.78 / 3.71 GiB (+1.2–1.4)**, cold prefill 930.8 / 942.8
+  → **1034.1 / 1035.0 / 1035.5 tok/s (+10.3%)**. **A swap-degraded head costs ~10% cold
+  prefill and ~1.3 GiB of floor, silently** — check MemFree before trusting any prefill
+  baseline (swap-used refills to ~4.6 GB during weight load; MemFree is the metric).
+  The healthy 1792 baseline is ~1035 tok/s, consistent with W34a's control.
+- **W38** (paired same-window control and arm, ~160k prompt, **both nodes** sampled —
+  Codex's pre-ship NO-GO demanded the pairing, a two-knob rollback and the worker
+  sample, and all three changed the result): cold prefill 1022–1044 → **1109 tok/s
+  (+7.1%)**; spark1 floor 3.20–3.46 → **3.96–4.05 GiB (+0.7 better)**; spark2 floor
+  3.98–4.07 → **2.78–2.84 GiB (−1.2 worse)**. **Chunk size does not cost memory — it
+  relocates it from head to worker.** Every earlier memory figure in this program is
+  head-only and therefore half a measurement. The pre-registered tripwire (abort if
+  either node < 3.0 GiB) was breached on all three passes; the arm was stopped and
+  rolled back without post-hoc re-argument. Consequence: adaptive LPTT is harder to
+  justify, not easier — its premise (a lone prefill takes the full budget) is exactly
+  the case that drains the worker. A3 (proving the align floor acts) is still unrun and
+  needs LPTT ≥ 3584 at 60k with the worker tripwire armed from the first sample.
+
+### Align-floor overlay — SHIPPED DORMANT (`overlay/patch_align_floor.py`, `GLM53_ALIGN_FLOOR=1`)
+
+Fixes the site-A zeroing above. Wired in `start.sh` (host default, preflight, both
+rank scripts, worker scp + mounts, shared `-e`); rollback `GLM53_ALIGN_FLOOR=0`,
+hash-neutral, no JIT wipe; the value is read once at import, so flipping needs a
+restart. Dormant at production LPTT=1792 and proven so: the patched function was
+unit-extracted and swept enabled-vs-disabled — **0 mismatches over 608 combinations**,
+the bug reproduced (upstream 0 vs fixed 512 / 1024 / 1792), mid-block starts never cross
+the 3584 boundary, zero input stays zero; Codex confirmed the helper is never called at
+1792. Codex High finding accepted: marker-only idempotence was fail-open, so
+`validate_installed()` now asserts patched-block-once + upstream-gone + helper-intact,
+runs the AST check on the early-return path, rejects partial or conflicting state and
+writes via `os.replace` (verified against a real copy of the container's scheduler on
+three corruption modes). Gates after ship: structured 66.52 / 66.57 / 66.69 @
+1.0000/7.0, acceptance 7/7, pool 1,396,551 byte-identical, loopback bind, both ranks log
+`patched scheduler.py (align floor=1)`.
+
+### W35 — mixed-prefill warm-bypass knee (owner-requested), CLEAN
+
+24 randomised rows, two reps per point, fresh tool seed every rep, a peer generation
+held throughout (`ignore_eos` + `min_tokens` — a "count to 9000" peer had stopped before
+row 1 and would have made every row a silent no-peer bypass). **Knee bracket: 3452 <
+knee ≤ 3534 uncached-remainder tokens** (configured `WARM_TOKENS=3584`; the offset is
+the hit cap at n−1 plus APC grain 64). BYPASS 1005–3452 tokens → TTFT 1.89–4.39 s;
+LATE-ADMIT 3534–10,010 → 6.00–14.87 s; monotone with zero inversions, paired repeats
+agree. Crossing the knee roughly doubles TTFT at once, then scales with size. Practical
+answer: a tool result keeps a cached follow-up at ~2–4 s while the appended remainder
+stays under ~3.45k tokens. Not tested: prefix forking, which loses the whole prefix
+regardless of size and remains the bigger risk.
+
+### W27 — `GLM53_DEFAULT_REASONING_EFFORT=high` ADOPTED SERVER-SIDE (2026-09-01, boot 19:35Z)
+
+**Why it exists.** The W16 template maps *unset* → `Max` and emits the effort line
+unconditionally, so any client that sends only `enable_thinking` — droid did — runs at
+the most expensive setting. Verified with `/tokenize`: unset and explicit `max` render
+the same token (7487), `high` 5124, `low` 12035; High and Max are the same prompt
+length, so the fork is a one-time cache miss, not a per-request tax.
+
+**What shipped** (kit PR #87, reshaped). `start.sh` gains
+`GLM53_DEFAULT_REASONING_EFFORT` (empty = no flag = Max as before; `low|high|max`),
+injected as one argv element `--default-chat-template-kwargs
+'{"reasoning_effort":"<v>"}'` in both rank scripts, deliberately **not** in
+`EXTRA_ARGS` (hash-neutral; shape stamp unchanged across the boot); validated as a
+strict enum inside `validate_numeric_config` — the enum is also the safety boundary for
+the worker's word-split `-e` transport. Per-request `chat_template_kwargs` still win.
+
+**Codex pre-ship review — three findings.** (1) the first draft validated at top-level
+and would have blocked `stop` / `status` / `logs` on a bad value — **fixed** (moved
+into the start/restart-only validator, tested: `High` → exit 2, `high` / `max` / empty
+→ 0); (2) the worker transport word-splits `-e` values, so anything with spaces or
+quotes would break — **recorded**, the enum guard is the mitigation and the comment
+says never to widen it without quoting; (3) confirm the live vLLM accepts the flag —
+**verified** (argv present at rank 0, worker env + argv parity).
+
+**The prior Codex verdict was honoured, not overruled.** `spec/TODO.md` already
+carried a Codex disposition on this exact window: *TEST FIRST — do not change the
+server default*, because the upstream 3.6× (2,160 → 593 s, 60,663 → 16,541 completion
+tokens, same 80/80 grader) is n=2 on one task where both `max` runs compacted twice
+and both `high` runs never did, and a saturated grader cannot see the silent failure
+modes (plausible-but-wrong root cause, dropped early requirement, partial completion
+claimed). The window was staged before that entry was re-read — a process error,
+recorded. The resolution the owner approved keeps its substance: the **server** default
+becomes High (correct for every client that omits the field), while the owner's coding
+client pins `reasoning_effort: max` explicitly (new sessions only — effort forks the
+prefix at the system header), so **nothing the owner runs changed effort**. Droid moves
+to High only if the blind paired test in `spec/TODO.md` (four real backlog tasks,
+randomised, graded blind, asymmetric stopping rule) finds it non-inferior.
+
+**Gates (arm = production, converged passes).** Boot 19:35Z → active 19:44Z; pool
+1,396,551 byte-identical; acceptance 7/7; serving 6/6; structured **69.07 / 69.07 /
+69.36 tok/s @ 1.0000 / 7.0**; prose 29.18 / 31.03 / 30.08. Render gate: all four request
+shapes (omit / `high` / `max` / `low`) produce the expected effort token. Effort probe,
+thinking on, High vs Max, all completions terminated normally:
+
+| task | High tokens / wall | Max tokens / wall |
+|---|---|---|
+| rope explanation | 297 / 9.0 s | 1,636 / 68.5 s |
+| code | 542 / 13.6 s | 1,181 / 29.4 s |
+| plan | 492 / 26.4 s | 2,002 / 83.1 s |
+
+**Grok verdict qualification: ADOPT-WITH-CONDITIONS.** (A) do not let the owner's
+client silently change effort → met by the explicit `max` pin; (B) its "prose gate
+failed" finding was **overruled**: the prose band (28.6–29.5) is a floor and the arm
+read 29.2–31.0, above it — the correct reading is "no regression, above-band, treat as
+a boot-to-boot confound" and it is recorded as such; (C) adoption for droid must wait
+on task-quality evidence → the blind paired test. Rollback `.env.w27-control` (knob
+absent → template renders Max), `.env.bak-pre-w27`, `start.sh.bak-pre-w27` on spark1.
+
+### What the sweep changes in the queue
+
+- **W40 (batch-size dynamic spec decoding) is re-scoped from "config-only" to
+  "needs a runner decision".** `num_speculative_tokens_per_batch_size` exists in the
+  image, but `_maybe_override_dynamic_sd_cudagraph_mode` forces FULL_AND_PIECEWISE →
+  PIECEWISE on the v1 runner (only `VLLM_USE_V2_MODEL_RUNNER=1` keeps full graphs) and
+  the scheduler drops uniform spec padding under DSD — both are decode-path changes,
+  not a knob. Evaluate v2-runner compatibility with the overlays first, or drop.
+- **W43 (new): `MAX_NUM_SEQS` 4 → 8** with capture sizes extended to 40 48 56 64 (k+1 =
+  8 tokens per sequence). `MAX_NUM_SEQS=4` is a hard admission cap today and is the
+  cheapest concurrency lever left; it is in the JIT shape hash (one-time wipe) and needs
+  the both-node memory tripwire from W38.
+- W41 + W42 (kit PR #94 KV-capacity log, PR #95 `APC_NO_STORE`) stay next, one restart,
+  Codex pre-ship first; A3 after them; the W29 confirming repeat whenever the box is
+  idle.
