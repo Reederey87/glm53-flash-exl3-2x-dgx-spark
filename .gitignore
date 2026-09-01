@@ -6,3 +6,6 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 
+
+# Local working ledgers — maintained on disk, never tracked
+spec/
