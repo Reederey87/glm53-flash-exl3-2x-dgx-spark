@@ -77,10 +77,20 @@ def main():
     after = [e for e in events if e > t_b1]
     rate_after = (len(after) / (after[-1] - after[0])) if len(after) > 1 else float("nan")
 
+    # W26: the decode-side tail during the peer's crawl — inter-token gaps p50/p99 — is the
+    # number that argues for a small late cap; the peer's wall time and A's tokens in a fixed
+    # window after the peer starts are the numbers that argue for a larger one.
+    gaps = sorted(b - a_ for a_, b in zip(during, during[1:]))
+    def _pct(q):
+        return gaps[min(len(gaps) - 1, int(q * len(gaps)))] if gaps else float("nan")
+    fixed_win = t_b0 + 240.0
+    in_win = sum(1 for e in events if t_b0 <= e <= fixed_win)
     print(f"peer cold prefill: ~{a.pad_words} words in {t_b1-t_b0:.1f}s")
     print(f"decode tok/s  before: {rate_before:5.1f}   DURING peer prefill: {rate_during:5.1f}"
           f"   after: {rate_after:5.1f}")
     print(f"collapse factor during/before: {rate_during/max(rate_before,0.01):.2f}x")
+    print(f"decode gaps DURING peer: p50 {_pct(0.5):.2f}s  p99 {_pct(0.99):.2f}s  max {(gaps[-1] if gaps else float('nan')):.2f}s"
+          f"   | decode tokens in the 240 s after peer start: {in_win}")
 
 if __name__ == "__main__":
     main()
