@@ -104,6 +104,20 @@ local/cache-probe.sh 30
 Round 1 is cold by construction; rounds 2+ are the verdict. A healthy config shows
 >90% on round 2 sequential and the same sessions re-prefilling in seconds.
 
+## Reading the metrics (issue #16): 0 hits on short prompts is the floor, not a dead cache
+
+Without fine-grained APC, `vllm:prefix_cache_hits_total` only ever moves in
+multiples of **3,584** and a prompt shorter than one page registers **0 hits
+forever, even when repeated byte-for-byte** — telemetry indistinguishable from a
+broken cache (issue #16 lost an afternoon to exactly this). Two ways to tell them
+apart on this kit: the on-ready banner prints `apc_grain=64 (fine-grained)` or
+`apc_grain=3584 (page; …)`, and the engine log carries either the `Disabling
+fine-grained prefix-cache hits because … KpoolTailManager` line (floor active) or
+none (W18 overlay active). `env.example` now ships `GLM53_FINE_GRAINED_APC=1`, the
+production setting, so sub-page prompts hit at the 64-token grain out of the box;
+the per-metric "below block granularity" label the issue asks for is a vLLM-side
+change — the counters themselves cannot make that distinction.
+
 ## 2026-08-31 addendum: the sub-page floor has a candidate fix (W18)
 
 The "hits align to 3584-token pages" rule above is not a property of the model —
