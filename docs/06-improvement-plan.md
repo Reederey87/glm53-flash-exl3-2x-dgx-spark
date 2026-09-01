@@ -509,6 +509,24 @@ previous behavior, overlay still installed as a no-op) → `.env.bak-pre-w25`.
 Queued as **W25b**: the middle arm (global=14336, every four pages, + SWA=0) to see
 whether it keeps most of the fork-shape gain without the pool-edge eviction cost.
 
+### W25b — the middle arm (global=14336 + SWA=0) TESTED, NOT ADOPTED (2026-09-01)
+
+Hypothesis: a retention interval of every four pages might keep most of the fork-shape
+gain without the pool-edge eviction cost. Same-day ladder, same probes:
+
+| probe | control (global=0) | arm 1 (dense) | **W25b (14336)** |
+|---|---|---|---|
+| solo 110k · 2×68k · 4×60k · 4×120k | 98 / 100 / 98.7 / — | 98.0 / 100 / 98.7 / 100 | **98.0 / 100 / 98.7 / 100** |
+| fork-shape cold rounds | 0% | 37–49% | **42–60%** |
+| 4×200k concurrent replay | **75.0%** | 49.9% | **50.0%** |
+| structured · acceptance · IMA | — | 65.9–66.2 · 7/7 · 0 | 65.93/66.09 @ 1.0/7.0 · 7/7 · 0 |
+
+The gain survives at 14336, but the cost does not move: *any* non-boundaries-only
+MLA/mamba retention pays the same ~25 pp at the pool's edge — the "0" mode is not
+merely sparser, it keeps exactly the replay-relevant checkpoints, which is what
+matters when 800k tokens are live. 14336 therefore buys nothing over dense; production
+returns to the adopted arm 1. Recorded so the middle arm is not re-run.
+
 ### W26 — mixed-prefill gate v3: aging + late-path instrumentation STAGED (2026-09-01)
 
 The W23 gate shipped with upstream's defaults, never tuned for this hardware, and its
