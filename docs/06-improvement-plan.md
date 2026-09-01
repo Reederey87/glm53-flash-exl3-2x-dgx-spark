@@ -438,7 +438,7 @@ cost did not materialize at this geometry. Production now runs the w24 image wit
 `EXL3_FAT_SORTED/BATCHED/KERNEL=1`. Rollback ladder: `.env.w24-control` (flags off,
 same image) → `.env.bak-pre-w24` (w15a image).
 
-### W25 — per-group prefix-cache retention (upstream PR #83) IN PROGRESS (2026-08-31)
+### W25 — per-group prefix-cache retention (upstream PR #83) ADOPTED (2026-09-01, owner call)
 
 The mechanism behind the retention ceiling: block ids are global across KV-cache
 groups in one LRU pool, and a cached 3,584-token segment costs **38 ids of which 33
@@ -477,3 +477,34 @@ MLA/mamba dense at the fine grid; the author's receipt configuration. Gates:
 standing decode/acceptance gates, cache-burst 2×68k ≥ 95% / 4×60k ≥ 90%, solo 110k
 replay ≥ 97%, pool byte-identical, 0 IMA, plus a capacity-edge probe (4×~120k).
 Rollback: `.env.bak-pre-w25`.
+
+**Result.** Canary (global=0 + SWA=0) was byte-for-byte production behavior:
+vector `[0,0,0,0,0,0,0]`, pool identical, acceptance 7/7, 2×68k 100%, 4×60k 98.7%,
+structured 66.17/66.30 @ 1.0000/7.0. The meaningful arm (dense global + drafter 0,
+vector `[None,None,None,None,None,None,0]`) then ran the ramp:
+
+| probe | control (global=0, same day) | **arm 1 (dense + drafter 0)** |
+|---|---|---|
+| solo 110k replay | 98% (standing) | **98.0%** (3.4 s) |
+| 2×68k / 4×60k | 100% / 98.7% | **100% (1.2 s) / 98.7%** |
+| 4×120k | — | **100%** (3.2 s) |
+| **shared-prefix, different length** (cold round of each next probe) | **0%** | **37–49%** |
+| 4×200k concurrent replay (86% of pool) | **75.0%** (3 of 4 sessions, p50 3.0 s) | 49.9% (2 of 4, p50 410 s) |
+| structured / prose | 66.2–66.7 / in band | 65.94–66.22 @ 1.0/7.0 / 28.8–29.2 |
+| acceptance / IMA | 7/7 / 0 | 7/7 / 0 |
+
+The new gain is the **subagent-fork shape**: `cache-burst` seeds session *i*
+identically across probes, so each probe's cold round is a shorter-or-longer replay
+of an earlier prompt — exactly a subagent forking from a parent's context. Boundaries-
+only retention (global=0) cannot hit that shape at all; dense MLA/mamba retention
+with the drafter sparse hits 37–49% of it, reproducing the PR's diverging-subagent
+receipt on our pair. The cost, measured with a same-day control: at four concurrent
+~200k replays (86% of the pool) dense retention loses ~25 pp — Codex's capacity
+model holds directionally at the pool's edge. Owner adopted: the fork shape is what
+the 4-agent workflow produces daily; four simultaneous 200k replays are not.
+
+Production `.env`: `VLLM_PREFIX_CACHE_RETENTION_INTERVAL` **commented out** (dense),
+`VLLM_PREFIX_CACHE_RETENTION_INTERVAL_SWA=0`. Rollback: `.env.w25-canary` (today's
+previous behavior, overlay still installed as a no-op) → `.env.bak-pre-w25`.
+Queued as **W25b**: the middle arm (global=14336, every four pages, + SWA=0) to see
+whether it keeps most of the fork-shape gain without the pool-edge eviction cost.

@@ -54,6 +54,33 @@ path (`_mamba_block_aligned_split` floors every intermediate chunk to the 3584 g
 Decode was unaffected (structured acceptance 1.0000, throughput within noise), the
 pinned pool byte-identical, and the env is not in the JIT shape hash (no cache wipe).
 
+## Per-group retention (2026-09-01) — the dense collapse was the drafter's
+
+Re-read the table above with upstream PR #83's finding in hand: block ids are one
+global LRU pool, and a cached 3,584-token segment costs **38 ids, 33 of them DFlash2
+drafter sliding-window blocks** — hashed and freed to the LRU tail for a group whose
+hit length the hybrid `min()` discards anyway. "Dense = 0%" was the drafter starving
+MLA/mamba of ids, not dense KDA retention being too expensive in itself.
+`overlay/patch_apc_per_group_retention.py` makes retention per-group: the drafter
+takes `VLLM_PREFIX_CACHE_RETENTION_INTERVAL_SWA=0` (boundaries only), every other
+group keeps the global value — and production now runs the global knob **dense**
+(commented out in `.env`). Boot line: `retention_by_group=[None,None,None,None,None,None,0]`.
+
+| Shape | global `0` (W3) | **dense + drafter `0` (W25)** |
+|---|---|---|
+| 2×68k / 4×60k round-2 hits | 100% / 98.7% | **100% (1.2 s) / 98.7%** |
+| Solo 110k replay · 4×120k | 98% · — | **98.0% · 100%** |
+| **Shared prefix, different length** (subagent fork) | **0%** | **37–49%** |
+| 4×200k concurrent replay (86% of pool) | **75.0%** | 49.9% |
+
+Dense retention now costs nothing on every standing shape and buys the one shape
+boundaries-only retention can never hit — a subagent forking from a parent's context
+(shared prefix, shorter or longer tail). Its measured cost, from a same-day control,
+is ~25 pp only when four sessions concurrently replay ~200k each at the pool's edge.
+Decode, acceptance and the pinned pool are unchanged. Rollback is one line:
+`VLLM_PREFIX_CACHE_RETENTION_INTERVAL=0` back in `.env` (the overlay then resolves
+every group to 0 — byte-for-byte the previous behavior).
+
 Residual cautions: soak the concurrent-hit path under real load (vLLM issue #54199
 reports a GB10 illegal-memory-access when a cache-hit request is admitted while the
 donor is in flight — zero errors in our probes, but that is the crash class that
