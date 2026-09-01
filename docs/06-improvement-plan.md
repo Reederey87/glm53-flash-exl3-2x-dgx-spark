@@ -527,7 +527,7 @@ merely sparser, it keeps exactly the replay-relevant checkpoints, which is what
 matters when 800k tokens are live. 14336 therefore buys nothing over dense; production
 returns to the adopted arm 1. Recorded so the middle arm is not re-run.
 
-### W26 — mixed-prefill gate v3: aging + late-path instrumentation STAGED (2026-09-01)
+### W26 — mixed-prefill gate v3: aging + late-path instrumentation ADOPTED (2026-09-01)
 
 The W23 gate shipped with upstream's defaults, never tuned for this hardware, and its
 late path had no instrumentation at all. Two weaknesses: `LATE_CAP=512` is the wrong
@@ -553,3 +553,43 @@ rate **and inter-token gap p99** during a co-running cold read, the read's wall 
 decode tokens in a fixed 240 s window), `w4-hol-probe` (short TTFT behind a 240k
 read), `w20-concurrency-probe` at C4. Pre-registered gates: short TTFT ≤ 7.4 s, gap
 p99 during a crawl ≤ ~2 s, cold-read completion ↓, decode tokens per window ↑.
+
+**Result — arm A (`ESCALATE_MS=10000`) adopted.** Three boots, probes run to
+convergence (the first pass after any restart reads low from parked-swap fault-in —
+arm A's pass 1 showed decode-before 2.9 tok/s and gap p99 6.67 s, both artifacts that
+self-cleared on pass 2).
+
+| Arm | peer 60k cold read | decode gap p50 / p99 | decode tokens / 240 s | short TTFT behind 240k | C4 per-stream / agg |
+|---|---|---|---|---|---|
+| control (v3, aging off = v2) | 78.3 s (crawl 71.7) | 0.64 / 1.39 s | 677 | 6.93 s | 10.0 / 40.2 |
+| **A — `ESCALATE_MS=10000`** | **63.1 s (crawl 58.4)** | 0.71 / 1.78 s | **863 (+27%)** | **6.65 s** | 9.9 / 39.7 |
+| B — flat `LATE_CAP=1024` | 65.2 s (crawl 60.1) | **1.07** / 1.86 s | 862 | 7.58 s | 9.7 / 38.9 |
+
+All four pre-registered gates pass on arm A: short TTFT 6.65 s ≤ 7.4, gap p99 1.78 s
+≤ 2, cold read 78.3 → 63.1 s, decode tokens 677 → 863. Pool byte-identical
+(1,396,551), zero errors, C4 within noise of control.
+
+Arm B is the control that makes the aging worth having: a flat 1,024 buys arm A's
+throughput (862 tokens, 65.2 s read) but pays on **every** late read — gap p50 1.07 s
+vs 0.71, short TTFT 7.58 s vs 6.65. Aging keeps the first 10 s at the 512 floor, where
+short cached reads finish and never escalate, and only lets the minutes-long crawls
+climb to 1,792.
+
+Mechanism confirmed by the log lines: a 60k read escalates 512 → 1,024 → 1,792 in its
+first 20 s and finishes at the ceiling; the two ~6–9k reads behind a decoder in the C4
+probe finish at 512 and 1,024 respectively — exactly the intended split. The earlier
+"a 512 crawl already runs at ~840 tok/s (84% of solo)" measurement is why the
+throughput gain is real but bounded: the cap costs per-step overhead, not bandwidth.
+
+⚠ `crawl_ms` semantics: the line measures **wall time from late-admit to bypass**, not
+capped-step time. If the peer decoder stops mid-crawl the request finishes at full
+chunks while the timer keeps running — the 240k HoL probe logged `crawl_ms=206898`
+with `final_cap=512` for exactly this reason. Read it as "time spent late", not "time
+spent capped". A v3.1 could split the two.
+
+Production setting: `GLM53_MIXED_PREFILL_ESCALATE_MS=10000`,
+`GLM53_MIXED_PREFILL_LATE_CAP=512` (default), `GLM53_MIXED_PREFILL_LATE_CAP_MAX=1792`
+(default). Rollback = `ESCALATE_MS=0` (exact v2 behavior, no restart-shape change —
+the gate knobs are not in the JIT shape hash); `.env.bak-pre-w26`, `.env.w26-control`,
+`.env.w26-armA`, `.env.w26-armB` on spark1.
+
