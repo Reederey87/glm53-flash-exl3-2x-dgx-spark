@@ -4,7 +4,7 @@ Summary of each PR landed on `main`. One entry per PR, newest first. This is a
 ledger, not a substitute for the PR description — the full rationale, receipts and
 rollback ladders live in `docs/06-improvement-plan.md`.
 
-## PR TBD — 2026-09-01 — W26 mixed-prefill gate aging, adopted; sixth upstream sweep
+## PR #17 — 2026-09-01 — W26 mixed-prefill gate aging, adopted; sixth upstream sweep
 
 - **W26 ADOPTED.** `GLM53_MIXED_PREFILL_ESCALATE_MS=10000` is production. A cold
   prefill that is late-admitted while peers decode now doubles its per-step cap every
