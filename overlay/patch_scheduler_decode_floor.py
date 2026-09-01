@@ -177,23 +177,46 @@ def _glm53_gate_config():
     return cfg
 
 
-def _glm53_gate_state(current, create=False):
-    """Per-request gate state (first_seen / late_at / cap / done) kept on the Request so it survives chunking,
-    preemption and requeue; weak-keyed fallback if the Request class rejects attributes.  [glm53-decode-floor-v3]"""
+def _glm53_fallback_get(current):
+    """Bounded id-keyed fallback map lookup; the stored request_id guards against id() reuse.  [glm53-decode-floor-v3]"""
+    m = _GLM53_FIRST_SEEN_FALLBACK
+    if not m:
+        return None
+    ent = m.get(id(current))
+    if ent is None:
+        return None
+    rid, st = ent
+    if rid != getattr(current, "request_id", None):
+        m.pop(id(current), None)
+        return None
+    return st
+
+
+def _glm53_fallback_put(current, st):
     global _GLM53_FIRST_SEEN_FALLBACK
+    if _GLM53_FIRST_SEEN_FALLBACK is None:
+        _GLM53_FIRST_SEEN_FALLBACK = {}
+        print("[glm53-decode-floor-v3] Request rejects attributes; using a bounded id-keyed state map", flush=True)
+    m = _GLM53_FIRST_SEEN_FALLBACK
+    if len(m) >= 4096:
+        for k in list(m)[:1024]:
+            m.pop(k, None)
+    m[id(current)] = (getattr(current, "request_id", None), st)
+
+
+def _glm53_gate_state(current, create=False):
+    """Per-request gate state (first_seen / late_at / cap / done / last_computed) kept on the Request so it
+    survives chunking, preemption and requeue; bounded id-keyed fallback (request_id-checked) if the Request
+    class rejects attributes -- no weakrefs, so slotted or unhashable Request types cannot raise here.  [glm53-decode-floor-v3]"""
     st = getattr(current, "_glm53_gate_state", None)
-    if st is None and _GLM53_FIRST_SEEN_FALLBACK is not None:
-        st = _GLM53_FIRST_SEEN_FALLBACK.get(current)
+    if st is None:
+        st = _glm53_fallback_get(current)
     if st is None and create:
         st = {}
         try:
             current._glm53_gate_state = st
         except AttributeError:
-            import weakref
-            if _GLM53_FIRST_SEEN_FALLBACK is None:
-                _GLM53_FIRST_SEEN_FALLBACK = weakref.WeakKeyDictionary()
-                print("[glm53-decode-floor-v3] Request rejects attributes; using a weak-keyed state map", flush=True)
-            _GLM53_FIRST_SEEN_FALLBACK[current] = st
+            _glm53_fallback_put(current, st)
     return st
 
 
@@ -218,6 +241,13 @@ def _glm53_mixed_prefill_gate(running, current, num_computed_tokens):
     if remaining <= 0:
         return None
     st = _glm53_gate_state(current)
+    if st is not None:
+        last = st.get("last_computed")
+        if last is not None and num_computed_tokens < last:
+            # preempted and rolled back: the hold age (first_seen) survives, the crawl episode does not,
+            # so a resumed request re-admits at the base late cap and logs its own crawl.
+            st.pop("late_at", None); st.pop("cap", None); st.pop("done", None)
+        st["last_computed"] = num_computed_tokens
     if remaining <= cfg["warm_tokens"]:
         if st is not None and st.get("late_at") is not None and not st.get("done"):
             st["done"] = True
@@ -232,6 +262,7 @@ def _glm53_mixed_prefill_gate(running, current, num_computed_tokens):
         return cap
     if st is None:
         st = _glm53_gate_state(current, create=True)
+        st["last_computed"] = num_computed_tokens
     now = _t.monotonic()
     if st.get("first_seen") is None:
         st["first_seen"] = now
@@ -368,7 +399,10 @@ def upgrade_v1_to_v2(text: str) -> str:
 
 def upgrade_v2_to_v3(text: str) -> str:
     """v2 (applied or baked) -> v3: swap the byte-exact v2 helper block for the v3 one; call sites are unchanged."""
-    return replace_once(text, HELPER_V2_ONLY, HELPER_V3_ONLY, "v2 helper block")
+    text = replace_once(text, HELPER_V2_ONLY, HELPER_V3_ONLY, "v2 helper block")
+    if MARK_V3 not in text or HELPER_V2_ONLY in text or text.count("def _glm53_mixed_prefill_gate(") != 1:
+        raise SystemExit(f"{P}: v2 -> v3 upgrade postcondition failed")
+    return text
 
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:

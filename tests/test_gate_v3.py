@@ -112,8 +112,58 @@ def test_wait_forever_when_max_wait_zero() -> None:
         time.monotonic = real
 
 
+def test_preemption_rollback_starts_a_new_crawl_episode() -> None:
+    clock = [100.0]
+    ns, real = _helper_ns({"GLM53_MIXED_PREFILL_ESCALATE_MS": "10000"}, clock)
+    try:
+        gate = ns["_glm53_mixed_prefill_gate"]
+        running = [_decoding_peer()]
+        cold = Req("pre", 80_000)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            assert gate(running, cold, 0) == 0
+            clock[0] += 2.0
+            assert gate(running, cold, 0) == 512
+            clock[0] += 25.0
+            assert gate(running, cold, 20_000) == 1792          # escalated
+            # preempted: num_computed_tokens rolls back -> episode resets, age survives (still late)
+            assert gate(running, cold, 0) == 512
+            assert gate(running, cold, 512) == 512
+        log = out.getvalue()
+        assert log.count("late-admit req=pre") == 2, log
+    finally:
+        time.monotonic = real
+
+
+class SlottedReq:
+    __slots__ = ("request_id", "num_tokens", "num_prompt_tokens", "num_computed_tokens")   # no __dict__, no __weakref__
+
+    def __init__(self, rid, n):
+        self.request_id, self.num_tokens, self.num_prompt_tokens, self.num_computed_tokens = rid, n, n, 0
+
+
+def test_fallback_when_request_rejects_attributes() -> None:
+    clock = [0.0]
+    ns, real = _helper_ns({}, clock)
+    try:
+        gate = ns["_glm53_mixed_prefill_gate"]
+        running = [_decoding_peer()]
+        cold = SlottedReq("slot", 60_000)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            assert gate(running, cold, 0) == 0
+            clock[0] += 2.0
+            assert gate(running, cold, 0) == 512            # age was kept in the fallback map
+        log = out.getvalue()
+        assert "bounded id-keyed state map" in log and log.count("late-admit req=slot") == 1, log
+    finally:
+        time.monotonic = real
+
+
 if __name__ == "__main__":
     test_bypass_hold_deadline_and_aging()
     test_flat_v2_crawl_when_escalation_off()
     test_wait_forever_when_max_wait_zero()
+    test_preemption_rollback_starts_a_new_crawl_episode()
+    test_fallback_when_request_rejects_attributes()
     print("gate v3 OK")
