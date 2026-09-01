@@ -74,6 +74,8 @@ _cli_chunk="${GLM53_MIXED_PREFILL_CHUNK-}"
 _cli_warm="${GLM53_MIXED_PREFILL_WARM_TOKENS-}"
 _cli_wait="${GLM53_MIXED_PREFILL_MAX_WAIT_MS-}"
 _cli_late="${GLM53_MIXED_PREFILL_LATE_CAP-}"
+_cli_esc="${GLM53_MIXED_PREFILL_ESCALATE_MS-}"  # LOCAL: W26
+_cli_latemax="${GLM53_MIXED_PREFILL_LATE_CAP_MAX-}"  # LOCAL: W26
 set -a
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/.env"
@@ -83,6 +85,8 @@ set +a
 [ -n "${_cli_warm}" ] && GLM53_MIXED_PREFILL_WARM_TOKENS="$_cli_warm"
 [ -n "${_cli_wait}" ] && GLM53_MIXED_PREFILL_MAX_WAIT_MS="$_cli_wait"
 [ -n "${_cli_late}" ] && GLM53_MIXED_PREFILL_LATE_CAP="$_cli_late"
+[ -n "${_cli_esc}" ] && GLM53_MIXED_PREFILL_ESCALATE_MS="$_cli_esc"
+[ -n "${_cli_latemax}" ] && GLM53_MIXED_PREFILL_LATE_CAP_MAX="$_cli_latemax"
 [ -n "${_cli_spec}" ] && SPEC_METHOD="$_cli_spec"
 [ -n "${_cli_eager}" ] && ENFORCE_EAGER="$_cli_eager"
 [ -n "${_cli_fused}" ] && EXL3_FUSED_MOE="$_cli_fused"
@@ -260,6 +264,8 @@ GLM53_MIXED_PREFILL_CHUNK="${GLM53_MIXED_PREFILL_CHUNK:-skip}"
 GLM53_MIXED_PREFILL_WARM_TOKENS="${GLM53_MIXED_PREFILL_WARM_TOKENS:-3584}"
 GLM53_MIXED_PREFILL_MAX_WAIT_MS="${GLM53_MIXED_PREFILL_MAX_WAIT_MS:-1500}"
 GLM53_MIXED_PREFILL_LATE_CAP="${GLM53_MIXED_PREFILL_LATE_CAP:-512}"
+GLM53_MIXED_PREFILL_ESCALATE_MS="${GLM53_MIXED_PREFILL_ESCALATE_MS:-0}"  # LOCAL: W26 gate v3 aging (0 = v2)
+GLM53_MIXED_PREFILL_LATE_CAP_MAX="${GLM53_MIXED_PREFILL_LATE_CAP_MAX:-1792}"  # LOCAL: W26
 # LOCAL: 1 = shrink vLLM SpinCondition busy_loop_s 1 s -> 2 ms (GB10 core relief, W17). Off by default.
 GLM53_SPINWAIT_2MS="${GLM53_SPINWAIT_2MS:-0}"
 # LOCAL: 1 = exempt KpoolTailManager from the partial-hash veto -> hash-grain (64) prefix hits (W18). Off by default.
@@ -363,6 +369,17 @@ validate_numeric_config() {
     _glm53_canonical_positive_int GLM53_MIXED_PREFILL_LATE_CAP "$GLM53_MIXED_PREFILL_LATE_CAP" 8192 || return
     if [ "$GLM53_MIXED_PREFILL_LATE_CAP" -lt 64 ]; then
         echo "GLM53_MIXED_PREFILL_LATE_CAP must be between 64 and 8192 (got: $GLM53_MIXED_PREFILL_LATE_CAP)" >&2; return 2
+    fi
+    # LOCAL: W26 gate v3 knobs
+    GLM53_MIXED_PREFILL_ESCALATE_MS="${GLM53_MIXED_PREFILL_ESCALATE_MS:-0}"
+    GLM53_MIXED_PREFILL_LATE_CAP_MAX="${GLM53_MIXED_PREFILL_LATE_CAP_MAX:-1792}"
+    _v="$GLM53_MIXED_PREFILL_ESCALATE_MS"
+    if ! [[ "$_v" =~ ^[0-9]+$ ]] || [ "${#_v}" -gt 7 ] || [ "$((10#$_v))" -gt 600000 ]; then
+        echo "GLM53_MIXED_PREFILL_ESCALATE_MS must be an integer between 0 and 600000 (got: $_v)" >&2; return 2
+    fi
+    _glm53_canonical_positive_int GLM53_MIXED_PREFILL_LATE_CAP_MAX "$GLM53_MIXED_PREFILL_LATE_CAP_MAX" 8192 || return
+    if [ "$GLM53_MIXED_PREFILL_LATE_CAP_MAX" -lt "$GLM53_MIXED_PREFILL_LATE_CAP" ]; then
+        echo "GLM53_MIXED_PREFILL_LATE_CAP_MAX must be >= GLM53_MIXED_PREFILL_LATE_CAP (got: $GLM53_MIXED_PREFILL_LATE_CAP_MAX < $GLM53_MIXED_PREFILL_LATE_CAP)" >&2; return 2
     fi
 }
 # GLM53 numeric config guard (end)
@@ -1204,6 +1221,8 @@ launch_cluster() {
         -e "GLM53_MIXED_PREFILL_WARM_TOKENS=$GLM53_MIXED_PREFILL_WARM_TOKENS"
         -e "GLM53_MIXED_PREFILL_MAX_WAIT_MS=$GLM53_MIXED_PREFILL_MAX_WAIT_MS"
         -e "GLM53_MIXED_PREFILL_LATE_CAP=$GLM53_MIXED_PREFILL_LATE_CAP"
+        -e "GLM53_MIXED_PREFILL_ESCALATE_MS=$GLM53_MIXED_PREFILL_ESCALATE_MS"
+        -e "GLM53_MIXED_PREFILL_LATE_CAP_MAX=$GLM53_MIXED_PREFILL_LATE_CAP_MAX"
         # Read by the patched build_app (issue #31): mount only the cache-reset
         # dev routes when 1. Patched file is inert when 0/unset.
         -e "GLM53_EXPOSE_CACHE_RESET=$GLM53_EXPOSE_CACHE_RESET"
