@@ -593,3 +593,96 @@ Production setting: `GLM53_MIXED_PREFILL_ESCALATE_MS=10000`,
 the gate knobs are not in the JIT shape hash); `.env.bak-pre-w26`, `.env.w26-control`,
 `.env.w26-armA`, `.env.w26-armB` on spark1.
 
+
+## 2026-09-01: sixth sweep — candidate queue after W26
+
+Survey inputs: the kit's 29 open PRs / 19 open issues, vLLM upstream items updated
+since 2026-08-25 on the GLM-5.3 / DFlash / hybrid-KDA / GB10 / indexer paths, web
+research on spec-decode context-axis work and GB10 field measurements, a Codex
+review of kit PR #86, and a source read of the live container on spark1.
+
+**Upstream recipe drift is a chore, not a window.** The weekly nag fires on HEAD
+`493cb88` vs our staged `b5ab8091`; all five commits between them are docs/tests
+(#71 cold-prefill harness, #38 numeric-knob validation, #53 Pi configs, #55 README
+credits). Everything of substance upstream is still an **open PR** — an unreviewed
+proposal that must pass our own review and gates.
+
+| # | Candidate | Source | Effect here | Restart / shape hash |
+|---|---|---|---|---|
+| W27 | `GLM53_DEFAULT_REASONING_EFFORT=high` | kit PR #87 | Our template maps **unset → `Max`**, so any client omitting `chat_template_kwargs.reasoning_effort` runs at max. Author measured 2,160 s / 60,663 completion tokens at unset vs 593 s / 16,541 at `high`, same 80/80 grader, and two compactions vs zero. Cheapest big win available. | restart, no shape hash |
+| W28 | `GLM53_INDEXER_WORKSPACE=rightsize` | kit PR #86 | Verified in our container: `models/glm5next/nvidia/attention.py:302` calls `get_max_prefill_buffer_size()` **without** the `// compress_ratio` that `models/deepseek_v4/attention.py:777` applies — 40,000,000 entries × 132 B = **5,035 MiB** locked at our 1M window. Under the byte-pinned pool the reclaim becomes free device headroom (our binding constraint: MemFree floors 2.95–3.6 GiB), which is what would make a **pin raise** safe. That pin raise, not the reclaim, is the prize. | restart; env not in shape hash, a pin raise is a real memory change |
+| W29 | Extend the F0 ladder past 195k (measurement only) | vLLM #54691/#52258/#48944, kit #73, **our F0** | **Not a speculation gate.** F0 (2026-08-31) already found no long-context decay here — structured flat 56–65 tok/s @ 0.93–0.98 to ~195k, both ladder orders; #73's 70%→16% was on ABLIT=1 / MNBT 2048 / draft TP=2. But F0 stopped at 195k, droid compacts at 300k and the window is 1M, so 195k–400k is unmeasured and is where #54691's profiled mechanism (drafter re-scans the full accumulated drafter KV each cycle) would first bite. | none |
+| W30 | `/reset_prefix_cache` endpoint | kit PR #37 | Every cache A/B so far (W3, W18, W25, W25b) needed a full restart for a cold cache — 8–12 min, and restart churn contaminates the first probe pass with swap fault-in. An endpoint removes that confound from the protocol. | restart once to install |
+| W31 | Fine-grained APC #59 → #84 | kit PR #84 | #84 excludes every non-participating manager (not just `KpoolTailManager`), enforces `hash_block_size % index_kpool == 0` at init, composes with `patch_hybrid_prefix_hit` both orders, and no-ops on a future image where upstream scopes the veto. Author: re-turn hit 96.4–99.4% → 99.9–100%, TTFT 0.9–4.0 s → 0.3–0.5 s. We already have the 64 grid from W18, so this needs a same-day A/B against our own numbers. | restart |
+| W32 | Caller-export precedence | kit PR #92 / issue #91 | Caller exports beat `.env` for only 17 allowlisted knobs while the README promises the general rule; `GLM53_MIXED_PREFILL_CHUNK`, `CG_ESTIMATE`, `MAX_MODEL_LEN` silently lose. Our protocol edits `.env` and is accidentally safe — the trap is one export away and fails as a silent null result. | restart |
+| W33 | Gate v3.1 — split crawl accounting | ours (W26) | `crawl_ms` is wall time since late-admit, not time spent capped. Bundle with the next restart. | none |
+
+### Codex review of PR #86 — DO NOT RUN AS WRITTEN
+
+Three defects, confirmed against the live container source:
+
+1. **Fail-open in the chunk splitter** (`indexer.py:117`, verified). The inner loop
+   rejects a row wider than the workspace, then `if end == start:` **admits it
+   anyway**, and the query sub-chunking that follows reduces M, never N — so a chunk
+   with `N > workspace_size` is emitted. The stock 40× workspace makes that
+   unreachable today; right-sizing converts a silent safety margin into a possible
+   device-memory overrun. Fix first: raise on
+   `compressed_seq_lens[start] > workspace_size` and assert every emitted chunk's N
+   before the kernel call. (At our geometry the workspace is 4× a single max-length
+   row — the margin is real, just unchecked.)
+2. **Double compression on the DeepSeek-V4 call site** — the patch changes the shared
+   helper, but `deepseek_v4/attention.py` already divides by `compress_ratio`, so
+   that path would get `stock / ratio²`. Latent for us (we never instantiate it),
+   real upstream. Correct shape: a GLM-scoped helper taking `_index_kpool` explicitly.
+3. **Unscoped cross-check can abort one rank** — the `index_kpool != compress_ratio`
+   raise runs in the generic builder for any model whenever the process-wide env says
+   rightsize, including potentially the **rank-0-only DFlash2 draft** whose
+   `index_kpool` may be absent (parsed as 1). A rank-0 raise while rank 1 enters a
+   collective presents as an NCCL hang, not a clean failure.
+
+Also: drop `max_num_batched_tokens` from the row multiplier (inert at our
+`min(4, 3584) = 4`, invariant unproven), and make a rightsize arm that silently falls
+back to stock **fail readiness** instead of reporting a successful experiment. Boot
+gates: an unconditional role/rank/mode/entries/bytes line on **both** target ranks,
+pool bytes unmoved at 14.36 GiB, no `keeping stock sizing` warning, and free memory
+sampled *after* the workspace allocation point (it may be lazy — re-measure after the
+first long prefill).
+
+### Watchlist — new
+
+- **vLLM #54521** — greedy decoding non-deterministic above `indexer_budget` on
+  **sm121/GB10, TP=2**. Different model (Qwen3.8-Flash-Next), our exact platform and
+  subsystem: five byte-identical temp-0 requests return up to 4 distinct completions
+  once the prompt crosses the indexer's dense→top-k switch, HTTP 200 throughout. A
+  direct hazard for W28 — a temp-0 determinism probe above and below the budget
+  belongs in that window's gates, and is worth running once against production as-is.
+- **vLLM #48874** — the Anthropic `/v1/messages` frontend renders `system`-role
+  entries inside `messages[]` positionally, breaking Claude Code ≥2.1.2xx tool calling
+  (~90% of long-prompt tasks died as 1-turn completions). Filed on a DGX Spark GB10.
+  We serve droid/Hermes over the OpenAI route so we are not exposed — it is a trap the
+  moment anyone points Claude Code at `:18000`.
+- **`--kv-cache-dtype fp8` contradiction.** Two GB10 sources argue against KV
+  quantization on this hardware: a Memoriant benchmark measures generation **−37% at
+  110k** for q4_0/q8_0 vs f16 (dequant compute dominates, because the 273 GB/s LPDDR5X
+  pool is capacity-abundant and bandwidth-poor — the inverse of a discrete GPU), and
+  vLLM's own DGX Spark post advises avoiding fp8 KV unless memory pressure requires
+  it. Not directly transferable (those are llama.cpp software-dequant paths; ours is
+  packed `fp8_ds_mla` that MLA needs and that roughly halves the pool), so this is a
+  recorded tension rather than a window — but it predicts a long-context decode
+  dequant tax nobody has measured here.
+- **vLLM #54094 / #53477** — DFlash2 gets zero prefix-cache reuse on an identical ~1M
+  prompt while target-only reuses ~1.039M tokens. Same family as what W3/W25 fixed for
+  us, but our retention work was measured at ≤200k; worth one 1M replay check.
+
+### Considered and not proposed
+
+kit #43 (default `MAX_MODEL_LEN` 200k) = W12, tested and rejected. #85 ("concurrency
+totally dead") does not reproduce — we get 4 streams at ~39 tok/s aggregate. #88/#93
+are the MTP path; we run DFlash2. #78 (agentic tool-call repetition, never returns
+without `max_tokens`) — the never-returns half is already closed by W16's
+`DEFAULT_MAX_NEW_TOKENS=65536`; the repetition half is in-context distribution
+collapse the reporter reproduced at every temperature and seed, and their untested
+"is the drafter reinforcing it?" hypothesis is cheap to answer with a spec-off replay.
+#79 superseded by #83 (W25). #75 (EXL3 SM121 kernel lab) has no artifact to test yet.
+#65/#39/#72/#70/#66/#64/#58/#57/#56/#74/#47/#52/#31/#10 — previously qualified, no new
+activity that changes the verdict.
