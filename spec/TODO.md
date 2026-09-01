@@ -5,15 +5,52 @@ Ordered by what unblocks the most. Detail and receipts in
 
 ## Decision pending
 
-- **W27 — server-side default reasoning effort (`high`).** Verified against the live
-  server: our chat template maps *unset* → `max`, and the rendered effort token for
-  unset is byte-identical to explicit `max` (7487; `high` is 5124, `low` is 12035).
-  The droid client sends `enable_thinking` only, so **production currently runs every
-  request at max effort**. The upstream measurement (2,160 s → 593 s wall, 60,663 →
-  16,541 completion tokens, same 80/80 grader) is n=2 on one task with a saturated
-  grader, and `high` departs from zai-org's own `reasoning_effort: max` guidance.
-  This is a behaviour change, not a throughput knob — needs an owner decision, and a
-  test design that can detect a bad outcome rather than one that maximises throughput.
+- **W27 — reasoning effort. Reviewed; reshaped; needs a decision, not a window.**
+  Verified against the live server with `/tokenize` on an identical prompt: the
+  rendered effort token is **7487 when unset and 7487 for explicit `max`**
+  (byte-identical), 5124 for `high`, 12035 for `low`. Our chat template maps unset →
+  `max`, and the droid entry for this model sends `enable_thinking` only. **So every
+  production request runs at max effort today.** (The `high` in the droid config is on
+  the *OpenRouter* entries, which use OpenRouter's own `reasoning.effort` field — enum
+  `low|medium|high`, which is why `max` errors there. Unrelated to this server.)
+
+  Codex review verdict: **TEST FIRST — do not change the server default.** Its
+  reasoning, which we accept:
+  - The upstream 3.6× is *internally coherent* (token ratio 3.67 vs wall ratio 3.64,
+    decode flat), so it is not ordinary throughput noise — but it is n=2 on one task,
+    and **both `max` runs compacted twice while both `high` runs compacted zero
+    times**. Compaction is a threshold effect, so the result can be genuinely large on
+    that task and still not generalise.
+  - A grader pinned at 79.5–80/80 cannot distinguish "passed comfortably" from
+    "barely passed". It cannot speak to reasoning quality, robustness to ambiguity,
+    or anything outside the rubric.
+  - The failure modes we would expect on harder tasks are **mostly silent**: settling
+    on a plausible-but-wrong root cause, missing cross-file callers, satisfying
+    visible tests while breaking unstated invariants, dropping a requirement stated
+    early in a 100k–300k context, claiming completion after partial success.
+  - **The safer option is not a server default at all**: set
+    `chat_template_kwargs.reasoning_effort` explicitly in the droid model entry. No
+    restart, no blast radius on other clients, instantly reversible, and it stops us
+    depending on template fallback behaviour. A server default silently changes
+    effort for every present and future client.
+  - Effort must be constant per session (it forks the prefix at the system header), so
+    any change is a **new-session-only** cutover; live sessions must not be switched
+    mid-flight.
+  - Separately flagged: our droid entry sets `top_p: 1` while the vendor recommends
+    `0.95`. That widens trajectory diversity and weakens extrapolation from any run
+    made at 0.95. **Do not change `top_p` and effort in the same experiment.**
+
+  Proposed decision procedure (Codex's, condensed): keep the server at `max`; run a
+  paired blind comparison on **four real tasks from our own backlog, chosen before
+  looking at results** — one long-context cross-file, one debugging task with a
+  nonlocal cause, one constrained multi-file refactor, one tool-heavy/structured —
+  with the hardest repeated, giving five observations per arm. Randomise order, review
+  blind to arm. Quality is the primary outcome; tokens and wall time are secondary.
+  **Asymmetric stopping rule:** retain `max` on any high-only correctness/security
+  defect, any silently dropped requirement, or any hard-task failure that `max`
+  handles. Adopt only for a droid-only new-session canary, keeping an explicit
+  `max` escape hatch and leaving Hermes on `max`.
+
 
 ## Correctness backports — ahead of any performance window
 
