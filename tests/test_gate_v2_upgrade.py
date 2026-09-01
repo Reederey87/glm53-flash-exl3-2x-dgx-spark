@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The gate-v2 patcher must handle a scheduler.py that already carries the BAKED v1
 overlay (the self-built production image applies overlays at image build): pristine ->
-full v2, v1-baked -> upgraded v2, v2 -> no-op. Discovered live 2026-08-31: the original
+full v3, v1-baked -> v3, v2 (applied or baked) -> v3, v3 -> no-op. Discovered live 2026-08-31: the original
 PR #80 installer saw the v1 marker and skipped, leaving production on the v1 gate."""
 from __future__ import annotations
 
@@ -110,7 +110,7 @@ def test_v1_baked_upgrades_then_noop() -> None:
         compile(v1, "v1.py", "exec")
         t.write_text(v1)
         r = run_patcher(t); assert r.returncode == 0, r.stderr
-        assert "upgraded v1 -> v2" in r.stdout, r.stdout
+        assert "upgraded v1 -> v3" in r.stdout, r.stdout
         up = t.read_text()
         assert mod.V1_RUNNING not in up and mod.V1_WAITING not in up
         assert up.count("_glm53_mixed_prefill_gate(") >= 3
@@ -121,7 +121,38 @@ def test_v1_baked_upgrades_then_noop() -> None:
         assert t.read_text() == up
 
 
+def build_v2_file(mod) -> str:
+    """What the v2 overlay produced at image build (the w24 production image bakes this)."""
+    v2 = PRISTINE.replace(mod.IMPORT_OLD, mod.IMPORT_NEW, 1)
+    v2 = v2.replace(
+        "from vllm.compilation.cuda_graph import CUDAGraphStat\n",
+        mod.HELPER_V2_ONLY + mod.HELPER_POLICY + "from vllm.compilation.cuda_graph import CUDAGraphStat\n", 1)
+    v2 = v2.replace(mod.RUNNING_OLD, mod.RUNNING_NEW, 1).replace(mod.WAITING_OLD, mod.WAITING_NEW, 1)
+    return v2
+
+
+def test_v2_baked_upgrades_to_v3_then_noop() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        t = Path(tmp) / "scheduler.py"
+        mod = load_overlay(t)
+        v2 = build_v2_file(mod)
+        assert mod.MARK_V2 in v2 and mod.MARK_V3 not in v2
+        compile(v2, "v2.py", "exec")
+        t.write_text(v2)
+        r = run_patcher(t); assert r.returncode == 0, r.stderr
+        assert "upgraded v2 -> v3" in r.stdout, r.stdout
+        up = t.read_text()
+        assert mod.HELPER_V2_ONLY not in up and mod.HELPER_V3_ONLY in up
+        assert up.count("def _glm53_mixed_prefill_gate(") == 1
+        assert up.count("def _glm53_gate_state(") == 1
+        assert up.count("_glm53_mixed_prefill_gate(") >= 3   # call sites untouched
+        compile(up, "up.py", "exec")
+        r = run_patcher(t); assert r.returncode == 0 and "already present" in r.stdout, r.stdout
+        assert t.read_text() == up
+
+
 if __name__ == "__main__":
     test_pristine_v2_then_noop()
     test_v1_baked_upgrades_then_noop()
+    test_v2_baked_upgrades_to_v3_then_noop()
     print("gate v2 upgrade paths OK")

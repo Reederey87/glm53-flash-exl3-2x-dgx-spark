@@ -28,6 +28,11 @@ GLM53_MIXED_PREFILL_MAX_WAIT_MS (default 1500; monotonic, stamped on the Request
 the first time the gate sees it, so it survives chunking/preemption/requeue)
 under GLM53_MIXED_PREFILL_LATE_CAP tokens per step (default 512) -- a time-to-first-service bound, not a
 TTFT/completion bound (the request then crawls like cap:N). Both gate sites call one helper. 0 ms = wait forever (v1).
+v3 (aging + instrumentation): once late, the cap doubles every GLM53_MIXED_PREFILL_ESCALATE_MS
+(default 0 = flat v2 crawl) up to GLM53_MIXED_PREFILL_LATE_CAP_MAX (default 1792 = the
+long-prefill chunk ceiling), and the late path logs one line per admission / escalation /
+crawl end. Installer states: pristine -> v3, v1-baked -> v3, v2 (applied or baked) -> v3,
+v3 -> no-op. The v2 helper text is kept verbatim as the byte-exact upgrade anchor.
 """
 from __future__ import annotations
 
@@ -46,7 +51,7 @@ MARK = "# [glm53-decode-floor]"
 IMPORT_OLD = "import itertools\nimport time\n"
 IMPORT_NEW = "import itertools\nimport os\nimport time\n"
 
-HELPER = '''
+HELPER_V2_ONLY = '''
 _GLM53_GATE_CFG = None
 _GLM53_FIRST_SEEN_FALLBACK = None   # WeakKeyDictionary used only if Request rejects attribute assignment
 
@@ -129,7 +134,130 @@ def _glm53_mixed_prefill_gate(running, current, num_computed_tokens):
     return cap
 
 
-def _glm53_mixed_prefill_policy(running, current):
+'''
+
+HELPER_V3_ONLY = '''
+_GLM53_GATE_CFG = None
+_GLM53_FIRST_SEEN_FALLBACK = None   # WeakKeyDictionary used only if Request rejects attribute assignment
+
+
+def _glm53_gate_config():
+    """Parse the gate knobs once (validated; bad values fall back to defaults and are reported once).  [glm53-decode-floor-v2] [glm53-decode-floor-v3]"""
+    global _GLM53_GATE_CFG
+    if _GLM53_GATE_CFG is not None:
+        return _GLM53_GATE_CFG
+
+    def _int(name, default, lo, hi):
+        raw = os.environ.get(name)
+        if raw is None or raw.strip() == "":
+            return default
+        try:
+            v = int(raw.strip(), 10)
+        except ValueError:
+            print(f"[glm53-decode-floor-v3] {name}={raw!r} is not an integer; using {default}", flush=True)
+            return default
+        if v < lo or v > hi:
+            print(f"[glm53-decode-floor-v3] {name}={v} outside [{lo}, {hi}]; using {default}", flush=True)
+            return default
+        return v
+
+    cfg = {
+        "warm_tokens": _int("GLM53_MIXED_PREFILL_WARM_TOKENS", 3584, 0, 1_000_000),
+        "max_wait_ms": _int("GLM53_MIXED_PREFILL_MAX_WAIT_MS", 1500, 0, 600_000),
+        "late_cap": _int("GLM53_MIXED_PREFILL_LATE_CAP", 512, 64, 8192),
+        # v3 aging: 0 = flat v2 crawl; N = the late cap doubles every N ms up to late_cap_max
+        "escalate_ms": _int("GLM53_MIXED_PREFILL_ESCALATE_MS", 0, 0, 600_000),
+        "late_cap_max": _int("GLM53_MIXED_PREFILL_LATE_CAP_MAX", 1792, 64, 8192),
+    }
+    if cfg["late_cap_max"] < cfg["late_cap"]:
+        print(f"[glm53-decode-floor-v3] LATE_CAP_MAX {cfg['late_cap_max']} < LATE_CAP {cfg['late_cap']}; clamping to LATE_CAP", flush=True)
+        cfg["late_cap_max"] = cfg["late_cap"]
+    print(f"[glm53-decode-floor-v3] gate config: {cfg}", flush=True)
+    _GLM53_GATE_CFG = cfg
+    return cfg
+
+
+def _glm53_gate_state(current, create=False):
+    """Per-request gate state (first_seen / late_at / cap / done) kept on the Request so it survives chunking,
+    preemption and requeue; weak-keyed fallback if the Request class rejects attributes.  [glm53-decode-floor-v3]"""
+    global _GLM53_FIRST_SEEN_FALLBACK
+    st = getattr(current, "_glm53_gate_state", None)
+    if st is None and _GLM53_FIRST_SEEN_FALLBACK is not None:
+        st = _GLM53_FIRST_SEEN_FALLBACK.get(current)
+    if st is None and create:
+        st = {}
+        try:
+            current._glm53_gate_state = st
+        except AttributeError:
+            import weakref
+            if _GLM53_FIRST_SEEN_FALLBACK is None:
+                _GLM53_FIRST_SEEN_FALLBACK = weakref.WeakKeyDictionary()
+                print("[glm53-decode-floor-v3] Request rejects attributes; using a weak-keyed state map", flush=True)
+            _GLM53_FIRST_SEEN_FALLBACK[current] = st
+    return st
+
+
+def _glm53_mixed_prefill_gate(running, current, num_computed_tokens):
+    """Return (cap|None) for this prefill step: remaining-prefill threshold bypass + deadline + aging.  [glm53-decode-floor-v2] [glm53-decode-floor-v3]
+
+    Bypass: remaining uncached prefill <= GLM53_MIXED_PREFILL_WARM_TOKENS (default 3584 = one hybrid block) -> no policy
+            (typically <= 2 MNBT steps): cached follow-up tails, short cold prompts, and the last block of a late crawl.
+    Late:   waited >= GLM53_MIXED_PREFILL_MAX_WAIT_MS (default 1500) -> proceed under GLM53_MIXED_PREFILL_LATE_CAP
+            (default 512) tokens per step -- a bound on time-to-first-service, NOT on TTFT or completion.
+    Aging:  once late, the cap doubles every GLM53_MIXED_PREFILL_ESCALATE_MS (default 0 = flat v2 crawl) up to
+            GLM53_MIXED_PREFILL_LATE_CAP_MAX (default 1792 = the long-prefill chunk ceiling), so a cold read behind a
+            long generation converges toward full chunks instead of crawling at the floor for minutes. On this MoE the
+            per-step cost is dominated by expert-weight streaming, so a small cap multiplies the number of expensive
+            steps and taxes the running decodes for longer -- aging bounds the tax in time.
+    Log:    one line per late admission, per escalation step, and when the crawl reaches its bypass tail (crawl_ms).
+    Remainder uses ``num_tokens`` (prompt + generated so far) like the base scheduler.
+    """
+    import time as _t
+    cfg = _glm53_gate_config()
+    remaining = current.num_tokens - num_computed_tokens
+    if remaining <= 0:
+        return None
+    st = _glm53_gate_state(current)
+    if remaining <= cfg["warm_tokens"]:
+        if st is not None and st.get("late_at") is not None and not st.get("done"):
+            st["done"] = True
+            print(f"[glm53-decode-floor-v3] late-done req={getattr(current, 'request_id', '?')} "
+                  f"crawl_ms={int((_t.monotonic() - st['late_at']) * 1000)} final_cap={st.get('cap')}", flush=True)
+        return None
+    cap = _glm53_mixed_prefill_policy(running, current)
+    if cap is None or cap > 0:
+        return cap
+    max_wait_ms = cfg["max_wait_ms"]
+    if max_wait_ms <= 0:
+        return cap
+    if st is None:
+        st = _glm53_gate_state(current, create=True)
+    now = _t.monotonic()
+    if st.get("first_seen") is None:
+        st["first_seen"] = now
+    waited_ms = (now - st["first_seen"]) * 1000.0
+    if waited_ms < max_wait_ms:
+        return cap
+    late_cap = cfg["late_cap"]
+    if st.get("late_at") is None:
+        st["late_at"] = now
+        print(f"[glm53-decode-floor-v3] late-admit req={getattr(current, 'request_id', '?')} "
+              f"waited_ms={int(waited_ms)} remaining={remaining} cap={late_cap}", flush=True)
+    esc = cfg["escalate_ms"]
+    if esc > 0:
+        doublings = min(int(((now - st["late_at"]) * 1000.0) // esc), 8)
+        late_cap = min(cfg["late_cap_max"], late_cap << doublings)
+    if late_cap != st.get("cap"):
+        if st.get("cap") is not None:
+            print(f"[glm53-decode-floor-v3] late-escalate req={getattr(current, 'request_id', '?')} "
+                  f"cap={st['cap']}->{late_cap}", flush=True)
+        st["cap"] = late_cap
+    return max(min(late_cap, remaining), 1)
+
+
+'''
+
+HELPER_POLICY = '''def _glm53_mixed_prefill_policy(running, current):
     """Mixed-step prefill policy when a peer in `running` is decoding.
 
     None = no extra policy. 0 = skip this prefill this step. N>0 = cap.
@@ -156,6 +284,10 @@ def _glm53_mixed_prefill_policy(running, current):
 
 
 '''
+
+# pristine insert = v3 helper + the v1 policy; the v2 text is kept verbatim as the byte-exact
+# anchor that the v2-baked (image build) -> v3 upgrade replaces.
+HELPER = HELPER_V3_ONLY + HELPER_POLICY
 
 RUNNING_OLD = """            if 0 < self.scheduler_config.long_prefill_token_threshold < num_new_tokens:
                 num_new_tokens = self.scheduler_config.long_prefill_token_threshold
@@ -220,8 +352,7 @@ V1_WAITING = """                    mixed_cap = _glm53_mixed_prefill_policy(self
 V2_WAITING = """                    mixed_cap = _glm53_mixed_prefill_gate(self.running, request, num_computed_tokens)  # [glm53-decode-floor] [glm53-decode-floor-v2]
                     if mixed_cap is not None:
 """
-# v2-only helper portion = everything in HELPER before the v1 policy def
-HELPER_V2_ONLY = HELPER.split("def _glm53_mixed_prefill_policy(", 1)[0]
+MARK_V3 = "[glm53-decode-floor-v3]"
 
 
 def upgrade_v1_to_v2(text: str) -> str:
@@ -235,6 +366,11 @@ def upgrade_v1_to_v2(text: str) -> str:
     return text
 
 
+def upgrade_v2_to_v3(text: str) -> str:
+    """v2 (applied or baked) -> v3: swap the byte-exact v2 helper block for the v3 one; call sites are unchanged."""
+    return replace_once(text, HELPER_V2_ONLY, HELPER_V3_ONLY, "v2 helper block")
+
+
 def replace_once(text: str, old: str, new: str, label: str) -> str:
     n = text.count(old)
     if n != 1:
@@ -246,16 +382,24 @@ def main() -> int:
     if not P.is_file():
         raise SystemExit(f"missing {P}")
     text = P.read_text()
-    if MARK_V2 in text:
-        print(f"{P.name}: {MARK_V2} already present — skipping")
+    if MARK_V3 in text:
+        print(f"{P.name}: {MARK_V3} already present — skipping")
         return 0
-    if MARK in text:
-        # v1 baked into the image (self-built production path): upgrade in place.
-        text = upgrade_v1_to_v2(text)
+    if MARK_V2 in text:
+        # v2 applied at start or baked into the image (the w24 production image): upgrade in place.
+        text = upgrade_v2_to_v3(text)
         import ast as _ast
         _ast.parse(text, filename=str(P))
         P.write_text(text)
-        print(f"{P.name}: upgraded v1 -> v2 (mixed-prefill gate v2 active)")
+        print(f"{P.name}: upgraded v2 -> v3 (mixed-prefill gate v3 active: aging + late-path log)")
+        return 0
+    if MARK in text:
+        # v1 baked into the image (self-built production path): upgrade in place, v1 -> v2 -> v3.
+        text = upgrade_v2_to_v3(upgrade_v1_to_v2(text))
+        import ast as _ast
+        _ast.parse(text, filename=str(P))
+        P.write_text(text)
+        print(f"{P.name}: upgraded v1 -> v3 (mixed-prefill gate v3 active: aging + late-path log)")
         return 0
     if "import os\n" not in text.split("import time\n", 1)[0]:
         text = replace_once(text, IMPORT_OLD, IMPORT_NEW, "import os")
