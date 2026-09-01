@@ -9,15 +9,30 @@ also land in ``sampling_params.stop_token_ids`` and fire mid-reasoning,
 finishing the request with ``stop_reason=<token_id>`` and empty visible
 content/tool_calls before the model ever closes ``<think>``.
 
-Anchor is this image's ``v1/core/sched/utils.py::check_stop``. Unlike the
-stop-string patch, this reuses vLLM's own reasoning-parser state
-(``request.structured_output_request.reasoning_ended``) instead of
-re-deriving it from token ids — that field is only positively ``False``
-(vs. ``None``/unset) once a reasoning parser is active for the request, so
-this only ever engages for requests that actually have one configured
-(guided decoding / tool-call grammar), which is exactly the affected
-workload. ``eos_token_id`` and length caps are unchanged, matching the
-stop-string patch's own invariant.
+Anchor is this image's ``v1/core/sched/utils.py::check_stop``. Reasoning-open
+is checked two ways, either one is enough to dormant-ize the stop:
+
+1. vLLM's own reasoning-parser state
+   (``request.structured_output_request.reasoning_ended is False``). Cheap,
+   precise, but only populated when the request actually has structured-
+   output constraints active (``StructuredOutputRequest.from_sampling_params``
+   returns ``None`` otherwise) — a plain ``tools`` + ``tool_choice: "auto"``
+   call with no forced JSON schema never populates it. Confirmed in
+   production (2026-09-01/09-02): 11/11 empty-completion hits on one scan
+   were exactly this uncovered shape.
+2. Independent of structured-output state entirely: this deployment's chat
+   template primes every thinking-enabled request with the prompt ending in
+   the ``<think>`` token (think-in-prompt). If the prompt ends there and
+   ``</think>`` hasn't appeared yet in ``request.output_token_ids``,
+   reasoning is still open — regardless of whether any grammar/structured-
+   output tracking ever ran for this request. This is what actually covers
+   the auto-tool_choice gap above.
+
+``eos_token_id`` and length caps are unchanged, matching the stop-string
+patch's own invariant. Token ids for ``<think>``/``</think>`` are pinned to
+this model's tokenizer (``brandonmusic/GLM-5.3-Flash-tr3-4bpw``); override
+via ``GLM53_THINK_START_TOKEN_ID`` / ``GLM53_THINK_END_TOKEN_ID`` if the
+model changes.
 
 Opt-out: ``GLM53_SUPPRESS_STOPS_IN_REASONING=0`` or
 ``VLLM_SUPPRESS_STOPS_IN_REASONING=0`` (same switch as the stop-string
@@ -52,13 +67,17 @@ CHECK_NEW = """    if last_token_id in (sampling_params.stop_token_ids or ()):
         # patch_suppress_stops_in_reasoning.py for native stop-token ids:
         # a control token like <|observation|> can land in stop_token_ids
         # and fire mid-<think>, finishing the turn with no visible output.
-        # Only engages once a reasoning parser has positively confirmed
-        # we're still open (reasoning_ended is False, not None/unset).
+        # Two independent reasoning-open signals, either is enough:
+        # (a) vLLM's own reasoning-parser state, when structured-output
+        #     tracking is active for this request; (b) prompt ends in
+        #     <think> (think-in-prompt) and </think> hasn't appeared yet in
+        #     the output — covers requests with no structured-output/
+        #     grammar constraints (e.g. plain tool_choice="auto"), where
+        #     (a) is never populated at all.
         sor = request.structured_output_request
-        reasoning_open = (
-            _suppress_native_stops_enabled()
-            and sor is not None
-            and sor.reasoning_ended is False
+        reasoning_open = _suppress_native_stops_enabled() and (
+            (sor is not None and sor.reasoning_ended is False)
+            or _reasoning_open_by_tokens(request)
         )
         if not reasoning_open:
             request.status = RequestStatus.FINISHED_STOPPED
@@ -77,12 +96,26 @@ def _suppress_native_stops_enabled() -> bool:
         if key in os.environ:
             return os.environ.get(key) != "0"
     return True
+
+
+def _reasoning_open_by_tokens(request) -> bool:
+    # [suppress-native-stops-in-reasoning] structured-output-agnostic check:
+    # this deployment's chat template primes every thinking-enabled request
+    # with the prompt ending in <think> (think-in-prompt). If so, and
+    # </think> hasn't appeared yet in the output, reasoning is still open
+    # regardless of whether any grammar/structured-output tracking ran.
+    think_start = int(os.environ.get("GLM53_THINK_START_TOKEN_ID", "154841"))
+    think_end = int(os.environ.get("GLM53_THINK_END_TOKEN_ID", "154842"))
+    ptids = request.prompt_token_ids
+    if not ptids or ptids[-1] != think_start:
+        return False
+    return think_end not in request.output_token_ids
 '''
 
 
 def apply_text(src: str) -> tuple[str, str]:
     """Return (new_source, status): applied|skipped|missing:..."""
-    if MARK in src and "_suppress_native_stops_enabled" in src:
+    if MARK in src and "_reasoning_open_by_tokens" in src:
         return src, "skipped"
     missing = []
     if IMPORT_OLD not in src:
