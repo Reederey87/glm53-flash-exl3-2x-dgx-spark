@@ -1472,7 +1472,11 @@ on_ready() {
     [ "$SPEC_METHOD" = "none" ] && spec=off
     local mt_line="mt_default=off (omitted max_tokens unbounded)"
     [ -n "${DEFAULT_MAX_NEW_TOKENS:-}" ] && mt_line="mt_default=${DEFAULT_MAX_NEW_TOKENS}"
-    log "  features   : tools=glm47+auto, reasoning=glm45, spec=${spec}, vision=${vision}, ${mt_line}, spinwait2ms=${GLM53_SPINWAIT_2MS}, fgapc=${GLM53_FINE_GRAINED_APC}"
+    # LOCAL: issue #16 — say the effective prefix-cache grain out loud: without fine-grained
+    # APC, hits only land in 3584-token pages and sub-page prompts read as 0 hits (by design).
+    local apc_grain="3584 (page; set GLM53_FINE_GRAINED_APC=1 for sub-page hits)"
+    [ "${GLM53_FINE_GRAINED_APC}" = "1" ] && apc_grain="64 (fine-grained)"
+    log "  features   : tools=glm47+auto, reasoning=glm45, spec=${spec}, vision=${vision}, ${mt_line}, spinwait2ms=${GLM53_SPINWAIT_2MS}, fgapc=${GLM53_FINE_GRAINED_APC}, apc_grain=${apc_grain}"
     local auth_line="none (VLLM_API_KEY empty)"
     if [ -n "${VLLM_API_KEY:-}" ]; then
         auth_line="bearer token set (VLLM_API_KEY) — send Authorization: Bearer <key> on /v1 requests"
