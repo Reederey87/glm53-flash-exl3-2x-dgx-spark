@@ -67,19 +67,13 @@ CHECK_NEW = """    if last_token_id in (sampling_params.stop_token_ids or ()):
         # patch_suppress_stops_in_reasoning.py for native stop-token ids:
         # a control token like <|observation|> can land in stop_token_ids
         # and fire mid-<think>, finishing the turn with no visible output.
-        # Two independent reasoning-open signals, either is enough:
-        # (a) vLLM's own reasoning-parser state, when structured-output
-        #     tracking is active for this request; (b) prompt ends in
-        #     <think> (think-in-prompt) and </think> hasn't appeared yet in
-        #     the output — covers requests with no structured-output/
-        #     grammar constraints (e.g. plain tool_choice="auto"), where
-        #     (a) is never populated at all.
-        sor = request.structured_output_request
-        reasoning_open = _suppress_native_stops_enabled() and (
-            (sor is not None and sor.reasoning_ended is False)
-            or _reasoning_open_by_tokens(request)
-        )
-        if not reasoning_open:
+        # vLLM's own reasoning-parser state is authoritative when it has a
+        # definitive answer; falls back to an independent token-based check
+        # (prompt ends in <think>, </think> not seen yet in the output) only
+        # when that state is unavailable/unknown - covers requests with no
+        # structured-output/grammar constraints (e.g. plain
+        # tool_choice="auto"), where the native signal is never populated.
+        if not _native_stop_reasoning_open(request):
             request.status = RequestStatus.FINISHED_STOPPED
             request.stop_reason = last_token_id
             return True
@@ -104,12 +98,40 @@ def _reasoning_open_by_tokens(request) -> bool:
     # with the prompt ending in <think> (think-in-prompt). If so, and
     # </think> hasn't appeared yet in the output, reasoning is still open
     # regardless of whether any grammar/structured-output tracking ran.
-    think_start = int(os.environ.get("GLM53_THINK_START_TOKEN_ID", "154841"))
-    think_end = int(os.environ.get("GLM53_THINK_END_TOKEN_ID", "154842"))
-    ptids = request.prompt_token_ids
-    if not ptids or ptids[-1] != think_start:
+    # Fail closed (treat as "not open") on any unexpected error - a bad
+    # env var or an unforeseen edge case here must never crash check_stop,
+    # only fall back to pre-patch behavior for that one request.
+    try:
+        think_start = int(os.environ.get("GLM53_THINK_START_TOKEN_ID", "154841"))
+        think_end = int(os.environ.get("GLM53_THINK_END_TOKEN_ID", "154842"))
+        ptids = request.prompt_token_ids
+        if not ptids or ptids[-1] != think_start:
+            return False
+        return think_end not in request.output_token_ids
+    except Exception:
         return False
-    return think_end not in request.output_token_ids
+
+
+def _native_stop_reasoning_open(request) -> bool:
+    # [suppress-native-stops-in-reasoning] single entry point combining both
+    # signals. vLLM's own reasoning-parser state is authoritative whenever
+    # it has a definitive answer (True or False) - the token-based fallback
+    # only kicks in when that signal is unavailable (no structured-output
+    # tracking on this request) or still unknown (None, not yet computed),
+    # so a confirmed-closed native signal can never get overridden by the
+    # independent check. Each signal is separately fail-closed - if the
+    # structured-output check errors, that alone must not take down the
+    # token-based fallback too, so it's isolated to its own try/except
+    # rather than one that wraps (and could short-circuit) both signals.
+    if not _suppress_native_stops_enabled():
+        return False
+    try:
+        sor = request.structured_output_request
+        if sor is not None and sor.reasoning_ended is not None:
+            return not sor.reasoning_ended
+    except Exception:
+        pass
+    return _reasoning_open_by_tokens(request)
 '''
 
 
