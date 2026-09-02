@@ -76,6 +76,14 @@ _cli_wait="${GLM53_MIXED_PREFILL_MAX_WAIT_MS-}"
 _cli_late="${GLM53_MIXED_PREFILL_LATE_CAP-}"
 _cli_esc="${GLM53_MIXED_PREFILL_ESCALATE_MS-}"  # LOCAL: W26
 _cli_latemax="${GLM53_MIXED_PREFILL_LATE_CAP_MAX-}"  # LOCAL: W26
+# LOCAL: W41/W42 caller-wins capture (begin) -- setness-aware: a caller-provided
+# value (even explicitly EMPTY, which is a value the validator must see) wins
+# over .env. ${VAR+a} is non-empty iff the variable was set at entry.
+_glm53_cli_kvlog_set="${GLM53_KV_CAPACITY_LOG+a}"
+_glm53_cli_kvlog_val="${GLM53_KV_CAPACITY_LOG-}"
+_glm53_cli_apcns_set="${GLM53_APC_NO_STORE+a}"
+_glm53_cli_apcns_val="${GLM53_APC_NO_STORE-}"
+# LOCAL: W41/W42 caller-wins capture (end)
 set -a
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/.env"
@@ -100,6 +108,10 @@ set +a
 [ -n "${_cli_util}" ] && GPU_MEM_UTIL="$_cli_util"
 [ -n "${_cli_lm}" ] && LANGUAGE_MODEL_ONLY="$_cli_lm"
 [ -n "${_cli_max_num_seqs}" ] && MAX_NUM_SEQS="$_cli_max_num_seqs"
+# LOCAL: W41/W42 caller-wins restore (begin)
+[ -n "${_glm53_cli_kvlog_set}" ] && GLM53_KV_CAPACITY_LOG="$_glm53_cli_kvlog_val"
+[ -n "${_glm53_cli_apcns_set}" ] && GLM53_APC_NO_STORE="$_glm53_cli_apcns_val"
+# LOCAL: W41/W42 caller-wins restore (end)
 
 # ----------------------------- configuration -------------------------------
 MODEL="${MODEL:-Mia-AiLab/GLM-5.3-Flash-EXL3-TR3-4bpw}"
@@ -209,6 +221,9 @@ SPINWAIT_PATCH_HOST="${SPINWAIT_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_spinwait_g
 FGAPC_PATCH_HOST="${FGAPC_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_fine_grained_apc.py}"
 # LOCAL: align-floor -- stop the mamba align split zeroing a sub-block chunk when LPTT >= block_size
 ALIGN_FLOOR_PATCH_HOST="${ALIGN_FLOOR_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_align_floor.py}"
+# LOCAL: W41 (kit PR #94) block-level KV capacity boot log, log-only; W42 (kit PR #95) per-request APC no-store
+KV_CAPACITY_LOG_PATCH_HOST="${KV_CAPACITY_LOG_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_kv_capacity_log.py}"
+APC_NO_STORE_PATCH_HOST="${APC_NO_STORE_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_apc_no_store.py}"
 KV_CACHE_DTYPE="${KV_CACHE_DTYPE:-fp8}"
 QUANTIZATION="${QUANTIZATION:-exl3}"
 LANGUAGE_MODEL_ONLY="${LANGUAGE_MODEL_ONLY:-0}"
@@ -282,6 +297,13 @@ GLM53_FINE_GRAINED_APC="${GLM53_FINE_GRAINED_APC:-0}"
 # LOCAL: 1 = floor a sub-block mixed-prefill chunk at the mixed cap instead of 0 when LPTT >= block_size
 # (scheduler livelock, dormant at LPTT=1792 — proven 0 mismatches over 608 combinations). Read once at import.
 GLM53_ALIGN_FLOOR="${GLM53_ALIGN_FLOOR:-1}"
+# LOCAL: W41/W42 knob defaults (begin) -- exactly 0 or 1; UNSET -> 1; "" is a
+# value and is rejected. Strict validation lives in validate_numeric_config
+# (start/restart only), so a bad value can never block stop/status/logs on a
+# running pair; the overlays re-validate in-process and fail closed at boot.
+GLM53_KV_CAPACITY_LOG="${GLM53_KV_CAPACITY_LOG-1}"
+GLM53_APC_NO_STORE="${GLM53_APC_NO_STORE-1}"
+# LOCAL: W41/W42 knob defaults (end)
 # EngineCore stock timeout is 300s; mid-serve Triton/TileLang JIT on TP=2 can
 # exceed that without being a true hang. NCCL watchdog is still 600s.
 VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS="${VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS:-1800}"
@@ -368,6 +390,15 @@ validate_numeric_config() {
         ""|low|high|max) ;;
         *) echo "GLM53_DEFAULT_REASONING_EFFORT must be one of: low high max (got: ${GLM53_DEFAULT_REASONING_EFFORT})" >&2; return 2 ;;
     esac
+    # LOCAL: W41/W42 strict-bool validation (begin) -- exactly 0 or 1; "" is a
+    # value and is rejected. Lives in validate_numeric_config (start/restart
+    # only): a bad value fails the boot, never stop/status/logs on a running
+    # pair; the overlays re-validate in-process and fail closed.
+    for _v in GLM53_KV_CAPACITY_LOG GLM53_APC_NO_STORE; do
+        case "${!_v}" in 0|1) ;; *) echo "$_v must be exactly 0 or 1 (got: '${!_v}')" >&2; return 2 ;; esac
+    done
+    unset _v
+    # LOCAL: W41/W42 strict-bool validation (end)
     # LOCAL: DEFAULT_MAX_NEW_TOKENS is spliced into generated shell + JSON; empty = off.
     if [ -n "${DEFAULT_MAX_NEW_TOKENS:-}" ]; then
         _glm53_canonical_positive_int DEFAULT_MAX_NEW_TOKENS "$DEFAULT_MAX_NEW_TOKENS" 1000000 || return
@@ -560,6 +591,8 @@ preflight() {
     [ -f "$SPINWAIT_PATCH_HOST" ] || die "$SPINWAIT_PATCH_HOST missing"  # LOCAL: W17
     [ -f "$FGAPC_PATCH_HOST" ] || die "$FGAPC_PATCH_HOST missing"  # LOCAL: W18
     [ -f "$ALIGN_FLOOR_PATCH_HOST" ] || die "$ALIGN_FLOOR_PATCH_HOST missing"  # LOCAL: align-floor
+    [ -f "$KV_CAPACITY_LOG_PATCH_HOST" ] || die "$KV_CAPACITY_LOG_PATCH_HOST missing"  # LOCAL: W41
+    [ -f "$APC_NO_STORE_PATCH_HOST" ] || die "$APC_NO_STORE_PATCH_HOST missing"  # LOCAL: W42
 
     local need_kb=$((180 * 1024 * 1024)) avail
     mkdir -p "$HF_CACHE_DIR"
@@ -1070,6 +1103,12 @@ fi
 if [ -f /opt/glm53/patch_align_floor.py ]; then
     python3 /opt/glm53/patch_align_floor.py
 fi
+if [ -f /opt/glm53/patch_kv_capacity_log.py ]; then  # LOCAL: W41 (after patch_hybrid_prefix_hit.py)
+    python3 /opt/glm53/patch_kv_capacity_log.py
+fi
+if [ -f /opt/glm53/patch_apc_no_store.py ]; then  # LOCAL: W42
+    python3 /opt/glm53/patch_apc_no_store.py
+fi
 say "launching: vllm serve ${MODEL_DIR} ${ARGS[*]}"
 exec vllm serve "${MODEL_DIR}" "${ARGS[@]}"
 EOF
@@ -1188,6 +1227,12 @@ fi
 if [ -f /opt/glm53/patch_align_floor.py ]; then
     python3 /opt/glm53/patch_align_floor.py
 fi
+if [ -f /opt/glm53/patch_kv_capacity_log.py ]; then  # LOCAL: W41 (after patch_hybrid_prefix_hit.py)
+    python3 /opt/glm53/patch_kv_capacity_log.py
+fi
+if [ -f /opt/glm53/patch_apc_no_store.py ]; then  # LOCAL: W42
+    python3 /opt/glm53/patch_apc_no_store.py
+fi
 say "joining TP2 at ${HEAD_IP}:${MASTER_PORT} as rank 1"
 exec vllm serve "${MODEL_DIR}" "${ARGS[@]}"
 EOF
@@ -1230,6 +1275,10 @@ launch_cluster() {
     scp -q -o BatchMode=yes "$FGAPC_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_fine_grained_apc.py"
     [ -f "$ALIGN_FLOOR_PATCH_HOST" ] || die "missing $ALIGN_FLOOR_PATCH_HOST"
     scp -q -o BatchMode=yes "$ALIGN_FLOOR_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_align_floor.py"
+    [ -f "$KV_CAPACITY_LOG_PATCH_HOST" ] || die "missing $KV_CAPACITY_LOG_PATCH_HOST"  # LOCAL: W41
+    scp -q -o BatchMode=yes "$KV_CAPACITY_LOG_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_kv_capacity_log.py"
+    [ -f "$APC_NO_STORE_PATCH_HOST" ] || die "missing $APC_NO_STORE_PATCH_HOST"  # LOCAL: W42
+    scp -q -o BatchMode=yes "$APC_NO_STORE_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_apc_no_store.py"
 
 
     local -a nccl_common=(
@@ -1263,6 +1312,8 @@ launch_cluster() {
         # dev routes when 1. Patched file is inert when 0/unset.
         -e "GLM53_EXPOSE_CACHE_RESET=$GLM53_EXPOSE_CACHE_RESET"
         -e "GLM53_ALIGN_FLOOR=$GLM53_ALIGN_FLOOR"
+        -e "GLM53_KV_CAPACITY_LOG=$GLM53_KV_CAPACITY_LOG"  # LOCAL: W41
+        -e "GLM53_APC_NO_STORE=$GLM53_APC_NO_STORE"  # LOCAL: W42
         # LOCAL: W9 ablation — 0 restores stock router-GEMM eligibility exactly
         -e "GLM53_ROUTER_GEMM_CUBLAS=${GLM53_ROUTER_GEMM_CUBLAS:-1}"
         # LOCAL: W17/W18 opt-in overlays (both ranks read these at patch time)
@@ -1366,6 +1417,8 @@ launch_cluster() {
         -v '/tmp/patch_spinwait_gb10.py:/opt/glm53/patch_spinwait_gb10.py:ro' \
         -v '/tmp/patch_fine_grained_apc.py:/opt/glm53/patch_fine_grained_apc.py:ro' \
         -v '/tmp/patch_align_floor.py:/opt/glm53/patch_align_floor.py:ro' \
+        -v '/tmp/patch_kv_capacity_log.py:/opt/glm53/patch_kv_capacity_log.py:ro' \
+        -v '/tmp/patch_apc_no_store.py:/opt/glm53/patch_apc_no_store.py:ro' \
         ${worker_preload} \
         ${worker_nccl} \
         -e NCCL_SOCKET_IFNAME='$WORKER_CX7_IF' \
@@ -1400,6 +1453,8 @@ launch_cluster() {
         -v "$SPINWAIT_PATCH_HOST:/opt/glm53/patch_spinwait_gb10.py:ro" \
         -v "$FGAPC_PATCH_HOST:/opt/glm53/patch_fine_grained_apc.py:ro" \
         -v "$ALIGN_FLOOR_PATCH_HOST:/opt/glm53/patch_align_floor.py:ro" \
+        -v "$KV_CAPACITY_LOG_PATCH_HOST:/opt/glm53/patch_kv_capacity_log.py:ro" \
+        -v "$APC_NO_STORE_PATCH_HOST:/opt/glm53/patch_apc_no_store.py:ro" \
         "${head_preload[@]}" \
         "${nccl_common[@]}" \
         -e NCCL_SOCKET_IFNAME="$HEAD_CX7_IF" \
