@@ -734,9 +734,13 @@ short-circuits the fat path entirely (`if use_row_tiles: …; return` fires befo
 the fat-kernel branch) and replaces the W24 kernel with per-128-row-slice full
 `exl3_moe` launches; it is a kill-arm, not a tuning knob. S1 ran the corrected
 ladder plus that kill-arm and REJECTED all arms — TRF=128 + fat kernel stands
-(see the 2026-09-02 S1 entry below and docs/11 §6). Gated on cold prefill,
-structured 66.5–70.4 @ 1.0000/7.0, prose, and pool bytes. All are plain env, not in
-the JIT shape hash — a cheap window. Caveat before believing the headline: their stack
+(see the 2026-09-02 S1 entry below and docs/11 §6). As actually run, the gates
+were: cold prefill as the decision variable, structured in the 66.5–70.4 tok/s
+band with acceptance at this bench's own baseline (0.980–0.9832 / 6.86–6.882 —
+the 1.0000/7.0 figure quoted in the original pre-window draft belongs to the
+acceptance-gate protocol, not `bench_decode.py`, and was not re-run per arm),
+prose in band, and pool bytes. All are plain env, not in the JIT shape hash —
+it was indeed a cheap window. Caveat before believing the headline: their stack
 is 3.5 bpw on discrete GPUs with ~7× our memory bandwidth, and their own report says
 the routed-expert MoE kernel plateaus near 490 GB/s ≈ 27% of HBM — a kernel ceiling,
 not a config one, and our bandwidth ceiling is far lower.
