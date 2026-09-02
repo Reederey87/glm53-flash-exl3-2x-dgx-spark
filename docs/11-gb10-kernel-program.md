@@ -193,8 +193,14 @@ structured converged 68.38/68.44/68.67 @ 0.9832/6.882, watchdog re-armed.
 
 ### S2 — fat-GEMM micro-opts + kernel-range cherry-pick (image rebuild window)
 
-**S2a — MoE ticket-scheduler cherry-pick: STAGED 2026-09-02 (pre-ship review; window
-not yet run).**
+**S2a — MoE ticket-scheduler cherry-pick: ADOPTED 2026-09-02 (production image
+`glm53-selfbuild:b5ab8091-s2a`).** Full receipts in docs/06 (2026-09-02 S2a entry).
+Build clean on spark1 (post-compile assert fix: `import torch` before
+`exllamav3_ext`); boot gates green (pool byte-identical, patched ext verified
+30-arg, JIT wipe as designed, 0 IMA, fat engagement 99.6%); structured decode
+converged 66.2–68.9 in-band with acceptance bit-identical to control;
+**clean idle-box structured+prose re-bench folded into the next session** (the
+throughput verdict); rollback = `IMAGE=` flip to `b5ab8091-w24`.
 
 - **What ships:** upstream exllamav3 `d5e4361` ("MoE: Replace kernel round-robin
   assignment with dynamic ticket scheduler and add dynamic group sizing", 2026-07-06)
@@ -234,14 +240,15 @@ not yet run).**
   carry `comp_units/`-era context and touch autotune flow the pin does not have in
   the same form; revisit at a pin advance, not as a hand-cherry-pick.
 
-**S2b — hand micro-opts on `exl3_fat_gemm.cu` (queued behind S2a's window):**
+**S2b — hand micro-opts on `exl3_fat_gemm.cu` (queued behind an Nsight profile of
+the new image):**
 (a) pipeline/unroll the K16 MMA issue — multiple `mma.sync.m16n8k16` per dequant
 word (no drop-in FP16 K32/K64 shape on SM121); (b) smaller tail-tile for the
 128–384 row band; (c) SMEM audit — stage A tile + B dequant in one pass to cut one
 `__syncthreads()`. Requires Grok CUDA review + Nsight profile first (the wall is
 bandwidth; measure where the time actually goes before touching the kernel).
 
-**Gates for the S2a window (when run):** image rebuild (digest changes → shape
+**Gates for the S2a window (as run):** image rebuild (digest changes → shape
 hash changes → one-time JIT wipe both nodes, wipe guard verified); same-boot-class
 warm-JIT A/B vs the current image; pool byte-identical; 0 IMA; acceptance 7/7;
 serving 6/6; structured/prose decode bands (the fused `exl3_moe` path changes —
@@ -272,9 +279,9 @@ watchdog disarm/re-arm. Rollback: previous image tag + `.env` `IMAGE=` flip
 
 1. ~~S1 row-tiling sweep~~ — **RUN 2026-09-02, REJECTED** (§6): TRF=128 + fat kernel
    stands; row-tile kill-arm −20.9%.
-2. **S2a** `d5e4361` ticket-scheduler cherry-pick — **STAGED 2026-09-02**, pre-ship
-   review; best decode upside per line of code (§6).
-3. **S2b** fat-GEMM micro-opts — queued behind S2a's window + Nsight profile.
+2. **S2a** `d5e4361` ticket-scheduler cherry-pick — **ADOPTED 2026-09-02**,
+   production image `b5ab8091-s2a`; idle-box decode re-bench pending (§6).
+3. **S2b** fat-GEMM micro-opts — queued behind an Nsight profile of the new image.
 4. **W28** indexer workspace — memory lane, unblocks a pin raise.
 5. **S3** Trellis study — largest potential, largest cost; decide after S1/S2.
 6. Watch: adaptive-K #52228/#52559, CUTLASS #43814, DeepGEMM sm120 port.

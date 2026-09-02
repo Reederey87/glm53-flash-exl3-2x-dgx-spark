@@ -1073,3 +1073,40 @@ Condensed ledger:
 - **Production restored** from `.env.bak-pre-s1-rowtiling-20260902` (end-state copy
   `.env.s1-rowtiling-20260902-endstate`): pool byte-identical, structured converged
   68.38/68.44/68.67 @ 0.9832/6.882, watchdog re-armed.
+
+## 2026-09-02: S2a — exllamav3 d5e4361 MoE ticket scheduler ADOPTED (image `glm53-selfbuild:b5ab8091-s2a`)
+
+S2a of the GB10 kernel program (docs/11 §6). Upstream exllamav3 `d5e4361` (dynamic
+ticket scheduler for the fused `exl3_moe` kernel: groups claim active experts via
+atomicAdd instead of `idx % concurrency`; runtime group width; `num_active`
+parameter) cherry-picked onto the pinned `c5d9c657` ext and baked into a rebuilt
+image. Reviewed pre-ship (findings fixed before the window; detail in the S2a
+PR thread); recorded review notes carried into the ops notes: the kernel uses
+plain `cudaLaunchKernel` — co-residency relies on grid ≤ SM count, same as the
+pinned base; a future caller passing real `num_active>0` must not do so inside
+CUDA-graph capture (production passes `-1`).
+
+- **Build:** clean on spark1 (one fix en route: the post-compile assert must
+  `import torch` before `exllamav3_ext` or `libc10.so` is unresolved in that
+  bare process — commit in the results PR). In-build assert printed
+  `exl3_moe num_active=yes (ticket scheduler)`; image `2515976f45a8`.
+- **Boot (15:06Z):** pool byte-identical **1,396,551 / 1.40×**, loopback bind,
+  running container verified on the patched ext (30-arg pybind signature, 3-way
+  doc check True), one-time JIT wipe on both nodes (shape-hash guard, as
+  designed), 0 IMA/Xid, fat-path engagement **99.6%** of layer-steps.
+- **Benches (confound-heavy day — owner background traffic bursts throughout):**
+  structured decode converged **66.2–68.9 tok/s, median ~67.5** — inside the
+  standing 66.5–70.4 band, below the morning control (70.14, clean idle, warm
+  -w24); **acceptance per-step and per-position bit-identical to control on every
+  pass** (0.9832/6.882, [1.0×5, 0.9412, 0.9412]) — the strongest no-regression
+  signal, and the one metric contention cannot touch. Prefill 60k clean samples
+  972–1049 (two at control level: 1040.8/1049). Prose unmeasurable today (16–29
+  under bursts, even gated on `num_requests_running==0` — bursts land between the
+  check and the bench).
+- **Disposition (owner call): ADOPTED.** In-band, correctness green, no cost
+  mechanism (same scan work + one atomicAdd per expert completion; the control
+  read the top of the historical 66–70.4 band). **Fold a clean idle-box
+  structured+prose decode re-bench into the next session** (W41/W42 pattern) —
+  that re-bench is the throughput verdict. Instant rollback: `IMAGE=` flip to
+  `glm53-selfbuild:b5ab8091-w24` + restart; `.env.bak-pre-s2a-20260902`.
+  Watchdog re-armed.

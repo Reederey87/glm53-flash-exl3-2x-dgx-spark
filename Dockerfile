@@ -438,7 +438,7 @@ RUN set -eux; \
       pip install --no-deps --no-build-isolation --no-cache-dir .; \
     python3 -c "import torch; import exllamav3_ext; assert hasattr(exllamav3_ext, 'exl3_moe'), dir(exllamav3_ext); assert hasattr(exllamav3_ext, 'exl3_fat_gemm'), dir(exllamav3_ext); assert hasattr(exllamav3_ext, 'exl3_fat_gemm_scatter'), dir(exllamav3_ext); print('exllamav3_ext', exllamav3_ext.__file__, 'exl3_moe=yes fat_gemm=yes')"; \
     if [ "${GLM53_EXL3_TICKET_SCHEDULER}" = "1" ]; then \
-      python3 -c "import exllamav3_ext; doc = exllamav3_ext.exl3_moe.__doc__ or ''; assert 'num_active' in doc or 'arg29' in doc or doc.count('arg') >= 30, 'ticket scheduler (d5e4361) not applied'; print('exl3_moe num_active=yes (ticket scheduler)')"; \
+      python3 -c "import torch, exllamav3_ext; doc = exllamav3_ext.exl3_moe.__doc__ or ''; assert 'num_active' in doc or 'arg29' in doc or doc.count('arg') >= 30, 'ticket scheduler (d5e4361) not applied'; print('exl3_moe num_active=yes (ticket scheduler)')"; \
     else \
       echo 'GLM53_EXL3_TICKET_SCHEDULER=0: skipping ticket-scheduler assertion'; \
     fi; \
