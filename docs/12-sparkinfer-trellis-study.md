@@ -110,24 +110,27 @@ The S2b profile (2026-09-02; ncu receipts on
 **latency-bound at ~52 TFLOP/s (Compute SM 42.6% / Memory 41.5%, flat across an
 8× K range)**. S2b then **landed**: the 3-stage `cp.async` pipeline (docs/06
 2026-09-02 S2b entry) measures **~73.5 TFLOP/s (+41%)** isolated; its end-to-end
-prefill delta measured **parity-to-+7.4% under burst contamination (full-set
-median +0.3%)**, so the effective fat-kernel share of prefill time is
+prefill delta measured **parity under burst contamination (full-set median
++0.3%, individual passes −3.2% to +7.4%)**, so the effective fat-kernel share
+of prefill time is
 **well below the 61% analytic bound (order ~20–30%)** — thin experts,
 attention/KDA, drafter work and allreduce own the rest). Two consequences:
 
 1. S2b is done — S3's bar is a **measured incumbent (~73.5 TFLOP/s)**, not a
    projection, and S3's end-to-end payoff is arithmetically capped: even a
-   perfect Trellis kernel at the ~92 TFLOP/s ceiling is worth only **~+6–7%
-   end-to-end prefill** (share ~20–30% × 73.5/92 ≈ 0.80–0.89 Amdahl factor).
-   Computed: 80 TFLOP/s → **+2.1–2.5%**; 92 TFLOP/s → **+4.2–5.3%**.
+   perfect Trellis kernel at the ~92 TFLOP/s ceiling is worth only **~+4–5%
+   end-to-end prefill**. Computed: 80 TFLOP/s → **+2.1–2.5%**; 92 TFLOP/s →
+   **+4.2–5.3%**.
 2. Sparkinfer's Trellis kernels are exactly the kind of well-pipelined CuTe DSL
    implementation that could sit at or above 73.5. **If Trellis on our
    rank-sliced shapes clears the measured incumbent (~73.5 TFLOP/s) with a
    maintained implementation, path (c) earns a window (adoption still gated on
-   the standing protocol) — but the honest ceiling is ~+7% end-to-end, and the
-   S2b experience says that ceiling is what actually lands**; below ~73.5,
-   park permanently (their receipts' +58–64% came from TP4/DCP4 x86 stacks
-   with ~7× our bandwidth — do not extrapolate).
+   the standing protocol) — but the honest ceiling is ~+4–5% end-to-end.
+   S2b is the cautionary: a +41% isolated kernel landed as a +0.3% full-set
+   median under ambient traffic, so end-to-end has to be measured, not
+   inferred from TFLOP/s**; below ~73.5, park permanently (their receipts'
+   +58–64% came from TP4/DCP4 x86 stacks with ~7× our bandwidth — do not
+   extrapolate).
 
 ## 6. The discriminating pilot (cheap, no vLLM integration)
 
@@ -184,7 +187,7 @@ path (c) as a real window or closes S3 permanently.
 Parked — and the S2b landing **lowered the ceiling**: with the fat kernel at
 ~73.5 TFLOP/s (share not resolvable under the traffic day's contamination,
 bounded well below the 61% FLOP bound), even a perfect
-Trellis is worth ~+6–7% end-to-end prefill. Re-open automatically when: (a) the
+Trellis is worth ~+4–5% end-to-end prefill. Re-open automatically when: (a) the
 pilot trigger (§6) fires — Trellis clears the measured incumbent (~73.5
 TFLOP/s) on the rank-sliced geometry **with enough margin to matter after
 Amdahl** (i.e. ≥ ~80 TFLOP/s puts the realistic end-to-end win at the top of

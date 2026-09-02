@@ -113,3 +113,17 @@ cache is invisible to it). 0.87 demands 105.87 GiB free against boots measured a
   blocks stay unhashed, recycling LIFO-first, so one-off batch lanes stop
   evicting other sessions' cached prefixes. Malformed values are an HTTP 400 at
   the API boundary. Not in the JIT shape hash.
+
+## Added 2026-09-02
+
+- `EXL3_FAT_SORTED=1` / `EXL3_FAT_BATCHED=1` / `EXL3_FAT_KERNEL=1` — the
+  fat-expert prefill path (W24) plus the 2026-09-02 kernel stack. Higher
+  tiers imply the lower ones. KERNEL needs `exllamav3_ext.exl3_fat_gemm`,
+  which this repo's Dockerfile bakes; the last public GHCR digest does not
+  export it, so leaving these on against that pin fails at start. Isolated
+  kernel receipts: **+41%** at production shapes (52 → ~73.5 TFLOP/s),
+  bit-exact ×56, sanitizer-clean. End-to-end prefill vs the same-day
+  control is parity under ambient bursts (240k full-set median +0.3%).
+  Ticket-scheduler cherry-pick (`d5e4361`) is baked at image build
+  (`GLM53_EXL3_TICKET_SCHEDULER=1`, not an env.example knob). Rollback of
+  the kernel stack is an `IMAGE=` flip, not a flag.
