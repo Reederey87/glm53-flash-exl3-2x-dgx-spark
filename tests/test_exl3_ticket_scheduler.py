@@ -130,5 +130,37 @@ def test_missing_bindings_is_not_our_concern(tmp_path):
     assert r.returncode == 0, r.stderr
 
 
+def test_mixed_state_refused_before_any_write(tmp_path):
+    # One file already patched, five pristine: the installer must refuse on
+    # the pre-scan and leave every file untouched.
+    ext = _make_ext(tmp_path, PRISTINE)
+    shutil.copyfile(PATCHED / "exl3_devctx.cuh", ext / "quant" / "exl3_devctx.cuh")
+    before = _read_all(ext)
+    r = _run(ext)
+    assert r.returncode != 0
+    assert "mixed pristine/patched state" in (r.stderr + r.stdout)
+    assert _read_all(ext) == before
+
+
+def test_dockerfile_wiring():
+    """Static guard: the build must declare + forward the opt-out, copy the
+    vendored sets, run the installer after the fat-kernel step, and assert
+    num_active via the pybind-safe __doc__ check (inspect.signature raises
+    ValueError on pybind11 builtins)."""
+    dockerfile = (KIT_ROOT / "Dockerfile").read_text()
+    assert "ARG GLM53_EXL3_TICKET_SCHEDULER=1" in dockerfile
+    assert "ENV GLM53_EXL3_TICKET_SCHEDULER=${GLM53_EXL3_TICKET_SCHEDULER}" in dockerfile
+    assert "COPY overlay/exl3-ticket/ /opt/glm53/exl3-ticket/" in dockerfile
+    assert (
+        "python3 /opt/glm53/patch_exl3_ticket_scheduler.py" in dockerfile
+    ), "installer not wired into the build"
+    fat_pos = dockerfile.index("patch_exl3_fat_kernel.py /tmp/exllamav3")
+    ticket_pos = dockerfile.index("patch_exl3_ticket_scheduler.py /tmp/exllamav3")
+    assert ticket_pos > fat_pos, "ticket-scheduler step must follow the fat-kernel step"
+    assert "inspect.signature(exllamav3_ext.exl3_moe)" not in dockerfile
+    assert "'num_active' in doc or 'arg29' in doc" in dockerfile
+    assert 'if [ "${GLM53_EXL3_TICKET_SCHEDULER}" = "1" ]' in dockerfile
+
+
 def _read_all_of(source_dir: Path) -> dict[str, bytes]:
     return {n: (source_dir / n).read_bytes() for n in FILES}
