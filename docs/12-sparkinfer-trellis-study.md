@@ -14,7 +14,9 @@ serves EXL3/Trellis weights on a physical Spark with CUDA graphs on), and our
 image's **torch 2.13.0+cu130** clears the `torch >= 2.12` floor. But integration
 is a large cross-fork port (§4), the perf advantage on GB10 is unmeasured for
 our shapes, and per the pivot rule the bar is a win **over the post-S2b state** —
-S2b's pipeline (docs/06, 2026-09-02 entry) is projected to lift the same fat
+S2b's pipeline (status and receipts: `docs/11` §6 S2b and
+`nvidia@spark1:~/s2b-profile-receipts-backup/`; the docs/06 ledger entry lands
+with the S2b window) is projected to lift the same fat
 path +25–60% before S3 would land. Decision trigger: a stopped-window microbench
 of `trellis3_t256` W4A16 on our exact shapes vs the measured fat-kernel numbers
 (§6). If Trellis clears the **S2b projection midline (65–83 TFLOP/s, mid ≈74)**

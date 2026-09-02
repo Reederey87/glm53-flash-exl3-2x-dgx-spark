@@ -199,8 +199,11 @@ Build clean on spark1 (post-compile assert fix: `import torch` before
 `exllamav3_ext`); boot gates green (pool byte-identical, patched ext verified
 30-arg, JIT wipe as designed, 0 IMA, fat engagement 99.6%); structured decode
 converged 66.2–68.9 in-band with acceptance bit-identical to control;
-**clean idle-box structured+prose re-bench folded into the next session** (the
-throughput verdict); rollback = `IMAGE=` flip to `b5ab8091-w24`.
+**idle-box re-bench executed 2026-09-02: PARITY** (n=9/phase log-audited;
+structured median 66.27, prose 27.96 vs control 28.06; the marginal −5.5%
+structured delta investigated per the decision rule and exonerated — mechanism
+ordering, control within the re-bench range, anchor asymmetry; item closed);
+rollback = `IMAGE=` flip to `b5ab8091-w24`.
 
 - **What ships:** upstream exllamav3 `d5e4361` ("MoE: Replace kernel round-robin
   assignment with dynamic ticket scheduler and add dynamic group sizing", 2026-07-06)
@@ -240,13 +243,22 @@ throughput verdict); rollback = `IMAGE=` flip to `b5ab8091-w24`.
   carry `comp_units/`-era context and touch autotune flow the pin does not have in
   the same form; revisit at a pin advance, not as a hand-cherry-pick.
 
-**S2b — hand micro-opts on `exl3_fat_gemm.cu` (queued behind an Nsight profile of
-the new image):**
-(a) pipeline/unroll the K16 MMA issue — multiple `mma.sync.m16n8k16` per dequant
-word (no drop-in FP16 K32/K64 shape on SM121); (b) smaller tail-tile for the
-128–384 row band; (c) SMEM audit — stage A tile + B dequant in one pass to cut one
-`__syncthreads()`. Requires Grok CUDA review + Nsight profile first (the wall is
-bandwidth; measure where the time actually goes before touching the kernel).
+**S2b — hand micro-opts on `exl3_fat_gemm.cu`: PROFILED 2026-09-02, verdict
+PROCEED with a modified plan.** The Nsight/counter profile (receipts on spark1
+`~/s2b-profile-receipts-backup/`; CUDA-event K/N/M sweeps + SpeedOfLight
+counters, prod stopped) found the kernel **latency-bound at ~52 TFLOP/s, flat
+across an 8× K range** (A 29→234 MB does not move it; ncu SM 42.6% / Mem 41.5%,
+"below 60% … latency issues"). Candidate disposition: (a) reframed to a
+**3-stage `cp.async` pipeline** (load/`wait`/single-`__syncthreads`/compute;
+helpers already in `ptx.cuh`; 3×(4 KB A + 1 KB B) + 8 KB `sh_c` ≈ 23 KB SMEM);
+(b) tail-tile deferred (MNBT-padded prefill never lands in the 128–384 band);
+(c) subsumed by the pipeline (the removable barrier was the buffer-reuse one).
+Execution gates: **G0** — measure the fat kernel's share of a 240k prefill;
+<15% → PARK; **G1** — `ptxas -v` registers/achieved occupancy; >128 regs ⇒
+one-line `__launch_bounds__(256, 2)` fix first. Expected +25–60% kernel
+(~65–83 TFLOP/s), ~8–21% end-to-end prefill. Validation gates: bit-exactness
+vs the current kernel across K/N/M edge shapes, compute-sanitizer
+memcheck/racecheck/synccheck, then the standing model A/B gates.
 
 **Gates for the S2a window (as run):** image rebuild (digest changes → shape
 hash changes → one-time JIT wipe both nodes, wipe guard verified); same-boot-class
@@ -257,14 +269,15 @@ fat-path stats re-measured; `systemctl --user reset-failed` before restarts;
 watchdog disarm/re-arm. Rollback: previous image tag + `.env` `IMAGE=` flip
 (pre-window `.env` snapshot taken per protocol).
 
-### S3 — Sparkinfer Trellis design study (gated on S1/S2 outcomes)
+### S3 — Sparkinfer Trellis design study — DONE 2026-09-02: FEASIBLE, PARKED with trigger
 
-- Work: capability matrix vs our EXL3 K4-MCG TR3 checkpoint; TP=2/DCP feasibility on
-  GB10 (their receipts are TP4/DCP4 on 96 GB discrete); CUDA-graph lifetime vs our
-  DFlash2 slot-share constraints (their own release keeps async OFF — same class as
-  our constraint); bandwidth translation honesty (§2 table).
-- Pivot rule: adopt only if a quantified case shows a win over the post-S2 state
-  under identical gates; otherwise park the doc as the standing reference.
+Study complete: `docs/12-sparkinfer-trellis-study.md`. All hard gates pass
+(aarch64 GB10/SM121 proven in community production, Apache-2.0, torch 2.13
+clears the floor, MCG/TR3 checkpoint in range); the cross-fork port cost and
+unmeasured GB10 perf keep it parked behind a cheap discriminating pilot
+(stopped-window `b12x` microbench on rank-sliced TP=2 shapes with an
+output-parity smoke; trigger = clears the S2b projection midline ~74 TFLOP/s;
+park permanently below ~55). Automatic re-open triggers in docs/12 §8.
 
 ### Adjacent lanes (queued; own docs/06 entries when opened)
 
