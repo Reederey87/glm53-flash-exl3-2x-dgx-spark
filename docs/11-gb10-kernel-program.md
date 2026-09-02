@@ -73,8 +73,11 @@ APC-hit-contaminated; ours are same-image, same-boot-class, warm-JIT A/Bs and st
 
 **Known gaps / improvement surface:**
 
-1. K16-only MMA — SM121 warp `mma.sync` supports K32/K64 shapes; more work per
-   dequant word could raise TC utilization. Secondary: the wall is bandwidth (§2).
+1. K16-only MMA issue — the kernel dequants MCG weights to FP16 and issues
+   `mma.sync.m16n8k16` (f16.f16); there is **no drop-in FP16 K32/K64 shape** on
+   SM121, so the lever is software pipelining / issuing multiple K16 MMAs per
+   dequant word (e.g. dual-issue on the frag_b pair), not a wider instruction.
+   Secondary: the wall is bandwidth (§2).
 2. Fixed 128-row tiles — padding waste for experts in the 128–384-row band.
 3. Grid launches per-expert with a shared-stream assumption; no cluster/DSMEM use
    (SM121 supports clusters, but multicast benefit is unproven at our tile sizes).
@@ -87,7 +90,7 @@ APC-hit-contaminated; ours are same-image, same-boot-class, warm-JIT A/Bs and st
   "Gilded Gnosis" stack): a **planned** EXL3 Trellis MoE API that consumes native
   MCG-codebook tensors (no repack/requant), 3/4/5/6 bpw, per-projection rotations,
   grouped routed execution, CUDA-graph compatible, sm120a-validated. GLM receipts on
-  4× RTX PRO 6000 (TP4/DCP4, ~7× our bandwidth): prefill 2.3–2.8k → **3.0–3.7k tok/s
+  4× RTX PRO 6000 (TP4/DCP4, ~7× our bandwidth): prefill **1.9–2.3k → 3.0–3.7k tok/s
   (+58–64%)**; vLLM #139: **+44.7% prefill / +21.8% decode** at 3.5 bpw. Primary
   candidate for S3; passes the intake gate by construction (warp-level MMA, sm12x).
 - **CUTLASS sm120 grouped GEMM**: ptr-array TMA collective for tensor/token-scaled
@@ -101,9 +104,13 @@ APC-hit-contaminated; ours are same-image, same-boot-class, warm-JIT A/Bs and st
 - **vLLM Marlin on sm121**: correct-but-slow dequant-to-BF16 fallback; one
   correctness landmine documented ([vLLM #49546](https://github.com/vllm-project/vllm/issues/49546),
   W4A8-FP8 silently corrupts at temp 0). We do not run Marlin — keep it that way.
-- **GB10 kernel one-offs** (RMSNorm 2.59×, SGLang MoE config sweep +6.3%):
-  confirm the platform behaves like "Blackwell-lite"; nothing directly portable to
-  the EXL3 path.
+- **GB10 kernel one-offs** (external, confirm the platform behaves like
+  "Blackwell-lite"; nothing directly portable to the EXL3 path): vectorized
+  RMSNorm at 2.59× torch baseline
+  ([logos-flux/optimized-cuda-gb10](https://github.com/logos-flux/optimized-cuda-gb10));
+  SGLang MoE tile-config sweep for GB10, +6.3% GLM-4.7-FP8 throughput
+  ([BTankut/dgx-spark-sglang-moe-configs](https://github.com/BTankut/dgx-spark-sglang-moe-configs),
+  receipts in the NVIDIA forum thread cited in §2).
 
 ## 5. New finding: the pinned exllamav3 ext is 27 kernel commits behind upstream
 
@@ -149,11 +156,12 @@ anchors verified). Both go through the standing protocol with a JIT wipe expecte
 
 ### S2 — fat-GEMM micro-opts + kernel-range cherry-pick (image rebuild window)
 
-- Candidates (a) K32/K64 MMA in the K-loop; (b) smaller tail-tile for the 128–384
-  row band; (c) SMEM audit — fold the B dequant staging into one pass to drop one
-  `__syncthreads()`; (d) **cherry-pick `d5e4361` (MoE ticket scheduler) + autotune
-  commits onto the pinned ext**; (e) verify the `5224ae4` Hadamard overflow fix
-  applies to the pin.
+- Candidates: (a) pipeline/unroll the K16 MMA issue — multiple `mma.sync.m16n8k16`
+  per dequant word (no drop-in FP16 K32/K64 shape on SM121); (b) smaller tail-tile
+  for the 128–384 row band; (c) SMEM audit — stage A tile + B dequant in one pass
+  to cut one `__syncthreads()`; (d) **cherry-pick `d5e4361` (MoE ticket scheduler)
+  + autotune commits onto the pinned ext**; (e) verify the `5224ae4` Hadamard
+  overflow fix applies to the pin.
 - Pre-ship: final-reviewer handoff on the `.cu` diff + Grok CUDA review (the W24
   pattern).
 - Gates: standing protocol + prefill probes (60k/240k) + a decode pass (the fused
