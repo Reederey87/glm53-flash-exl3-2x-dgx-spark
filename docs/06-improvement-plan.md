@@ -953,6 +953,77 @@ absent → template renders Max), `.env.bak-pre-w27`, `start.sh.bak-pre-w27` on 
   8 tokens per sequence). `MAX_NUM_SEQS=4` is a hard admission cap today and is the
   cheapest concurrency lever left; it is in the JIT shape hash (one-time wipe) and needs
   the both-node memory tripwire from W38.
-- W41 + W42 (kit PR #94 KV-capacity log, PR #95 `APC_NO_STORE`) stay next, one restart,
-  Codex pre-ship first; A3 after them; the W29 confirming repeat whenever the box is
-  idle.
+- W43 is next; A3 after it; the W29 confirming repeat whenever the box is idle.
+
+### W41 + W42 — KV-capacity boot log + per-request APC no-store, ADOPTED (2026-09-01, boot 21:16Z, active 21:19Z)
+
+**Why they exist.** W41 (kit PR #94, `overlay/patch_kv_capacity_log.py`): the stock
+`GPU KV cache size` line is, for a multi-group hybrid, a *concurrency* figure in
+token units — two reviewers independently misread "1,553,140 tokens" as a prefix
+cache while the pool is 566 usable block ids and one cached 3584-token segment
+costs 38 of them (upstream feature request vllm-project/vllm#54662). W42 (kit PR
+#95, `overlay/patch_apc_no_store.py`): vLLM has a read-side prefix-cache opt-out
+but no write-side one, so a one-off batch/eval request's blocks get hashed, queue
+behind other sessions' cached prefixes in `BlockPool.free_blocks`' LRU, and evict
+them; no-store blocks stay unhashed and recycle LIFO from the front.
+
+**What shipped.** Both overlays are log/mechanism-only and knob-guarded
+(`GLM53_KV_CAPACITY_LOG`, `GLM53_APC_NO_STORE`; exactly 0/1, unset → 1, not in
+the JIT shape hash). W41 injects per-group lines + an honest capacity summary
+after the byte-identical stock line; any derivation error is a `warning_once`,
+never boot-fatal. W42 adds `SamplingParams.skip_writing_prefix_cache` (typed or
+`vllm_xargs`), suppressing only the two request-driven hash-insertion sites in
+`block_pool.py`; `num_cached_block` sentinel accounting, lookups, and the
+reader-side partial-hit CoW are untouched; malformed values are an HTTP 400 at
+the API boundary, the engine-side resolver never raises. Launcher: the two knobs
+default at top level (cannot exit) and are strictly validated inside
+`validate_numeric_config` (start/restart only — a bad value can never block
+stop/status/logs), with setness-aware caller-wins capture/restore so caller
+exports (including explicitly empty) beat `.env`. No `.env` change, no image
+rebuild, one restart. Rollback: `start.sh.bak-pre-w41w42` on spark1, knob-level
+`GLM53_KV_CAPACITY_LOG=0` / `GLM53_APC_NO_STORE=0`, or removing the two overlays.
+
+**Pre-ship review — final-reviewer subagent (GPT-5.6 Sol), three rounds.**
+Round 1 CHANGES-REQUIRED: (1) the top-level bool guard would have blocked
+stop/status/logs on a malformed value — fixed by moving strict validation into
+`validate_numeric_config` (the W27 finding-1 class, recaught here because the
+staged tests had deliberately pinned the top-level placement); (2) `.env`
+silently overrode caller knob exports (`GLM53_APC_NO_STORE=0 ./start.sh restart`
+resolved back to 1, reproduced) — fixed with setness-aware capture/restore plus
+a behavioral test against a fake `.env`; (3, recorded) review-staging layout.
+Round 2 CHANGES-REQUIRED: (1) the review staging had drifted from the ship
+copies and the render log recorded permission failures — staging resynced,
+render script fixed, all diffs + log regenerated clean; (2, recorded) the
+passthrough assertions stripped both sides, which could hide whitespace-only
+alteration — now byte-exact (`length|value`, binary-safe capture). Round 3:
+**APPROVED, no required or recorded findings.** Reviewer-verified: overlays
+byte-identical between staging and ship, rendered diffs match the ship overlays
+(290/152/31/66 lines), all four W41/W42 launcher regions identical across both
+start.sh copies, tests 159 + 140 checks, `bash -n` clean. Receipts from the
+digest: rendered diffs produced by actually applying the overlays to the pinned
+image's pristine sources (throwaway containers), idempotent re-run clean, all
+patched files parse inside the image.
+
+**Gates (boot 21:16:08Z → active 21:19Z; prod-start MemFree guard passed).**
+Pool byte-identical: stock line unchanged at **1,396,551** tokens / 1.40x.
+Shape stamp untouched (no JIT wipe). Loopback bind `127.0.0.1:8000` only. Both
+ranks report the overlays applied. W41 receipts (head): 7 group lines (MLA 3584,
+KpoolTail scratch no-cache, 4× Mamba align, drafter SWA window=2048 eagle=yes),
+then `usable block ids: 566 (num_blocks=567 incl. the null block; 406 ids per
+1,000,000-token request => 1.40x); ids per 3584-token cached segment across
+groups: 38 (per group: [1, 0, 1, 1, 1, 1, 33]); cached-conversation capacity ≈
+50,176 tokens = 14 segments` — the honest figure the stock line cannot express.
+W42 functional gate: valid `vllm_xargs {"skip_writing_prefix_cache": 1}` request
+→ HTTP 200 + resolution receipt; a large cold no-store request (>3584 tokens)
+produced BOTH store-suppression receipts (`full site` and `partial site`);
+malformed value `"yes"` → **HTTP 400** with the exact named error; cached-peer
+eviction check: 6,000-token peer prompt 6.68 s cold → 0.27 s warm → **0.26 s
+after two no-store requests** (no eviction). Acceptance **7/7**; serving **6/6**
+through the tunnel. Structured: accept **1.0000 / 7.0, all seven positions 1.00**,
+9 runs no-NaN, tok/s 66.6–69.2 on 7 of 9 runs (two ~25 tok/s outliers are a
+documented self-contention confound: the bench ran while the owner's coding
+session — which runs on this server — was generating). Prose: 28.2–34.1 tok/s
+on 8 of 9 runs (one 17.0 outlier, same confound), in-to-above the 28.6–31.0
+band; acceptance ratios 0.34–0.44 / 2.4–3.1, normal. Standing baselines
+unthreatened; re-bench on an idle box is folded into the already-queued W29
+repeat.
