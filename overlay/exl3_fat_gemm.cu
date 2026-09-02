@@ -66,9 +66,16 @@ void exl3_fat_gemm_kernel(
     int size_n)
 {
     extern __shared__ unsigned char shared_raw[];
+    // S2b: 3-stage cp.async pipeline. Stages cycle so that issue(j+2) targets
+    // the buffer compute(j) is done with, and sync(j+1) certifies every warp
+    // finished compute(j) before that issue fires — the single per-iteration
+    // barrier below is the only one the k-loop needs.
+    constexpr int FAT_STAGES = 3;
     half* sh_a = reinterpret_cast<half*>(shared_raw);
-    uint16_t* sh_b = reinterpret_cast<uint16_t*>(sh_a + FAT_TILE_M * FAT_TILE_K);
-    float* sh_c = reinterpret_cast<float*>(sh_b + FAT_N_BLOCKS * FAT_PACKED_WORDS);
+    uint16_t* sh_b = reinterpret_cast<uint16_t*>(
+        sh_a + FAT_STAGES * FAT_TILE_M * FAT_TILE_K);
+    float* sh_c = reinterpret_cast<float*>(
+        sh_b + FAT_STAGES * FAT_N_BLOCKS * FAT_PACKED_WORDS);
 
     int t = threadIdx.x;
     int warp = t / 32;
@@ -85,32 +92,59 @@ void exl3_fat_gemm_kernel(
         frag_c[mb][1] = {};
     }
 
-    for (int k_block = 0; k_block < size_k / FAT_TILE_K; ++k_block)
+    // Issue one k_block's global->SMEM tile into `stage` (async, 16B cp.async).
+    // A: 256 threads, one int4 each, XOR-swizzled destination; OOB rows are
+    // zero-filled synchronously (keeps the stock kernel's exact semantics;
+    // upstream notes cp_async_pred miscompiles on Blackwell — use if-form).
+    // B: first 64 threads, one int4 each.
+    auto issue_stage = [&](int k_block, int stage)
     {
         int a_row = t / 2;
         int a_col8 = t & 1;
         int a_dst_col8 = a_col8 ^ ((a_row >> 2) & 1);
-        int4 a_value = {};
+        int4* a_dst = reinterpret_cast<int4*>(
+            sh_a + stage * FAT_TILE_M * FAT_TILE_K) + a_row * 2 + a_dst_col8;
         if (m_base + a_row < size_m)
         {
             const int4* a_src = reinterpret_cast<const int4*>(
                 a + (m_base + a_row) * size_k + k_block * FAT_TILE_K);
-            a_value = a_src[a_col8];
+            cp_async(a_dst, a_src + a_col8);
         }
-        reinterpret_cast<int4*>(sh_a)[a_row * 2 + a_dst_col8] = a_value;
-
+        else
+        {
+            *a_dst = int4{};
+        }
         if (t < 64)
         {
             const int4* b_src = reinterpret_cast<const int4*>(
                 packed + (k_block * tiles_n + n_base / 16) * FAT_PACKED_WORDS);
-            reinterpret_cast<int4*>(sh_b)[t] = b_src[t];
+            cp_async(
+                reinterpret_cast<int4*>(
+                    sh_b + stage * FAT_N_BLOCKS * FAT_PACKED_WORDS) + t,
+                b_src + t);
         }
+    };
+
+    int const k_blocks = size_k / FAT_TILE_K;
+    if (k_blocks > 0)
+    {
+        issue_stage(0, 0);
+        cp_async_fence();
+    }
+
+    for (int k_block = 0; k_block < k_blocks; ++k_block)
+    {
+        if (k_block + 1 < k_blocks)
+            issue_stage(k_block + 1, (k_block + 1) % FAT_STAGES);
+        cp_async_fence();
+        cp_async_wait<FAT_STAGES - 2>();  // stage k_block's group is complete
         __syncthreads();
 
+        int const stage = k_block % FAT_STAGES;
         FragB frag_b0;
         FragB frag_b1;
         const uint32_t* warp_b = reinterpret_cast<const uint32_t*>(
-            sh_b + warp * FAT_PACKED_WORDS);
+            sh_b + stage * FAT_N_BLOCKS * FAT_PACKED_WORDS + warp * FAT_PACKED_WORDS);
         dq_dispatch<4, 1>(warp_b, lane << 3, frag_b0, frag_b1);
 
         #pragma unroll
@@ -120,11 +154,11 @@ void exl3_fat_gemm_kernel(
             int row = (lane % 8) + 8 * ((lane / 8) % 2) + mb * 16;
             int base_col = lane / 16;
             int swizzled_col = base_col ^ ((row >> 2) & 1);
-            ldsm4(frag_a, reinterpret_cast<int4*>(sh_a) + row * 2 + swizzled_col);
+            ldsm4(frag_a, reinterpret_cast<int4*>(
+                sh_a + stage * FAT_TILE_M * FAT_TILE_K) + row * 2 + swizzled_col);
             ptx_mma_m16n8k16(frag_a, frag_b0, frag_c[mb][0]);
             ptx_mma_m16n8k16(frag_a, frag_b1, frag_c[mb][1]);
         }
-        __syncthreads();
     }
 
     #pragma unroll
@@ -235,8 +269,10 @@ void launch(
     int size_n = static_cast<int>(svh.numel());
     dim3 block(FAT_THREADS);
     dim3 grid(size_n / FAT_TILE_N, (size_m + FAT_TILE_M - 1) / FAT_TILE_M);
-    size_t shared = FAT_TILE_M * FAT_TILE_K * sizeof(half)
-                  + FAT_N_BLOCKS * FAT_PACKED_WORDS * sizeof(uint16_t)
+    // S2b: 3 pipeline stages of (A tile + B tile), plus the 16-row sh_c scratch.
+    constexpr int FAT_STAGES = 3;
+    size_t shared = FAT_STAGES * FAT_TILE_M * FAT_TILE_K * sizeof(half)
+                  + FAT_STAGES * FAT_N_BLOCKS * FAT_PACKED_WORDS * sizeof(uint16_t)
                   + 16 * FAT_TILE_N * sizeof(float);
     exl3_fat_gemm_kernel<scatter><<<grid, block, shared, stream>>>(
         reinterpret_cast<const half*>(a.data_ptr()),
