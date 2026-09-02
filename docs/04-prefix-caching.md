@@ -88,6 +88,28 @@ lives behind concurrent hits), and re-validate at the next image rebase (upstrea
 #52216 changes the retention default and promotes the env to a real argument).
 Client-side compaction around **300k** (the measured solo ceiling) still stands.
 
+## Per-request no-store (2026-09-01): the write-side opt-out the API never had
+
+vLLM ships a read-side opt-out (`skip_reading_prefix_cache`) but nothing on the
+write side, so a one-off batch or eval request **stores** every block it touches.
+`BlockPool.free_blocks` appends hashed blocks to the back of the free queue, so
+the batch job's blocks queue behind — and eventually evict — other sessions'
+cached prefixes: the batch lane re-orders the LRU in its own favour.
+
+`overlay/patch_apc_no_store.py` adds the write-side twin:
+`SamplingParams.skip_writing_prefix_cache` (typed field) or `vllm_xargs:
+{"skip_writing_prefix_cache": 1}` on /v1/chat/completions, /v1/completions,
+/v1/responses. A no-store request suppresses only the two request-driven
+hash-insertion sites in `block_pool.py` — allocation accounting (`num_cached_block`
+sentinel), lookups, and the reader-side partial-hit CoW are untouched, so it can
+still read-hit. Its blocks carry no hash, are prepended to the free queue, and are
+the very next ids recycled. Verified live: both suppression receipts (`full site`,
+`partial site`) in the engine log, and a cached 6,000-token peer stayed warm
+(0.27 s → 0.26 s) across two no-store requests. Kill switch `GLM53_APC_NO_STORE=0`
+makes a valid 1 a logged no-op; malformed values are an HTTP 400 at the API
+boundary. Combine with `skip_reading_prefix_cache` for zero cache interaction;
+prefer short lanes with a low `priority`.
+
 ## Verifying, not assuming
 
 The lifetime hit-rate on a dashboard hides all of this (it averages over benches and
