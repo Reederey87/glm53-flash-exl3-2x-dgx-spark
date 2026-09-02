@@ -216,11 +216,14 @@ not yet run).**
 - **Packaging:** `overlay/patch_exl3_ticket_scheduler.py` — byte-exact three-state
   installer (patched→skip / pristine→atomic replace / anything else→fail closed)
   over vendored `overlay/exl3-ticket/{pristine,patched}` sets (pin bytes vs
-  pin+d5e4361 bytes); build-time opt-out `GLM53_EXL3_TICKET_SCHEDULER=0`; Dockerfile
-  wired after the fat-kernel step with a build assert on the `num_active`
-  signature. The d5e4361 hunk in exllamav3's own `block_sparse_mlp.py` is
-  deliberately not applied (not used by the vLLM serve path). 8 host tests
-  (`tests/test_exl3_ticket_scheduler.py`); full suite 66 passed / 1 skipped.
+  pin+d5e4361 bytes); build-time opt-out `GLM53_EXL3_TICKET_SCHEDULER=0` (real
+  `ARG`+`ENV` forwarding; the build assert skips on opt-out builds); Dockerfile
+  wired after the fat-kernel step with a pybind-safe `__doc__`-based build assert
+  on the `num_active` signature (`inspect.signature` raises on pybind11 builtins;
+  deployed-unpatched receipt: 29 generated args, no `num_active` → discriminates).
+  The d5e4361 hunk in exllamav3's own `block_sparse_mlp.py` is deliberately not
+  applied (not used by the vLLM serve path). 10 host tests
+  (`tests/test_exl3_ticket_scheduler.py`); full suite 68 passed / 1 skipped.
 - **(e) Hadamard `5224ae4` verdict: NOT APPLICABLE to this deployment.** The fix
   casts `gridDim.y * 128 * blockIdx.x` to `size_t` in `hadamard.cu`'s standalone
   launchers; overflow needs `gridDim.y * blockIdx.x ≥ 2^24` while our shapes keep
