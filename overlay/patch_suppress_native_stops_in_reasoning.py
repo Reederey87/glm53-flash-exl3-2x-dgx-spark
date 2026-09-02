@@ -28,6 +28,20 @@ is checked two ways, either one is enough to dormant-ize the stop:
    output tracking ever ran for this request. This is what actually covers
    the auto-tool_choice gap above.
 
+v2 (2026-09-02) treated an unambiguous native signal as authoritative and
+skipped the token check whenever ``reasoning_ended`` was ``True`` or
+``False`` (not just ``None``). Reverted: after deploying it, a live scan
+still climbed 3/12 -> 10/12 empty-completion hits over ~12 minutes,
+correlating with heavy concurrent load. ``patch_xgrammar_termination.py``'s
+own docstring implies structured-output/grammar tracking likely *is*
+active for this deployment's auto-tool-choice calls (contrary to the
+"never populated" claim above, which was not independently verified) — if
+so, a ``reasoning_ended`` flip to ``True`` under load-induced timing is a
+more plausible live failure mode than the token check ever incorrectly
+overriding a confirmed-closed native signal (which was the theoretical
+risk the v2 change guarded against, never observed). Back to plain OR:
+either signal saying "still open" is enough to dormant-ize the stop.
+
 ``eos_token_id`` and length caps are unchanged, matching the stop-string
 patch's own invariant. Token ids for ``<think>``/``</think>`` are pinned to
 this model's tokenizer (``brandonmusic/GLM-5.3-Flash-tr3-4bpw``); override
@@ -37,6 +51,15 @@ model changes.
 Opt-out: ``GLM53_SUPPRESS_STOPS_IN_REASONING=0`` or
 ``VLLM_SUPPRESS_STOPS_IN_REASONING=0`` (same switch as the stop-string
 patch, since this is the same feature covering the other stop source).
+
+Every time this guard actually engages (i.e. a native stop-token candidate
+was about to fire), it logs one INFO line tagged
+``[suppress-native-stops-in-reasoning]`` with both raw signal values and
+the final decision — deliberately not gated behind
+``VLLM_LOGGING_LEVEL=DEBUG`` (that crashed this box's CUDA-graph warmup
+twice in this same session; this uses the engine's always-on INFO logger
+instead) so the next occurrence is directly diagnosable from the normal
+server log instead of inferred from client-side timestamps.
 """
 from __future__ import annotations
 
@@ -56,6 +79,17 @@ IMPORT_NEW = (
     "from collections.abc import Sequence\n"
 )
 
+LOGGER_IMPORT_OLD = "from vllm.sampling_params import RepetitionDetectionParams\n"
+LOGGER_IMPORT_NEW = (
+    "from vllm.logger import init_logger\n"
+    "from vllm.sampling_params import RepetitionDetectionParams\n"
+)
+LOGGER_INIT_OLD = "from vllm.v1.request import Request, RequestStatus\n"
+LOGGER_INIT_NEW = (
+    "from vllm.v1.request import Request, RequestStatus\n\n"
+    "_native_stop_logger = init_logger(__name__)\n"
+)
+
 CHECK_OLD = """    if last_token_id in (sampling_params.stop_token_ids or ()):
         request.status = RequestStatus.FINISHED_STOPPED
         request.stop_reason = last_token_id
@@ -67,12 +101,13 @@ CHECK_NEW = """    if last_token_id in (sampling_params.stop_token_ids or ()):
         # patch_suppress_stops_in_reasoning.py for native stop-token ids:
         # a control token like <|observation|> can land in stop_token_ids
         # and fire mid-<think>, finishing the turn with no visible output.
-        # vLLM's own reasoning-parser state is authoritative when it has a
-        # definitive answer; falls back to an independent token-based check
-        # (prompt ends in <think>, </think> not seen yet in the output) only
-        # when that state is unavailable/unknown - covers requests with no
-        # structured-output/grammar constraints (e.g. plain
-        # tool_choice="auto"), where the native signal is never populated.
+        # Either of two independent signals being "still open" is enough:
+        # vLLM's own reasoning-parser state (when structured-output tracking
+        # is active for this request), or an independent token-based check
+        # (prompt ends in <think>, </think> not seen yet in the output) -
+        # covers requests where the native signal is unavailable/unknown, or
+        # (2026-09-02) possibly wrong under load. Logged every time this
+        # fires - see module docstring.
         if not _native_stop_reasoning_open(request):
             request.status = RequestStatus.FINISHED_STOPPED
             request.stop_reason = last_token_id
@@ -114,24 +149,39 @@ def _reasoning_open_by_tokens(request) -> bool:
 
 def _native_stop_reasoning_open(request) -> bool:
     # [suppress-native-stops-in-reasoning] single entry point combining both
-    # signals. vLLM's own reasoning-parser state is authoritative whenever
-    # it has a definitive answer (True or False) - the token-based fallback
-    # only kicks in when that signal is unavailable (no structured-output
-    # tracking on this request) or still unknown (None, not yet computed),
-    # so a confirmed-closed native signal can never get overridden by the
-    # independent check. Each signal is separately fail-closed - if the
-    # structured-output check errors, that alone must not take down the
-    # token-based fallback too, so it's isolated to its own try/except
-    # rather than one that wraps (and could short-circuit) both signals.
+    # signals: plain OR, either one saying "still open" is enough. Each
+    # signal is separately fail-closed - if the structured-output check
+    # errors, that alone must not take down the token-based check too, so
+    # it's isolated to its own try/except rather than one that wraps (and
+    # could short-circuit) both signals. Logs every time this guard is
+    # consulted for an actual stop-token candidate, tagged for grep, so a
+    # future occurrence is directly diagnosable from the server log.
     if not _suppress_native_stops_enabled():
         return False
+    sor = request.structured_output_request
+    native_reasoning_ended = None
+    native_open = False
     try:
-        sor = request.structured_output_request
-        if sor is not None and sor.reasoning_ended is not None:
-            return not sor.reasoning_ended
+        if sor is not None:
+            native_reasoning_ended = sor.reasoning_ended
+            native_open = sor.reasoning_ended is False
     except Exception:
         pass
-    return _reasoning_open_by_tokens(request)
+    token_open = _reasoning_open_by_tokens(request)
+    result = native_open or token_open
+    try:
+        _native_stop_logger.info(
+            "[suppress-native-stops-in-reasoning] request_id=%s "
+            "sor_present=%s reasoning_ended=%s token_check_open=%s -> %s",
+            getattr(request, "request_id", "?"),
+            sor is not None,
+            native_reasoning_ended,
+            token_open,
+            "SUPPRESSED (still open)" if result else "STOP FIRES",
+        )
+    except Exception:
+        pass
+    return result
 '''
 
 
@@ -142,11 +192,17 @@ def apply_text(src: str) -> tuple[str, str]:
     missing = []
     if IMPORT_OLD not in src:
         missing.append("import")
+    if LOGGER_IMPORT_OLD not in src:
+        missing.append("logger_import")
+    if LOGGER_INIT_OLD not in src:
+        missing.append("logger_init")
     if CHECK_OLD not in src:
         missing.append("check_stop")
     if missing:
         return src, "missing:" + ",".join(missing)
     out = src.replace(IMPORT_OLD, IMPORT_NEW, 1)
+    out = out.replace(LOGGER_IMPORT_OLD, LOGGER_IMPORT_NEW, 1)
+    out = out.replace(LOGGER_INIT_OLD, LOGGER_INIT_NEW, 1)
     out = out.replace(CHECK_OLD, CHECK_NEW, 1)
     out = out.rstrip("\n") + "\n\n\n" + HELPER.strip("\n") + "\n"
     return out, "applied"
