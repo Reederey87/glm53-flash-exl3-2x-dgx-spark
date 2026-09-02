@@ -17,7 +17,13 @@ def guard_source() -> str:
     begin = source.index("# GLM53 numeric config guard (begin)")
     end_marker = "# GLM53 numeric config guard (end)"
     end = source.index(end_marker, begin) + len(end_marker)
-    return source[begin:end]
+    # Mirror production ordering: the W41/W42 knob-defaults block always runs
+    # before validate_numeric_config, so the strict-bool loop never sees an
+    # UNSET knob (unset -> 1 happens in the defaults, "" stays a value).
+    d_begin = source.index("# LOCAL: W41/W42 knob defaults (begin)")
+    d_end_marker = "# LOCAL: W41/W42 knob defaults (end)"
+    d_end = source.index(d_end_marker, d_begin) + len(d_end_marker)
+    return source[d_begin:d_end] + "\n" + source[begin:end]
 
 
 def validate(util: str, model: str, seqs: str, batch: str) -> subprocess.CompletedProcess[str]:
