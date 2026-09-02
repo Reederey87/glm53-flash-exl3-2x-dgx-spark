@@ -125,10 +125,12 @@ attention/KDA, drafter work and allreduce own the rest). Two consequences:
    implementation that could sit at or above 73.5. **If Trellis on our
    rank-sliced shapes clears the measured incumbent (~73.5 TFLOP/s) with a
    maintained implementation, path (c) earns a window (adoption still gated on
-   the standing protocol) — but the honest ceiling is ~+4–5% end-to-end, and
-   the S2b experience says that ceiling is what actually lands**; below
-   ~73.5, park permanently (their receipts' +58–64% came from TP4/DCP4 x86
-   stacks with ~7× our bandwidth — do not extrapolate).
+   the standing protocol) — but the honest ceiling is ~+4–5% end-to-end.
+   S2b is the cautionary: a +41% isolated kernel landed as a +0.3% full-set
+   median under ambient traffic, so end-to-end has to be measured, not
+   inferred from TFLOP/s**; below ~73.5, park permanently (their receipts'
+   +58–64% came from TP4/DCP4 x86 stacks with ~7× our bandwidth — do not
+   extrapolate).
 
 ## 6. The discriminating pilot (cheap, no vLLM integration)
 
