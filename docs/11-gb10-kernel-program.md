@@ -243,22 +243,23 @@ rollback = `IMAGE=` flip to `b5ab8091-w24`.
   carry `comp_units/`-era context and touch autotune flow the pin does not have in
   the same form; revisit at a pin advance, not as a hand-cherry-pick.
 
-**S2b — hand micro-opts on `exl3_fat_gemm.cu`: PROFILED 2026-09-02, verdict
-PROCEED with a modified plan.** The Nsight/counter profile (receipts on spark1
-`~/s2b-profile-receipts-backup/`; CUDA-event K/N/M sweeps + SpeedOfLight
-counters, prod stopped) found the kernel **latency-bound at ~52 TFLOP/s, flat
-across an 8× K range** (A 29→234 MB does not move it; ncu SM 42.6% / Mem 41.5%,
-"below 60% … latency issues"). Candidate disposition: (a) reframed to a
-**3-stage `cp.async` pipeline** (load/`wait`/single-`__syncthreads`/compute;
-helpers already in `ptx.cuh`; 3×(4 KB A + 1 KB B) + 8 KB `sh_c` ≈ 23 KB SMEM);
-(b) tail-tile deferred (MNBT-padded prefill never lands in the 128–384 band);
-(c) subsumed by the pipeline (the removable barrier was the buffer-reuse one).
-Execution gates: **G0** — measure the fat kernel's share of a 240k prefill;
-<15% → PARK; **G1** — `ptxas -v` registers/achieved occupancy; >128 regs ⇒
-one-line `__launch_bounds__(256, 2)` fix first. Expected +25–60% kernel
-(~65–83 TFLOP/s), ~8–21% end-to-end prefill. Validation gates: bit-exactness
-vs the current kernel across K/N/M edge shapes, compute-sanitizer
-memcheck/racecheck/synccheck, then the standing model A/B gates.
+**S2b — hand micro-opts on `exl3_fat_gemm.cu`: ADOPTED 2026-09-02 (production
+image `glm53-selfbuild:b5ab8091-s2b`).** Profile: **latency-bound ~52 TFLOP/s**
+(flat across 8× K; ncu SM 42.6%/Mem 41.5%; receipts on spark1
+`~/s2b-profile-receipts-backup/`). Implemented: 3-stage `cp.async` pipeline
+(commit `0c03250`; G0 PASS by bound, measured share lower than the FLOP bound; G1 PASS — 95 regs, 0
+spills, 2 CTAs/SM, no launch-bounds fix needed; bit-exact vs stock ×56 incl.
+the K=16 probe; sanitizer memcheck/racecheck/synccheck 0 errors; kernel uplift
+**+38.6/+41.4/+40.8%** at M=3584 → ~73.5 TFLOP/s). End-to-end prefill
+**UNRESOLVED pending the idle re-bench**: 240k full-set median 1001.0 vs
+control 997.8 ≈ +0.3% (deltas −3.2% to +7.4%) under ambient bursts. Decode
+expected wash, acceptance
+bit-identical throughout. ADOPTED; the standing idle-box re-bench now owes
+clean numbers for s2a-retain AND s2b prefill/decode vs recorded controls.
+Rollback: `IMAGE=` flip to `b5ab8091-s2a`. Full receipts: docs/06 2026-09-02
+S2b entry (incl. the watchdog-race incident lesson and the direct-to-main
+deviation). Candidate disposition for the record: (a) executed as the
+pipeline; (b) tail-tile deferred; (c) subsumed.
 
 **Gates for the S2a window (as run):** image rebuild (digest changes → shape
 hash changes → one-time JIT wipe both nodes, wipe guard verified); same-boot-class
@@ -276,8 +277,9 @@ Study complete: `docs/12-sparkinfer-trellis-study.md`. All hard gates pass
 clears the floor, MCG/TR3 checkpoint in range); the cross-fork port cost and
 unmeasured GB10 perf keep it parked behind a cheap discriminating pilot
 (stopped-window `b12x` microbench on rank-sliced TP=2 shapes with an
-output-parity smoke; trigger = clears the S2b projection midline ~74 TFLOP/s;
-park permanently below ~55). Automatic re-open triggers in docs/12 §8.
+output-parity smoke; trigger = clears the measured post-S2b incumbent
+(~73.5 TFLOP/s) with meaningful margin (≥ ~80 to open path (c); park
+permanently below the incumbent). Automatic re-open triggers in docs/12 §8.
 
 ### Adjacent lanes (queued; own docs/06 entries when opened)
 
@@ -296,11 +298,10 @@ park permanently below ~55). Automatic re-open triggers in docs/12 §8.
    production image `b5ab8091-s2a`; re-bench verdict **PARITY** (§6; idle-box
    protocol settled, structured −5.5% marginally investigated and exonerated,
    prose parity); item closed.
-3. **S2b** fat-GEMM micro-opts — **profiled 2026-09-02: latency-bound at ~52
-   TFLOP/s** (flat across 8× K; ncu SM 42.6%/Mem 41.5%); verdict **PROCEED with
-   a 3-stage `cp.async` pipeline** (candidates (b)/(c) deferred/subsumed), gated
-   on G0 (fat share ≥15% of prefill) + G1 (registers/occupancy); receipts on
-   spark1 `~/s2b-profile-receipts-backup/`.
+3. **S2b** fat-GEMM micro-opts — **ADOPTED 2026-09-02**, production image
+   `b5ab8091-s2b`; 3-stage `cp.async` pipeline (bit-exact ×56, sanitized,
+   kernel +41% → ~73.5 TFLOP/s); end-to-end prefill parity under ambient
+   bursts — verdict pending the idle re-bench (§6).
 4. **W28** indexer workspace — memory lane, unblocks a pin raise.
 5. **S3** Trellis study — **DONE 2026-09-02: FEASIBLE, PARKED with trigger**
    (`docs/12-sparkinfer-trellis-study.md`; pilot = stopped-window `b12x`

@@ -13,17 +13,29 @@ commissioned to settle: **aarch64 GB10/SM121 is proven in community production**
 serves EXL3/Trellis weights on a physical Spark with CUDA graphs on), and our
 image's **torch 2.13.0+cu130** clears the `torch >= 2.12` floor. But integration
 is a large cross-fork port (§4), the perf advantage on GB10 is unmeasured for
-our shapes, and per the pivot rule the bar is a win **over the post-S2b state** —
-S2b's pipeline (status and receipts: `docs/11` §6 S2b and
-`nvidia@spark1:~/s2b-profile-receipts-backup/`; the docs/06 ledger entry lands
-with the S2b window) is projected to lift the same fat
-path +25–60% before S3 would land. Decision trigger: a stopped-window microbench
-of `trellis3_t256` W4A16 on our exact shapes vs the measured fat-kernel numbers
-(§6). If Trellis clears the **S2b projection midline (65–83 TFLOP/s, mid ≈74)**
-where our kernel does 52 — measured on the rank-sliced geometry production
-actually runs — the port conversation becomes real; adoption itself stays gated
-on the measured post-S2b value under the standing protocol. Below ~55 TFLOP/s,
-park permanently.
+our shapes, and per the pivot rule the bar is a win **over the measured
+post-S2b state** — S2b landed 2026-09-02: the pipelined fat kernel measures
+**~73.5 TFLOP/s** (from 52; +41%); the end-to-end prefill delta vs the
+pre-pipeline control measured parity under ambient contamination (240k full-set
+median +0.3%, deltas −3.2% to +7.4%; bursts on the traffic day), so the
+fat-kernel share of prefill time is **well below the 61% analytic FLOP bound
+(order ~20–30%)** (docs/06
+2026-09-02 S2b entry; `docs/11` §6; receipts
+`nvidia@spark1:~/s2b-profile-receipts-backup/`). Decision trigger: a
+stopped-window microbench of `trellis3_t256` W4A16 on our rank-sliced shapes
+(§6). Trellis must clear **the measured post-S2b kernel, ~73.5 TFLOP/s**, and
+only a result **≥ ~80 TFLOP/s** (comfortably past the incumbent, so Amdahl
+delivers the top of the cap) opens path (c) as a real window — 73.5–80 is a
+coin-flip against a kernel we control. Adoption stays gated on the standing
+protocol. Two consequences of the measured share that lower S3's ceiling:
+
+1. **Even a perfect Trellis kernel (~92 TFLOP/s tensor ceiling) is capped at
+   ~+4–5% end-to-end prefill** (share ~25–30% × kernel gain 92/73.5 ≈ 1.25 →
+   Amdahl; computed +4.2–5.3%) — S2b itself measured inside that cap (its
+   end-to-end delta was parity under the day's contamination). The fat path is
+   no longer the prefill bottleneck; S3's payoff ceiling is modest by arithmetic.
+2. Below the incumbent (~73.5 TFLOP/s) on rank-sliced shapes, park permanently
+   (a slower replacement of a kernel we now control is pointless).
 
 ## 2. What Sparkinfer is
 
@@ -91,24 +103,31 @@ and serve (`hybrid_tr3_tail` — our checkpoint is TR3).
   nothing compiles inside capture. This is the only path worth costing further
   today.
 
-## 5. The item-2 context (why S3 must beat post-S2b)
+## 5. The item-2 context (why S3 must beat the measured post-S2b)
 
 The S2b profile (2026-09-02; ncu receipts on
-`nvidia@spark1:~/s2b-profile-receipts-backup/`, ledger entry lands with the S2b
-window) measured our fat kernel **latency-bound at ~52 TFLOP/s (Compute SM
-42.6% / Memory 41.5%, flat across an 8× K range)** — i.e. ~57% of GB10's
-~92 TFLOP/s fp16 tensor ceiling, with a validated +25–60% pipeline lift planned
-(projection band 65–83 TFLOP/s, mid ≈74). Two consequences:
+`nvidia@spark1:~/s2b-profile-receipts-backup/`) measured the stock fat kernel
+**latency-bound at ~52 TFLOP/s (Compute SM 42.6% / Memory 41.5%, flat across an
+8× K range)**. S2b then **landed**: the 3-stage `cp.async` pipeline (docs/06
+2026-09-02 S2b entry) measures **~73.5 TFLOP/s (+41%)** isolated; its end-to-end
+prefill delta measured **parity-to-+7.4% under burst contamination (full-set
+median +0.3%)**, so the effective fat-kernel share of prefill time is
+**well below the 61% analytic bound (order ~20–30%)** — thin experts,
+attention/KDA, drafter work and allreduce own the rest). Two consequences:
 
-1. S2b is cheap, controlled, and already specified — it goes first regardless.
+1. S2b is done — S3's bar is a **measured incumbent (~73.5 TFLOP/s)**, not a
+   projection, and S3's end-to-end payoff is arithmetically capped: even a
+   perfect Trellis kernel at the ~92 TFLOP/s ceiling is worth only **~+6–7%
+   end-to-end prefill** (share ~20–30% × 73.5/92 ≈ 0.80–0.89 Amdahl factor).
+   Computed: 80 TFLOP/s → **+2.1–2.5%**; 92 TFLOP/s → **+4.2–5.3%**.
 2. Sparkinfer's Trellis kernels are exactly the kind of well-pipelined CuTe DSL
-   implementation that may already sit near the ceiling. **If Trellis on our
-   rank-sliced shapes clears the projection midline (~74 TFLOP/s), it matches
-   the post-S2b projection with a maintained implementation and the port
-   (path c) earns a window (adoption still gated on the measured post-S2b
-   value); if it lands ~55–65, S2b does the same job in-house; below ~55, S3
-   is permanently parked** (their receipts' +58–64% came from TP4/DCP4 x86
-   stacks with ~7× our bandwidth — do not extrapolate).
+   implementation that could sit at or above 73.5. **If Trellis on our
+   rank-sliced shapes clears the measured incumbent (~73.5 TFLOP/s) with a
+   maintained implementation, path (c) earns a window (adoption still gated on
+   the standing protocol) — but the honest ceiling is ~+7% end-to-end, and the
+   S2b experience says that ceiling is what actually lands**; below ~73.5,
+   park permanently (their receipts' +58–64% came from TP4/DCP4 x86 stacks
+   with ~7× our bandwidth — do not extrapolate).
 
 ## 6. The discriminating pilot (cheap, no vLLM integration)
 
@@ -131,8 +150,10 @@ A stopped-window container run (GPU memory is fully reserved by prod otherwise):
    layouts must not trigger anything.
 4. The §1/§5 trigger is evaluated on the **rank-sliced geometry**; the full-size
    numbers are reported for reference.
-5. Compare against the measured fat-kernel numbers (52 TFLOP/s flat, receipts in
-   `nvidia@spark1:~/s2b-profile-receipts-backup/`).
+5. Compare against the **measured post-S2b fat kernel: ~73.5 TFLOP/s** at
+   production shapes (from 52; receipts in
+   `nvidia@spark1:~/s2b-profile-receipts-backup/`, ledger in docs/06 2026-09-02
+   S2b entry).
 
 Cost: ~1–2 GB GPU, one stopped window (~20 min including boot-back), no prod
 risk beyond the window itself. **This pilot is the trigger** — it either opens
@@ -160,10 +181,16 @@ path (c) as a real window or closes S3 permanently.
 
 ## 8. Standing decision
 
-Parked. Re-open automatically when: (a) the pilot trigger (§6) fires — Trellis
-clears the S2b projection midline (~74 TFLOP/s) on the rank-sliced geometry —
-with adoption still gated on the measured post-S2b value; or (b) S2b lands and
-its measured end-to-end prefill gain is <5% (the pipeline underdelivers →
-Trellis becomes the cheapest remaining lever), or (c) our fork's rebase onto a
-lineage that already carries EXL3 (docs/07) happens to be Gilded Gnosis — then
-path (a) re-costs to near zero.
+Parked — and the S2b landing **lowered the ceiling**: with the fat kernel at
+~73.5 TFLOP/s (share not resolvable under the traffic day's contamination,
+bounded well below the 61% FLOP bound), even a perfect
+Trellis is worth ~+6–7% end-to-end prefill. Re-open automatically when: (a) the
+pilot trigger (§6) fires — Trellis clears the measured incumbent (~73.5
+TFLOP/s) on the rank-sliced geometry **with enough margin to matter after
+Amdahl** (i.e. ≥ ~80 TFLOP/s puts the realistic end-to-end win at the top of
+the cap; 73.5–80 is a coin-flip against an in-house kernel we control); or
+(b) the standing idle-box re-bench shows the S2b end-to-end prefill gain under
+5% on a clean box (the pipeline underdelivers → Trellis becomes the cheapest
+remaining lever); or (c) our fork's rebase onto a lineage that already carries
+EXL3 (docs/07) happens to be Gilded Gnosis — then path (a) re-costs to near
+zero.
