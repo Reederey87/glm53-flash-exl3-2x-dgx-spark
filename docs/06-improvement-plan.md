@@ -725,8 +725,16 @@ knobs — `EXL3_MOE_ROW_TILE` (live value **0**, i.e. row tiling off),
 `EXL3_TEMP_ROWS_FUSED` (**128**), `EXL3_FAT_SCRATCH_ROWS` (defaults to MNBT),
 `EXL3_FAT_SORTED/BATCHED/KERNEL` (all 1 since W24), `EXL3_FUSED_MOE` (1). Since the
 claimed mechanism is row-block occupancy in the fat-expert path we already run, the
-honest translation is **a row-tiling sweep on the knobs we have**, not a backport:
-`EXL3_MOE_ROW_TILE=1` and an `EXL3_TEMP_ROWS_FUSED` ladder, gated on cold prefill,
+honest translation is **a sweep on the knobs we have**, not a backport: an
+`EXL3_TEMP_ROWS_FUSED` ladder (the fused-launch temp-row cap that decides which
+experts spill to the fat kernel) with the fat path retained. **Note (corrected
+2026-09-02, post-S1):** the original draft of this bullet also said
+"`EXL3_MOE_ROW_TILE=1`", which is wrong — with ROW_TILE=1 the dispatcher
+short-circuits the fat path entirely (`if use_row_tiles: …; return` fires before
+the fat-kernel branch) and replaces the W24 kernel with per-128-row-slice full
+`exl3_moe` launches; it is a kill-arm, not a tuning knob. S1 ran the corrected
+ladder plus that kill-arm and REJECTED all arms — TRF=128 + fat kernel stands
+(see the 2026-09-02 S1 entry below and docs/11 §6). Gated on cold prefill,
 structured 66.5–70.4 @ 1.0000/7.0, prose, and pool bytes. All are plain env, not in
 the JIT shape hash — a cheap window. Caveat before believing the headline: their stack
 is 3.5 bpw on discrete GPUs with ~7× our memory bandwidth, and their own report says

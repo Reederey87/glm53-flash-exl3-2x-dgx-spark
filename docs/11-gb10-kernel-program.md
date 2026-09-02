@@ -157,8 +157,9 @@ staging (`use_batched_fat and not use_row_tiles` falls to a blocking
 to the fat kernel) — alone, with the fat kernel retained. docs/06's "honest
 translation" line carried the same misreading and is corrected there too.
 
-**Arms run (same-boot-class warm-JIT, idle box, medians; decision variable cold
-prefill; every boot: pool byte-identical 1,396,551 / 1.40×, loopback bind, 0 IMA):**
+**Arms run (same-boot-class warm-JIT, medians; cold-prefill decision runs on an idle
+box, decode benches intermittently contended by background traffic — see confounds;
+every boot: pool byte-identical 1,396,551 / 1.40×, loopback bind, 0 IMA):**
 
 | arm | 60k cold | 240k cold | structured | prose |
 |---|---|---|---|---|
