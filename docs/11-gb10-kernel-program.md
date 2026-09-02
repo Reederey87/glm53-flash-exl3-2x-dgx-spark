@@ -280,8 +280,17 @@ watchdog disarm/re-arm. Rollback: previous image tag + `.env` `IMAGE=` flip
 1. ~~S1 row-tiling sweep~~ — **RUN 2026-09-02, REJECTED** (§6): TRF=128 + fat kernel
    stands; row-tile kill-arm −20.9%.
 2. **S2a** `d5e4361` ticket-scheduler cherry-pick — **ADOPTED 2026-09-02**,
-   production image `b5ab8091-s2a`; idle-box decode re-bench pending (§6).
-3. **S2b** fat-GEMM micro-opts — queued behind an Nsight profile of the new image.
+   production image `b5ab8091-s2a`; re-bench verdict **PARITY** (§6; idle-box
+   protocol settled, structured −5.5% marginally investigated and exonerated,
+   prose parity); item closed.
+3. **S2b** fat-GEMM micro-opts — **profiled 2026-09-02: latency-bound at ~52
+   TFLOP/s** (flat across 8× K; ncu SM 42.6%/Mem 41.5%); verdict **PROCEED with
+   a 3-stage `cp.async` pipeline** (candidates (b)/(c) deferred/subsumed), gated
+   on G0 (fat share ≥15% of prefill) + G1 (registers/occupancy); receipts on
+   spark1 `~/s2b-profile-receipts-backup/`.
 4. **W28** indexer workspace — memory lane, unblocks a pin raise.
-5. **S3** Trellis study — largest potential, largest cost; decide after S1/S2.
+5. **S3** Trellis study — **DONE 2026-09-02: FEASIBLE, PARKED with trigger**
+   (`docs/12-sparkinfer-trellis-study.md`; pilot = stopped-window `b12x`
+   microbench on rank-sliced shapes; trigger = clears the S2b projection
+   midline ~74 TFLOP/s).
 6. Watch: adaptive-K #52228/#52559, CUTLASS #43814, DeepGEMM sm120 port.
