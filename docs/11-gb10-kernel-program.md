@@ -81,8 +81,9 @@ APC-hit-contaminated; ours are same-image, same-boot-class, warm-JIT A/Bs and st
 2. Fixed 128-row tiles — padding waste for experts in the 128–384-row band.
 3. Grid launches per-expert with a shared-stream assumption; no cluster/DSMEM use
    (SM121 supports clusters, but multicast benefit is unproven at our tile sizes).
-4. No row-tiling (`EXL3_MOE_ROW_TILE=0`) — the fused-path knobs, not this kernel,
-   are Stage 1's lever.
+4. No row-tiling (`EXL3_MOE_ROW_TILE=0`) — S1 (2026-09-02) measured the fused-cap
+   ladder and the row-tile path; **both rejected, TRF=128 + fat kernel stands** (§6).
+   The remaining surface is S2's in-kernel work.
 
 ## 4. Landscape: what exists for GB10 kernels (research digest)
 
@@ -141,18 +142,53 @@ anchors verified). Both go through the standing protocol with a JIT wipe expecte
 
 ## 6. Stage plans
 
-### S1 — EXL3 row-tiling sweep (NEXT; env-only, hash-neutral, no rebuild)
+### S1 — EXL3 row-tiling sweep — RUN 2026-09-02, REJECTED (TRF=128 stands)
 
-- Knobs: `EXL3_MOE_ROW_TILE=1`, `EXL3_TEMP_ROWS_FUSED` ladder {64, 128 (prod), 256, 384}.
-- Method: one knob axis per arm; `POST /reset_prefix_cache` for cold rounds;
-  medians of 3–5 converged passes (first pass after any restart reads low —
-  parked-swap fault-in).
-- Gates: pool byte-identical, 0 IMA, acceptance 1.0000/7.0, structured 66.5–70.4
-  band, prose in band; **decision variable = cold prefill tok/s** (60k/240k).
-- External anchor (believe cautiously): vLLM #139's +44% prefill claim is a 3.5 bpw
-  stack at ~7× our bandwidth with a kernel ceiling ~490 GB/s ≈ 27% of HBM — a kernel
-  ceiling, not a config one; our ceiling is far lower. Expect single digits.
-- Rollback: env revert + restart.
+**Dispatch correction (found in code before the window).** The plan as originally
+written ("`EXL3_MOE_ROW_TILE=1` + ladder") misread the dispatch: with ROW_TILE=1,
+`apply_exl3_fused_moe` **short-circuits the fat path entirely** —
+`if use_row_tiles: _exl3_moe_row_tiles(...); return` fires before the fat-kernel
+branch, replacing the W24 kernel with one full `exl3_moe` launch per 128-row slice
+(up to ~28 launches per MoE layer at max_rows 3584, each with host-side
+searchsorted/index_select/`.item()` syncs) and disabling the E1 side-stream counts
+staging (`use_batched_fat and not use_row_tiles` falls to a blocking
+`counts.tolist()`). The knob that actually tunes occupancy of the path we run is
+`EXL3_TEMP_ROWS_FUSED` (the fused-launch temp-row cap deciding which experts spill
+to the fat kernel) — alone, with the fat kernel retained. docs/06's "honest
+translation" line carried the same misreading and is corrected there too.
+
+**Arms run (same-boot-class warm-JIT, idle box, medians; decision variable cold
+prefill; every boot: pool byte-identical 1,396,551 / 1.40×, loopback bind, 0 IMA):**
+
+| arm | 60k cold | 240k cold | structured | prose |
+|---|---|---|---|---|
+| control (ROW_TILE=0, TRF=128 default) | **1044.3** | **997.8** | 70.14 @ 0.9832/6.882 | 28.06 (noisy) |
+| TRF=64 | 968.9 (−7.2%) | 941.9 (−5.6%) | 69.82 @ 0.9832/6.882 | noisy in-band |
+| TRF=256 | 980.0 (−6.2%) | 985.3 (−1.3%) | 68.3–69.1 @ 0.980/6.86 | 28.90 |
+| TRF=384 | 1016.3 (−2.7%) | 981.7 (−1.6%) | 68.3–69.1 @ 0.9832/6.882 | contended |
+| kill-arm ROW_TILE=1, TRF=128 | 825.5 (−20.9%) | not run | — | — |
+
+**Verdict: REJECTED — production (TRF=128 default, ROW_TILE=0) wins every point of
+the ladder.** Both directions off 128 lose on cold prefill (lower TRF = more/smaller
+fat spills; higher TRF = bigger fused temps with fatter overflow rows); the kit's
+own P2b choice of 128 is the local optimum on this stack at MNBT=3584. The kill-arm
+settled the code-history comment with a same-stack measurement: the all-row-tiles
+path loses ~21% once it bypasses the W24 fat kernel. Decode was a wash on every arm
+as predicted (decode never overflows the cap). Fat-path engagement on the control
+boot: 99.4% of layer-steps carried fat experts, avg_max_rows 911, max 3584.
+
+**Confounds recorded:** decode benches were intermittently contended by background
+traffic (owner sessions on the same box) — structured converged in-band on every arm
+after re-runs; prose stayed noisy in-band throughout and was treated as a wash, not
+a signal. One control prose run flagged `nan: true` — a bench false positive:
+`bench_decode.py` flags a bare `"nan"` substring, and hash-map prose can legitimately
+contain it (exact-prompt reproductions contained zero); not a numerics event (0
+errors, accept 0.9832 throughout). Worth tightening the bench check at some point
+(test tool, not prod).
+
+**Rollback used:** `.env.bak-pre-s1-rowtiling-20260902` restored; end-state copy
+`.env.s1-rowtiling-20260902-endstate`. Post-restore gates: pool byte-identical,
+structured converged 68.38/68.44/68.67 @ 0.9832/6.882, watchdog re-armed.
 
 ### S2 — fat-GEMM micro-opts + kernel-range cherry-pick (image rebuild window)
 
@@ -190,8 +226,9 @@ anchors verified). Both go through the standing protocol with a JIT wipe expecte
 
 ## 7. Ranked queue (as of 2026-09-02)
 
-1. **S1** row-tiling sweep — env-only, zero build risk, already queued in TODO.
-2. **S2(d)** `d5e4361` ticket-scheduler cherry-pick — best decode upside per line of code.
+1. ~~S1 row-tiling sweep~~ — **RUN 2026-09-02, REJECTED** (§6): TRF=128 + fat kernel
+   stands; row-tile kill-arm −20.9%.
+2. **S2** `d5e4361` ticket-scheduler cherry-pick — best decode upside per line of code.
 3. **S2(a–c)** fat-GEMM micro-opts — one rebuild window, fold with 2.
 4. **W28** indexer workspace — memory lane, unblocks a pin raise.
 5. **S3** Trellis study — largest potential, largest cost; decide after S1/S2.

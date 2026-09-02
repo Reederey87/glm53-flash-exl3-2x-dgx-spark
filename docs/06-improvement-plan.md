@@ -1027,3 +1027,37 @@ on 8 of 9 runs (one 17.0 outlier, same confound), in-to-above the 28.6–31.0
 band; acceptance ratios 0.34–0.44 / 2.4–3.1, normal. Standing baselines
 unthreatened; re-bench on an idle box is folded into the already-queued W29
 repeat.
+
+## 2026-09-02: S1 row-tiling sweep (GB10 kernel program, docs/11) — REJECTED, TRF=128 stands
+
+Full arm table, confounds and rollback in `docs/11-gb10-kernel-program.md` §6.
+Condensed ledger:
+
+- **Dispatch correction (pre-window, code-read):** the S1 plan as written
+  (`EXL3_MOE_ROW_TILE=1` + `EXL3_TEMP_ROWS_FUSED` ladder) misread the MoE dispatch —
+  ROW_TILE=1 short-circuits the fat path entirely (`if use_row_tiles: …; return`
+  fires before the fat-kernel branch) and replaces the W24 kernel with up to ~28
+  full `exl3_moe` launches per MoE layer (host-side searchsorted/`.item()` per tile)
+  plus a blocking `counts.tolist()` where E1's side-stream staging used to be. The
+  occupancy knob on the path we run is `EXL3_TEMP_ROWS_FUSED` **alone**. Both this
+  file's earlier "honest translation" sentence and docs/11 carried the misreading;
+  corrected.
+- **Arms (same-boot-class warm-JIT, medians, cold-prefill decision variable; every
+  boot: pool byte-identical 1,396,551 / 1.40×, loopback bind, 0 IMA):** control
+  (TRF=128 default) 60k **1044.3** / 240k **997.8**; TRF=64 968.9 / 941.9;
+  TRF=256 980.0 / 985.3; TRF=384 1016.3 / 981.7; kill-arm ROW_TILE=1+TRF=128
+  **825.5 (−20.9%)** (converged ~826; 240k not run — decisive fail).
+- **Verdict: REJECTED.** Production config wins every point; 128 is the local
+  optimum at MNBT=3584 (both directions lose); the row-tile path is now measured,
+  not just history ("slower than the 128-row fallback" confirmed at −21% once it
+  bypasses the W24 fat kernel). Decode a wash on all arms (never overflows the
+  cap). Fat engagement (control boot): 99.4% of layer-steps fat, avg_max_rows 911.
+- **Confounds:** decode benches intermittently contended by background owner
+  traffic (structured converged in-band on every arm after re-runs; prose noisy
+  in-band throughout, treated as wash). One prose `nan: true` flag was a bench
+  false positive (bare-substring check vs legitimate prose text; exact-prompt
+  reproductions clean) — tighten `bench_decode.py`'s NAN_RE handling later
+  (test tool).
+- **Production restored** from `.env.bak-pre-s1-rowtiling-20260902` (end-state copy
+  `.env.s1-rowtiling-20260902-endstate`): pool byte-identical, structured converged
+  68.38/68.44/68.67 @ 0.9832/6.882, watchdog re-armed.
