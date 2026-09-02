@@ -193,8 +193,14 @@ structured converged 68.38/68.44/68.67 @ 0.9832/6.882, watchdog re-armed.
 
 ### S2 — fat-GEMM micro-opts + kernel-range cherry-pick (image rebuild window)
 
-**S2a — MoE ticket-scheduler cherry-pick: STAGED 2026-09-02 (pre-ship review; window
-not yet run).**
+**S2a — MoE ticket-scheduler cherry-pick: ADOPTED 2026-09-02 (production image
+`glm53-selfbuild:b5ab8091-s2a`).** Full receipts in docs/06 (2026-09-02 S2a entry).
+Build clean on spark1 (post-compile assert fix: `import torch` before
+`exllamav3_ext`); boot gates green (pool byte-identical, patched ext verified
+30-arg, JIT wipe as designed, 0 IMA, fat engagement 99.6%); structured decode
+converged 66.2–68.9 in-band with acceptance bit-identical to control;
+**clean idle-box structured+prose re-bench folded into the next session** (the
+throughput verdict); rollback = `IMAGE=` flip to `b5ab8091-w24`.
 
 - **What ships:** upstream exllamav3 `d5e4361` ("MoE: Replace kernel round-robin
   assignment with dynamic ticket scheduler and add dynamic group sizing", 2026-07-06)
