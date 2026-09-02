@@ -117,9 +117,9 @@ attention/KDA, drafter work and allreduce own the rest). Two consequences:
 
 1. S2b is done — S3's bar is a **measured incumbent (~73.5 TFLOP/s)**, not a
    projection, and S3's end-to-end payoff is arithmetically capped: even a
-   perfect Trellis kernel at the ~92 TFLOP/s ceiling is worth only **~+6–7%
-   end-to-end prefill** (share ~20–30% × 73.5/92 ≈ 0.80–0.89 Amdahl factor).
-   Computed: 80 TFLOP/s → **+2.1–2.5%**; 92 TFLOP/s → **+4.2–5.3%**.
+   perfect Trellis kernel at the ~92 TFLOP/s ceiling is worth only **~+4–5%
+   end-to-end prefill**. Computed: 80 TFLOP/s → **+2.1–2.5%**; 92 TFLOP/s →
+   **+4.2–5.3%**.
 2. Sparkinfer's Trellis kernels are exactly the kind of well-pipelined CuTe DSL
    implementation that could sit at or above 73.5. **If Trellis on our
    rank-sliced shapes clears the measured incumbent (~73.5 TFLOP/s) with a
@@ -184,7 +184,7 @@ path (c) as a real window or closes S3 permanently.
 Parked — and the S2b landing **lowered the ceiling**: with the fat kernel at
 ~73.5 TFLOP/s (share not resolvable under the traffic day's contamination,
 bounded well below the 61% FLOP bound), even a perfect
-Trellis is worth ~+6–7% end-to-end prefill. Re-open automatically when: (a) the
+Trellis is worth ~+4–5% end-to-end prefill. Re-open automatically when: (a) the
 pilot trigger (§6) fires — Trellis clears the measured incumbent (~73.5
 TFLOP/s) on the rank-sliced geometry **with enough margin to matter after
 Amdahl** (i.e. ≥ ~80 TFLOP/s puts the realistic end-to-end win at the top of

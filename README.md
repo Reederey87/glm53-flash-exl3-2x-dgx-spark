@@ -61,9 +61,9 @@ Prefill and content type, honestly: the prefill figures come from natural-langua
 essentially content-independent** — but **tokens per document is not**: code and
 JSON tokenize denser (more tokens per kB), so the same document can cost 20–50%
 more prompt tokens and proportionally longer TTFT. Read the rows above as
-per-token rates, not per-document promises. The 240k receipts (966–1072 tok/s)
-were measured under same-day controls with the pipelined fat-GEMM MoE
-(docs/06, 2026-09-02 S2b entry); an idle-box re-bench is pending.
+per-token rates, not per-document promises. The 240k receipts (906–1072 tok/s,
+full-set median 1001) were measured under same-day controls with the pipelined
+fat-GEMM MoE (`docs/06`, 2026-09-02 S2b entry).
 
 No other public recipe serves this model on this hardware with all five of: EXL3
 (the only quantization GB10 can actually run — it lacks the instruction NVFP4
@@ -81,14 +81,14 @@ Metric provenance, honestly: the cache/latency rows were re-measured on
 medians of 3+ converged temp-0 passes; prefill and latency rows are matched
 same-day probe runs — a reference from another day or image drifts by a few
 percent, so every A/B here runs its control arm the same day). The kernel rows
-are from the 2026-09-02 wave (fat-GEMM pipeline adopted; end-to-end prefill
-end-to-end parity pending the same-day-control comparison (full-set median +0.3% at 240k, best pass +7.4%; ambient bursts unresolved); **an idle-box re-bench of the decode
-medians and the new prefill band is pending** — ambient agent traffic on the
-same box makes small decode deltas unresolvable until then). The 500k/111×
-replay row is from the 2026-08-30 cutover battery on the same image. Every bench
-and probe ships in `tests/` and `local/` — reproduce any row in minutes. The
-offline regression suite runs with `pip install -r requirements-dev.txt && pytest
-tests/ -q`.
+are from the 2026-09-02 wave (fat-GEMM pipeline adopted; isolated kernel
+**+41%** at production shapes, bit-exact ×56). End-to-end prefill vs the
+same-day control is **parity under ambient bursts** (240k full-set median
+**+0.3%**, individual passes −3.2% to +7.4%) — do not read the isolated kernel
+gain as a matching tok/s jump. The 500k/111× replay row is from the
+2026-08-30 cutover battery on the same image. Every bench and probe ships in
+`tests/` and `local/` — reproduce any row in minutes. The offline regression
+suite runs with `pip install -r requirements-dev.txt && pytest tests/ -q`.
 
 ## The serving image: preview vLLM, pinned and completed
 
@@ -174,7 +174,9 @@ clients. **Tokenize** is mounted at the root (`/v1/tokenize` is 404) and validat
 > and (3) a **3-stage `cp.async` pipeline** in the fat GEMM k-loop —
 > **+38.6/+41.4/+40.8%** kernel throughput at production shapes (52 → ~73.5
 > TFLOP/s), bit-exact vs the stock kernel over 56 comparisons,
-> compute-sanitizer-clean; end-to-end prefill parity-to-+7% at 240k under ambient bursts (2026-09-02;
+> compute-sanitizer-clean. End-to-end prefill vs the same-day control is
+> parity under ambient bursts (240k full-set median +0.3%, individual passes
+> −3.2% to +7.4%; 2026-09-02;
 > `docs/11-gb10-kernel-program.md` is the full program ledger, with the rejected
 > arms too). If you update `exllamav3` or rebuild, the JIT-cache shape guard
 > wipes Triton/TileLang caches on **both** nodes by design; and if you touch the

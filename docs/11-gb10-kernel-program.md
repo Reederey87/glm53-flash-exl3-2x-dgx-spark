@@ -305,6 +305,6 @@ permanently below the incumbent). Automatic re-open triggers in docs/12 §8.
 4. **W28** indexer workspace — memory lane, unblocks a pin raise.
 5. **S3** Trellis study — **DONE 2026-09-02: FEASIBLE, PARKED with trigger**
    (`docs/12-sparkinfer-trellis-study.md`; pilot = stopped-window `b12x`
-   microbench on rank-sliced shapes; trigger = clears the S2b projection
-   midline ~74 TFLOP/s).
+   microbench on rank-sliced shapes; trigger = clears the measured post-S2b
+   incumbent ~73.5 TFLOP/s with margin — only ≥ ~80 opens a real window).
 6. Watch: adaptive-K #52228/#52559, CUTLASS #43814, DeepGEMM sm120 port.
