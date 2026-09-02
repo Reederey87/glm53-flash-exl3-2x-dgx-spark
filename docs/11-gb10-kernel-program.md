@@ -247,12 +247,13 @@ rollback = `IMAGE=` flip to `b5ab8091-w24`.
 image `glm53-selfbuild:b5ab8091-s2b`).** Profile: **latency-bound ~52 TFLOP/s**
 (flat across 8× K; ncu SM 42.6%/Mem 41.5%; receipts on spark1
 `~/s2b-profile-receipts-backup/`). Implemented: 3-stage `cp.async` pipeline
-(commit `0c03250`; G0 PASS — measured share ~25–30%; G1 PASS — 95 regs, 0
+(commit `0c03250`; G0 PASS by bound, measured share lower than the FLOP bound; G1 PASS — 95 regs, 0
 spills, 2 CTAs/SM, no launch-bounds fix needed; bit-exact vs stock ×56 incl.
 the K=16 probe; sanitizer memcheck/racecheck/synccheck 0 errors; kernel uplift
-**+38.6/+41.4/+40.8%** at M=3584 → ~73.5 TFLOP/s). End-to-end prefill +3–7.4%
-at 240k under ambient bursts (above the 5% bar, below the naive projection —
-measured effective fat share ~25–30%); decode expected wash, acceptance
+**+38.6/+41.4/+40.8%** at M=3584 → ~73.5 TFLOP/s). End-to-end prefill
+**UNRESOLVED pending the idle re-bench**: 240k full-set median 1001.0 vs
+control 997.8 ≈ +0.3% (deltas −3.2% to +7.4%) under ambient bursts. Decode
+expected wash, acceptance
 bit-identical throughout. ADOPTED; the standing idle-box re-bench now owes
 clean numbers for s2a-retain AND s2b prefill/decode vs recorded controls.
 Rollback: `IMAGE=` flip to `b5ab8091-s2a`. Full receipts: docs/06 2026-09-02
@@ -276,8 +277,9 @@ Study complete: `docs/12-sparkinfer-trellis-study.md`. All hard gates pass
 clears the floor, MCG/TR3 checkpoint in range); the cross-fork port cost and
 unmeasured GB10 perf keep it parked behind a cheap discriminating pilot
 (stopped-window `b12x` microbench on rank-sliced TP=2 shapes with an
-output-parity smoke; trigger = clears the S2b projection midline ~74 TFLOP/s;
-park permanently below ~55). Automatic re-open triggers in docs/12 §8.
+output-parity smoke; trigger = clears the measured post-S2b incumbent
+(~73.5 TFLOP/s) with meaningful margin (≥ ~80 to open path (c); park
+permanently below the incumbent). Automatic re-open triggers in docs/12 §8.
 
 ### Adjacent lanes (queued; own docs/06 entries when opened)
 
@@ -298,8 +300,8 @@ park permanently below ~55). Automatic re-open triggers in docs/12 §8.
    prose parity); item closed.
 3. **S2b** fat-GEMM micro-opts — **ADOPTED 2026-09-02**, production image
    `b5ab8091-s2b`; 3-stage `cp.async` pipeline (bit-exact ×56, sanitized,
-   kernel +41% → ~73.5 TFLOP/s); end-to-end prefill +3–7.4% under ambient
-   bursts; idle-box clean re-bench pending (§6).
+   kernel +41% → ~73.5 TFLOP/s); end-to-end prefill parity under ambient
+   bursts — verdict pending the idle re-bench (§6).
 4. **W28** indexer workspace — memory lane, unblocks a pin raise.
 5. **S3** Trellis study — **DONE 2026-09-02: FEASIBLE, PARKED with trigger**
    (`docs/12-sparkinfer-trellis-study.md`; pilot = stopped-window `b12x`

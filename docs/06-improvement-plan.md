@@ -1152,21 +1152,28 @@ zero-fill, if-form per the pinned header's Blackwell note).
   byte-identical 1,396,551 / 1.40×, loopback bind, 0 IMA/Xid, one-time JIT wipe,
   fat engagement **99.9%** of layer-steps. Acceptance bit-identical on every
   decode pass (0.9832/6.882, positions unchanged).
-- **End-to-end prefill (decision variable):** 60k clean cluster ~1027–1037
-  (median) vs control 1044.3 — parity-to-−1.7%; 240k clean cluster
-  {966.2, 970.6, 1031.4, 1071.9} vs control 997.8 — median comparison **+3 to
-  +7.4%** depending on sample set, under continuous ambient-traffic bursts
-  (spread 906–1072 = 18%). The naive Amdahl projection (+21%) did NOT
-  materialize: the effective fat-kernel share of prefill time is ~25–30%
-  (thin-expert fused traffic, attention/KDA, drafter prefill, and allreduce own
-  the rest), not the 61% analytic FLOP bound. Above the 5% bar; below the
-  projection — recorded honestly.
-- **Disposition: ADOPTED (production image `b5ab8091-s2b`).** Decode expected
-  wash (fat kernel is prefill-only; acceptance bit-identical throughout);
-  decode benches unmeasurable today (bursts) — folded into the standing
-  idle-box re-bench, which now owes clean numbers for s2a-retain AND s2b
-  prefill/decode vs the recorded controls. Rollback: `IMAGE=` flip to
-  `b5ab8091-s2a`; `.env.s2b-live-20260902` end-state copy.
+- **End-to-end prefill (decision variable): UNRESOLVED pending the idle-box
+  re-bench.** 240k samples on s2b: {906.0, 966.2, 970.6, 1031.4, 1071.9} vs the
+  same-day control 997.8 — **full-set median 1001.0 ≈ +0.3%**, individual deltas
+  −3.2% to +7.4%, under continuous ambient-traffic bursts (spread 906–1072 =
+  18%). 60k clean cluster ~1027–1037 vs control 1044.3 (parity-to-−1.7%).
+  The naive Amdahl projection (+21%) did not materialize; the measured
+  end-to-end result back-calculates the effective fat-kernel share of prefill
+  time well below the 61% analytic FLOP bound (order ~20–30% — thin experts,
+  attention/KDA, drafter work and allreduce own the rest), but the burst
+  contamination makes a tight verdict impossible on this traffic day. **G4
+  outcome: kernel-level win established (+41% isolated), end-to-end parity
+  pending the clean re-bench.**
+- **Disposition: ADOPTED (production image `b5ab8091-s2b`), provisionally on
+  the kernel-level evidence.** The kernel is strictly better (bit-exact,
+  sanitized, +41% isolated) and end-to-end measured parity-or-better under
+  contamination; the ≥5% end-to-end bar is UNRESOLVED under the burst
+  contamination — the standing idle-box re-bench decides it (and owes clean
+  numbers for s2a-retain AND s2b prefill/decode). If the clean re-bench shows
+  the end-to-end gain at or below 0%, revisit (rollback is one env line).
+  Decode expected wash (fat kernel is prefill-only; acceptance bit-identical
+  throughout). Rollback: `IMAGE=` flip to `b5ab8091-s2a`;
+  `.env.s2b-live-20260902` end-state copy.
 - **INCIDENT (this window, recovered):** a watchdog heal raced a window stop —
   stopping the timer does not stop an in-flight `watchdog.service` invocation;
   its `restart --no-block` fired during teardown, the start then failed and

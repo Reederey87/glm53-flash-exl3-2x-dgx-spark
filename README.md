@@ -33,7 +33,7 @@ this tree from the recipe it started from:
 | Co-batch zero-insertion — 4×60k concurrent **0%** (288 s) | per-group sparse retention (the global knob was the old thrash) | **98.7%** (16.5 s) |
 | Prompts under ~3.6k could never hit, and every follow-up re-read up to a page | `overlay/patch_fine_grained_apc.py` — hits reconcile at the 64-token hash grain instead of the 3,584-token page | a 2.6k prompt reuses **2,816** tokens; follow-ups reuse **96–99%** (~4.1 s → ~1.0 s per turn) |
 | Toggling thinking on/off threw the whole prefix away (50k prompt: 56.8 s re-read) | chat template emits the `Reasoning Effort` line unconditionally — the off-shape is a strict extension of the on-shape | toggle hits **100%** (0.26 s) |
-| Short request stuck behind a 240k read — **256 s** TTFT | `LONG_PREFILL_TOKEN_THRESHOLD=1792` fairness cap | **5.3–7.0 s** |
+| Short request stuck behind a 240k read — **256 s** TTFT | `LONG_PREFILL_TOKEN_THRESHOLD=1792` fairness cap | **6.7–7.9 s** (gate v3; earlier builds measured 5.3–7.9) |
 | First turn after every restart cold | `local/content-warmup.sh` pre-reads the shared system prompt at boot | warm on turn 1 |
 | Two CPU cores spinning flat-out during every decode (SoC heat, no work) | `overlay/patch_spinwait_gb10.py` — vLLM's 1 s reader spin cut to 2 ms | spinning core freed, head hot zones **−5 °C**, throughput unchanged (same-day control) |
 
@@ -82,7 +82,7 @@ medians of 3+ converged temp-0 passes; prefill and latency rows are matched
 same-day probe runs — a reference from another day or image drifts by a few
 percent, so every A/B here runs its control arm the same day). The kernel rows
 are from the 2026-09-02 wave (fat-GEMM pipeline adopted; end-to-end prefill
-+3–7.4% at 240k under same-day controls; **an idle-box re-bench of the decode
+end-to-end parity pending the same-day-control comparison (full-set median +0.3% at 240k, best pass +7.4%; ambient bursts unresolved); **an idle-box re-bench of the decode
 medians and the new prefill band is pending** — ambient agent traffic on the
 same box makes small decode deltas unresolvable until then). The 500k/111×
 replay row is from the 2026-08-30 cutover battery on the same image. Every bench
@@ -174,7 +174,7 @@ clients. **Tokenize** is mounted at the root (`/v1/tokenize` is 404) and validat
 > and (3) a **3-stage `cp.async` pipeline** in the fat GEMM k-loop —
 > **+38.6/+41.4/+40.8%** kernel throughput at production shapes (52 → ~73.5
 > TFLOP/s), bit-exact vs the stock kernel over 56 comparisons,
-> compute-sanitizer-clean, end-to-end prefill **+3–7.4%** at 240k (2026-09-02;
+> compute-sanitizer-clean; end-to-end prefill parity-to-+7% at 240k under ambient bursts (2026-09-02;
 > `docs/11-gb10-kernel-program.md` is the full program ledger, with the rejected
 > arms too). If you update `exllamav3` or rebuild, the JIT-cache shape guard
 > wipes Triton/TileLang caches on **both** nodes by design; and if you touch the
