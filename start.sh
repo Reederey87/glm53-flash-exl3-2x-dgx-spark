@@ -206,6 +206,7 @@ CHAT_TEMPLATE_HOST="${CHAT_TEMPLATE_HOST:-$SCRIPT_DIR/files/chat_template.jinja}
 CHAT_TEMPLATE="${CHAT_TEMPLATE:-/opt/glm53/chat_template.jinja}"
 VIDEO_PATCH_HOST="${VIDEO_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_glm_video_placeholders.py}"
 STOP_PATCH_HOST="${STOP_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_suppress_stops_in_reasoning.py}"
+NATIVE_STOP_PATCH_HOST="${NATIVE_STOP_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_suppress_native_stops_in_reasoning.py}"
 SCHED_PATCH_HOST="${SCHED_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_scheduler_decode_floor.py}"
 DRAFTER_PATCH_HOST="${DRAFTER_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_glm5_drafter_group.py}"
 APC_PATCH_HOST="${APC_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_hybrid_prefix_hit.py}"
@@ -580,6 +581,7 @@ preflight() {
     check_port_free "$MASTER_PORT" MASTER_PORT
 
     [ -f "$STOP_PATCH_HOST" ] || die "$STOP_PATCH_HOST missing"
+    [ -f "$NATIVE_STOP_PATCH_HOST" ] || die "$NATIVE_STOP_PATCH_HOST missing"
     [ -f "$SCHED_PATCH_HOST" ] || die "$SCHED_PATCH_HOST missing"
     [ -f "$DRAFTER_PATCH_HOST" ] || die "$DRAFTER_PATCH_HOST missing"
     [ -f "$APC_PATCH_HOST" ] || die "$APC_PATCH_HOST missing"
@@ -1070,6 +1072,9 @@ fi
 if [ -f /opt/glm53/patch_suppress_stops_in_reasoning.py ]; then
     python3 /opt/glm53/patch_suppress_stops_in_reasoning.py
 fi
+if [ -f /opt/glm53/patch_suppress_native_stops_in_reasoning.py ]; then
+    python3 /opt/glm53/patch_suppress_native_stops_in_reasoning.py
+fi
 if [ -f /opt/glm53/patch_scheduler_decode_floor.py ]; then
     python3 /opt/glm53/patch_scheduler_decode_floor.py
 fi
@@ -1194,6 +1199,9 @@ fi
 if [ -f /opt/glm53/patch_suppress_stops_in_reasoning.py ]; then
     python3 /opt/glm53/patch_suppress_stops_in_reasoning.py
 fi
+if [ -f /opt/glm53/patch_suppress_native_stops_in_reasoning.py ]; then
+    python3 /opt/glm53/patch_suppress_native_stops_in_reasoning.py
+fi
 if [ -f /opt/glm53/patch_scheduler_decode_floor.py ]; then
     python3 /opt/glm53/patch_scheduler_decode_floor.py
 fi
@@ -1253,6 +1261,8 @@ launch_cluster() {
     scp -q -o BatchMode=yes "$VIDEO_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_glm_video_placeholders.py"
     [ -f "$STOP_PATCH_HOST" ] || die "missing $STOP_PATCH_HOST"
     scp -q -o BatchMode=yes "$STOP_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_suppress_stops_in_reasoning.py"
+    [ -f "$NATIVE_STOP_PATCH_HOST" ] || die "missing $NATIVE_STOP_PATCH_HOST"
+    scp -q -o BatchMode=yes "$NATIVE_STOP_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_suppress_native_stops_in_reasoning.py"
     [ -f "$SCHED_PATCH_HOST" ] || die "missing $SCHED_PATCH_HOST"
     scp -q -o BatchMode=yes "$SCHED_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_scheduler_decode_floor.py"
     [ -f "$DRAFTER_PATCH_HOST" ] || die "missing $DRAFTER_PATCH_HOST"
@@ -1406,6 +1416,7 @@ launch_cluster() {
         -v '/tmp/glm53-chat_template.jinja:${CHAT_TEMPLATE}:ro' \
         -v '/tmp/patch_glm_video_placeholders.py:/opt/glm53/patch_glm_video_placeholders.py:ro' \
         -v '/tmp/patch_suppress_stops_in_reasoning.py:/opt/glm53/patch_suppress_stops_in_reasoning.py:ro' \
+        -v '/tmp/patch_suppress_native_stops_in_reasoning.py:/opt/glm53/patch_suppress_native_stops_in_reasoning.py:ro' \
         -v '/tmp/patch_scheduler_decode_floor.py:/opt/glm53/patch_scheduler_decode_floor.py:ro' \
         -v '/tmp/patch_glm5_drafter_group.py:/opt/glm53/patch_glm5_drafter_group.py:ro' \
         -v '/tmp/patch_hybrid_prefix_hit.py:/opt/glm53/patch_hybrid_prefix_hit.py:ro' \
@@ -1442,6 +1453,7 @@ launch_cluster() {
         -v "$CHAT_TEMPLATE_HOST:$CHAT_TEMPLATE:ro" \
         -v "$VIDEO_PATCH_HOST:/opt/glm53/patch_glm_video_placeholders.py:ro" \
         -v "$STOP_PATCH_HOST:/opt/glm53/patch_suppress_stops_in_reasoning.py:ro" \
+        -v "$NATIVE_STOP_PATCH_HOST:/opt/glm53/patch_suppress_native_stops_in_reasoning.py:ro" \
         -v "$SCHED_PATCH_HOST:/opt/glm53/patch_scheduler_decode_floor.py:ro" \
         -v "$DRAFTER_PATCH_HOST:/opt/glm53/patch_glm5_drafter_group.py:ro" \
         -v "$APC_PATCH_HOST:/opt/glm53/patch_hybrid_prefix_hit.py:ro" \
