@@ -193,19 +193,62 @@ structured converged 68.38/68.44/68.67 @ 0.9832/6.882, watchdog re-armed.
 
 ### S2 — fat-GEMM micro-opts + kernel-range cherry-pick (image rebuild window)
 
-- Candidates: (a) pipeline/unroll the K16 MMA issue — multiple `mma.sync.m16n8k16`
-  per dequant word (no drop-in FP16 K32/K64 shape on SM121); (b) smaller tail-tile
-  for the 128–384 row band; (c) SMEM audit — stage A tile + B dequant in one pass
-  to cut one `__syncthreads()`; (d) **cherry-pick `d5e4361` (MoE ticket scheduler)
-  + autotune commits onto the pinned ext**; (e) verify the `5224ae4` Hadamard
-  overflow fix applies to the pin.
-- Pre-ship: final-reviewer handoff on the `.cu` diff + Grok CUDA review (the W24
-  pattern).
-- Gates: standing protocol + prefill probes (60k/240k) + a decode pass (the fused
-  `exl3_moe` path changes if `d5e4361` lands) + fat-path stats line (`99.7%`
-  engagement receipt re-measured).
-- Expected win: modest (bandwidth-bound); the scheduler cherry-pick is the part with
-  real decode upside.
+**S2a — MoE ticket-scheduler cherry-pick: STAGED 2026-09-02 (pre-ship review; window
+not yet run).**
+
+- **What ships:** upstream exllamav3 `d5e4361` ("MoE: Replace kernel round-robin
+  assignment with dynamic ticket scheduler and add dynamic group sizing", 2026-07-06)
+  cherry-picked onto the pinned `c5d9c657` ext. Verified in a throwaway worktree:
+  clean cherry-pick, and the vendored diff (pin→patched) contains **only** the
+  ticket-scheduler hunks — zero lines from the intervening commits (`9fe8b47` mul1
+  instances, `2f297e4` mgemm defaults), which are correctly excluded. The mechanism:
+  groups claim active experts via atomicAdd on a self-resetting scheduler in the
+  lock buffer (`MOE_SCHED_*`, +66 ints), group width becomes runtime
+  (`gridDim.x`, up to `MOE_MAX_SMS_PER_EXPERT`=32) instead of compile-time 8, and
+  `exl3_moe` gains a trailing `num_active` parameter (`-1` = unknown).
+- **Kit compatibility (verified):** the overlay `exl3.py` already introspects the
+  parameter (`_exl3_moe_accepts_num_active`) and passes `-1` today — stock launch
+  geometry preserved; the ticket scheduler replaces round-robin assignment with no
+  caller change, which is where the decode upside lives (idle groups steal heavy
+  experts instead of serializing their statically assigned share under skewed
+  agentic traffic). Dynamic group widening stays latent until a caller passes a
+  real count (would need a D2H sync; deliberately not taken).
+- **Packaging:** `overlay/patch_exl3_ticket_scheduler.py` — byte-exact three-state
+  installer (patched→skip / pristine→atomic replace / anything else→fail closed)
+  over vendored `overlay/exl3-ticket/{pristine,patched}` sets (pin bytes vs
+  pin+d5e4361 bytes); build-time opt-out `GLM53_EXL3_TICKET_SCHEDULER=0` (real
+  `ARG`+`ENV` forwarding; the build assert skips on opt-out builds); Dockerfile
+  wired after the fat-kernel step with a pybind-safe `__doc__`-based build assert
+  on the `num_active` signature (`inspect.signature` raises on pybind11 builtins;
+  deployed-unpatched receipt: 29 generated args, no `num_active` → discriminates).
+  The d5e4361 hunk in exllamav3's own `block_sparse_mlp.py` is deliberately not
+  applied (not used by the vLLM serve path). 10 host tests
+  (`tests/test_exl3_ticket_scheduler.py`); full suite 68 passed / 1 skipped.
+- **(e) Hadamard `5224ae4` verdict: NOT APPLICABLE to this deployment.** The fix
+  casts `gridDim.y * 128 * blockIdx.x` to `size_t` in `hadamard.cu`'s standalone
+  launchers; overflow needs `gridDim.y * blockIdx.x ≥ 2^24` while our shapes keep
+  that product ~10^3 (MNBT 3584 → gridDim.y ≤ 28; N/128 ≤ 32). Our serving path
+  (fused `exl3_moe` + the fat kernel's own Hadamard) does not use those launchers.
+  Recorded; no cherry-pick.
+- **Autotune ride-alongs (`d409d3d`/`555ee4f`/`2a1cf9a`):** dropped from S2a — they
+  carry `comp_units/`-era context and touch autotune flow the pin does not have in
+  the same form; revisit at a pin advance, not as a hand-cherry-pick.
+
+**S2b — hand micro-opts on `exl3_fat_gemm.cu` (queued behind S2a's window):**
+(a) pipeline/unroll the K16 MMA issue — multiple `mma.sync.m16n8k16` per dequant
+word (no drop-in FP16 K32/K64 shape on SM121); (b) smaller tail-tile for the
+128–384 row band; (c) SMEM audit — stage A tile + B dequant in one pass to cut one
+`__syncthreads()`. Requires Grok CUDA review + Nsight profile first (the wall is
+bandwidth; measure where the time actually goes before touching the kernel).
+
+**Gates for the S2a window (when run):** image rebuild (digest changes → shape
+hash changes → one-time JIT wipe both nodes, wipe guard verified); same-boot-class
+warm-JIT A/B vs the current image; pool byte-identical; 0 IMA; acceptance 7/7;
+serving 6/6; structured/prose decode bands (the fused `exl3_moe` path changes —
+decode is the decision variable this time); cold prefill 60k/240k not-continued;
+fat-path stats re-measured; `systemctl --user reset-failed` before restarts;
+watchdog disarm/re-arm. Rollback: previous image tag + `.env` `IMAGE=` flip
+(pre-window `.env` snapshot taken per protocol).
 
 ### S3 — Sparkinfer Trellis design study (gated on S1/S2 outcomes)
 
@@ -229,8 +272,9 @@ structured converged 68.38/68.44/68.67 @ 0.9832/6.882, watchdog re-armed.
 
 1. ~~S1 row-tiling sweep~~ — **RUN 2026-09-02, REJECTED** (§6): TRF=128 + fat kernel
    stands; row-tile kill-arm −20.9%.
-2. **S2** `d5e4361` ticket-scheduler cherry-pick — best decode upside per line of code.
-3. **S2(a–c)** fat-GEMM micro-opts — one rebuild window, fold with 2.
+2. **S2a** `d5e4361` ticket-scheduler cherry-pick — **STAGED 2026-09-02**, pre-ship
+   review; best decode upside per line of code (§6).
+3. **S2b** fat-GEMM micro-opts — queued behind S2a's window + Nsight profile.
 4. **W28** indexer workspace — memory lane, unblocks a pin raise.
 5. **S3** Trellis study — largest potential, largest cost; decide after S1/S2.
 6. Watch: adaptive-K #52228/#52559, CUTLASS #43814, DeepGEMM sm120 port.

@@ -372,8 +372,16 @@ COPY overlay/patch_exl3_ext_aarch64.py /opt/glm53/patch_exl3_ext_aarch64.py
 COPY overlay/patch_exl3_fat_kernel.py /opt/glm53/patch_exl3_fat_kernel.py
 COPY overlay/exl3_fat_gemm.cu /opt/glm53/exl3-fat-kernel/exl3_fat_gemm.cu
 COPY overlay/exl3_fat_gemm.cuh /opt/glm53/exl3-fat-kernel/exl3_fat_gemm.cuh
+COPY overlay/patch_exl3_ticket_scheduler.py /opt/glm53/patch_exl3_ticket_scheduler.py
+COPY overlay/exl3-ticket/ /opt/glm53/exl3-ticket/
 
 ARG EXLLAMAV3_COMMIT=c5d9c657966ffeeaa9353f0cc899f18629da4a13
+# Build-time opt-out for the S2a ticket-scheduler overlay (docs/11 S2a):
+# --build-arg GLM53_EXL3_TICKET_SCHEDULER=0 ships the pristine pin ext.
+# Rollback at runtime = previous image tag + .env IMAGE= flip (the scheduler
+# is compile-time, not a runtime knob).
+ARG GLM53_EXL3_TICKET_SCHEDULER=1
+ENV GLM53_EXL3_TICKET_SCHEDULER=${GLM53_EXL3_TICKET_SCHEDULER}
 ENV TORCH_CUDA_ARCH_LIST=12.1a
 ENV FLASHINFER_CUDA_ARCH_LIST=12.1a
 ENV MAX_JOBS=8
@@ -421,6 +429,7 @@ RUN set -eux; \
     python3 -c "from pathlib import Path; assert (Path('/tmp/exllamav3')/'exllamav3/modules/quant/exl3.py').is_file()"; \
     python3 /opt/glm53/patch_exl3_ext_aarch64.py /tmp/exllamav3/exllamav3/exllamav3_ext; \
     python3 /opt/glm53/patch_exl3_fat_kernel.py /tmp/exllamav3/exllamav3/exllamav3_ext /opt/glm53/exl3-fat-kernel; \
+    python3 /opt/glm53/patch_exl3_ticket_scheduler.py /tmp/exllamav3/exllamav3/exllamav3_ext; \
     export CPATH="/usr/local/lib/python3.12/dist-packages/nvidia/cu13/include${CPATH:+:$CPATH}"; \
     export CPLUS_INCLUDE_PATH="/usr/local/lib/python3.12/dist-packages/nvidia/cu13/include${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}"; \
     export C_INCLUDE_PATH="/usr/local/lib/python3.12/dist-packages/nvidia/cu13/include${C_INCLUDE_PATH:+:$C_INCLUDE_PATH}"; \
@@ -428,6 +437,11 @@ RUN set -eux; \
     TORCH_CUDA_ARCH_LIST=12.1a MAX_JOBS=8 \
       pip install --no-deps --no-build-isolation --no-cache-dir .; \
     python3 -c "import torch; import exllamav3_ext; assert hasattr(exllamav3_ext, 'exl3_moe'), dir(exllamav3_ext); assert hasattr(exllamav3_ext, 'exl3_fat_gemm'), dir(exllamav3_ext); assert hasattr(exllamav3_ext, 'exl3_fat_gemm_scatter'), dir(exllamav3_ext); print('exllamav3_ext', exllamav3_ext.__file__, 'exl3_moe=yes fat_gemm=yes')"; \
+    if [ "${GLM53_EXL3_TICKET_SCHEDULER}" = "1" ]; then \
+      python3 -c "import exllamav3_ext; doc = exllamav3_ext.exl3_moe.__doc__ or ''; assert 'num_active' in doc or 'arg29' in doc or doc.count('arg') >= 30, 'ticket scheduler (d5e4361) not applied'; print('exl3_moe num_active=yes (ticket scheduler)')"; \
+    else \
+      echo 'GLM53_EXL3_TICKET_SCHEDULER=0: skipping ticket-scheduler assertion'; \
+    fi; \
     rm -rf /tmp/exllamav3 /root/.cache/pip
 
 # Keep this AFTER the CUDA compile layer so Python-only hook edits do not
