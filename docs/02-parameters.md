@@ -88,3 +88,28 @@ cache is invisible to it). 0.87 demands 105.87 GiB free against boots measured a
   instead of full 3,584-token pages (the coordinator's veto came from a scratch
   buffer that never caches anyway — `docs/04`). This is what makes small prompts and
   follow-up turns cache; it costs ~3% structured decode, accepted deliberately.
+
+## Added 2026-09-01
+
+- `GLM53_DEFAULT_REASONING_EFFORT=high` — server-side default reasoning effort
+  (W27). The W16 template maps *unset* to `max`, so any client sending only
+  `enable_thinking` ran at the most expensive setting; this knob injects
+  `--default-chat-template-kwargs '{"reasoning_effort":"high"}'` as one argv
+  element. Strict enum (`low|high|max`, empty = off), validated start/restart
+  only, not in the JIT shape hash. Per-request `chat_template_kwargs` win.
+- `GLM53_ALIGN_FLOOR=1` — align-floor overlay (dormant at LPTT=1792). Stops the
+  mamba align split from zeroing a sub-block chunk when `LPTT >= block_size`;
+  required before any `LPTT >= 3584` arm. Read once at import.
+- `GLM53_KV_CAPACITY_LOG=1` — honest KV-capacity boot log (W41, log-only).
+  After the stock line, prints one line per KV-cache group plus the usable
+  block-id count and the aligned dense-retention cached-conversation capacity —
+  the stock "GPU KV cache size" number is a concurrency figure in token units
+  for a multi-group hybrid, not a cache capacity. Derivation errors are logged,
+  never boot-fatal. Not in the JIT shape hash.
+- `GLM53_APC_NO_STORE=1` — kill switch for the per-request prefix-cache
+  no-store surface (W42). A request sent with `vllm_xargs
+  {"skip_writing_prefix_cache": 1}` (or the typed `SamplingParams` field) never
+  inserts its blocks into the GPU prefix cache; lookups are unaffected and its
+  blocks stay unhashed, recycling LIFO-first, so one-off batch lanes stop
+  evicting other sessions' cached prefixes. Malformed values are an HTTP 400 at
+  the API boundary. Not in the JIT shape hash.
