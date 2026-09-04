@@ -20,6 +20,25 @@ fusions, and all of EXL3 — zero EXL3 code exists in vLLM mainline). Consequenc
   container start, or as a rebuilt upstream image.
 - Upstream "merged" ≠ "in this build" — date every candidate against `b908a21f9a`.
 
+## Current queue (rewritten 2026-09-02 night, W44 closed 2026-09-03)
+
+The S1/S2 kernel program is closed. Production is `glm53-selfbuild:b5ab8091-s2b`
+(fat GEMM pipelined, ticket scheduler live). Further fat-kernel ISA is below the
+Amdahl noise floor: isolated **+41%** landed as **+0.3%** end-to-end prefill
+because the fat path is only ~25–30% of a prefill step.
+
+**W44 CLOSED 2026-09-03:** the 2.71 lifetime spec-accept vs bench 6.88 is
+**traffic mix, not a broken drafter.** Same-boot no-store four-arm: structured
+temp-0 thinking-off **7.0 / 1.000 all positions** (70.1 tok/s); production
+prose thinking-on temp-1 max **2.32 / 0.331** (27.97 tok/s). Lifetime 2.55
+token-weighted matches P0/P1, not S0. Do not spend a kernel or k-window on
+this number. Next: idle-box s2b re-bench (si was 0 at W44; Swap still 6.5 GiB
+parked — watch the first pass) **or** W28 Codex fixes into the next restart.
+
+Full rewrite, live numbers, CUDA ranking, and the closed/rejected list:
+**[§ "2026-09-02 night: live-log rewrite of the A/B program"](#2026-09-02-night-live-log-rewrite-of-the-ab-program)**
+at the end of this file. `spec/TODO.md` is the operator checklist.
+
 ## W1 — xgrammar backport adoption (2026-08-29, verified in production)
 
 **XGrammar termination + reasoning-window backports** (`overlay/patch_xgrammar_termination.py`,
@@ -1188,3 +1207,239 @@ zero-fill, if-form per the pinned header's Blackwell note).
   post-push, pre-ship (APPROVED, recorded notes only). Future kernel waves go
   through the PR flow.
 - Watchdog re-armed; fat engagement 99.9% on s2b.
+
+## 2026-09-02 night: live-log rewrite of the A/B program
+
+Rewritten from the running `b5ab8091-s2b` pair (boot 19:31Z, snapshot ~22:59Z),
+a CUDA-kernel review of the remaining EXL3/fat/fused surface, and a same-night
+web survey of vLLM / Sparkinfer / GB10 items. This replaces the kernel-first
+queue in `docs/11` §7 for **what to run next**. Historical S1/S2/W16–W42
+ledgers above stay as receipts.
+
+### Live snapshot (do not treat as idle-box numbers)
+
+| Signal | This boot | Standing baseline / meaning |
+|---|---|---|
+| Image / health | `glm53-selfbuild:b5ab8091-s2b`, `/health` 200, loopback `:8000` | production |
+| Pool | **1,396,551 tok / 1.40×**, pin 14.36 GiB, 567 gpu blocks | byte-identical |
+| Honest cache (W41) | 566 usable ids; **38 ids / 3584-token segment**; cached-conversation capacity **≈ 50,176 tok = 14 segments** | the stock "1.40M tokens" line is concurrency, not prefix capacity |
+| KV usage | live **14.1–14.3%**, peak **18.9%** | `kv_cache_usage_perc` counts RUNNING blocks only; 14% ≈ one ~200k-class in-flight request, **not** a 14%-full prefix cache |
+| Prefix hit | lifetime **4.1%** (90,496 / 2,226,485 queries) | expected on unique-salt cold prefills + one long session that fills 3–4 of 14 segments |
+| Prefill | logger spikes **32k tok/s** are APC-hit / tiny remaining tails; idle-box cold still **~1044 / 998** at 60k/240k (S1 control) | do not quote 32k as cold compute |
+| Prose decode | logger last samples **19–28 tok/s**, nonzero p50 **19.1**, max 44 | bench band **27.9–31**; live is thinking-on + swap |
+| Spec decode | lifetime accept/draft **0.388**, mean accept length **2.71**; live pos-6 often **0.00–0.09** | **W44 CLOSED:** structured path still 7.0; 2.71 is P0/P1 mix. Not a decode-kernel lever. |
+| Concurrency | running **max 1**, waiting **0** across 81 logger samples | `MAX_NUM_SEQS=4` unused **this** boot (one long droid session). Not proof the cap never bites. |
+| Host memory | spark1 MemFree **6.5 GiB**, MemAvailable **5.0**, Swap **6.8 GiB**, si **28–124**/s; spark2 MemFree **5.6 GiB**; GPU 95–96% @ 72–73 °C | swap-degraded head historically **−10% prefill**. Do **not** `swapoff`. |
+| Fat path | 99.7–99.9% of prefill layers fat; max_rows 3584; avg_max ~1280; hist 37,001 in the **1024–2048** bucket (`_FAT_BUCKET_EDGES`) | fat ISA already spent (Amdahl ~25–30% of the step) |
+| Boot warning | `max_num_scheduled_tokens is set to 3584 based on the speculative decoding settings` | known; MNBT already = page size. Not a knob to raise (8192 indexer smem). |
+
+Mean request this boot: **~45.4k prompt tokens**, mean TTFT **45.5 s** (23/49 ≤ 1 s = cache hits; 16/49 > 7.5 s; 5/49 > 160 s). Prompt:generation token ratio **~214:1** — the box is prefill-heavy agent traffic, not a decode soak.
+
+### CUDA-reviewer ranking (no file edits; kernel surface)
+
+Fat kernel: `FAT_TILE_M/K/N = 128/16/128`, 3-stage `cp.async`, 23,552 B SMEM, 2 CTAs/SM. Clean. Isolated 73.5 TFLOP/s vs a ~92 ceiling ⇒ any further fat win **≤ ~+4–5% e2e**. Stop.
+
+Remaining candidates the review would still run, in order:
+
+1. ~~**Spec-accept recovery (not a kernel).**~~ **W44 CLOSED 2026-09-03.** Lifetime 2.55 vs bench 7.0 is production prose/thinking-on mix; structured path still 7.0/1.000. Do not chase with a kernel or k-window. Adaptive verification remains W40, not next.
+2. **W28 indexer workspace reclaim** (~5,035 MiB locked: `max_model_len × 40 × 132 B`). Only credible basis for a pin raise, which is the only way to grow the 14-segment prefix. Blocked on the three Codex fail-opens.
+3. **`num_active` widening on the fused thin launch**, using the `counts_host` D2H **already paid** by the fat path. Today dispatch hardcodes `n_active_host = -1`, so `MOE_SMS_PER_EXPERT` stays 8. Overlay + stopped microbench; no rebuild. Targets the *complement* of the spent fat path.
+4. **KDA/GDN profile-first.** P0 traces (2026-08-29) already put KDA at ~6% of a 1024-token chunk. Confirm on MNBT=3584 before any Triton/CuTe work. Do not guess.
+5. **Sub-16-row fused GEMM** — decode-tail kernel, moderate risk. W44 showed the accept gap is traffic mix, so this is occupancy/GEMV work, not "fix 2.71".
+
+Explicitly **do not reopen**: more fat ISA, tail-tiles for the 128–384 band (hist is in 1024–2048), ROW_TILE / TRF≠128, dual-rail, DFLASH k=8, draft TP=2, Marlin sm121 (#49546), raising the KV pin without W28, adaptive k at **drafting**.
+
+S3 Sparkinfer `trellis3_t256` stays parked behind the existing trigger (rank-sliced microbench ≥ ~80 TFLOP/s vs 73.5). Same-night survey: b12x/#49 still SM120a / TP4 receipts, no GB10 rank-sliced number. Ceiling still ~+4–5% e2e.
+
+### What the web survey added (no new "run now")
+
+- **vLLM #54661** (per-group retention RFC) is our W25 evidence written upstream. Already shipped. Do not re-A/B it.
+- **#54458** (hybrid page inflation 7808) is a different geometry; ours is 3584 and W41 already prints the honest 14-segment cap.
+- **#54831** (GLM-5.3 `tail_cache` block_size=4 blocks KV offload / LMCache) — W21 stays parked for a real reason, not laziness.
+- **#52559** graph-aware adaptive K — still W40; needs a v2-runner overlay decision. Gains reported at **high concurrency** (c128–c256); our live boot is c=1.
+- **#53798 / #54057** — still the correctness pair to bundle into the next restart.
+- Spark blog / llama.cpp fp8-KV warnings do **not** transfer: we run packed `fp8_ds_mla` because MLA needs it, not software-dequant q8_0. Recorded tension, not a window.
+
+### Rewritten A/B queue
+
+Protocol unchanged: disarm the **timer**, then wait for any in-flight `watchdog.service` to go inactive before stopping the unit (S2b incident); `reset-failed`; `local/prod-start.sh` only; `POST /reset_prefix_cache` for cold-cache rounds; bench only after ActiveState=active **and** warmup sweep finished; log-audit POST overlap on decode passes; both-node MemFree tripwire on any memory-touching restart.
+
+#### Now — no restart
+
+| # | Window | What | Gate | Why now |
+|---|---|---|---|---|
+| M0 | **Unblocked on traffic (W44 ran idle, si=0); Swap 6.5 GiB parked** | Idle-box s2b re-bench (60k/240k + structured/prose, n=9 log-audited) | same-day control; \|Δmedian\| < 5% = parity | **NEXT if the box stays quiet.** First pass may still read low from parked-swap fault-in — run to convergence. Never `swapoff`. |
+| **W44** | **CLOSED 2026-09-03 (measurement)** | Four-arm no-store probe `local/w44-spec-accept-probe.py` + 313-window boot histogram. See the dated W44 entry below. | Traffic mix, not a broken drafter. Structured path still 7.0. | CUDA C4 diagnosed; no kernel follow-up. |
+| M1 | ops, not a window | After the current request ends: if si stays >0 and prose stays <24, schedule a **clean bounce** (prod-start MemFree≥90) rather than research. Never `swapoff`. | MemFree ≥ ~8 GiB idle, si≈0 | Historic −10% prefill on a swap-degraded head. |
+
+#### Next idle-box session (cache-reset OK; no unit bounce)
+
+| # | Window | What | Gate |
+|---|---|---|---|
+| M0′ | s2b re-bench | The standing S2b/S2a-retain numbers. 60k/240k cold (`POST /reset_prefix_cache` between rounds) + structured/prose n=9. | e2e prefill ≥ +5% vs S1 control 1044.3/997.8 keeps s2b; ≤0% revisit (`IMAGE=` → `b5ab8091-s2a`). Decode wash expected. |
+| W29r | confirming repeat | Long-ctx ladder past ~325k. One sample at 415k/518k showed accept 0.909/0.888. | Second ladder. Acceptance is the metric; ignore first-row tok/s (fault-in). |
+| F0x | measurement | Extend F0 195k → 325–400k (compaction lives at 300k). | Informational; pairs with W29r. |
+
+#### Next restart (one JIT wipe; bundle correctness)
+
+W43 (`MAX_NUM_SEQS` 4→8) is **no longer automatic-next**. This boot never queued. The restart we do take still **must** carry #53798 + #54057 (mamba resume divisor; sparse-MLA `masked_mha_available`) — they are cheap, hybrid-crash-class, and the wipe is already paid by any shape-hash change.
+
+**Pick one decision variable for that restart, not both:**
+
+- Capacity waits (`waiting>0` / reason=capacity) since this rewrite →
+  **W43** (seqs 4→8, capture 40 48 56 64). Memory tripwire both nodes.
+- Else (tonight's shape: one long session) → land the **W28 Codex
+  fixes**, then **W28** indexer right-size (reclaim first; pin raise
+  **never in the same window**).
+- Either way: commit the 608-combination align-floor unit test **before**
+  A3. A3 itself (LPTT ≥ 3584, prove the floor acts) stays after this
+  restart.
+
+#### Cheap overlay / stopped-window after the above
+
+| # | Candidate | Type | Expected | Blocker |
+|---|---|---|---|---|
+| C1 | `num_active` from already-synced `counts_host` on fat layers | overlay, stopped microbench | thin-path occupancy; decode stays `-1` | none technical |
+| A3 | align-floor at LPTT ≥ 3584 | env, one restart | `decode-floor-v3` must log a sub-block cap | committed tests first |
+| W31 | fine-grained APC #59 → #84 | overlay | TTFT 0.9–4.0 s → 0.3–0.5 s claimed; we already have W18's 64-grid | same-day A/B vs our numbers |
+| W40 | adaptive verification / v2 runner | runner decision, not a knob | #52559/#52228; gains are high-c | overlay compat; GB10 #49548 collapsed aggregate 232→24–157 |
+| S3 | `trellis3_t256` pilot | stopped container | only if M0′ shows s2b e2e < 5% **or** rank-sliced ≥ ~80 TFLOP/s | docs/12 §6 |
+
+### Closed this rewrite (do not re-queue)
+
+S1 row-tiling, S2a ticket scheduler, S2b cp.async fat pipeline (kernel done; e2e pending idle numbers only), dual-rail NCCL, DFLASH k=8, draft TP=2, MNBT 7168, 500k window, ROW_TILE=1, TRF≠128, more fat-kernel ISA, adaptive k at drafting, raising the KV pin, Marlin, `/reset_prefix_cache` (already live), W25 per-group retention (already live; #54661 is us), **W44 spec-accept "drafter broken" hypothesis**.
+
+## 2026-09-03: W44 — live spec-accept diagnostic CLOSED (traffic mix, not a broken drafter)
+
+Ran after the 2026-09-02 night rewrite, on the same `b5ab8091-s2b` boot (now idle:
+`num_requests_running=0`, `kv_cache_usage_perc=0`, instant `si=0`; Swap still
+~6.5 GiB parked). No restart. Probe sent W42 `skip_writing_prefix_cache`;
+hits 5,937,024 → 5,937,024 and queries +146 (= 34+40+33+39 prompt tokens)
+are **consistent with** no-store (a miss would also leave hits unchanged
+even if a write occurred). Standing cache was not reset.
+
+**Boot histogram (313 SpecDecoding 10s windows, 152,019 drafted tokens):**
+
+| | min | p50 | mean | max |
+|---|---:|---:|---:|---:|
+| mean accept length | 1.87 | 3.47 | 3.71 | 8.0 |
+| draft accept % | 12.4 | 35.2 | 38.7 | 100 |
+
+Buckets: 3–4 n=138, 2–3 n=89, 4–5 n=55, ≥6 n=**18**, 5–6 n=12, <2 n=1.
+Token-weighted per-position: **0.779, 0.566, 0.405, 0.294, 0.217, 0.161, 0.125**.
+Token-weighted mean accept = 55,318 / 21,717 drafts = **2.55**. Only 18/313
+windows look like the structured bench.
+
+**Four-arm no-store probe** (`local/w44-spec-accept-probe.py`, max_tokens=200,
+through the tunnel, running=0):
+
+| Arm | tok/s | acc/step | ratio | pos-6 | notes |
+|---|---:|---:|---:|---:|---|
+| S0 structured, thinking off, temp 0 | **70.12** | **7.000** | **1.000** | **1.00** | bench twin; all seven positions 1.00 |
+| P0 prose, thinking off, temp 0 | **30.46** | **2.796** | 0.400 | 0.07 | in the 27.9–31 prose band |
+| S1 structured, thinking on, temp 1, effort=max | 54.44 | 5.931 | 0.847 | 0.69 | CoT dilutes the count; still far above prose |
+| P1 prose, thinking on, temp 1, effort=max | **27.97** | **2.317** | 0.331 | 0.05 | **droid production path**; 854 reasoning chars, 0 content (still thinking at 200 tokens) |
+
+Receipt: `local/w44-spec-accept-20260903.json`.
+
+**Verdict.** DFlash2 k=7 is healthy on the structured path (S0 = the standing
+1.0000/7.0 gate). The lifetime 2.55–2.71 is the mix of P0/P1 windows that
+dominate agent traffic, plus thinking-on CoT (P1, and the live pos-6 ≈ 0
+samples). It is **not** swap, **not** prefix-state, **not** a verification
+bug, and **not** W29's long-ctx decay (these arms were 33–40 prompt tokens).
+
+**Do not:** reopen k=8, adaptive k at drafting, or a kernel window aimed at
+"fixing 2.71". Those would chase production-mix arithmetic.
+
+**What would still move decode,** if we ever want it: recover *prose*
+acceptance (P0 2.80 / P1 2.32) toward structured. That is the known
+structured/prose trade k=8 already lost on (−9.1% prose). Adaptive
+**verification** (#52228/#52559) remains the only theoretically honest
+path, and it is still W40 (v2-runner decision; GB10 #49548 is the
+counter-evidence at high concurrency). Not next.
+
+**Queue after W44:** idle-box s2b re-bench is unblocked on *traffic* (box
+was idle, si=0); Swap 6.5 GiB parked means the **first** pass may still
+read low — run to convergence. Else the next restart is still W28 Codex
+fixes then indexer reclaim, unless capacity waits appear (then W43).
+
+## 2026-09-04: M0′ idle-box s2b re-bench + Window A soak — NEED-MORE-DATA (second opinion)
+
+Ran on the standing `b5ab8091-s2b` boot, no restart, `POST /reset_prefix_cache`
+(200) between arms. Idle pre/post every arm: running/waiting 0.0. Receipts
+`local/m0prime-structured-20260904.json`, `local/m0prime-prose-20260904.json`,
+`local/m0prime-prose-warmup-20260904.json`. Verdicts below are the
+**cuda-reviewer second opinion** (numbers-only, per-run judging), not a gate edit.
+
+### M0′ prefill vs S1 controls (60k 1044.3 / 240k 997.8)
+
+| Arm | Runs (tok/s) | Per-run Δ |
+|---|---|---|
+| 60k cold ×3 (salted) | 1124.8, 1048.4, 1049.3 | **+7.7%**, +0.4%, +0.5% |
+| 240k cold ×2 (salted) | 1014.5, 1063.5 | +1.7%, **+6.6%** |
+
+2 of 5 runs clear +5%; 3 sit in the 0…+5% band the gate never defined; 0 are
+≤ 0%. 60k spread 7.3% with the *first* run the outlier high (opposite of the
+known parked-swap fault-in pattern — unexplained variance, not warmup). The
+gate as written (≥+5% adopt / ≤0% revert) does not cover the measured middle,
+and n=2/3 cannot resolve a +5% threshold against 5–7% run-to-run spread. This
+matches the prior burst-contaminated +0.3% reading: the +41% isolated kernel
+win is Amdahl-eaten E2E (fat ≈ 25–30% of a prefill step). **Verdict:
+NEED-MORE-DATA — neither ADOPT (gate not met) nor REVERT (≤0% never seen).**
+
+### M0′ decode
+
+- **Structured n=9: PASS.** Median 71.54 (+1.6% vs 70.42), min 70.93, max
+  72.04 (±0.8%); every run finish=length, accept 1.0/7.0, all 7 positions
+  1.00, any_nan false. DFlash2 k=7 intact on s2b.
+- **Prose: NOT-BLOCKING but unmeasured this window.** 1 unscored warmup
+  (29.14), then n=9 median 29.14 (−1.2% vs 29.49) with a 26% spread
+  (25.73–32.57, σ ≈ 20× structured). Accept median 0.3405/2.383 and
+  coherent=true match the W44 closure — no behavioral regression signal, but
+  the median is meaningless at this spread. Do not cite −1.2% either way.
+
+### Log-audit veto: INCONCLUSIVE
+
+Prefill POSTs fully accounted (5 `/v1/completions` lines at expected TTFT
+spacing). Decode block 01:48:06–01:50:07 shows ~28 `/v1/chat/completions`
+lines at ~3 s cadence vs ~20 expected harness POSTs — gap ≈ 8, and all lines
+are 127.0.0.1 (tunnel vs any owner session indistinguishable). Structured is
+effectively exonerated (gauges 0.0 + bit-identical accept + ±0.8% spread is
+inconsistent with a co-batched foreign client); the prose phase cannot be
+certified clean. Future windows need a discriminative signal (harness-tagged
+requests, e.g. a unique per-window `user`/metadata field).
+
+### Window A soak (4×60k×3, `--rounds 3`)
+
+Pre: queries 3.1529896e+07 / hits 2.9370304e+07 / preemptions 0; head MemFree
+4824116 kB (spark2 hostname unresolvable — worker parity missing). Post:
+queries 3.2344855e+07 / hits 2.9906496e+07 / preemptions still 0.
+
+| Round | Wall | Usage hit% | Counter hit% | Notes |
+|---|---|---|---|---|
+| 1 cold | 237.5 s | 0.0 | 0.0 | as designed |
+| 2 | 10.9 s | 0.0 | **98.7** | −95% wall vs cold |
+| 3 | 15.6 s | 0.0 | **98.7** | cache served |
+
+**Retention PASSES at soak scale** (reproduces W3 95.0% under W25 per-group
+retention on the s2b image). Open: (a) **usage-vs-counter divergence** —
+usage cached_tokens reads 0/271,653 while counters read 98.7%; wall times prove
+a metric-semantics bug (usage field unpopulated on this path), not a retention
+failure — but per-request cache observability is broken until root-caused
+(one known-prefix request, compare `usage` vs counter deltas, then patch
+`cache-burst.py`); (b) the **1 h prefix-freeze watch never ran** (a 3-round
+soak cannot detect a #106-class `hits_total` freeze); (c) worker MemFree
+missing; (d) cosmetic: the script's quoted pool figure (929,670) is stale vs
+the pinned 1,396,551.
+
+### What closes M0′ (pre-register before the next window)
+
+1. Powered interleave: s2a/s2b ×5 runs each at 60k and 240k, salted,
+   reset between runs, exclusive loopback + harness-tagged requests — **plus a
+   defined middle-band rule** (non-inferiority adopt if median ≥ −1% and no
+   run < −3%, or keep the +5% bar and power to n=7+).
+2. Prose n≥9 re-run under exclusive access, median + spread reported separately.
+3. 1 h freeze watch: 60 s counter cadence ≥1 h under light traffic; fail = 0
+   counter delta over any 10-min window with traffic present.
+4. Fix spark2 mDNS resolution; capture worker MemFree pre/post soak.
+5. Usage-metric root cause (above).

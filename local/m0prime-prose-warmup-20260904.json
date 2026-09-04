@@ -1,0 +1,91 @@
+{
+  "phase": "prose-warmup",
+  "health_code": 200,
+  "health_body": "",
+  "runs": [
+    {
+      "http": 200,
+      "ttft_s": 0.37655029199959245,
+      "wall_s": 7.206430542000817,
+      "decode_s": 6.829880250001224,
+      "tok_s": 29.13667483408136,
+      "completion_tokens": 200,
+      "prompt_tokens": 40,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# How a Hash Map Works: A Complete Guide\n\nA hash map (also called a hash table or dictionary) is a data structure that stores key-value pairs and provides near-constant-time lookup, insertion, and deletion. Let's build up an understanding from the ground up.\n\n---\n\n## 1. The Core Concept\n\nA hash map stores data as **key-value pairs**. You provide a key (e.g., a username) and a value (e.g., the user",
+      "text_len": 849,
+      "usage": {
+        "prompt_tokens": 40,
+        "total_tokens": 240,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 59,
+        "draft_tokens": 413,
+        "accepted": 144,
+        "accept_ratio": 0.3487,
+        "accepted_per_step": 2.441,
+        "pos": [
+          0.8305,
+          0.5932,
+          0.3729,
+          0.2203,
+          0.1864,
+          0.1186,
+          0.1186
+        ]
+      }
+    }
+  ],
+  "ts": 1788486525.206078,
+  "prompt": "hashmap-prose",
+  "thinking": false,
+  "temperature": 0,
+  "tok_s_median": 29.13667483408136,
+  "tok_s_min": 29.13667483408136,
+  "tok_s_max": 29.13667483408136,
+  "ttft_median_s": 0.37655029199959245,
+  "completion_tokens_median": 200.0,
+  "accept_ratio_median": 0.3487,
+  "accepted_per_step_median": 2.441,
+  "any_nan": false,
+  "coherence": {
+    "paris": {
+      "ok": true,
+      "text": "Paris",
+      "http": 200
+    },
+    "cmp": {
+      "ok": true,
+      "text": "Yes. 9.9 is greater than 9.11 because 9.90 > 9.11 when comparing the decimal values.",
+      "http": 200
+    },
+    "sky": {
+      "ok": true,
+      "text": "The sky-blue paint on the nursery walls seemed to capture a perfect summer afternoon, bringing a sense of calm and endless possibility to the little room.",
+      "http": 200
+    },
+    "nan": false
+  },
+  "coherent": true,
+  "health_code_after": 200,
+  "short_after": {
+    "http": 200,
+    "ttft_s": 0.372670749999088,
+    "wall_s": 0.4814069579988427,
+    "decode_s": 0.1087362079997547,
+    "tok_s": 64.37598044632742,
+    "completion_tokens": 8,
+    "prompt_tokens": 40,
+    "finish_reason": "length",
+    "nan": false,
+    "text_head": "# How a Hash Map Works: A",
+    "text_len": 25,
+    "usage": {
+      "prompt_tokens": 40,
+      "total_tokens": 48,
+      "completion_tokens": 8
+    }
+  }
+}
