@@ -290,21 +290,30 @@ permanently below the incumbent). Automatic re-open triggers in docs/12 §8.
   (#49164 closed on correctness grounds).
 - **CUTLASS sm120 grouped GEMM** — FP8-path enablement only; subordinate to S3.
 
-## 7. Ranked queue (as of 2026-09-02)
+## 7. Ranked queue (rewritten 2026-09-02 night)
 
-1. ~~S1 row-tiling sweep~~ — **RUN 2026-09-02, REJECTED** (§6): TRF=128 + fat kernel
-   stands; row-tile kill-arm −20.9%.
-2. **S2a** `d5e4361` ticket-scheduler cherry-pick — **ADOPTED 2026-09-02**,
-   production image `b5ab8091-s2a`; re-bench verdict **PARITY** (§6; idle-box
-   protocol settled, structured −5.5% marginally investigated and exonerated,
-   prose parity); item closed.
-3. **S2b** fat-GEMM micro-opts — **ADOPTED 2026-09-02**, production image
-   `b5ab8091-s2b`; 3-stage `cp.async` pipeline (bit-exact ×56, sanitized,
-   kernel +41% → ~73.5 TFLOP/s); end-to-end prefill parity under ambient
-   bursts — verdict pending the idle re-bench (§6).
-4. **W28** indexer workspace — memory lane, unblocks a pin raise.
-5. **S3** Trellis study — **DONE 2026-09-02: FEASIBLE, PARKED with trigger**
-   (`docs/12-sparkinfer-trellis-study.md`; pilot = stopped-window `b12x`
-   microbench on rank-sliced shapes; trigger = clears the measured post-S2b
-   incumbent ~73.5 TFLOP/s with margin — only ≥ ~80 opens a real window).
-6. Watch: adaptive-K #52228/#52559, CUTLASS #43814, DeepGEMM sm120 port.
+Kernel program **closed** except parked S3. Live logs + CUDA review: fat is
+25–30% of prefill and already at 73.5 TFLOP/s; more fat ISA ≤ ~+4–5% e2e.
+Operator queue lives in `docs/06` (night rewrite) and `spec/TODO.md`.
+
+1. ~~S1 row-tiling sweep~~ — **REJECTED**. TRF=128 + fat kernel stands.
+2. ~~S2a ticket scheduler~~ — **ADOPTED** (kernel item closed). Clean
+   idle-box retained-image comparison vs s2b is still owed (`docs/06` M0′);
+   do not collect it on a swap-degraded / busy boot.
+3. ~~S2b cp.async pipeline~~ — **ADOPTED** (kernel +41%). End-to-end idle
+   numbers still owed; **do not collect them on a swap-degraded / busy boot**.
+4. **Stop fat-ISA work.** Dual-issue K16 / tail-tiles for 128–384 are below
+   the hist (37k of fat experts sit in 1024–2048 rows) and below Amdahl.
+5. **C1 (kernel-adjacent, overlay):** pass real `num_active` into fused
+   `exl3_moe` from the already-synced fat `counts_host`. Today hardcoded `-1`.
+   Stopped microbench. Decode stays `-1` (no new D2H).
+6. **C3 (later):** sub-16-row fused GEMM for decode-tail experts. Image
+   rebuild + full K4×M sweep. W44 (2026-09-03) showed the 2.71 vs 6.88
+   gap is traffic mix, not a GEMM problem — this is occupancy/GEMV work.
+7. **W28** indexer workspace — still the memory lane; still blocked on the
+   three Codex fail-opens. Do not raise the pin first.
+8. **S3** Trellis — **PARKED** (`docs/12`). Re-open only on the existing
+   trigger (≥ ~80 TFLOP/s rank-sliced, or s2b idle e2e < 5%).
+9. Watch (not EXL3 kernels): adaptive-K at **verification** #52228/#52559,
+   CUTLASS sm120 grouped GEMM #43814 (FP8 path only), DeepGEMM sm120, Marlin
+   sm121 W4A8 corruption #49546 (**do not adopt**).

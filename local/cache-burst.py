@@ -80,7 +80,7 @@ def main():
     prefixes = [make_prefix(1000 + i, a.ctx_tokens) for i in range(a.sessions)]
     total = a.sessions * a.ctx_tokens
     print(f"sessions={a.sessions} ctx~{a.ctx_tokens} tok each "
-          f"(~{total:,} total vs 929,670 pool) rounds={a.rounds} conc={a.concurrency}")
+          f"(~{total:,} total vs 1,396,551 pool) rounds={a.rounds} conc={a.concurrency}")
 
     for rnd in range(1, a.rounds + 1):
         m0, t0 = metrics(a.base), time.time()
