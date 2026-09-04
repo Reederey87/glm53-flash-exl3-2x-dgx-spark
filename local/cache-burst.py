@@ -6,10 +6,13 @@ LOCAL to this cluster; not part of the vendored upstream kit.
 Simulates N long-lived agent sessions (openclaw-shaped: big stable prompt
 prefix, tiny new suffix per turn, short answers) hitting the server
 concurrently for R rounds, and reports the prefix-cache hit rate per round.
-Primary ledger: per-request usage.prompt_tokens_details.cached_tokens (exact,
-per-request). Secondary: the global prefix_cache_queries/hits counter delta —
-kept for continuity, but it over-counts 1.3–2x under queue pressure (vLLM RFC
-#37003 thread), so trust the usage-based number when they disagree.
+Primary ledger: the global prefix_cache_queries/hits counter delta. (The old
+comment here said per-request usage.prompt_tokens_details.cached_tokens —
+measured 2026-09-04: the chat path returns prompt_tokens_details null and
+never populates cached_tokens, so usage-based hit% is blind on this path;
+a /v1/completions replay hit 4160/4217 on the counters. The counters stay
+the trustworthy number here; usage-based applies only where the endpoint
+populates the field.)
 Round 1 is cold by construction; rounds 2+ measure whether each session's
 cached prefix SURVIVED the other sessions' traffic — the eviction churn probe.
 If N*ctx_tokens exceeds the KV pool (1,396,551 tok at the 2026-08-29 1M

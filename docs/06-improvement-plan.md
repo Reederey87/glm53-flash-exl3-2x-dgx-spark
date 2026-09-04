@@ -1500,3 +1500,94 @@ traffic, no unexplained gap.
 lower it). 400k+ sessions pay a ~3–4% drafting tax and, dominating,
 structured decode ~31 tok/s at ~519k. Compaction or a fresh session remains
 the remedy; the 1M-window serving contract is unchanged.
+
+## 2026-09-04: M0′ powered re-window — ADOPT s2b (second opinion)
+
+Powered interleave per the pre-registered plan: s2b arms on the settled s2b
+boot (no restart, converged immediately), s2a arms on a fresh s2a boot
+(`IMAGE=glm53-selfbuild:b5ab8091-s2a`, `reset-failed`, watchdog timer stopped
+then re-armed, `SKIP_DOWNLOAD=1` — weights intact in HF cache; the first
+restart attempt without it hit the known `download.sh` 0/120 failure, issue
+#29, and was retried with the skip). Salted unique prompts, `POST
+/reset_prefix_cache` (200) between arms, running/waiting 0.0 idle guards.
+Receipts `local/m0prime2-s2b-structured-20260904.json`,
+`local/m0prime2-s2b-prose-20260904.json` (s2a prefill arms logged inline —
+no receipt file, s2a was a temporary boot).
+
+### Prefill: complete per-run separation at 60k, consistent +5–6% at 240k
+
+| Arm | Runs (tok/s) | Median |
+|---|---|---|
+| s2b 60k ×5 | 1121.8, 1114.7, 1116.6, 1116.2, 1116.3 | **1116.3** (spread 0.6%) |
+| s2b 240k ×5 | 1073.7, 1081.4, 1083.0, 1084.9, 1086.0 | **1083.0** (spread 1.1%, mild warmup slope) |
+| s2a 60k ×5 | 976.7, 996.4, 1057.6, 1061.1, 1059.5 | 1057.6 (first two fault-in low; converged last-three med 1059.5) |
+| s2a 240k ×2 | 1026.4, 1024.2 | 1025.3 (thin sample; see caveat) |
+
+- **60k: s2b min (1114.7) > s2a max (1061.1)** — every s2b run beats every
+  s2a run by ≥ +5.1%. Full-x5 medians +5.6%; converged-only (s2a last three)
+  +5.4%. The conservative read is the headline: dropping s2a's fault-in runs
+  raises the s2a median and shrinks the delta.
+- **240k: +5.6%** (1083.0 vs 1025.3), worst-case pairing +4.6%. The s2a 240k
+  ×5 batch timed out at the harness (1500s client cap vs 5 × ~300s runs) —
+  the server logged all 5 completions; the loss is client-side collection,
+  corroborated by the two direct singles agreeing within 0.2% and sitting
+  above the S1 control (997.8).
+- **Gate verdict (cuda-reviewer second opinion): ADOPT s2b.** Non-inferiority
+  (median ≥ −1%, no run < −3%, both lengths) passes trivially; the legacy
+  ≥ +5% bar also clears on both lengths. The first window's middle-band
+  ambiguity is retired. Amdahl note: isolated +41% on 25–30% of a prefill
+  step predicts +8–9.5% E2E; measured +5.5% is below the ceiling — calibrate
+  future windows against the measured number, not the isolated one.
+
+### Decode
+
+- **Structured n=9: 71.86–74.04, median 73.53 (+4.4% vs 70.42 baseline)** —
+  all finish=length, nan=false, accept 1.0/7.0 every run. DFlash2 k=7 intact.
+- **Prose n=9: median 30.21, 30.2% spread (25.07–34.20)** — second window
+  running with ~30% spread. RETIRED as a gate variable (monitoring only);
+  a prose gate would need n≥30 or variance-normalized scoring.
+
+### Log-audit veto: PASS (one accounted intruder)
+
+- Prefill: 10 completions + 2 resets = exactly issued. No veto.
+- Decode: 24 chat POSTs — 18 are this harness (9 structured + 9 prose
+  stream_bench, incl. structured 32-token warmup + prose 3×coherence +
+  2×short_after; +1 pre-window `/health` 404 from a wrong `GLM53_BASE`
+  → fixed to `http://127.0.0.1:18000` without `/v1`).
+  The 6 extras at 09:49:17–19 are the prose `short_after` tail of the
+  window (script appends it post-coherence), NOT an intruder — the prose
+  receipt `ts` marks bench *start* (09:48:13); 9 × ~7s walls + coherence +
+  short_after land exactly in the 09:49:17–19 cluster. No veto.
+
+### s2a boot bistability — new wrinkle, recorded
+
+The fresh s2a boot oscillated 15.7/15.7/25.4/25.7 → 64.7–70.3 → back to
+25.5/26.0 → settled 67–73 over 22 probes (~10 min). Probes 1–4 are the known
+parked-swap fault-in class; the dip *after* convergence (probes 10–11) is
+not monotone fault-in — no POST overlap in the audit, so not cross-traffic.
+Prefill arms ran only post-settling (probes 12–22), and s2a 60k's first-two
+low runs are the residual tail of the same class. Track: if a dip-after-settle
+recurs on s2b boots it becomes a boot-health finding, not an A/B finding.
+
+### Usage-vs-counter root cause — CLOSED
+
+The Window A divergence is a metric-semantics bug, not a retention failure:
+the chat path (`/v1/chat/completions`) returns `prompt_tokens_details: null`
+— it never populates `cached_tokens` — while `/v1/completions` replays hit
+4160/4217 on the counters. `cache-burst.py`'s usage-based hit% is therefore
+blind on the chat path; on that path the counters are the trustworthy number
+(the script's header comment says the reverse — fix the comment, not the
+server). One-line doc fix queued with this entry.
+
+### Freeze watch — open, T0 recorded
+
+T0 q=1984/h=64 at 1788520243 on the restored s2b boot; mid-window samples
+moved only under our own traffic (10450/4224), flat at idle since. The 1 h
+no-traffic-idle cadence never ran — keep the watch item open in TODO.
+
+### Production state after the window
+
+Restored `IMAGE=glm53-selfbuild:b5ab8091-s2b`, clean pair restart
+(`SKIP_DOWNLOAD=1`), pool **1,396,551 byte-identical**, watchdog timer
+re-armed (active/active), serving spot-check OK, 6/6 converge probes
+69.7–71.1 on the fresh boot. **M0′ is CLOSED as ADOPT s2b.**
