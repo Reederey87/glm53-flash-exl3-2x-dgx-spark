@@ -285,7 +285,8 @@ permanently below the incumbent). Automatic re-open triggers in docs/12 §8.
 
 - **W28 indexer workspace right-sizing** — `glm5next` omits `// compress_ratio`;
   5,035 MiB locked at the 1M window; the reclaim is the only credible basis for a
-  KV-pin raise. Blocked on the three Codex fixes (docs/06 §W28).
+  KV-pin raise. Candidate prepared with the three Codex fixes; blocked on CUDA
+  review, final review and the guarded W28 window (docs/06 §W28).
 - **Adaptive-K at verification** — vLLM #52228/#52559 only; drafting stays fixed-K
   (#49164 closed on correctness grounds).
 - **CUTLASS sm120 grouped GEMM** — FP8-path enablement only; subordinate to S3.
@@ -310,8 +311,9 @@ Operator queue lives in `docs/06` (night rewrite) and `spec/TODO.md`.
 6. **C3 (later):** sub-16-row fused GEMM for decode-tail experts. Image
    rebuild + full K4×M sweep. W44 (2026-09-03) showed the 2.71 vs 6.88
    gap is traffic mix, not a GEMM problem — this is occupancy/GEMV work.
-7. **W28** indexer workspace — still the memory lane; still blocked on the
-   three Codex fail-opens. Do not raise the pin first.
+7. **W28** indexer workspace — still the memory lane; candidate prepared with
+   the three Codex fail-opens closed. Review and reclaim first. Do not raise
+   the pin in the same window.
 8. **S3** Trellis — **PARKED** (`docs/12`). Re-open only on the existing
    trigger (≥ ~80 TFLOP/s rank-sliced, or s2b idle e2e < 5%).
 9. Watch (not EXL3 kernels): adaptive-K at **verification** #52228/#52559,
