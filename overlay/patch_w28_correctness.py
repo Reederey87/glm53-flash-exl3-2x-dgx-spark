@@ -6,8 +6,7 @@ This overlay ports:
 * vLLM #53798: seed resumed align-mode Mamba state indices in
   ``MambaSpec.block_size`` units, not the generic scheduler block size;
 * vLLM #54057: declare ``masked_mha_available = False`` on the SM120 sparse
-  MLA implementation used by GLM-5.3 on GB10, while also pinning its missing
-  dense-prefill capability to ``False``.
+  MLA implementation used by GLM-5.3 on GB10.
 
 The #53798 port is adapted to the pinned preview build. The runner binds the
 resolved KV cache config to ``ModelState`` immediately after attention backend
@@ -162,14 +161,15 @@ MAMBA_CALLS_PATCHED = """        mamba_group_ids, mamba_spec = self._get_mamba_g
 
 SM120_MARK = "    masked_mha_available = False  # [glm53-w28-correctness]\n"
 SM120_ANCHOR = """    is_sparse = True
+    supports_dense_mha_prefill = False
 
     def __init__(
 """
 SM120_PATCHED = """    is_sparse = True
     supports_dense_mha_prefill = False
-    # The sparse-MQA-only SM120 implementation does not inherit the generic
-    # initializer that sets this capability, but the prefill dispatcher reads
-    # it for every sparse backend once num_mha_tokens > 0.
+    # The sparse-MQA-only SM120 implementation does not define this
+    # capability, but the prefill dispatcher reads it for every sparse backend
+    # once num_mha_tokens > 0.
     masked_mha_available = False  # [glm53-w28-correctness]
 
     def __init__(

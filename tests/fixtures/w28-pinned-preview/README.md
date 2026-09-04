@@ -1,7 +1,8 @@
 # W28 pinned-preview anchor snapshots
 
 These minimal, syntax-valid snapshots preserve the exact patch anchors from
-the deployed GLM-5.3 preview source at vLLM commit `933876c388`:
+the immutable production image `glm53-selfbuild:b5ab8091-s2b` (image ID
+`sha256:87a2cfd32aece0d9cf682fd3bc7821f9c074c7b3cb537017f8a1e9b96cdb80dc`):
 
 - `vllm/v1/attention/backends/mla/indexer.py`
 - `vllm/models/glm5next/nvidia/attention.py`
