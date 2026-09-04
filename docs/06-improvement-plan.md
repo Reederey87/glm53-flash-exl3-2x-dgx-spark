@@ -672,6 +672,20 @@ pool bytes unmoved at 14.36 GiB, no `keeping stock sizing` warning, and free mem
 sampled *after* the workspace allocation point (it may be lazy — re-measure after the
 first long prefill).
 
+**Resolution prepared locally 2026-09-04, not deployed.** The W28 overlay is
+GLM-5.3-only: the shared stock helper stays unchanged and only
+`models/glm5next/nvidia/attention.py` calls the rightsize helper with its
+authoritative `self.index_kpool`. This leaves DeepSeek-V4 and the rank-0
+DFlash2 drafter outside the experiment. The MNBT multiplier is removed. The
+`end == start` path raises on an oversized N row, and every emitted metadata
+chunk is checked again. The kpool operator then compares the chunk with its
+actual GLM allocation immediately before gather-buffer slicing, closing the
+stock-metadata-bound versus rightsized-allocation gap. A rightsize result that
+does not narrow stock fails boot. Host tests pass against checked-in pinned
+anchors and full authoritative source from `b5ab8091-s2b`. Deployment remains
+blocked on the required reviews; the post-A/B adopt/revert decision also gets
+a CUDA-reviewer second opinion.
+
 ### Watchlist — new
 
 - **vLLM #54521** — greedy decoding non-deterministic above `indexer_budget` on
@@ -1242,7 +1256,7 @@ Fat kernel: `FAT_TILE_M/K/N = 128/16/128`, 3-stage `cp.async`, 23,552 B SMEM, 2 
 Remaining candidates the review would still run, in order:
 
 1. ~~**Spec-accept recovery (not a kernel).**~~ **W44 CLOSED 2026-09-03.** Lifetime 2.55 vs bench 7.0 is production prose/thinking-on mix; structured path still 7.0/1.000. Do not chase with a kernel or k-window. Adaptive verification remains W40, not next.
-2. **W28 indexer workspace reclaim** (~5,035 MiB locked: `max_model_len × 40 × 132 B`). Only credible basis for a pin raise, which is the only way to grow the 14-segment prefix. Blocked on the three Codex fail-opens.
+2. **W28 indexer workspace reclaim** (~5,035 MiB locked: `max_model_len × 40 × 132 B`). Candidate prepared with the reviewed fail-closed row, metadata and actual-allocation guards. Reclaim first; do not raise the pin in the same window.
 3. **`num_active` widening on the fused thin launch**, using the `counts_host` D2H **already paid** by the fat path. Today dispatch hardcodes `n_active_host = -1`, so `MOE_SMS_PER_EXPERT` stays 8. Overlay + stopped microbench; no rebuild. Targets the *complement* of the spent fat path.
 4. **KDA/GDN profile-first.** P0 traces (2026-08-29) already put KDA at ~6% of a 1024-token chunk. Confirm on MNBT=3584 before any Triton/CuTe work. Do not guess.
 5. **Sub-16-row fused GEMM** — decode-tail kernel, moderate risk. W44 showed the accept gap is traffic mix, so this is occupancy/GEMV work, not "fix 2.71".

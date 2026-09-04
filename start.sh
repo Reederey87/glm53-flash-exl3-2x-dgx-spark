@@ -83,6 +83,8 @@ _glm53_cli_kvlog_set="${GLM53_KV_CAPACITY_LOG+a}"
 _glm53_cli_kvlog_val="${GLM53_KV_CAPACITY_LOG-}"
 _glm53_cli_apcns_set="${GLM53_APC_NO_STORE+a}"
 _glm53_cli_apcns_val="${GLM53_APC_NO_STORE-}"
+_glm53_cli_indexer_workspace_set="${GLM53_INDEXER_WORKSPACE+a}"
+_glm53_cli_indexer_workspace_val="${GLM53_INDEXER_WORKSPACE-}"
 # LOCAL: W41/W42 caller-wins capture (end)
 set -a
 # shellcheck disable=SC1091
@@ -111,6 +113,7 @@ set +a
 # LOCAL: W41/W42 caller-wins restore (begin)
 [ -n "${_glm53_cli_kvlog_set}" ] && GLM53_KV_CAPACITY_LOG="$_glm53_cli_kvlog_val"
 [ -n "${_glm53_cli_apcns_set}" ] && GLM53_APC_NO_STORE="$_glm53_cli_apcns_val"
+[ -n "${_glm53_cli_indexer_workspace_set}" ] && GLM53_INDEXER_WORKSPACE="$_glm53_cli_indexer_workspace_val"
 # LOCAL: W41/W42 caller-wins restore (end)
 
 # ----------------------------- configuration -------------------------------
@@ -224,6 +227,9 @@ ALIGN_FLOOR_PATCH_HOST="${ALIGN_FLOOR_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_alig
 # LOCAL: W41 (kit PR #94) block-level KV capacity boot log, log-only; W42 (kit PR #95) per-request APC no-store
 KV_CAPACITY_LOG_PATCH_HOST="${KV_CAPACITY_LOG_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_kv_capacity_log.py}"
 APC_NO_STORE_PATCH_HOST="${APC_NO_STORE_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_apc_no_store.py}"
+# LOCAL: W28 GLM-only indexer-workspace reclaim + bundled correctness backports
+INDEXER_WORKSPACE_PATCH_HOST="${INDEXER_WORKSPACE_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_indexer_workspace.py}"
+W28_CORRECTNESS_PATCH_HOST="${W28_CORRECTNESS_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_w28_correctness.py}"
 KV_CACHE_DTYPE="${KV_CACHE_DTYPE:-fp8}"
 QUANTIZATION="${QUANTIZATION:-exl3}"
 LANGUAGE_MODEL_ONLY="${LANGUAGE_MODEL_ONLY:-0}"
@@ -303,6 +309,9 @@ GLM53_ALIGN_FLOOR="${GLM53_ALIGN_FLOOR:-1}"
 # running pair; the overlays re-validate in-process and fail closed at boot.
 GLM53_KV_CAPACITY_LOG="${GLM53_KV_CAPACITY_LOG-1}"
 GLM53_APC_NO_STORE="${GLM53_APC_NO_STORE-1}"
+# W28: stock is the shipped allocation; rightsize enables the GLM-5.3-only
+# reclaim. Default stays stock until the guarded A/B produces live receipts.
+GLM53_INDEXER_WORKSPACE="${GLM53_INDEXER_WORKSPACE-stock}"
 # LOCAL: W41/W42 knob defaults (end)
 # EngineCore stock timeout is 300s; mid-serve Triton/TileLang JIT on TP=2 can
 # exceed that without being a true hang. NCCL watchdog is still 600s.
@@ -398,6 +407,10 @@ validate_numeric_config() {
         case "${!_v}" in 0|1) ;; *) echo "$_v must be exactly 0 or 1 (got: '${!_v}')" >&2; return 2 ;; esac
     done
     unset _v
+    case "${GLM53_INDEXER_WORKSPACE-stock}" in
+        stock|rightsize) ;;
+        *) echo "GLM53_INDEXER_WORKSPACE must be exactly one of: stock rightsize (got: '${GLM53_INDEXER_WORKSPACE-<unset>}')" >&2; return 2 ;;
+    esac
     # LOCAL: W41/W42 strict-bool validation (end)
     # LOCAL: DEFAULT_MAX_NEW_TOKENS is spliced into generated shell + JSON; empty = off.
     if [ -n "${DEFAULT_MAX_NEW_TOKENS:-}" ]; then
@@ -593,6 +606,8 @@ preflight() {
     [ -f "$ALIGN_FLOOR_PATCH_HOST" ] || die "$ALIGN_FLOOR_PATCH_HOST missing"  # LOCAL: align-floor
     [ -f "$KV_CAPACITY_LOG_PATCH_HOST" ] || die "$KV_CAPACITY_LOG_PATCH_HOST missing"  # LOCAL: W41
     [ -f "$APC_NO_STORE_PATCH_HOST" ] || die "$APC_NO_STORE_PATCH_HOST missing"  # LOCAL: W42
+    [ -f "$INDEXER_WORKSPACE_PATCH_HOST" ] || die "$INDEXER_WORKSPACE_PATCH_HOST missing"  # LOCAL: W28
+    [ -f "$W28_CORRECTNESS_PATCH_HOST" ] || die "$W28_CORRECTNESS_PATCH_HOST missing"  # LOCAL: W28
 
     local need_kb=$((180 * 1024 * 1024)) avail
     mkdir -p "$HF_CACHE_DIR"
@@ -1109,6 +1124,12 @@ fi
 if [ -f /opt/glm53/patch_apc_no_store.py ]; then  # LOCAL: W42
     python3 /opt/glm53/patch_apc_no_store.py
 fi
+if [ -f /opt/glm53/patch_w28_correctness.py ]; then  # LOCAL: W28 correctness first
+    python3 /opt/glm53/patch_w28_correctness.py
+fi
+if [ -f /opt/glm53/patch_indexer_workspace.py ]; then  # LOCAL: W28 decision variable
+    python3 /opt/glm53/patch_indexer_workspace.py
+fi
 say "launching: vllm serve ${MODEL_DIR} ${ARGS[*]}"
 exec vllm serve "${MODEL_DIR}" "${ARGS[@]}"
 EOF
@@ -1233,6 +1254,12 @@ fi
 if [ -f /opt/glm53/patch_apc_no_store.py ]; then  # LOCAL: W42
     python3 /opt/glm53/patch_apc_no_store.py
 fi
+if [ -f /opt/glm53/patch_w28_correctness.py ]; then  # LOCAL: W28 correctness first
+    python3 /opt/glm53/patch_w28_correctness.py
+fi
+if [ -f /opt/glm53/patch_indexer_workspace.py ]; then  # LOCAL: W28 decision variable
+    python3 /opt/glm53/patch_indexer_workspace.py
+fi
 say "joining TP2 at ${HEAD_IP}:${MASTER_PORT} as rank 1"
 exec vllm serve "${MODEL_DIR}" "${ARGS[@]}"
 EOF
@@ -1279,6 +1306,10 @@ launch_cluster() {
     scp -q -o BatchMode=yes "$KV_CAPACITY_LOG_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_kv_capacity_log.py"
     [ -f "$APC_NO_STORE_PATCH_HOST" ] || die "missing $APC_NO_STORE_PATCH_HOST"  # LOCAL: W42
     scp -q -o BatchMode=yes "$APC_NO_STORE_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_apc_no_store.py"
+    [ -f "$W28_CORRECTNESS_PATCH_HOST" ] || die "missing $W28_CORRECTNESS_PATCH_HOST"  # LOCAL: W28
+    scp -q -o BatchMode=yes "$W28_CORRECTNESS_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_w28_correctness.py"
+    [ -f "$INDEXER_WORKSPACE_PATCH_HOST" ] || die "missing $INDEXER_WORKSPACE_PATCH_HOST"  # LOCAL: W28
+    scp -q -o BatchMode=yes "$INDEXER_WORKSPACE_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_indexer_workspace.py"
 
 
     local -a nccl_common=(
@@ -1314,6 +1345,7 @@ launch_cluster() {
         -e "GLM53_ALIGN_FLOOR=$GLM53_ALIGN_FLOOR"
         -e "GLM53_KV_CAPACITY_LOG=$GLM53_KV_CAPACITY_LOG"  # LOCAL: W41
         -e "GLM53_APC_NO_STORE=$GLM53_APC_NO_STORE"  # LOCAL: W42
+        -e "GLM53_INDEXER_WORKSPACE=$GLM53_INDEXER_WORKSPACE"  # LOCAL: W28
         # LOCAL: W9 ablation — 0 restores stock router-GEMM eligibility exactly
         -e "GLM53_ROUTER_GEMM_CUBLAS=${GLM53_ROUTER_GEMM_CUBLAS:-1}"
         # LOCAL: W17/W18 opt-in overlays (both ranks read these at patch time)
@@ -1419,6 +1451,8 @@ launch_cluster() {
         -v '/tmp/patch_align_floor.py:/opt/glm53/patch_align_floor.py:ro' \
         -v '/tmp/patch_kv_capacity_log.py:/opt/glm53/patch_kv_capacity_log.py:ro' \
         -v '/tmp/patch_apc_no_store.py:/opt/glm53/patch_apc_no_store.py:ro' \
+        -v '/tmp/patch_w28_correctness.py:/opt/glm53/patch_w28_correctness.py:ro' \
+        -v '/tmp/patch_indexer_workspace.py:/opt/glm53/patch_indexer_workspace.py:ro' \
         ${worker_preload} \
         ${worker_nccl} \
         -e NCCL_SOCKET_IFNAME='$WORKER_CX7_IF' \
@@ -1455,6 +1489,8 @@ launch_cluster() {
         -v "$ALIGN_FLOOR_PATCH_HOST:/opt/glm53/patch_align_floor.py:ro" \
         -v "$KV_CAPACITY_LOG_PATCH_HOST:/opt/glm53/patch_kv_capacity_log.py:ro" \
         -v "$APC_NO_STORE_PATCH_HOST:/opt/glm53/patch_apc_no_store.py:ro" \
+        -v "$W28_CORRECTNESS_PATCH_HOST:/opt/glm53/patch_w28_correctness.py:ro" \
+        -v "$INDEXER_WORKSPACE_PATCH_HOST:/opt/glm53/patch_indexer_workspace.py:ro" \
         "${head_preload[@]}" \
         "${nccl_common[@]}" \
         -e NCCL_SOCKET_IFNAME="$HEAD_CX7_IF" \
