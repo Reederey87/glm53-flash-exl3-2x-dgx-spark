@@ -281,12 +281,15 @@ output-parity smoke; trigger = clears the measured post-S2b incumbent
 (~73.5 TFLOP/s) with meaningful margin (≥ ~80 to open path (c); park
 permanently below the incumbent). Automatic re-open triggers in docs/12 §8.
 
-### Adjacent lanes (queued; own docs/06 entries when opened)
+### Adjacent lanes
 
-- **W28 indexer workspace right-sizing** — `glm5next` omits `// compress_ratio`;
-  5,035 MiB locked at the 1M window; the reclaim is the only credible basis for a
-  KV-pin raise. Candidate prepared with the three Codex fixes; blocked on CUDA
-  review, final review and the guarded W28 window (docs/06 §W28).
+- **W28 indexer workspace right-sizing — ADOPTED 2026-09-04.**
+  `glm5next` omitted `// compress_ratio`; the guarded GLM-only arm reduced the
+  workspace from 40,000,000 to 1,000,008 entries and reclaimed 4,909.5 MiB per
+  rank. KV bytes stayed pinned, decode and retention matched control, and 240k
+  cold prefill improved 8.1%. Production runs `rightsize`; no pin raise was
+  combined with the window. Full incident, correction, and receipts: docs/06
+  §W28 and `docs/DESIGN-indexer-workspace.md`.
 - **Adaptive-K at verification** — vLLM #52228/#52559 only; drafting stays fixed-K
   (#49164 closed on correctness grounds).
 - **CUTLASS sm120 grouped GEMM** — FP8-path enablement only; subordinate to S3.
@@ -311,9 +314,9 @@ Operator queue lives in `docs/06` (night rewrite) and `spec/TODO.md`.
 6. **C3 (later):** sub-16-row fused GEMM for decode-tail experts. Image
    rebuild + full K4×M sweep. W44 (2026-09-03) showed the 2.71 vs 6.88
    gap is traffic mix, not a GEMM problem — this is occupancy/GEMV work.
-7. **W28** indexer workspace — still the memory lane; candidate prepared with
-   the three Codex fail-opens closed. Review and reclaim first. Do not raise
-   the pin in the same window.
+7. ~~**W28 indexer workspace**~~ — **ADOPTED.** Reclaimed 4,909.5 MiB per
+   rank with the KV pin unchanged; `rightsize` is production. Any future pin
+   change is a separate guarded window.
 8. **S3** Trellis — **PARKED** (`docs/12`). Re-open only on the existing
    trigger (≥ ~80 TFLOP/s rank-sliced, or s2b idle e2e < 5%).
 9. Watch (not EXL3 kernels): adaptive-K at **verification** #52228/#52559,

@@ -234,6 +234,16 @@ def split_prefill_chunks(
 
 
 MARK_HELPERS = "# [glm53-indexer-workspace] GLM-5.3-only prefill gather sizing.\n"
+MARK_IMPORT = "import os  # [glm53-indexer-workspace]\n"
+ANCHOR_IMPORT = """from dataclasses import dataclass
+
+import torch
+"""
+PATCHED_IMPORT = """from dataclasses import dataclass
+
+import os  # [glm53-indexer-workspace]
+import torch
+"""
 ANCHOR_HELPERS = """def get_max_prefill_buffer_size(vllm_config: VllmConfig):
     max_model_len = vllm_config.model_config.max_model_len
     # NOTE(Chen): 40 is a magic number for controlling the prefill buffer size.
@@ -301,6 +311,7 @@ PATCHED_CHUNK_ASSERT = """                # Skip when total_seq_lens is 0 (i.e.,
 """
 
 INDEXER_SITES = (
+    ("workspace environment import", MARK_IMPORT, ANCHOR_IMPORT, PATCHED_IMPORT),
     ("helpers", MARK_HELPERS, ANCHOR_HELPERS, PATCHED_HELPERS),
     ("splitter fail-closed", MARK_SPLITTER, ANCHOR_SPLITTER, PATCHED_SPLITTER),
     (

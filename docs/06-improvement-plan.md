@@ -20,7 +20,7 @@ fusions, and all of EXL3 — zero EXL3 code exists in vLLM mainline). Consequenc
   container start, or as a rebuilt upstream image.
 - Upstream "merged" ≠ "in this build" — date every candidate against `b908a21f9a`.
 
-## Current queue (rewritten 2026-09-02 night, W44 closed 2026-09-03)
+## Current queue (updated through W28 adoption, 2026-09-04)
 
 The S1/S2 kernel program is closed. Production is `glm53-selfbuild:b5ab8091-s2b`
 (fat GEMM pipelined, ticket scheduler live). Further fat-kernel ISA is below the
@@ -32,8 +32,13 @@ because the fat path is only ~25–30% of a prefill step.
 temp-0 thinking-off **7.0 / 1.000 all positions** (70.1 tok/s); production
 prose thinking-on temp-1 max **2.32 / 0.331** (27.97 tok/s). Lifetime 2.55
 token-weighted matches P0/P1, not S0. Do not spend a kernel or k-window on
-this number. Next: idle-box s2b re-bench (si was 0 at W44; Swap still 6.5 GiB
-parked — watch the first pass) **or** W28 Codex fixes into the next restart.
+this number.
+
+**W28 ADOPTED 2026-09-04:** the corrected GLM-only indexer overlay is live in
+`rightsize` mode. It reclaimed 4,909.5 MiB per rank with the KV pin unchanged;
+decode and retention matched stock, and 240k cold prefill improved 8.1%.
+Do not requeue W28 or treat the reclaim as permission to raise the pin without
+a separate guarded window.
 
 Full rewrite, live numbers, CUDA ranking, and the closed/rejected list:
 **[§ "2026-09-02 night: live-log rewrite of the A/B program"](#2026-09-02-night-live-log-rewrite-of-the-ab-program)**
@@ -634,7 +639,7 @@ proposal that must pass our own review and gates.
 | # | Candidate | Source | Effect here | Restart / shape hash |
 |---|---|---|---|---|
 | W27 | `GLM53_DEFAULT_REASONING_EFFORT=high` | kit PR #87 | Our template maps **unset → `Max`**, so any client omitting `chat_template_kwargs.reasoning_effort` runs at max. Author measured 2,160 s / 60,663 completion tokens at unset vs 593 s / 16,541 at `high`, same 80/80 grader, and two compactions vs zero. Cheapest big win available. | restart, no shape hash |
-| W28 | `GLM53_INDEXER_WORKSPACE=rightsize` | kit PR #86 | Verified in our container: `models/glm5next/nvidia/attention.py:302` calls `get_max_prefill_buffer_size()` **without** the `// compress_ratio` that `models/deepseek_v4/attention.py:777` applies — 40,000,000 entries × 132 B = **5,035 MiB** locked at our 1M window. Under the byte-pinned pool the reclaim becomes free device headroom (our binding constraint: MemFree floors 2.95–3.6 GiB), which is what would make a **pin raise** safe. That pin raise, not the reclaim, is the prize. | restart; env not in shape hash, a pin raise is a real memory change |
+| W28 | `GLM53_INDEXER_WORKSPACE=rightsize` | kit PR #86 + local corrections | **ADOPTED 2026-09-04.** The GLM-only arm reduced the locked gather workspace from 40,000,000 to 1,000,008 entries, reclaiming 4,909.5 MiB per rank with the KV pool unchanged. Decode and retention matched control; 240k cold prefill improved 8.1%. The reclaim remains free device headroom. The KV pin was not raised. | restart; env not in shape hash |
 | W29 | Extend the F0 ladder past 195k (measurement only) | vLLM #54691/#52258/#48944, kit #73, **our F0** | **Not a speculation gate.** F0 (2026-08-31) already found no long-context decay here — structured flat 56–65 tok/s @ 0.93–0.98 to ~195k, both ladder orders; #73's 70%→16% was on ABLIT=1 / MNBT 2048 / draft TP=2. But F0 stopped at 195k, droid compacts at 300k and the window is 1M, so 195k–400k is unmeasured and is where #54691's profiled mechanism (drafter re-scans the full accumulated drafter KV each cycle) would first bite. | none |
 | W30 | `/reset_prefix_cache` endpoint | kit PR #37 | Every cache A/B so far (W3, W18, W25, W25b) needed a full restart for a cold cache — 8–12 min, and restart churn contaminates the first probe pass with swap fault-in. An endpoint removes that confound from the protocol. | restart once to install |
 | W31 | Fine-grained APC #59 → #84 | kit PR #84 | #84 excludes every non-participating manager (not just `KpoolTailManager`), enforces `hash_block_size % index_kpool == 0` at init, composes with `patch_hybrid_prefix_hit` both orders, and no-ops on a future image where upstream scopes the veto. Author: re-turn hit 96.4–99.4% → 99.9–100%, TTFT 0.9–4.0 s → 0.3–0.5 s. We already have the 64 grid from W18, so this needs a same-day A/B against our own numbers. | restart |
@@ -672,7 +677,7 @@ pool bytes unmoved at 14.36 GiB, no `keeping stock sizing` warning, and free mem
 sampled *after* the workspace allocation point (it may be lazy — re-measure after the
 first long prefill).
 
-**Resolution prepared locally 2026-09-04, not deployed.** The W28 overlay is
+**Resolution and guarded deployment, 2026-09-04 — ADOPTED.** The W28 overlay is
 GLM-5.3-only: the shared stock helper stays unchanged and only
 `models/glm5next/nvidia/attention.py` calls the rightsize helper with its
 authoritative `self.index_kpool`. This leaves DeepSeek-V4 and the rank-0
@@ -682,9 +687,61 @@ chunk is checked again. The kpool operator then compares the chunk with its
 actual GLM allocation immediately before gather-buffer slicing, closing the
 stock-metadata-bound versus rightsized-allocation gap. A rightsize result that
 does not narrow stock fails boot. Host tests pass against checked-in pinned
-anchors and full authoritative source from `b5ab8091-s2b`. Deployment remains
-blocked on the required reviews; the post-A/B adopt/revert decision also gets
-a CUDA-reviewer second opinion.
+anchors; disposable-container preflight also passes against the full source in
+`b5ab8091-s2b` on both target nodes. A pre-restart image preflight caught and
+corrected an SM120 anchor that had matched a separate reference tree but not
+the immutable production image.
+
+The first stock control boot at 2026-09-04 15:04Z then failed during model
+construction with `NameError: name 'os' is not defined`: the indexer helper
+read `os.environ`, but the overlay had not added `import os`. Both ranks failed
+the same way before readiness. The watchdog was already disarmed, the restart
+loop was stopped, and the timestamped pre-W28 launcher/environment rollback
+restored production at 15:19Z; acceptance passed 7/7, serving passed 6/6, and
+the watchdog was re-armed.
+
+The corrected overlay now adds `import os` through its own exact, fail-closed
+production-image anchor. The pinned fixture includes the real import header,
+host tests require the import marker, and disposable containers on both nodes
+apply the exact bytes, import the patched module, execute the mode helper in
+both `stock` and `rightsize`, and pass idempotence. The repaired candidate passed
+the renewed `final-reviewer`, then booted cleanly in both guarded arms. The
+original `NameError` did not recur.
+
+The sole A/B variable was `GLM53_INDEXER_WORKSPACE`. Image, launcher, model,
+draft configuration, pinned KV bytes, and all other environment values were
+held constant:
+
+| Receipt | stock control | rightsize arm |
+|---|---:|---:|
+| Workspace entries | 40,000,000 | 1,000,008 |
+| Workspace bytes | 5,280,000,000 | 132,001,056 |
+| Reclaimed per rank | — | 4,909.5 MiB |
+| KV pool | 15,414,698,763 B / 1,396,551 tokens | unchanged |
+| Acceptance / serving | 7/7 / 6/6 | 7/7 / 6/6 |
+| Structured median | 70.49 tok/s @ 1.0000/7.0 | 70.22 tok/s @ 1.0000/7.0 |
+| Warmed prose median | 28.58 tok/s | 28.58 tok/s |
+| Cold prefill, 60k | 1,108 tok/s | 1,111 tok/s |
+| Cold prefill, 240k | 1,009 tok/s | 1,091 tok/s (+8.1%) |
+| Retention, 2×68k | 100% | 100% |
+| Retention, 4×60k | 98.7% | 98.7% |
+
+Both arms had zero request errors/aborts, row/chunk/workspace guard trips, IMA,
+Xid, or tracebacks. Both ranks reported identical workspace receipts. Decode
+and retention were non-inferior, and the pinned KV pool did not move.
+
+The temperature-0 probes below and above `indexer_budget` produced the same
+arm-level uniqueness counts (4 below, 5 above), with no malformed output or
+runtime failure. The retained stock and rightsize scripts used different prompt
+wording and token counts, however, so this is not claimed as a byte-identical
+cross-arm determinism comparison. It was non-decision-bearing; a future strict
+comparison must reuse one saved request payload in both arms.
+
+**Decision: ADOPT `rightsize`.** Production now runs
+`GLM53_INDEXER_WORKSPACE=rightsize` with the watchdog re-armed. Rollback is the
+one-line `.env` change to `stock`; the exact stock control snapshot is retained
+as `.env.w28-stock-control-20260904T162000Z`. W28 changes no CUDA device-kernel
+source, so `final-reviewer` was the only required reviewer.
 
 ### Watchlist — new
 
@@ -1226,9 +1283,10 @@ zero-fill, if-form per the pinned header's Blackwell note).
 
 Rewritten from the running `b5ab8091-s2b` pair (boot 19:31Z, snapshot ~22:59Z),
 a CUDA-kernel review of the remaining EXL3/fat/fused surface, and a same-night
-web survey of vLLM / Sparkinfer / GB10 items. This replaces the kernel-first
-queue in `docs/11` §7 for **what to run next**. Historical S1/S2/W16–W42
-ledgers above stay as receipts.
+web survey of vLLM / Sparkinfer / GB10 items. This preserves the queue as it
+stood on 2026-09-02. Later dated closures supersede its operational status,
+including the W28 adoption recorded above. Historical S1/S2/W16–W42 ledgers
+above stay as receipts.
 
 ### Live snapshot (do not treat as idle-box numbers)
 
@@ -1253,15 +1311,18 @@ Mean request this boot: **~45.4k prompt tokens**, mean TTFT **45.5 s** (23/49 �
 
 Fat kernel: `FAT_TILE_M/K/N = 128/16/128`, 3-stage `cp.async`, 23,552 B SMEM, 2 CTAs/SM. Clean. Isolated 73.5 TFLOP/s vs a ~92 ceiling ⇒ any further fat win **≤ ~+4–5% e2e**. Stop.
 
-Remaining candidates the review would still run, in order:
+Candidate ranking from that review, with later closure status applied:
 
 1. ~~**Spec-accept recovery (not a kernel).**~~ **W44 CLOSED 2026-09-03.** Lifetime 2.55 vs bench 7.0 is production prose/thinking-on mix; structured path still 7.0/1.000. Do not chase with a kernel or k-window. Adaptive verification remains W40, not next.
-2. **W28 indexer workspace reclaim** (~5,035 MiB locked: `max_model_len × 40 × 132 B`). Candidate prepared with the reviewed fail-closed row, metadata and actual-allocation guards. Reclaim first; do not raise the pin in the same window.
+2. ~~**W28 indexer workspace reclaim**~~ — **ADOPTED 2026-09-04.**
+   The fail-closed row, metadata, actual-allocation, and production-import
+   corrections shipped; `rightsize` reclaimed 4,909.5 MiB per rank with no
+   KV-pin change.
 3. **`num_active` widening on the fused thin launch**, using the `counts_host` D2H **already paid** by the fat path. Today dispatch hardcodes `n_active_host = -1`, so `MOE_SMS_PER_EXPERT` stays 8. Overlay + stopped microbench; no rebuild. Targets the *complement* of the spent fat path.
 4. **KDA/GDN profile-first.** P0 traces (2026-08-29) already put KDA at ~6% of a 1024-token chunk. Confirm on MNBT=3584 before any Triton/CuTe work. Do not guess.
 5. **Sub-16-row fused GEMM** — decode-tail kernel, moderate risk. W44 showed the accept gap is traffic mix, so this is occupancy/GEMV work, not "fix 2.71".
 
-Explicitly **do not reopen**: more fat ISA, tail-tiles for the 128–384 band (hist is in 1024–2048), ROW_TILE / TRF≠128, dual-rail, DFLASH k=8, draft TP=2, Marlin sm121 (#49546), raising the KV pin without W28, adaptive k at **drafting**.
+Explicitly **do not reopen**: more fat ISA, tail-tiles for the 128–384 band (hist is in 1024–2048), ROW_TILE / TRF≠128, dual-rail, DFLASH k=8, draft TP=2, Marlin sm121 (#49546), treating the W28 reclaim as permission to raise the KV pin without a separate guarded window, adaptive k at **drafting**.
 
 S3 Sparkinfer `trellis3_t256` stays parked behind the existing trigger (rank-sliced microbench ≥ ~80 TFLOP/s vs 73.5). Same-night survey: b12x/#49 still SM120a / TP4 receipts, no GB10 rank-sliced number. Ceiling still ~+4–5% e2e.
 
@@ -1271,10 +1332,11 @@ S3 Sparkinfer `trellis3_t256` stays parked behind the existing trigger (rank-sli
 - **#54458** (hybrid page inflation 7808) is a different geometry; ours is 3584 and W41 already prints the honest 14-segment cap.
 - **#54831** (GLM-5.3 `tail_cache` block_size=4 blocks KV offload / LMCache) — W21 stays parked for a real reason, not laziness.
 - **#52559** graph-aware adaptive K — still W40; needs a v2-runner overlay decision. Gains reported at **high concurrency** (c128–c256); our live boot is c=1.
-- **#53798 / #54057** — still the correctness pair to bundle into the next restart.
+- **#53798 / #54057 — DEPLOYED with W28 2026-09-04.** The production-image
+  anchor and import corrections are included in the adopted overlay set.
 - Spark blog / llama.cpp fp8-KV warnings do **not** transfer: we run packed `fp8_ds_mla` because MLA needs it, not software-dequant q8_0. Recorded tension, not a window.
 
-### Rewritten A/B queue
+### Historical rewritten A/B queue (W28 status updated)
 
 Protocol unchanged: disarm the **timer**, then wait for any in-flight `watchdog.service` to go inactive before stopping the unit (S2b incident); `reset-failed`; `local/prod-start.sh` only; `POST /reset_prefix_cache` for cold-cache rounds; bench only after ActiveState=active **and** warmup sweep finished; log-audit POST overlap on decode passes; both-node MemFree tripwire on any memory-touching restart.
 
@@ -1294,18 +1356,20 @@ Protocol unchanged: disarm the **timer**, then wait for any in-flight `watchdog.
 | W29r | confirming repeat | Long-ctx ladder past ~325k. One sample at 415k/518k showed accept 0.909/0.888. | Second ladder. Acceptance is the metric; ignore first-row tok/s (fault-in). |
 | F0x | measurement | Extend F0 195k → 325–400k (compaction lives at 300k). | Informational; pairs with W29r. |
 
-#### Next restart (one JIT wipe; bundle correctness)
+#### Next restart after W28
 
-W43 (`MAX_NUM_SEQS` 4→8) is **no longer automatic-next**. This boot never queued. The restart we do take still **must** carry #53798 + #54057 (mamba resume divisor; sparse-MLA `masked_mha_available`) — they are cheap, hybrid-crash-class, and the wipe is already paid by any shape-hash change.
+W43 (`MAX_NUM_SEQS` 4→8) is **not automatic-next**. The observed W28 window
+never queued. #53798 + #54057 (mamba resume divisor; sparse-MLA
+`masked_mha_available`) are already deployed and remain in both workspace
+modes; do not schedule another restart to install them.
 
-**Pick one decision variable for that restart, not both:**
+For a future restart:
 
 - Capacity waits (`waiting>0` / reason=capacity) since this rewrite →
   **W43** (seqs 4→8, capture 40 48 56 64). Memory tripwire both nodes.
-- Else (tonight's shape: one long session) → land the **W28 Codex
-  fixes**, then **W28** indexer right-size (reclaim first; pin raise
-  **never in the same window**).
-- Either way: commit the 608-combination align-floor unit test **before**
+- Otherwise, do not repeat W28; select a later candidate only with its own
+  pre-registered decision variable and rollback.
+- Commit the 608-combination align-floor unit test **before**
   A3. A3 itself (LPTT ≥ 3584, prove the floor acts) stays after this
   restart.
 
@@ -1372,10 +1436,10 @@ structured/prose trade k=8 already lost on (−9.1% prose). Adaptive
 path, and it is still W40 (v2-runner decision; GB10 #49548 is the
 counter-evidence at high concurrency). Not next.
 
-**Queue after W44:** idle-box s2b re-bench is unblocked on *traffic* (box
-was idle, si=0); Swap 6.5 GiB parked means the **first** pass may still
-read low — run to convergence. Else the next restart is still W28 Codex
-fixes then indexer reclaim, unless capacity waits appear (then W43).
+**Queue after W44 (historical, now superseded):** the idle-box s2b re-bench
+and W28 were subsequently completed on 2026-09-04. W28's corrected
+`rightsize` arm is production; do not repeat this restart instruction.
+W43 remains conditional on observed capacity waits.
 
 ## 2026-09-04: M0′ idle-box s2b re-bench + Window A soak — NEED-MORE-DATA (second opinion)
 

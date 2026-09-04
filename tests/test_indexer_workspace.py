@@ -343,6 +343,7 @@ def test_apply_preflight_idempotence_and_glm_scope() -> None:
             ),),
         )
         # The generic helper remains stock. Only the GLM call site opts in.
+        assert P.MARK_IMPORT in patched_indexer
         assert P.ANCHOR_HELPERS in patched_indexer
         assert "_glm53_glm5next_workspace_entries(" in patched_glm
         assert "role=target rank=%d mode=rightsize" in patched_indexer
@@ -409,6 +410,11 @@ def test_runtime_operator_uses_actual_glm_allocation_bound() -> None:
 
 def test_each_anchor_drift_fails_without_writing_any_file() -> None:
     drifts = (
+        (
+            "indexer",
+            "from dataclasses import dataclass\n\nimport torch",
+            "from dataclasses import dataclass\n\nimport sys\nimport torch",
+        ),
         ("indexer", "return max_model_len * 40", "return max_model_len * 48"),
         ("indexer", "if end == start:", "if end <= start:"),
         ("indexer", "chunks.append(metadata)", "chunks += [metadata]"),
@@ -471,6 +477,7 @@ def test_pinned_container_sources_apply() -> None:
         kpool.write_text(kpool_src.read_text())
         result = run_patch(indexer, glm, kpool)
         assert result.returncode == 0, result.stderr
+        assert P.MARK_IMPORT in indexer.read_text()
         compile(indexer.read_text(), str(indexer), "exec")
         compile(glm.read_text(), str(glm), "exec")
         compile(kpool.read_text(), str(kpool), "exec")

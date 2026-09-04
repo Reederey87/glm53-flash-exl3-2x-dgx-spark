@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
+import torch
+
 
 def split_indexer_prefill_chunks(
     seq_lens_cpu,

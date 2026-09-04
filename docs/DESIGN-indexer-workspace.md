@@ -142,19 +142,18 @@ The port:
 ### vLLM #54057
 
 `FlashInferMLASparseSM120Impl` is sparse-MQA-only, but the generic prefill
-dispatcher reads `masked_mha_available` for sparse implementations. The pinned
-SM120 class defines neither that flag nor an explicit dense-prefill capability.
+dispatcher reads `masked_mha_available` for sparse implementations. The
+production image defines `supports_dense_mha_prefill = False`, but does not
+define `masked_mha_available`.
 
-W28 declares:
+W28 preserves the existing dense-prefill disablement and adds:
 
 ```python
-supports_dense_mha_prefill = False
 masked_mha_available = False
 ```
 
-next to the existing `is_sparse` capability flag. The overlay anchor matches
-the deployed preview, not the later upstream file that already contains the
-dense-prefill flag.
+next to the existing `is_sparse` and `supports_dense_mha_prefill` capability
+flags. The overlay anchor matches the immutable production image bytes.
 
 ## Activation and rollback
 
@@ -183,13 +182,15 @@ Before any cluster A/B:
 1. Host tests pass against checked-in anchor snapshots from the pinned
    production source. Optional environment overrides can re-run the same tests
    against full container-source copies.
-2. `bash -n start.sh` passes.
-3. Full repository tests and lint pass.
-4. `cuda-kernel-reviewer` reviews the complete candidate, including the
-   Python-to-GPU gather safety contract.
+2. Disposable containers from the immutable production image apply the exact
+   overlays on both nodes, import the patched indexer module, and execute
+   `_glm53_workspace_mode()` in both `stock` and `rightsize`.
+3. `bash -n start.sh` passes.
+4. Full repository tests and lint pass.
 5. `final-reviewer` approves the complete candidate change-set.
 
-No deployment occurs before both reviews.
+No cluster A/B begins before these checks and final review. No publication or
+production adoption occurs before the guarded stock/rightsize cluster receipts.
 
 ## Restart protocol
 
@@ -230,5 +231,40 @@ Required receipts:
 - prefill and decode show no unexplained regression beyond the pre-registered
   non-inferiority bounds.
 
-After the A/B, `cuda-kernel-reviewer` provides a second opinion on adopt versus
-revert before the production decision is finalized.
+After the A/B, finalize adopt versus revert from the guarded cluster receipts.
+W28 changes no CUDA device-kernel source, so no `cuda-kernel-reviewer` pass is
+required.
+
+## Final result (2026-09-04)
+
+**ADOPT `rightsize`.** The guarded stock/rightsize window used the same immutable
+image, launcher, KV pin, model geometry, and draft configuration. Both ranks
+reported the same allocation in each arm:
+
+| Receipt | stock | rightsize |
+|---|---:|---:|
+| Entries | 40,000,000 | 1,000,008 |
+| Bytes | 5,280,000,000 | 132,001,056 |
+| Reclaim | — | 4,909.5 MiB per rank |
+| KV pool | 15,414,698,763 B / 1,396,551 tokens | unchanged |
+| Structured decode | 70.49 tok/s, 1.0000/7.0 | 70.22 tok/s, 1.0000/7.0 |
+| Warmed prose | 28.58 tok/s | 28.58 tok/s |
+| Cold prefill, 60k | 1,108 tok/s | 1,111 tok/s |
+| Cold prefill, 240k | 1,009 tok/s | 1,091 tok/s |
+| Retention, 2×68k / 4×60k | 100% / 98.7% | 100% / 98.7% |
+
+Acceptance was 7/7 and serving was 6/6 in both arms. No request error/abort,
+guard trip, IMA, Xid, or traceback occurred. Rightsize matched decode and cache
+retention while improving the 240k cold-prefill receipt by 8.1%. The KV pin
+remains unchanged; the reclaimed allocation is retained as device-memory
+headroom.
+
+The below/above-budget temperature-0 probes were clean in both arms and produced
+matching uniqueness counts, but the saved scripts did not use byte-identical
+prompts. They therefore establish arm-local execution coverage only, not a
+strict cross-arm determinism comparison. This limitation did not affect the
+adoption decision.
+
+Production runs `GLM53_INDEXER_WORKSPACE=rightsize`. Rollback remains the
+one-line change to `stock`; `.env.w28-stock-control-20260904T162000Z` preserves
+the exact control environment.
