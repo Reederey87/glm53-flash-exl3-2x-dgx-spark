@@ -1443,3 +1443,60 @@ the pinned 1,396,551.
    counter delta over any 10-min window with traffic present.
 4. Fix spark2 mDNS resolution; capture worker MemFree pre/post soak.
 5. Usage-metric root cause (above).
+
+## 2026-09-04: W29r confirming repeat + F0x ladder — W29 CLOSED (CONFIRMED, second opinion)
+
+Repeat of the W29 ladder on the standing `b5ab8091-s2b` boot, no restart:
+`local/f0-longctx-probe.py --ctx 150000 250000 320000 400000
+--gen-tokens 300 --seed 20260904` (generator overshoots ~1.3× as before;
+warmup max_tokens=1 then one prose + one structured per point; acceptance
+from per-request spec counter deltas). Receipt
+`local/w29r-f0x-20260904.txt`. Pre/post idle 0.0/0.0, preemptions 0,
+head MemFree 4292380 → 4483820 kB (above the 3.0 tripwire). Verdicts are
+the **cuda-reviewer second opinion** (numbers-only).
+
+### Structured acceptance, original → repeat
+
+| Actual ctx | W29 | W29r | Read |
+|---|---|---|---|
+| ~195k | 0.978 / 6.85 | 0.978 / 6.85 | exact replication |
+| ~324k | 0.971 / 6.79 | 0.978 / 6.85 | repeat lands on the plateau; original 0.971 was edge noise |
+| ~415k | 0.909 / 6.36 | 0.945 / 6.62 | both below plateau; magnitude differs |
+| ~519k | 0.888 / 6.21 | 0.946 / 6.62 | both below plateau; repeat ≈ its own 415k (saturate, not slide) |
+
+**Verdict: CONFIRMED (direction + plateau boundary; magnitude unsettled).**
+Both ladders agree the 0.978/6.85 plateau holds through ~324k and step down
+at ~415k. Tail shape reproduces (positions 1–2 hold 1.00/0.97 everywhere;
+decay concentrates in positions 5–7 past 325k). The repeat's 415k ≈ 519k
+suggests step-and-saturate near ~0.94–0.95 rather than the original's
+continued slide to 0.888 — the burden of proof now sits on the monotonic
+reading. **W29 is CLOSED** as CONFIRMED with the ≥415k floor recorded as
+0.89–0.95 (unsettled). No third ladder: refining the slope in a region
+production avoids (compaction at 300k) buys nothing.
+
+### F0x informational
+
+- Prose acceptance 0.280/0.410/0.253/0.307 shows no context trend — the
+  prose-vs-structured drafting asymmetry, not decay. Correctly out of scope.
+- 519k structured decode **31.3 tok/s at intact 6.62/step** vs 65–71 below
+  → per-step latency scaling with KV length (attention/MLA over ~519k of
+  fp8_ds_mla KV + drafter-KV rescan), not a drafting confound. Prefill
+  corroborates health: 519k cold in 507 s ≈ 1024 tok/s, inside the
+  985–1083 band of the other three points. Exact curve unsettled (single
+  sample; 2.2× for +25% ctx is steeper than naive linear).
+- The four warmup→prose log gaps match cold prefills at 985–1083 tok/s —
+  each point was genuinely cold (a cache hit would be tens of seconds).
+
+### Log-audit veto: PASS
+
+12 POSTs observed, 12 expected, all 127.0.0.1. Every interval accounts:
+warmup→prose = cold prefill walls; prose→structured = 300 tok at measured
+prose rates; structured→next-warmup = 300 tok at ~65–71 tok/s. No foreign
+traffic, no unexplained gap.
+
+### Practical consequence
+
+300k compaction stands (324k replicated at the plateau ceiling — do not
+lower it). 400k+ sessions pay a ~3–4% drafting tax and, dominating,
+structured decode ~31 tok/s at ~519k. Compaction or a fresh session remains
+the remedy; the 1M-window serving contract is unchanged.
