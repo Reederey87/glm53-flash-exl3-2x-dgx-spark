@@ -216,6 +216,102 @@ re-armed. Receipts: `local/t1-template-offline-20260905.json`,
 `local/t1-runtime-candidate-20260905.json` and
 `local/t1-cluster-audit-20260905.txt`.
 
+### 2026-09-05: C1/C2 policy and capacity window — both chunk arms rejected, C4 retained
+
+Tasks 2 and 3 were run together because the mixed-prefill decision and the
+admission decision share the same current W26/W28 geometry. Two committed
+harnesses close the measurement gaps:
+
+- `tests/bench_mixed_prefill.py` starts a fixed incumbent decode, launches a
+  cold newcomer two seconds later, samples the queue, and records newcomer TTFT,
+  token-ID-counted incumbent decode plus client token-arrival gaps during the
+  overlap, aggregate generation-counter throughput, preemptions and request
+  IDs. Streamed token IDs preserve multi-token speculative batches (observed
+  maximum: 8 tokens/event); the gap calculation keeps leading/trailing boundary
+  stalls and represents same-event tokens with zero client-arrival gap.
+- `tests/bench_kv_request_cost.py` samples live
+  `vllm:kv_cache_usage_perc` during one request at a time and converts the peak
+  through the boot-reported 1,396,551-token pool. It records the raw gauge
+  samples, prompt size, excess occupancy and a descriptive linear fit.
+
+The first cluster smoke caught and fixed a prompt-generator calibration error
+before the window: nominal 9.5k/2k prompts had rendered as 13.5k/2.7k. The
+final exact harness bytes produced 9,725 and 1,931 tokens in their smoke cells;
+SHA256 was
+`f7c14e7af3f2f4dd19184844355b7320e3c339802ecd7184c109e201a709239c`
+for C1 and
+`ac9e6f2c098d5ba6a69c2afedbfcafff6489a2bc42ef615a64086c8ce1766b60`
+for C2 on both the Mac and spark1.
+
+#### C1: `skip` stays
+
+Control `skip`, candidate `512`, then candidate `2048` ran as isolated guarded
+restarts. LPTT=1792, MNBT=3584, wait=1500 ms, warm tail=3584, late cap=512,
+aging=10000 ms/max=1792, image/model/pool and every other knob stayed fixed.
+Both ranks' container environments were verified after each restart and the
+shape stamp stayed `91fbe73a55b2590a3009762603dff284`; no JIT wipe occurred.
+The `2048` policy is therefore still bounded by LPTT=1792, as intended.
+
+The pre-registered 100-request tail expansion was not run after either
+candidate failed mandatory non-tail gates in the five-sample screen:
+
+| nominal newcomer | arm | newcomer p95 | vs control | incumbent token-rate ratio median | vs control | token-arrival gap p99 | aggregate median | preemptions |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| 9.5k (9,725–9,727 actual) | `skip` | 13.664 s | — | 0.220 | — | 1.576 s | 8.847 tok/s | 0 |
+| | `512` | 12.412 s | −9.2% | 0.201 | **−8.6%** | 1.653 s (+4.9%) | **−19.4%** | 0 |
+| | `2048` | 10.051 s | **−26.4%** | 0.107 | **−51.4%** | **1.842 s (+16.9%)** | **−24.4%** | 0 |
+| 38k (36,077–39,976 actual) | `skip` | 43.477 s | — | 0.101 | — | 1.758 s | 4.211 tok/s | 0 |
+| | `512` | 55.397 s | **+27.4% worse** | 0.156 | +54.5% | 1.213 s | +22.0% | 0 |
+| | `2048` | 39.551 s | −9.0% | 0.077 | **−23.8%** | 1.752 s (−0.3%) | **−20.4%** | 0 |
+
+`512` misses the required 20% newcomer gain at 9.5k, makes 38k newcomer p95
+worse, and breaches the incumbent/aggregate floors at 9.5k. `2048` reaches the
+9.5k newcomer target but breaches incumbent, token-arrival-gap and aggregate
+floors by large margins; at 38k it misses the newcomer target and also breaches
+incumbent and aggregate gates. **Both candidates are rejected; W26 v3 `skip`
+remains production.** The C4/short-behind-240k expansion cannot rescue a
+candidate that already fails these mandatory primary cells, so it was stopped
+rather than manufacturing small-tail precision for a settled decision.
+
+#### C2: retain `MAX_NUM_SEQS=4`
+
+The single-request occupancy probe ran three times each at nominal
+2k/9k/30k/70k. Median measured prompt/peak-pool/excess values were:
+
+| nominal | actual prompt | estimated peak pool tokens | excess over prompt |
+|---|---:|---:|---:|
+| 2k | 1,931 | 167,784 | 165,853 |
+| 9k | 9,206 | 249,208 | 240,002 |
+| 30k | 30,296 | 261,545 | 231,250 |
+| 70k | 71,315 | 291,154 | 219,839 |
+
+The descriptive fit was intercept 204,209, slope 1.35 and R² 0.65; page
+quantization makes the line too weak to treat as a precise allocator model.
+The direct observations are nevertheless enough for the decision: this stack
+does **not** reproduce the imported 85k–90k fixed-cost premise that would have
+triggered a 4→3 arm.
+
+The required current-control capacity check then completed 4×60k×3 with zero
+errors and zero preemptions. After the cold 43.8 tok/s pass, warm/rerun
+aggregate throughput was 63.4–66.3 tok/s, cache-hit ratio 1.000 and TTFT p95
+0.915–0.956 s. A cache-reset 4×60k×3 retention run was 0% cold then **98.7%**
+counter hits on rounds 2 and 3, with zero errors. No `MAX_NUM_SEQS=3` restart
+was justified; **`MAX_NUM_SEQS=4` remains production.**
+
+The byte-exact control `.env`
+`6e7a206ec05be1cf624df167128470a313d12566b744e1f542808373aaf0983a`
+was restored through the guarded unit. Final gates passed: acceptance 7/7,
+serving 6/6, tool calls 23/23 with zero blank arguments, and the long-form /
+thinking-SSE runtime probe with zero failures. Final metrics were
+running=0, waiting=0, preemptions=0; selected head/worker runtime errors and
+kernel Xids were zero; MemFree was 4,522,944 / 3,596,744 kB. The watchdog was
+re-armed. Receipts:
+`local/c1-{skip-token-control,chunk512-token-screen,chunk2048-token-screen}-20260905.json`,
+`local/c2-fixed-kv-final-20260905.json`,
+`local/c2-c4-60k-control-20260905.json`,
+`local/c2-cache-burst-control-cold-20260905.txt` and
+`local/c1c2-token-restored-runtime-20260905.json`.
+
 ```bash
 GLM53_BASE=http://127.0.0.1:8000 uv run python tests/bench_concurrency.py \
   --levels 1,2,3,4 --modes code,data,chat --ctx 0,60000 --reps 3 \
@@ -223,9 +319,9 @@ GLM53_BASE=http://127.0.0.1:8000 uv run python tests/bench_concurrency.py \
 ```
 
 For a future C4 tail decision, `--levels 4 --reps 25` yields 100 measured
-requests per mode/context cell before any spread-triggered rerun. C1 still
-needs its dedicated incumbent/newcomer arrival harness; this ladder is the
-concurrency baseline and audit substrate, not a substitute for that workload.
+requests per mode/context cell before any spread-triggered rerun. C1 now has
+its dedicated incumbent/newcomer harness; this ladder remains the general
+concurrency baseline and audit substrate.
 
 **W44 CLOSED 2026-09-03:** the 2.71 lifetime spec-accept vs bench 6.88 is
 **traffic mix, not a broken drafter.** Same-boot no-store four-arm: structured
