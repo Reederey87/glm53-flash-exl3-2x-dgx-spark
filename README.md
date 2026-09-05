@@ -149,7 +149,9 @@ Key local hardening, all marked `# LOCAL:` in-file: **loopback bind hardcoded**
 with `ss -ltn | grep 8000` after any update), **KV pool pinned to the byte** (never
 raise it — `docs/02`), and **`MAX_NUM_BATCHED_TOKENS` = the 3,584-token page size
 with async scheduling OFF** — get either wrong and cache hits silently read 0%
-(`docs/04`).
+(`docs/04`). Patch installers run under `python3 -S` so a persisted `.pth` import
+hook cannot re-enter later installers, and the API bearer credential is passed
+only to rank 0, never to the headless worker.
 
 ## Quickstart
 
@@ -165,6 +167,18 @@ local/acceptance.sh         # 7 checks: tools, thinking, vision, long-context ne
 
 Then install the units in `local/` (`systemctl --user enable ...`) so the pair
 survives reboots and heals itself. Full drill: `docs/03-bringup.md`.
+
+**Shared-head starting point.** The production 1M profile assumes a dedicated,
+headless Spark. If the head also runs a desktop, IDE, agents, or other memory
+consumers, start conservatively at `GPU_MEM_UTIL=0.78`,
+`MAX_MODEL_LEN=262144`, `GLM53_INDEXER_WORKSPACE=rightsize`,
+`MAX_NUM_BATCHED_TOKENS=2048`, and
+`CG_ESTIMATE=0`. Treat that as a bring-up baseline, not a performance
+recommendation. Lowering `GPU_MEM_UTIL` changes only the boot gate when
+`KV_CACHE_MEMORY_BYTES` is pinned; it does not shrink the KV allocation. Watch
+CUDA device-free/host `MemFree`, then raise one dimension at a time.
+`MemAvailable` and `nvidia-smi` are not reliable admission signals on unified
+memory.
 
 This release is reproduce-tested: this exact tree was rebuilt on the production head
 and booted **as production**, passing acceptance 7/7, serving 6/6, a byte-identical

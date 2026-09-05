@@ -182,7 +182,7 @@ def test_recipe_wiring_if_present() -> None:
     launcher = start.read_text()
     image = dockerfile.read_text()
     assert 'KPOOL_TAIL_PATCH_HOST="${KPOOL_TAIL_PATCH_HOST:-' in launcher
-    assert launcher.count("python3 /opt/glm53/patch_kpool_tail_slotmap.py") == 2
+    assert launcher.count("python3 -S /opt/glm53/patch_kpool_tail_slotmap.py") == 2
     assert (
         "-v '/tmp/patch_kpool_tail_slotmap.py:"
         "/opt/glm53/patch_kpool_tail_slotmap.py:ro'" in launcher

@@ -58,3 +58,29 @@ Check `--no-async-scheduling` is present before touching the pin or max-len.
 `tests/bench_decode.py`'s coherence probe marks "9.9 vs 9.11" wrong even when the
 model answers correctly ("9.9 is greater") — string-match artifact, not a model
 regression. Read the text, not just the flag.
+
+## 5. GB10 unified-memory livelock: health and `nvidia-smi` can mislead
+
+On Grace Blackwell, a driver/unified-memory livelock can leave `/health` at 200
+or make `nvidia-smi` look merely stale while CUDA work no longer completes. The
+watchdog's pending-token progress check covers a wedged serving request, but it
+does not prove the CUDA runtime itself can still launch work.
+
+**Prevent it:** keep both nodes symmetric, preserve the `MemFree` tripwire, never
+raise the pinned KV reservation, and avoid reclaim shocks such as `swapoff` or
+starting the engine while desktop/IDE workloads are consuming the shared head.
+Use host `MemFree` and a CUDA device-free probe for admission, not
+`MemAvailable`.
+
+**Detect it:** while requests are pending, alert if prompt plus generation token
+counters stop advancing even though `/health` is 200. Confirm with a bounded
+CUDA matrix multiply in an isolated helper process. If the matmul times out
+while SSH and host commands still work, classify it as a CUDA/driver stall, not
+an API-only failure. Record both nodes' kernel logs and Xid monitor state before
+recovery.
+
+**Recover it:** stop the user unit and containers through the guarded procedure.
+If bounded CUDA work still cannot launch after the containers are gone, a warm
+service restart is not evidence of recovery. Preserve diagnostics and cold
+power-cycle both nodes together when the driver remains stuck. Never automate a
+bounce for Xid/off-the-bus classes.

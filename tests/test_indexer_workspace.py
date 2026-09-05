@@ -489,7 +489,7 @@ def test_recipe_wiring() -> None:
     assert '_glm53_cli_indexer_workspace_set="${GLM53_INDEXER_WORKSPACE+a}"' in start
     assert 'GLM53_INDEXER_WORKSPACE="${GLM53_INDEXER_WORKSPACE-stock}"' in start
     assert "GLM53_INDEXER_WORKSPACE must be exactly one of: stock rightsize" in start
-    assert start.count("python3 /opt/glm53/patch_indexer_workspace.py") == 2
+    assert start.count("python3 -S /opt/glm53/patch_indexer_workspace.py") == 2
     assert start.count(
         "-v \"$INDEXER_WORKSPACE_PATCH_HOST:"
         "/opt/glm53/patch_indexer_workspace.py:ro\""

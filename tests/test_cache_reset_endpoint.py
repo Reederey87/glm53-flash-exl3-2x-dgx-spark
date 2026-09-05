@@ -211,7 +211,7 @@ def test_recipe_wiring_if_present() -> None:
     assert 'GLM53_EXPOSE_CACHE_RESET="${GLM53_EXPOSE_CACHE_RESET:-1}"' in launcher
     # forwarded through the shared container env block (head + worker)
     assert '-e "GLM53_EXPOSE_CACHE_RESET=$GLM53_EXPOSE_CACHE_RESET"' in launcher
-    assert launcher.count("python3 /opt/glm53/patch_cache_reset.py") == 2
+    assert launcher.count("python3 -S /opt/glm53/patch_cache_reset.py") == 2
     assert (
         "-v '/tmp/patch_cache_reset.py:"
         "/opt/glm53/patch_cache_reset.py:ro'" in launcher

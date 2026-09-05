@@ -182,7 +182,7 @@ def test_pinned_container_sources_apply() -> None:
 
 def test_recipe_wiring() -> None:
     start = (ROOT / "start.sh").read_text()
-    assert start.count("python3 /opt/glm53/patch_w28_correctness.py") == 2
+    assert start.count("python3 -S /opt/glm53/patch_w28_correctness.py") == 2
     assert start.count(
         "-v \"$W28_CORRECTNESS_PATCH_HOST:"
         "/opt/glm53/patch_w28_correctness.py:ro\""

@@ -242,6 +242,7 @@ APC_NO_STORE_PATCH_HOST="${APC_NO_STORE_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_ap
 # LOCAL: W28 GLM-only indexer-workspace reclaim + bundled correctness backports
 INDEXER_WORKSPACE_PATCH_HOST="${INDEXER_WORKSPACE_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_indexer_workspace.py}"
 W28_CORRECTNESS_PATCH_HOST="${W28_CORRECTNESS_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_w28_correctness.py}"
+MAMBA_NULL_GAP_PATCH_HOST="${MAMBA_NULL_GAP_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_mamba_null_gap_retirement.py}"
 KV_CACHE_DTYPE="${KV_CACHE_DTYPE:-fp8}"
 QUANTIZATION="${QUANTIZATION:-exl3}"
 LANGUAGE_MODEL_ONLY="${LANGUAGE_MODEL_ONLY:-0}"
@@ -1108,55 +1109,58 @@ fi
 
 [ -f "${MODEL_DIR}/config.json" ] || { say "FATAL: ${MODEL_DIR}/config.json missing"; ls -la "${MODEL_DIR}" | head; exit 1; }
 if [ -f /opt/glm53/patch_glm_video_placeholders.py ]; then
-    python3 /opt/glm53/patch_glm_video_placeholders.py
+    python3 -S /opt/glm53/patch_glm_video_placeholders.py
 fi
 if [ -f /opt/glm53/patch_suppress_stops_in_reasoning.py ]; then
-    python3 /opt/glm53/patch_suppress_stops_in_reasoning.py
+    python3 -S /opt/glm53/patch_suppress_stops_in_reasoning.py
 fi
 if [ -f /opt/glm53/patch_scheduler_decode_floor.py ]; then
-    python3 /opt/glm53/patch_scheduler_decode_floor.py
+    python3 -S /opt/glm53/patch_scheduler_decode_floor.py
 fi
 if [ -f /opt/glm53/patch_glm5_drafter_group.py ]; then
-    python3 /opt/glm53/patch_glm5_drafter_group.py
+    python3 -S /opt/glm53/patch_glm5_drafter_group.py
 fi
 if [ -f /opt/glm53/patch_hybrid_prefix_hit.py ]; then
-    python3 /opt/glm53/patch_hybrid_prefix_hit.py
+    python3 -S /opt/glm53/patch_hybrid_prefix_hit.py
 fi
 if [ -f /opt/glm53/patch_apc_per_group_retention.py ]; then  # LOCAL: W25
-    python3 /opt/glm53/patch_apc_per_group_retention.py
+    python3 -S /opt/glm53/patch_apc_per_group_retention.py
 fi
 if [ -f /opt/glm53/patch_xgrammar_termination.py ]; then
-    python3 /opt/glm53/patch_xgrammar_termination.py
+    python3 -S /opt/glm53/patch_xgrammar_termination.py
 fi
 if [ -f /opt/glm53/patch_cache_reset.py ]; then
-    python3 /opt/glm53/patch_cache_reset.py
+    python3 -S /opt/glm53/patch_cache_reset.py
 fi
 if [ -f /opt/glm53/patch_router_gemm_gb10.py ]; then
-    python3 /opt/glm53/patch_router_gemm_gb10.py
+    python3 -S /opt/glm53/patch_router_gemm_gb10.py
 fi
 if [ -f /opt/glm53/patch_kpool_tail_slotmap.py ]; then
-    python3 /opt/glm53/patch_kpool_tail_slotmap.py
+    python3 -S /opt/glm53/patch_kpool_tail_slotmap.py
 fi
 if [ -f /opt/glm53/patch_spinwait_gb10.py ]; then
-    python3 /opt/glm53/patch_spinwait_gb10.py
+    python3 -S /opt/glm53/patch_spinwait_gb10.py
 fi
 if [ -f /opt/glm53/patch_fine_grained_apc.py ]; then
-    python3 /opt/glm53/patch_fine_grained_apc.py
+    python3 -S /opt/glm53/patch_fine_grained_apc.py
 fi
 if [ -f /opt/glm53/patch_align_floor.py ]; then
-    python3 /opt/glm53/patch_align_floor.py
+    python3 -S /opt/glm53/patch_align_floor.py
 fi
 if [ -f /opt/glm53/patch_kv_capacity_log.py ]; then  # LOCAL: W41 (after patch_hybrid_prefix_hit.py)
-    python3 /opt/glm53/patch_kv_capacity_log.py
+    python3 -S /opt/glm53/patch_kv_capacity_log.py
 fi
 if [ -f /opt/glm53/patch_apc_no_store.py ]; then  # LOCAL: W42
-    python3 /opt/glm53/patch_apc_no_store.py
+    python3 -S /opt/glm53/patch_apc_no_store.py
 fi
 if [ -f /opt/glm53/patch_w28_correctness.py ]; then  # LOCAL: W28 correctness first
-    python3 /opt/glm53/patch_w28_correctness.py
+    python3 -S /opt/glm53/patch_w28_correctness.py
 fi
 if [ -f /opt/glm53/patch_indexer_workspace.py ]; then  # LOCAL: W28 decision variable
-    python3 /opt/glm53/patch_indexer_workspace.py
+    python3 -S /opt/glm53/patch_indexer_workspace.py
+fi
+if [ -f /opt/glm53/patch_mamba_null_gap_retirement.py ]; then
+    python3 -S /opt/glm53/patch_mamba_null_gap_retirement.py
 fi
 say "launching: vllm serve ${MODEL_DIR} ${ARGS[*]}"
 exec vllm serve "${MODEL_DIR}" "${ARGS[@]}"
@@ -1238,55 +1242,58 @@ fi
 
 [ -f "${MODEL_DIR}/config.json" ] || { say "FATAL: ${MODEL_DIR}/config.json missing"; ls -la "${MODEL_DIR}" | head; exit 1; }
 if [ -f /opt/glm53/patch_glm_video_placeholders.py ]; then
-    python3 /opt/glm53/patch_glm_video_placeholders.py
+    python3 -S /opt/glm53/patch_glm_video_placeholders.py
 fi
 if [ -f /opt/glm53/patch_suppress_stops_in_reasoning.py ]; then
-    python3 /opt/glm53/patch_suppress_stops_in_reasoning.py
+    python3 -S /opt/glm53/patch_suppress_stops_in_reasoning.py
 fi
 if [ -f /opt/glm53/patch_scheduler_decode_floor.py ]; then
-    python3 /opt/glm53/patch_scheduler_decode_floor.py
+    python3 -S /opt/glm53/patch_scheduler_decode_floor.py
 fi
 if [ -f /opt/glm53/patch_glm5_drafter_group.py ]; then
-    python3 /opt/glm53/patch_glm5_drafter_group.py
+    python3 -S /opt/glm53/patch_glm5_drafter_group.py
 fi
 if [ -f /opt/glm53/patch_hybrid_prefix_hit.py ]; then
-    python3 /opt/glm53/patch_hybrid_prefix_hit.py
+    python3 -S /opt/glm53/patch_hybrid_prefix_hit.py
 fi
 if [ -f /opt/glm53/patch_apc_per_group_retention.py ]; then  # LOCAL: W25
-    python3 /opt/glm53/patch_apc_per_group_retention.py
+    python3 -S /opt/glm53/patch_apc_per_group_retention.py
 fi
 if [ -f /opt/glm53/patch_xgrammar_termination.py ]; then
-    python3 /opt/glm53/patch_xgrammar_termination.py
+    python3 -S /opt/glm53/patch_xgrammar_termination.py
 fi
 if [ -f /opt/glm53/patch_cache_reset.py ]; then
-    python3 /opt/glm53/patch_cache_reset.py
+    python3 -S /opt/glm53/patch_cache_reset.py
 fi
 if [ -f /opt/glm53/patch_router_gemm_gb10.py ]; then
-    python3 /opt/glm53/patch_router_gemm_gb10.py
+    python3 -S /opt/glm53/patch_router_gemm_gb10.py
 fi
 if [ -f /opt/glm53/patch_kpool_tail_slotmap.py ]; then
-    python3 /opt/glm53/patch_kpool_tail_slotmap.py
+    python3 -S /opt/glm53/patch_kpool_tail_slotmap.py
 fi
 if [ -f /opt/glm53/patch_spinwait_gb10.py ]; then
-    python3 /opt/glm53/patch_spinwait_gb10.py
+    python3 -S /opt/glm53/patch_spinwait_gb10.py
 fi
 if [ -f /opt/glm53/patch_fine_grained_apc.py ]; then
-    python3 /opt/glm53/patch_fine_grained_apc.py
+    python3 -S /opt/glm53/patch_fine_grained_apc.py
 fi
 if [ -f /opt/glm53/patch_align_floor.py ]; then
-    python3 /opt/glm53/patch_align_floor.py
+    python3 -S /opt/glm53/patch_align_floor.py
 fi
 if [ -f /opt/glm53/patch_kv_capacity_log.py ]; then  # LOCAL: W41 (after patch_hybrid_prefix_hit.py)
-    python3 /opt/glm53/patch_kv_capacity_log.py
+    python3 -S /opt/glm53/patch_kv_capacity_log.py
 fi
 if [ -f /opt/glm53/patch_apc_no_store.py ]; then  # LOCAL: W42
-    python3 /opt/glm53/patch_apc_no_store.py
+    python3 -S /opt/glm53/patch_apc_no_store.py
 fi
 if [ -f /opt/glm53/patch_w28_correctness.py ]; then  # LOCAL: W28 correctness first
-    python3 /opt/glm53/patch_w28_correctness.py
+    python3 -S /opt/glm53/patch_w28_correctness.py
 fi
 if [ -f /opt/glm53/patch_indexer_workspace.py ]; then  # LOCAL: W28 decision variable
-    python3 /opt/glm53/patch_indexer_workspace.py
+    python3 -S /opt/glm53/patch_indexer_workspace.py
+fi
+if [ -f /opt/glm53/patch_mamba_null_gap_retirement.py ]; then
+    python3 -S /opt/glm53/patch_mamba_null_gap_retirement.py
 fi
 say "joining TP2 at ${HEAD_IP}:${MASTER_PORT} as rank 1"
 exec vllm serve "${MODEL_DIR}" "${ARGS[@]}"
@@ -1338,6 +1345,8 @@ launch_cluster() {
     scp -q -o BatchMode=yes "$W28_CORRECTNESS_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_w28_correctness.py"
     [ -f "$INDEXER_WORKSPACE_PATCH_HOST" ] || die "missing $INDEXER_WORKSPACE_PATCH_HOST"  # LOCAL: W28
     scp -q -o BatchMode=yes "$INDEXER_WORKSPACE_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_indexer_workspace.py"
+    [ -f "$MAMBA_NULL_GAP_PATCH_HOST" ] || die "missing $MAMBA_NULL_GAP_PATCH_HOST"
+    scp -q -o BatchMode=yes "$MAMBA_NULL_GAP_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_mamba_null_gap_retirement.py"
 
 
     local -a nccl_common=(
@@ -1446,12 +1455,8 @@ launch_cluster() {
              LIMIT_MM CHAT_TEMPLATE ENFORCE_EAGER EXL3_FUSED_MOE EXL3_MOE_ROW_TILE EXL3_TEMP_ROWS_FUSED EXL3_FAT_SORTED EXL3_FAT_BATCHED EXL3_FAT_KERNEL MODEL_DIR EXTRA_ARGS; do
         serve_env+=" -e $v='${!v:-}'"
     done
-    # VLLM_API_KEY is read by the head (rank 0) API server for bearer auth; the
-    # worker runs --headless so it only needs the var for argv-parity, and
-    # start.sh below passes it explicitly on the head. Keep it out of the
-    # generic loop so the key never shows in process listings of either node
-    # beyond the container env (same as the DeepSeek deployment).
-    serve_env+=" -e VLLM_API_KEY='${VLLM_API_KEY:-}'"
+    # VLLM_API_KEY belongs only on rank 0, which owns the API server. Never send
+    # the bearer credential to the headless worker.
 
     log "starting worker on ${WORKER_SSH} (NCCL if=${WORKER_CX7_IF} hca=${WORKER_CX7_IB}) ..."
     worker_ssh "docker run -d --name '$CONTAINER_WORKER' \
@@ -1481,6 +1486,7 @@ launch_cluster() {
         -v '/tmp/patch_apc_no_store.py:/opt/glm53/patch_apc_no_store.py:ro' \
         -v '/tmp/patch_w28_correctness.py:/opt/glm53/patch_w28_correctness.py:ro' \
         -v '/tmp/patch_indexer_workspace.py:/opt/glm53/patch_indexer_workspace.py:ro' \
+        -v '/tmp/patch_mamba_null_gap_retirement.py:/opt/glm53/patch_mamba_null_gap_retirement.py:ro' \
         ${worker_preload} \
         ${worker_nccl} \
         -e NCCL_SOCKET_IFNAME='$WORKER_CX7_IF' \
@@ -1519,6 +1525,7 @@ launch_cluster() {
         -v "$APC_NO_STORE_PATCH_HOST:/opt/glm53/patch_apc_no_store.py:ro" \
         -v "$W28_CORRECTNESS_PATCH_HOST:/opt/glm53/patch_w28_correctness.py:ro" \
         -v "$INDEXER_WORKSPACE_PATCH_HOST:/opt/glm53/patch_indexer_workspace.py:ro" \
+        -v "$MAMBA_NULL_GAP_PATCH_HOST:/opt/glm53/patch_mamba_null_gap_retirement.py:ro" \
         "${head_preload[@]}" \
         "${nccl_common[@]}" \
         -e NCCL_SOCKET_IFNAME="$HEAD_CX7_IF" \

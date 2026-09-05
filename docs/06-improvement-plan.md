@@ -80,6 +80,42 @@ worker logs contained zero CUDA/IMA/Xid/Traceback matches, and MemFree was
 6,441,380 / 6,091,752 kB. These are correctness smokes, not performance
 samples. The full canonical baseline is prepared, not yet a performance claim:
 
+### 2026-09-05: P0 runtime diagnostics and null-gap repair candidate
+
+The next priority block combines tasks 18, 9 and the task-27 null-gap
+reproducer:
+
+- The exact production fork positively reproduces vLLM #55450's align-mode
+  retirement leak in a CPU-only container probe. Given
+  `[old, null, committed, in-flight]`, retirement through block 2 leaves
+  `old.ref_cnt=1` and the free pool one block short because the generic helper
+  stops at the null gap.
+- `overlay/patch_mamba_null_gap_retirement.py` adapts the upstream repair to
+  this fork. It installs a Mamba-only range-removal override, skips null gaps,
+  tracks the already-retired prefix, clears that state on request free, validates
+  the patched AST, and is idempotent/fail-closed.
+- `local/p0-runtime-probe.py` adds the missing live gates: three >1k-token
+  temp-0.7, thinking-off essay streams plus a thinking-on SSE request. It uses
+  APC no-store and fails on incomplete SSE, UTF-8/mojibake markers, repeated
+  16-gram loops, missing reasoning deltas, preemptions, or leftover requests.
+- Every runtime patch installer now runs with `python3 -S`. This prevents the
+  persisted video `.pth` hook from importing during later installer processes,
+  the re-entry class reported in upstream issue #97. Normal vLLM startup still
+  uses site initialization, so the intended video import hook remains active.
+- `VLLM_API_KEY` is now passed only to the rank-0 API container. The worker is
+  headless and never needs the bearer secret.
+- `docs/05-known-issues.md` records the UVM livelock prevention/detection/
+  recovery distinction, and README adds the conservative shared-head starting
+  profile requested by upstream issue #118.
+
+Decision contract: exact source bytes and overlay test must fail before/pass
+after on both nodes; restart with no image/model/config change; pool bytes,
+shape stamp and bind stay unchanged; acceptance 7/7, serving 6/6, toolcall
+23/23, vision, structured/prose gates, P0 probe, cache burst and mixed-shape
+soak pass with zero CUDA/IMA/Xid/preemption regressions. Rollback is the saved
+pre-window `start.sh` plus removal of the null-gap mount, followed by the guarded
+unit restart.
+
 ```bash
 GLM53_BASE=http://127.0.0.1:8000 uv run python tests/bench_concurrency.py \
   --levels 1,2,3,4 --modes code,data,chat --ctx 0,60000 --reps 3 \
