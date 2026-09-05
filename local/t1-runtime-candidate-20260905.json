@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "run_id": "4845fd4598",
+  "started": 1788614632.7161589,
+  "base": "http://127.0.0.1:18000",
+  "model": "GLM-5.3-Flash-EXL3",
+  "before": {
+    "num_requests_running": 0.0,
+    "num_requests_waiting": 0.0,
+    "num_preemptions_total": 0.0,
+    "prefix_cache_queries_total": 1417974.0,
+    "prefix_cache_hits_total": 686784.0
+  },
+  "runs": [
+    {
+      "request_id": "glm53-p0-4845fd4598-essay-1",
+      "http": 200,
+      "sse_chunks": 608,
+      "done": true,
+      "ttfb_s": 0.449,
+      "wall_s": 73.666,
+      "finish_reason": "length",
+      "usage": {
+        "prompt_tokens": 58,
+        "total_tokens": 1858,
+        "completion_tokens": 1800
+      },
+      "content_sha256": "381fee070ee9684938a89120af257caa52fb80a18b20fda82991816cb38a6211",
+      "content_head": "# How Ocean Tides Work: A Complete Explanation\n\n## Introduction\n\nTides are among the most familiar yet most misunderstood phenomena in nature. Billions of people live near coastlines and witness the daily rise and fall of the sea, yet the u",
+      "content_tail": "ats the tide-generating force as a very long wave forced at the sea surface. A free tidal wave in the open ocean travels at the long-wave speed c = \u221a(gh), where g is gravity and h is depth. For a 4 km deep ocean, c \u2248 200 m/s (about 700 km/h",
+      "diagnostics": {
+        "replacement_or_mojibake": [],
+        "max_16gram_repeats": 1,
+        "content_chars": 6790,
+        "reasoning_chars": 0
+      },
+      "name": "essay-1",
+      "thinking": false
+    },
+    {
+      "request_id": "glm53-p0-4845fd4598-essay-2",
+      "http": 200,
+      "sse_chunks": 752,
+      "done": true,
+      "ttfb_s": 0.402,
+      "wall_s": 90.937,
+      "finish_reason": "length",
+      "usage": {
+        "prompt_tokens": 54,
+        "total_tokens": 1854,
+        "completion_tokens": 1800
+      },
+      "content_sha256": "027f01c5d854513c6eeffba221a6d77c763a16be3f373a6d25f0ce9ef3c64493",
+      "content_head": "# Virtual Memory in Modern Operating Systems\n\n## Introduction\n\nVirtual memory is one of the most consequential abstractions in computer science. It gives every process the illusion of a private, contiguous address space, decouples logical a",
+      "content_tail": "ome SIGSEGV.\n5. **Allocate a frame** if needed; may trigger reclaim under pressure.\n6. **Install the PTE** and flush/invalidate as needed, return, re-execute the faulting instruction.\n\nFaults are the *mechanism* by which demand paging works",
+      "diagnostics": {
+        "replacement_or_mojibake": [],
+        "max_16gram_repeats": 1,
+        "content_chars": 7580,
+        "reasoning_chars": 0
+      },
+      "name": "essay-2",
+      "thinking": false
+    },
+    {
+      "request_id": "glm53-p0-4845fd4598-essay-3",
+      "http": 200,
+      "sse_chunks": 755,
+      "done": true,
+      "ttfb_s": 0.394,
+      "wall_s": 90.511,
+      "finish_reason": "length",
+      "usage": {
+        "prompt_tokens": 51,
+        "total_tokens": 1851,
+        "completion_tokens": 1800
+      },
+      "content_sha256": "8b200afd6810d2db345243983c2e52b83e7c2fdf45f2f9f91af5e1e7b65a8cd7",
+      "content_head": "# The Scientific Method in Practice\n\n## Introduction\n\nThe scientific method is often taught as a tidy, linear sequence: observe, hypothesize, experiment, conclude. In practice, it is messier, more iterative, and far more interesting. Workin",
+      "content_tail": "ph. The choice of what to revise\u2014theory or auxiliary\u2014is a judgment, not a mechanical rule.\n\nSecond, **theories are protected by their success**. Newtonian mechanics survived anomalies (Mercury's perihelion, for instance) for decades because",
+      "diagnostics": {
+        "replacement_or_mojibake": [],
+        "max_16gram_repeats": 1,
+        "content_chars": 9545,
+        "reasoning_chars": 0
+      },
+      "name": "essay-3",
+      "thinking": false
+    },
+    {
+      "request_id": "glm53-p0-4845fd4598-thinking-sse",
+      "http": 200,
+      "sse_chunks": 39,
+      "done": true,
+      "ttfb_s": 0.301,
+      "wall_s": 4.537,
+      "finish_reason": "stop",
+      "usage": {
+        "prompt_tokens": 24,
+        "total_tokens": 165,
+        "completion_tokens": 141
+      },
+      "content_sha256": "550115119cb73967fbde945339c84051cc742e78b0ddcff2cb12a005a9049ecf",
+      "content_head": "THINKING_STREAM_OK",
+      "content_tail": "THINKING_STREAM_OK",
+      "diagnostics": {
+        "replacement_or_mojibake": [],
+        "max_16gram_repeats": 0,
+        "content_chars": 18,
+        "reasoning_chars": 661
+      },
+      "name": "thinking-sse",
+      "thinking": true
+    }
+  ],
+  "after": {
+    "num_requests_running": 0.0,
+    "num_requests_waiting": 0.0,
+    "num_preemptions_total": 0.0,
+    "prefix_cache_queries_total": 1418161.0,
+    "prefix_cache_hits_total": 686784.0
+  },
+  "metric_delta": {
+    "num_requests_running": 0.0,
+    "num_requests_waiting": 0.0,
+    "num_preemptions_total": 0.0,
+    "prefix_cache_queries_total": 187.0,
+    "prefix_cache_hits_total": 0.0
+  },
+  "failures": [],
+  "passed": true,
+  "finished": 1788614892.400297
+}

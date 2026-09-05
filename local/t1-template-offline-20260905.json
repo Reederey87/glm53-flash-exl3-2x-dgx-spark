@@ -1,0 +1,31 @@
+{
+  "candidate": "files/chat_template.jinja",
+  "control": "glm53-chat-template-control-5e96cd6.jinja",
+  "gates": {
+    "fallback_improvement_at_least_15_percent": true,
+    "ordinary_regression_at_most_5_percent": true
+  },
+  "iterations": 3,
+  "passed": true,
+  "results": {
+    "fallback_list_missing_id_500": {
+      "candidate_over_control": 0.0027532354648724558,
+      "candidate_seconds": 0.007336083999689436,
+      "control_seconds": 2.6645320000006905,
+      "improvement": 0.9972467645351275
+    },
+    "fallback_missing_id_500": {
+      "candidate_over_control": 0.0024119383426351236,
+      "candidate_seconds": 0.0107710419997602,
+      "control_seconds": 4.465720292000697,
+      "improvement": 0.9975880616573649
+    },
+    "ordinary_valid_10": {
+      "candidate_over_control": 0.9481800446449429,
+      "candidate_seconds": 0.003616041998611763,
+      "control_seconds": 0.003813666000496596,
+      "improvement": 0.051819955355057123
+    }
+  },
+  "rounds": 7
+}

@@ -158,6 +158,64 @@ kept the candidate and the watchdog was re-armed. Receipts:
 `local/p0-cache-burst-candidate-20260905.txt` and
 `local/p0-soak-summary-20260905.json`.
 
+### 2026-09-05: T1 selective Flash chat-template port adopted
+
+Task 24 ports only the three changes from
+`zai-org/GLM-5.3-Flash@690b705278a3a58e538fcb37c2ca8b5f9511213c`
+that apply to this vision-enabled deployment: stop validating a tool-result
+block as soon as sorting is impossible, suppress `None` message content, and
+coerce tool names with Jinja string concatenation. The local
+`thinking`/`enable_thinking` controls, unconditional W16 reasoning-effort
+prefix, clear-thinking behavior and image/video/audio placeholders are retained.
+This is a template-only candidate: no image, model, drafter, KV geometry,
+launcher argument or JIT-shape input changes.
+
+The committed golden suite covers valid shuffled results; missing, duplicate and
+unknown result IDs; duplicate call IDs; list outputs; tool references; null
+content; non-string tool names; media placeholders; reasoning toggles; and
+fallback blocks with 1/10/100/500 results. Offline control/candidate rendering
+is byte-identical in the benchmarked unchanged cases. On this Mac, seven
+alternating rounds of three renders measured the 500-result missing-ID fallback
+at 4.466 s → 0.0108 s (**99.76% faster**) and the list-output equivalent at
+2.665 s → 0.00734 s (**99.72% faster**); the ordinary valid 10-result path was
+5.2% faster, within the 5% non-regression gate. Receipt:
+`local/t1-template-offline-20260905.json`.
+
+Cluster decision contract: preserve the exact control template and production
+configuration, install the candidate atomically on both nodes, and use the
+guarded template-only restart without a JIT wipe. Adopt only if both ranks mount
+the exact candidate hash, pool/shape/bind remain unchanged, acceptance 7/7,
+serving 6/6, toolcall 23/23, vision, thinking-SSE and mixed APC correctness pass
+without CUDA/IMA/Xid/preemption regressions. Rollback is the saved control
+template restored atomically on both nodes followed by the same guarded restart.
+
+**Executed and ADOPTED.** The live control template was
+`a872eaf2948cdfec4d50e144fc65a1ce013c5e8dcf4e0c9d0234cf9e106cb767`;
+before the change it passed acceptance 7/7, serving 6/6 and the W16 thinking
+toggle at 99.9% cache hits in both directions. The reviewed candidate
+`9df580ab99a062ad48105c3337063c7dfcb9c630a33cddc681ec60fcd5a3c3d3`
+was staged, hash-checked and installed with an atomic rename. The guarded unit
+restart changed no `.env`, launcher, image, model, drafter, KV pin or shape
+input. The shape stamp stayed `91fbe73a55b2590a3009762603dff284`,
+no JIT wipe ran, both container mounts matched the candidate hash, the pool
+stayed **1,396,551 tokens / 1.40×**, `rightsize` remained active and the API
+remained on `127.0.0.1:8000`.
+
+Candidate gates passed: acceptance **7/7**, serving **6/6**, tool calls
+**23/23** with zero blank required arguments, W16 on/off toggles **99.9%** cache
+hits, and 4×60k×3 mixed APC retention **98.7%** on rounds 2–3 with zero errors.
+The long-form/SSE probe completed three 1,800-token essays without corruption
+or repeated 16-grams and returned a thinking stream with 661 reasoning
+characters plus the final marker. Final metrics showed running=0, waiting=0
+and preemptions=0; both ranks had zero selected CUDA/NCCL/Traceback/segfault
+matches and both kernels had zero Xids. MemFree was 4,758,228 / 3,575,192 kB.
+The saved control remains
+`files/chat_template.jinja.t1-control-20260905` on spark1; the watchdog is
+re-armed. Receipts: `local/t1-template-offline-20260905.json`,
+`local/t1-candidate-gates-20260905.txt`,
+`local/t1-runtime-candidate-20260905.json` and
+`local/t1-cluster-audit-20260905.txt`.
+
 ```bash
 GLM53_BASE=http://127.0.0.1:8000 uv run python tests/bench_concurrency.py \
   --levels 1,2,3,4 --modes code,data,chat --ctx 0,60000 --reps 3 \
