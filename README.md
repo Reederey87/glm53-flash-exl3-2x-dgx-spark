@@ -91,6 +91,23 @@ gain as a matching tok/s jump. The 500k/111× replay row is from the
 suite runs with `pip install -r requirements-dev.txt && pytest tests/ -q`.
 
 ## The serving image: preview vLLM, pinned and completed
+`download.sh` validates the selected snapshot's
+`model.safetensors.index.json` and every referenced safetensors payload. Valid
+Hub blob symlinks count as files; dangling links, missing/unindexed shards,
+truncated payloads, and a wrong explicit revision fail closed. An explicit
+`MODEL_REVISION` always wins over `refs/main`.
+
+For concurrency work, `tests/bench_concurrency.py` runs simultaneous streaming
+lanes and records usage-token goodput, per-stream decode, TTFT/ITL percentiles,
+cache hits, preemptions, and unique request IDs for log audit. It refuses a busy
+server unless `--force` is explicit and honors `VLLM_API_KEY`:
+
+```bash
+GLM53_BASE=http://127.0.0.1:8000 uv run python tests/bench_concurrency.py \
+  --levels 1,2,3,4 --modes code,data,chat --ctx 0,60000 --reps 3 \
+  --out local/concurrency-baseline-$(date +%F).json
+```
+
 
 The base is `vllm/vllm-openai:glm53-flash-arm64-cu130` — the **day-0 GLM-5.3 preview
 image**, carrying a *pre-release* vLLM dev build (`0.1.dev20051+g487ecf187`) cut from

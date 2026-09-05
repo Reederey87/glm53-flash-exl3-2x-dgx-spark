@@ -20,12 +20,76 @@ fusions, and all of EXL3 — zero EXL3 code exists in vLLM mainline). Consequenc
   container start, or as a rebuilt upstream image.
 - Upstream "merged" ≠ "in this build" — date every candidate against `b908a21f9a`.
 
-## Current queue (updated through W28 adoption, 2026-09-04)
+## Current queue (research refresh, 2026-09-05)
 
 The S1/S2 kernel program is closed. Production is `glm53-selfbuild:b5ab8091-s2b`
-(fat GEMM pipelined, ticket scheduler live). Further fat-kernel ISA is below the
-Amdahl noise floor: isolated **+41%** landed as **+0.3%** end-to-end prefill
-because the fat path is only ~25–30% of a prefill step.
+(fat GEMM pipelined, ticket scheduler live). The initial contended **+0.3%**
+end-to-end result is superseded by PR #32's powered re-window:
+**+5.3–5.6% cold prefill**. Further kernel work needs a new current-stack
+profile, not extrapolation from the isolated +41% kernel result.
+
+**Current research and proposed windows:**
+[docs/13-upstream-review-20260905.md](13-upstream-review-20260905.md).
+At the survey freeze the owner selected research/plan only; the later R0
+implementation below still made no runtime/config change or performance claim.
+Mainline GLM support (#53906) has merged, so model resolution is no longer the
+mainline blocker described in the historical section above; EXL3 integration
+and overlay compatibility still block a stock-image replacement.
+
+### 2026-09-05: R0 harness foundation implemented
+
+The first priority block from the September 5 survey is implemented without a
+production restart or model/image/config change:
+
+- `scripts/validate_hf_snapshot.py` replaces the filename count with selected-
+  revision validation of `model.safetensors.index.json` and each referenced
+  safetensors header/payload extent. Hub blob symlinks are followed; dangling,
+  missing, unindexed, zero/truncated and wrong-revision snapshots fail closed.
+  `MODEL_REVISION` is threaded into validation, resolution and the worker sync
+  marker, while an unpinned non-default `MODEL` still follows its own
+  `refs/main`.
+- `tests/bench_decode.py` now sends `VLLM_API_KEY` bearer auth to health,
+  metrics and completion requests. NaN detection is token-aware, so words such
+  as `banana` no longer poison `nan`/`any_nan`, while standalone NaN and the
+  known `locklock` marker still fail.
+- `tests/bench_concurrency.py` ports the upstream ladder to this kit's
+  `GLM53_BASE=:8000` tunnel path. It sums labeled metrics, refuses a busy
+  server, warms a reusable system-prefix with a distinct measured suffix,
+  records usage-token goodput/TTFT/ITL/cache hits/preemptions, and emits unique
+  `X-Request-Id` values plus expected/successful request counts for log audit.
+
+Local validation after review repair: **98 passed, 1 skipped**, shellcheck,
+bash syntax and Python
+compileall clean. Exact candidate validator SHA256
+`ba1506011856e9055c7886367304650a0926c3a7a8d7c0f935da1cb170542078`
+ran in read-only containers on both target nodes: each selected
+`1ae6d70430a12d762917786696db06a7b4f9bbae`, validated 120 Hub-symlink
+shards and reported **175,642,157,752 bytes**. No cache files changed.
+Exact launcher SHA256
+`46ba36bd5fa25c2f96611b992ef4667b3a87b261800679a5aa251e1e49017a87`
+also passed `bash -n` and the `--help` path on both nodes with a sanitized
+non-default-model/no-revision fixture; both resolved
+`MODEL_REVISION_EXPLICIT=0` and an empty selected revision, preserving that
+model's `refs/main`.
+
+Live no-restart smokes through `127.0.0.1:8000` also passed: concurrency
+run `02dab5c7f7` completed its one measured request with usage, zero errors and
+zero preemptions; `bench_decode.py` returned HTTP 200 before/during/after with
+`any_nan=false`. Post-smoke service/health stayed active/200, recent head and
+worker logs contained zero CUDA/IMA/Xid/Traceback matches, and MemFree was
+6,441,380 / 6,091,752 kB. These are correctness smokes, not performance
+samples. The full canonical baseline is prepared, not yet a performance claim:
+
+```bash
+GLM53_BASE=http://127.0.0.1:8000 uv run python tests/bench_concurrency.py \
+  --levels 1,2,3,4 --modes code,data,chat --ctx 0,60000 --reps 3 \
+  --out local/concurrency-baseline-20260905.json
+```
+
+For a future C4 tail decision, `--levels 4 --reps 25` yields 100 measured
+requests per mode/context cell before any spread-triggered rerun. C1 still
+needs its dedicated incumbent/newcomer arrival harness; this ladder is the
+concurrency baseline and audit substrate, not a substitute for that workload.
 
 **W44 CLOSED 2026-09-03:** the 2.71 lifetime spec-accept vs bench 6.88 is
 **traffic mix, not a broken drafter.** Same-boot no-store four-arm: structured

@@ -117,13 +117,25 @@ set +a
 # LOCAL: W41/W42 caller-wins restore (end)
 
 # ----------------------------- configuration -------------------------------
+_glm53_model_revision_set="${MODEL_REVISION+x}"
 MODEL="${MODEL:-Mia-AiLab/GLM-5.3-Flash-EXL3-TR3-4bpw}"
 # If the durable mirror is empty/moved, download.sh falls back to this id.
 MODEL_FALLBACK="${MODEL_FALLBACK:-brandonmusic/GLM-5.3-Flash-tr3-4bpw}"
 MODEL_CACHE_NAME="${MODEL_CACHE_NAME:-models--${MODEL//\//--}}"
 MODEL_FALLBACK_CACHE_NAME="${MODEL_FALLBACK_CACHE_NAME:-models--${MODEL_FALLBACK//\//--}}"
 # Hub commit on the Mia-AiLab mirror (the 5ab363a8-byte-identical upload).
-MODEL_REVISION="${MODEL_REVISION:-25a44fdbf16862a46b7cc9921142c6c81350af2f}"
+# The default belongs only to the default MODEL. A caller/.env MODEL override
+# without MODEL_REVISION intentionally follows that repository's refs/main.
+if [ -n "$_glm53_model_revision_set" ]; then
+    MODEL_REVISION="${MODEL_REVISION:-}"
+    MODEL_REVISION_EXPLICIT=1
+elif [ "$MODEL" = "Mia-AiLab/GLM-5.3-Flash-EXL3-TR3-4bpw" ]; then
+    MODEL_REVISION="25a44fdbf16862a46b7cc9921142c6c81350af2f"
+    MODEL_REVISION_EXPLICIT=0
+else
+    MODEL_REVISION=""
+    MODEL_REVISION_EXPLICIT=0
+fi
 IMAGE="${IMAGE:-ghcr.io/miaai-lab/glm-5.3-flash-2x-dgx-sparks:exl3}"
 SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-GLM-5.3-Flash-EXL3}"
 GHCR_USER="${GHCR_USER:-MiaAI-Lab}"
@@ -340,6 +352,7 @@ HF_CACHE_DIR="${HF_HOME:-$HOME/.cache/huggingface}"
 MODEL_PATH="$HF_CACHE_DIR/hub/$MODEL_CACHE_NAME"
 FALLBACK_MODEL_PATH="$HF_CACHE_DIR/hub/$MODEL_FALLBACK_CACHE_NAME"
 DFLASH_PATH="$HF_CACHE_DIR/hub/$DFLASH_CACHE_NAME"
+MODEL_SELECTED_REVISION="${MODEL_REVISION:-}"
 WORKER_CACHE_DIR="$WORKER_HOME/.cache/huggingface"
 CACHE_ROOT="${CACHE_ROOT:-$HOME/.cache/vllm-glm53-flash}"
 WORKER_VLLM_CACHE="${WORKER_VLLM_CACHE:-$WORKER_HOME/.cache/vllm-glm53-flash}"
@@ -460,16 +473,14 @@ worker_ssh() { ssh -T -o BatchMode=yes -o ConnectTimeout=15 "$WORKER_SSH" "$@"; 
 usage() { sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 count_shards() {
-    local repo_path="$1" ref
-    ref="$(cat "$repo_path/refs/main" 2>/dev/null || true)"
-    # shellcheck disable=SC2012  # newest-snapshot fallback; snapshot dirnames are hex shas
-    [ -n "$ref" ] || ref="$(ls -1t "$repo_path/snapshots" 2>/dev/null | head -n 1 || true)"
-    if [ -z "$ref" ]; then
+    local repo_path="$1" revision="${2:-}" count
+    if count="$(python3 "$SCRIPT_DIR/scripts/validate_hf_snapshot.py" \
+        --repo "$repo_path" --revision "$revision" \
+        --expected-shards "$EXPECTED_SHARDS" --field count)"; then
+        printf '%s' "$count"
+    else
         printf '0'
-        return
     fi
-    find "$repo_path/snapshots/$ref" -maxdepth 1 -type f -name '*.safetensors' 2>/dev/null \
-        | wc -l | tr -d '[:space:]' || true
 }
 
 ensure_refs_main() {
@@ -485,8 +496,14 @@ ensure_refs_main() {
 
 resolve_model_dir() {
     local ref="$MODEL_PATH/refs/main" hash dir
-    ensure_refs_main
-    hash="$(<"$ref")"
+    if [ -n "${MODEL_SELECTED_REVISION:-}" ]; then
+        hash="$MODEL_SELECTED_REVISION"
+        [ -d "$MODEL_PATH/snapshots/$hash" ] \
+            || die "target pinned snapshot $hash missing under $MODEL_PATH/snapshots — run without SKIP_DOWNLOAD (or REFRESH_WEIGHTS=1)"
+    else
+        ensure_refs_main
+        hash="$(<"$ref")"
+    fi
     dir="$MODEL_PATH/snapshots/$hash"
     [ -f "$dir/config.json" ] || die "config.json missing in $dir — re-run with REFRESH_WEIGHTS=1"
     printf '/root/.cache/huggingface/hub/%s/snapshots/%s' "$MODEL_CACHE_NAME" "$hash"
@@ -811,17 +828,24 @@ ensure_image() {
 # brandonmusic cache folder without a second 164 GiB pull.
 adopt_complete_weights() {
     local have
-    have="$(count_shards "$MODEL_PATH")"
+    have="$(count_shards "$MODEL_PATH" "$MODEL_SELECTED_REVISION")"
     if [ "${have:-0}" -ge "$EXPECTED_SHARDS" ]; then
-        ensure_refs_main
-        log "weights already present: $MODEL_PATH ($have shards)"
+        [ -n "${MODEL_SELECTED_REVISION:-}" ] || ensure_refs_main
+        log "weights already present: $MODEL_PATH ($have validated shards)"
         return 0
+    fi
+    # An explicit MODEL_REVISION is a fail-closed request for that model and
+    # revision. Never turn it into the fallback model's refs/main selection.
+    if [ "${MODEL_REVISION_EXPLICIT:-0}" = "1" ] \
+       && [ -n "${MODEL_SELECTED_REVISION:-}" ]; then
+        return 1
     fi
     have="$(count_shards "$FALLBACK_MODEL_PATH")"
     if [ "${have:-0}" -ge "$EXPECTED_SHARDS" ]; then
-        log "primary cache incomplete — using fallback ${MODEL_FALLBACK} at $FALLBACK_MODEL_PATH ($have shards)"
+        log "primary cache incomplete — using fallback ${MODEL_FALLBACK} at $FALLBACK_MODEL_PATH ($have validated shards)"
         MODEL_PATH="$FALLBACK_MODEL_PATH"
         MODEL_CACHE_NAME="$MODEL_FALLBACK_CACHE_NAME"
+        MODEL_SELECTED_REVISION=""
         ensure_refs_main
         return 0
     fi
@@ -882,6 +906,10 @@ download_weights() {
     if adopt_complete_weights; then
         return
     fi
+    if [ "${MODEL_REVISION_EXPLICIT:-0}" = "1" ] \
+       && [ -n "${MODEL_SELECTED_REVISION:-}" ]; then
+        die "explicit MODEL_REVISION ${MODEL_SELECTED_REVISION} for ${MODEL} is unavailable or incomplete — refusing fallback model ${MODEL_FALLBACK}"
+    fi
 
     if [ "$MODEL_FALLBACK" != "$MODEL" ]; then
         log "falling back to ${MODEL_FALLBACK} ..."
@@ -889,7 +917,7 @@ download_weights() {
             || die "download of ${MODEL} and ${MODEL_FALLBACK} both failed"
     fi
     adopt_complete_weights \
-        || die "download finished with $(count_shards "$MODEL_PATH") / $EXPECTED_SHARDS shards"
+        || die "download finished with $(count_shards "$MODEL_PATH" "$MODEL_SELECTED_REVISION") / $EXPECTED_SHARDS validated shards"
 }
 
 download_dflash() {
@@ -934,7 +962,7 @@ download_only() {
     download_weights
     download_dflash
 
-    have="$(count_shards "$MODEL_PATH")"
+    have="$(count_shards "$MODEL_PATH" "$MODEL_SELECTED_REVISION")"
     log "======================================================================"
     log "head HF cache : ${HF_CACHE_DIR}"
     log "  target      : ${MODEL}  (${have} / ${EXPECTED_SHARDS} shards)"
@@ -950,8 +978,8 @@ download_only() {
 }
 
 # ------------------------------ weight sync --------------------------------
-# Keyed on the snapshot commit (refs/main, with the same repair fallback as
-# ensure_refs_main), not on MODEL_REVISION: the marker lives inside each
+# Keyed on the explicitly selected revision when set, otherwise refs/main with
+# the same repair fallback as ensure_refs_main. The marker lives inside each
 # synced repo folder, so a MODEL / revision switch re-syncs automatically.
 # Without it, every ./start.sh pays a full size+mtime re-verification walk
 # over ~164 GiB / 120 shards on both ends for zero bytes of difference
@@ -993,7 +1021,7 @@ sync_repo_to_worker() {
 sync_weights() {
     [ "${SKIP_SYNC:-0}" = "1" ] && { log "SKIP_SYNC=1 — not syncing to worker"; return; }
     [ -d "$MODEL_PATH" ] || die "weights missing at $MODEL_PATH — run without SKIP_DOWNLOAD first"
-    sync_repo_to_worker "$MODEL_PATH" "$MODEL_CACHE_NAME" "weights"
+    sync_repo_to_worker "$MODEL_PATH" "$MODEL_CACHE_NAME" "weights" "$MODEL_SELECTED_REVISION"
     if [ "$SPEC_METHOD" = "dflash" ]; then
         [ -d "$DFLASH_PATH" ] || die "DFlash2 weights missing at $DFLASH_PATH"
         sync_repo_to_worker "$DFLASH_PATH" "$DFLASH_CACHE_NAME" "DFlash2 draft" "$DFLASH_REVISION"
