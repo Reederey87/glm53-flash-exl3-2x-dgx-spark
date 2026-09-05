@@ -1,5 +1,14 @@
 # Rebase plan — riding GLM-5.3-Flash into vLLM mainline
 
+> **2026-09-05 update:** #53906 merged on September 3; the source-rebase trigger
+> below has fired. Mainline now resolves GLM-5.3-Flash, but still needs our EXL3
+> integration and qualification of every retained overlay. This is preparation,
+> not approval to rebase production. See [the current survey](13-upstream-review-20260905.md)
+> for #54374, packed-MLA alignment, GDN/null-gap tests and proposed gates.
+> The August hardware claims below are historical and superseded: SM121 lacks
+> tcgen05/TMEM, not all FP4 warp MMA; verify native sm_121a code generation rather
+> than assuming architecture-specific sm_120a binaries are portable.
+
 > **Status (2026-08-30): the first stage of this plan was executed.** The day-0
 > base was field-tested on the pair (`09-rebase-draft-test.md`) and production now
 > runs an image this repo builds from it (`10-selfbuild-production.md`). What

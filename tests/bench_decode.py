@@ -19,6 +19,7 @@ from pathlib import Path
 
 BASE = os.environ.get("GLM53_BASE", "http://127.0.0.1:8000")  # LOCAL: this cluster serves :8000
 MODEL = "GLM-5.3-Flash-EXL3"
+API_KEY = os.environ.get("VLLM_API_KEY", "")
 BENCH_PROMPT = (
     "Write a detailed step-by-step explanation of how a hash map works, "
     "including collision handling, resizing, and time complexity. Be thorough."
@@ -33,19 +34,31 @@ SPEC_RE = re.compile(
 )
 
 
+def _headers(*, json_content: bool = False) -> dict[str, str]:
+    headers = {"Content-Type": "application/json"} if json_content else {}
+    if API_KEY:
+        headers["Authorization"] = f"Bearer {API_KEY}"
+    return headers
+
+
+def contains_nan(text: str) -> bool:
+    """Detect standalone NaN tokens and the known locklock corruption marker."""
+    return bool(NAN_RE.search(text))
+
+
 def _post(path: str, body: dict, timeout: float = 600.0, stream: bool = False):
     data = json.dumps(body).encode()
     req = urllib.request.Request(
         BASE + path,
         data=data,
-        headers={"Content-Type": "application/json"},
+        headers=_headers(json_content=True),
         method="POST",
     )
     return urllib.request.urlopen(req, timeout=timeout)
 
 
 def health() -> tuple[int, str]:
-    req = urllib.request.Request(BASE + "/health")
+    req = urllib.request.Request(BASE + "/health", headers=_headers())
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             return resp.status, resp.read().decode("utf-8", "replace")
@@ -71,7 +84,7 @@ def chat_nonstream(prompt: str, max_tokens: int = 64) -> dict:
 
 def spec_snapshot() -> dict[str, float]:
     """vLLM spec-decode counters. per-pos keys are pos:{n}."""
-    req = urllib.request.Request(BASE + "/metrics")
+    req = urllib.request.Request(BASE + "/metrics", headers=_headers())
     with urllib.request.urlopen(req, timeout=10) as resp:
         raw = resp.read().decode("utf-8", "replace")
     out: dict[str, float] = {}
@@ -181,7 +194,7 @@ def stream_bench(max_tokens: int = 200, prompt: str | None = None) -> dict:
     tps = None
     if decode_s and decode_s > 0 and decode_toks > 0:
         tps = decode_toks / decode_s
-    nan = bool(NAN_RE.search(text)) or ("nan" in text.lower())
+    nan = contains_nan(text)
     return {
         "http": http,
         "ttft_s": ttft,
@@ -230,8 +243,8 @@ def coherence() -> dict:
     return {
         "paris": {"ok": "paris" in (pcontent + ptxt).lower(), "text": pcontent[:400] or ptxt[:400], "http": paris.get("_http")},
         "cmp": {"ok": cmp_ok and bool((ccontent or ctxt).strip()), "text": ccontent[:400] or ctxt[:400], "http": cmp_.get("_http")},
-        "sky": {"ok": bool(scontent.strip()) and "nan" not in scontent.lower(), "text": scontent[:400], "http": sky.get("_http")},
-        "nan": any(NAN_RE.search(t) for t in (ptxt, ctxt, stxt, pcontent, ccontent, scontent)),
+        "sky": {"ok": bool(scontent.strip()) and not contains_nan(scontent), "text": scontent[:400], "http": sky.get("_http")},
+        "nan": any(contains_nan(t) for t in (ptxt, ctxt, stxt, pcontent, ccontent, scontent)),
     }
 
 
