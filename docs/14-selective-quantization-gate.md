@@ -24,6 +24,39 @@ routed expert once. Embedding row lookups and text-idle vision weights are
 excluded. Supply the measured `accepted_per_step` from `bench_decode.py` to
 derive bytes per emitted token.
 
+## Hardware-counter attempt — rejected 2026-09-05
+
+The degraded prose observation recovered after an unchanged clean restart, so
+no production tuning change was needed. The stable controls were 27.73 tok/s
+median across nine 2,600-token prose runs and 67.32 tok/s across five
+structured runs.
+
+Nsight Systems 2025.3.2 did not expose a usable GB10 external-memory byte
+counter. Nsight Compute 2025.3.1 did validate the L2 sysmem-aperture method on
+isolated workloads (32 bytes per sector), but it could not collect the exact
+production TP2 request safely:
+
+- default per-kernel replay failed symmetrically on both ranks while profiling
+  `unrolled_elementwise_kernel`;
+- whole-graph profiling, filtered to `regex:^graph$`, failed symmetrically on
+  both ranks while profiling `graph`.
+
+Both failures terminated the profiled API process. Their partial lifecycle logs
+contain Nsight `==ERROR==` markers, so no report was parsed and no measured-byte
+claim is valid. The profiler launcher and helper files were reverted instead of
+being shipped.
+
+Normal production was restored with the original launcher SHA256
+`d8fe5a644ebd2a6d6e79f38b89c10f206a2596db01df6513d8a9dbcad51a5fe1`.
+Post-rollback controls were coherent at 27.35 tok/s median for five 1,200-token
+prose runs and 69.21 tok/s for five structured runs, with structured
+acceptance 1.000/7.000, health 200 and zero preemptions.
+
+Decision: do not run a quantized-weight A/B from the header accounting model
+alone. Reopen hardware attribution only when a different counter path is
+validated against the exact multi-process CUDA-graph workload. The permission
+and target-quality gates below remain independently blocking.
+
 ```bash
 uv run python scripts/audit_live_weight_bytes.py \
   --target-snapshot "$TARGET_SNAPSHOT" \
