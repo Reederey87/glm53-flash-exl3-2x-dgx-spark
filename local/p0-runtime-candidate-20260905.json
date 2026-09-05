@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "run_id": "d6e33b2a75",
+  "started": 1788605489.300683,
+  "base": "http://127.0.0.1:18000",
+  "model": "GLM-5.3-Flash-EXL3",
+  "before": {
+    "num_requests_running": 0.0,
+    "num_requests_waiting": 0.0,
+    "num_preemptions_total": 0.0,
+    "prefix_cache_queries_total": 351874.0,
+    "prefix_cache_hits_total": 64.0
+  },
+  "runs": [
+    {
+      "request_id": "glm53-p0-d6e33b2a75-essay-1",
+      "http": 200,
+      "sse_chunks": 669,
+      "done": true,
+      "ttfb_s": 0.364,
+      "wall_s": 111.051,
+      "finish_reason": "length",
+      "usage": {
+        "prompt_tokens": 58,
+        "total_tokens": 1858,
+        "completion_tokens": 1800
+      },
+      "content_sha256": "473037ed3d33e9333e837c32f1bd12bb6933876dccf6c8a8077a25e712d25d5e",
+      "content_head": "# How Ocean Tides Work\n\n## Introduction\n\nOcean tides are among the most familiar yet most misunderstood phenomena in nature. Billions of people live near coastlines and witness the rhythmic rise and fall of the sea twice daily, yet the unde",
+      "content_tail": " tidal cycle, the incoming wave arrives roughly in phase with water still sloshing from the previous cycle, and the oscillation builds. Combined with the bay's dramatic narrowing and shallowing toward its head, the tide grows from about 6 m",
+      "diagnostics": {
+        "replacement_or_mojibake": [],
+        "max_16gram_repeats": 1,
+        "content_chars": 8025,
+        "reasoning_chars": 0
+      },
+      "name": "essay-1",
+      "thinking": false
+    },
+    {
+      "request_id": "glm53-p0-d6e33b2a75-essay-2",
+      "http": 200,
+      "sse_chunks": 756,
+      "done": true,
+      "ttfb_s": 0.409,
+      "wall_s": 92.298,
+      "finish_reason": "length",
+      "usage": {
+        "prompt_tokens": 54,
+        "total_tokens": 1854,
+        "completion_tokens": 1800
+      },
+      "content_sha256": "7d5aff09042c0b0a79be148922e7b43d3f52fa630087ee57e19afcd6e07246fa",
+      "content_head": "# Virtual Memory in Modern Operating Systems\n\n## Introduction\n\nVirtual memory is one of the most consequential abstractions in computer science. By decoupling the *addresses* programs use from the *physical locations* where their data actua",
+      "content_tail": "ls or permissions are insufficient. The OS's page fault handler is where nearly all the interesting memory management decisions happen. The handler must first determine *why* the fault occurred, using the faulting address and error code (on",
+      "diagnostics": {
+        "replacement_or_mojibake": [],
+        "max_16gram_repeats": 1,
+        "content_chars": 8180,
+        "reasoning_chars": 0
+      },
+      "name": "essay-2",
+      "thinking": false
+    },
+    {
+      "request_id": "glm53-p0-d6e33b2a75-essay-3",
+      "http": 200,
+      "sse_chunks": 730,
+      "done": true,
+      "ttfb_s": 0.371,
+      "wall_s": 89.256,
+      "finish_reason": "length",
+      "usage": {
+        "prompt_tokens": 51,
+        "total_tokens": 1851,
+        "completion_tokens": 1800
+      },
+      "content_sha256": "1b3e25fce28ab80a37800384e0b94b4abcdbb844b13b4687ff1e1ab4501cd758",
+      "content_head": "# The Scientific Method in Practice\n\n## Introduction\n\nThe scientific method is often taught as a clean, linear procedure: observe, hypothesize, experiment, conclude. In reality, science operates as a messier, iterative, and self-correcting ",
+      "content_tail": "diction might indict the hypothesis, the measurement, or an auxiliary assumption. When Uranus's orbit misbehaved, the hypothesis rejected was not Newton's laws but the assumption that no further planet existed.\n\nScientists therefore respond",
+      "diagnostics": {
+        "replacement_or_mojibake": [],
+        "max_16gram_repeats": 1,
+        "content_chars": 9867,
+        "reasoning_chars": 0
+      },
+      "name": "essay-3",
+      "thinking": false
+    },
+    {
+      "request_id": "glm53-p0-d6e33b2a75-thinking-sse",
+      "http": 200,
+      "sse_chunks": 43,
+      "done": true,
+      "ttfb_s": 0.264,
+      "wall_s": 4.973,
+      "finish_reason": "stop",
+      "usage": {
+        "prompt_tokens": 24,
+        "total_tokens": 164,
+        "completion_tokens": 140
+      },
+      "content_sha256": "550115119cb73967fbde945339c84051cc742e78b0ddcff2cb12a005a9049ecf",
+      "content_head": "THINKING_STREAM_OK",
+      "content_tail": "THINKING_STREAM_OK",
+      "diagnostics": {
+        "replacement_or_mojibake": [],
+        "max_16gram_repeats": 0,
+        "content_chars": 18,
+        "reasoning_chars": 621
+      },
+      "name": "thinking-sse",
+      "thinking": true
+    }
+  ],
+  "after": {
+    "num_requests_running": 0.0,
+    "num_requests_waiting": 0.0,
+    "num_preemptions_total": 0.0,
+    "prefix_cache_queries_total": 352061.0,
+    "prefix_cache_hits_total": 64.0
+  },
+  "metric_delta": {
+    "num_requests_running": 0.0,
+    "num_requests_waiting": 0.0,
+    "num_preemptions_total": 0.0,
+    "prefix_cache_queries_total": 187.0,
+    "prefix_cache_hits_total": 0.0
+  },
+  "failures": [],
+  "passed": true,
+  "finished": 1788605786.934251
+}

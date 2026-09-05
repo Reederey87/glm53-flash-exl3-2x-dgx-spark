@@ -1,0 +1,4 @@
+sessions=4 ctx~60000 tok each (~240,000 total vs 1,396,551 pool) rounds=3 conc=4
+round 1: wall  244.9s  hit%   0.0 (usage: 0/271,653)  [counters   0.0]  prefill_tps    1109  lat p50/max 244.5/244.9s  errors 0
+round 2: wall    5.9s  hit%   0.0 (usage: 0/271,653)  [counters  98.7]  prefill_tps   46102  lat p50/max 5.5/5.9s  errors 0
+round 3: wall    9.8s  hit%   0.0 (usage: 0/271,653)  [counters  98.7]  prefill_tps   27721  lat p50/max 9.7/9.8s  errors 0

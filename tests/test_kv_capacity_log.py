@@ -801,13 +801,13 @@ def _launcher_wiring(prefix: str, host_var: str, overlay: str, knob: str, tag: s
     check(f'[ -f "${host_var}" ] || die "missing ${host_var}"' in src and f'scp -q -o BatchMode=yes "${host_var}" "${{WORKER_SSH}}:/tmp/{overlay}"' in src, f"{prefix}2 preflight existence check + scp to the worker")
     check(f"-v '/tmp/{overlay}:/opt/glm53/{overlay}:ro'" in src and f'-v "${host_var}:/opt/glm53/{overlay}:ro"' in src, f"{prefix}2 read-only mount on both ranks")
     check(f'-e "{knob}=${knob}"' in src, f"{prefix}2 the knob is forwarded in nccl_common (both ranks)")
-    runs = src.count(f"python3 /opt/glm53/{overlay}")
+    runs = src.count(f"python3 -S /opt/glm53/{overlay}")
     check(runs == 2, f"{prefix}3 both rank scripts run the overlay exactly once ({runs})")
     # order: after every overlay that edits the same files / the hybrid+drafter pair, before ablit
     for earlier in ("patch_glm5_drafter_group.py", "patch_hybrid_prefix_hit.py", "patch_apc_per_group_retention.py", "patch_fine_grained_apc.py", "patch_align_floor.py"):
-        check(src.index(f"python3 /opt/glm53/{earlier}") < src.index(f"python3 /opt/glm53/{overlay}"), f"{prefix}3 pinned order: {earlier} -> {overlay}")
-    if "python3 /opt/glm53/patch_ablit.py" in src:  # kit only; the public repo ships no ablit
-        check(src.index(f"python3 /opt/glm53/{overlay}") < src.index("python3 /opt/glm53/patch_ablit.py"), f"{prefix}3 pinned order: {overlay} -> patch_ablit.py (last)")
+        check(src.index(f"python3 -S /opt/glm53/{earlier}") < src.index(f"python3 -S /opt/glm53/{overlay}"), f"{prefix}3 pinned order: {earlier} -> {overlay}")
+    if "python3 -S /opt/glm53/patch_ablit.py" in src:  # kit only; the public repo ships no ablit
+        check(src.index(f"python3 -S /opt/glm53/{overlay}") < src.index("python3 -S /opt/glm53/patch_ablit.py"), f"{prefix}3 pinned order: {overlay} -> patch_ablit.py (last)")
     defaults = defaults_source()
     check(f'{knob}="${{{knob}-1}}"' in defaults, f"{prefix}1 default 1 applies only when UNSET ('' is a value)")
     for value, out in ((None, "1"), ("0", "0"), ("1", "1")):

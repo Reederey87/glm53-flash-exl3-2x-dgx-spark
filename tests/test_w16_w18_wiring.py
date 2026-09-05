@@ -27,7 +27,7 @@ def test_overlays_wired_six_ways() -> None:
         assert f'scp -q -o BatchMode=yes "${host_var}" "${{WORKER_SSH}}:/tmp/{fname}"' in START
         assert f"-v '/tmp/{fname}:/opt/glm53/{fname}:ro'" in START  # worker
         assert f'-v "${host_var}:/opt/glm53/{fname}:ro"' in START  # head
-        assert _count(f"python3 /opt/glm53/{fname}") == 2  # both ranks
+        assert _count(f"python3 -S /opt/glm53/{fname}") == 2  # both ranks
 
 
 def test_env_defaults_off_and_reach_both_ranks() -> None:
