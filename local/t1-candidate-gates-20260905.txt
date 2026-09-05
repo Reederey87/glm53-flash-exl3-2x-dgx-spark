@@ -1,0 +1,95 @@
+T1 candidate gates 2026-09-05
+candidate_template_sha256=9df580ab99a062ad48105c3337063c7dfcb9c630a33cddc681ec60fcd5a3c3d3
+
+== serving ==
+
+== 1. tunnel reaches the API ==
+  PASS  tunnel -> GLM-5.3-Flash-EXL3
+
+== 2. non-streaming chat completion ==
+  PASS  non-streaming
+
+== 3. STREAMING (SSE) — the path most clients use ==
+    SSE chunks: 11 | [DONE]: 1 | text: 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30
+  PASS  streaming works (11 chunks, terminated)
+
+== 4. concurrency — 4 simultaneous (MAX_NUM_SEQS=4) ==
+    4/4 completed with pairwise-distinct content in 3s
+  PASS  4-way concurrency, no cross-talk
+
+== 5. tool call through the tunnel ==
+    finish: tool_calls | calls: 1 | get_weather {"city": "Bergen"}
+  PASS  tool call over tunnel
+
+== 6. sustained: 5 sequential requests, all must succeed ==
+    5/5 succeeded
+  PASS  sustained sequential
+
+== RESULT ==
+  passed: 6   failed: 0
+  SERVING TEST PASSED
+
+== toolcall ==
+c=1 stream temp0 x3                          n= 3 bad_args=0 short=0 errors=0 wall=   4.4s
+c=1 non-stream temp0 x2                      n= 2 bad_args=0 short=0 errors=0 wall=   3.1s
+c=1 stream temp1 (prod sampling) x3          n= 3 bad_args=0 short=0 errors=0 wall=   4.3s
+c=4 homogeneous stream temp1 x8              n= 8 bad_args=0 short=0 errors=0 wall=   5.4s
+c=4 mixed: 2 cold ~60000 pads + 2 tool (wave 1) n= 2 bad_args=0 short=0 errors=0 wall=  98.3s
+c=4 mixed: 2 cold ~60000 pads + 2 tool (wave 2) n= 2 bad_args=0 short=0 errors=0 wall=  97.6s
+c=4 mixed: 1 cold pad + 3 tool               n= 3 bad_args=0 short=0 errors=0 wall=  54.0s
+
+TOTAL tool turns: 23, blank-required-arg turns: 0
+
+== W16 APC toggle ==
+1 thinking ON  cold          prompt= 50225 queries= 50225 hits=     0 hit%=   0.0 wall= 46.49s
+2 thinking ON  warm          prompt= 50225 queries= 50225 hits= 50176 hit%=  99.9 wall=  0.54s
+3 thinking OFF toggle        prompt= 50226 queries= 50226 hits= 50176 hit%=  99.9 wall=  0.37s
+4 thinking ON  toggle back   prompt= 50225 queries= 50225 hits= 50176 hit%=  99.9 wall=  0.37s
+5 thinking OFF effort=low    prompt= 50226 queries= 50226 hits=     0 hit%=   0.0 wall= 46.19s
+
+W16 toggle verdict: PASS (warm 99.9% / off-toggle 99.9% / on-toggle 99.9%); turn 5 (different effort) 0.0% — expected to miss on this fork
+
+== mixed APC burst ==
+sessions=4 ctx~60000 tok each (~240,000 total vs 1,396,551 pool) rounds=3 conc=4
+round 1: wall  232.9s  hit%   0.0 (usage: 0/271,653)  [counters   0.0]  prefill_tps    1166  lat p50/max 232.6/232.9s  errors 0
+round 2: wall   15.2s  hit%   0.0 (usage: 0/271,653)  [counters  98.7]  prefill_tps   17856  lat p50/max 10.0/15.2s  errors 0
+round 3: wall    5.8s  hit%   0.0 (usage: 0/271,653)  [counters  98.7]  prefill_tps   46556  lat p50/max 5.7/5.8s  errors 0
+
+== long-form and thinking SSE ==
+{"passed": true, "failures": [], "out": "local/t1-runtime-candidate-20260905.json"}
+
+== acceptance (recorded post-adoption) ==
+Pseudo-terminal will not be allocated because stdin is not a terminal.
+
+== 1. served model id ==
+  PASS  /v1/models advertises GLM-5.3-Flash-EXL3
+
+== 2. basic completion, thinking OFF, temp 0 ==
+  PASS  basic completion
+
+== 3. thinking ON (reasoning parser glm45) ==
+    reasoning field: NONE
+    reasoning chars: 0 | content chars: 542
+    finish_reason: stop
+  PASS  thinking returns reasoning + content
+
+== 4. tool call (parser glm47, auto tool choice) ==
+    finish_reason: tool_calls | tool_calls: 1
+    name: get_weather | args: {"city": "Oslo"}
+  PASS  tool call emitted and parsed
+
+== 5. production sampling: temp 1.0, thinking ON ==
+    finish_reason: stop | content chars: 354
+  PASS  temp 1.0 + thinking (the real production path)
+
+== 6. vision (LANGUAGE_MODEL_ONLY=0, limit-mm image:4) ==
+    content: Colorful
+  PASS  vision tower accepts an image
+
+== 7. long-context needle (~32k tokens) ==
+    prompt_tokens: 36040 | answer: CORMORANT-8815
+  PASS  needle retrieved at ~32k
+
+== RESULT ==
+  passed: 7   failed: 0
+  ACCEPTANCE PASSED

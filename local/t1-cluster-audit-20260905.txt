@@ -1,0 +1,17 @@
+candidate_template_sha256=9df580ab99a062ad48105c3337063c7dfcb9c630a33cddc681ec60fcd5a3c3d3
+control_template_sha256=a872eaf2948cdfec4d50e144fc65a1ce013c5e8dcf4e0c9d0234cf9e106cb767
+env_sha256=6e7a206ec05be1cf624df167128470a313d12566b744e1f542808373aaf0983a
+start_sha256=d8fe5a644ebd2a6d6e79f38b89c10f206a2596db01df6513d8a9dbcad51a5fe1
+shape_stamp=91fbe73a55b2590a3009762603dff284
+unit=active watchdog=active
+head_mount=9df580ab99a062ad48105c3337063c7dfcb9c630a33cddc681ec60fcd5a3c3d3
+worker_mount=9df580ab99a062ad48105c3337063c7dfcb9c630a33cddc681ec60fcd5a3c3d3
+head_MemFree: 4758228 kB
+worker_MemFree: 3575192 kB
+vllm:num_requests_running{engine="0",model_name="GLM-5.3-Flash-EXL3"} 0.0
+vllm:num_requests_waiting{engine="0",model_name="GLM-5.3-Flash-EXL3"} 0.0
+vllm:num_preemptions_total{engine="0",model_name="GLM-5.3-Flash-EXL3"} 0.0
+head_error_matches=0
+worker_error_matches=0
+head_xid_matches=0
+worker_xid_matches=0
