@@ -80,6 +80,51 @@ worker logs contained zero CUDA/IMA/Xid/Traceback matches, and MemFree was
 6,441,380 / 6,091,752 kB. These are correctness smokes, not performance
 samples. The full canonical baseline is prepared, not yet a performance claim:
 
+### 2026-09-05: task 1 live-weight attribution foundation adopted; quantization parked
+
+`scripts/audit_live_weight_bytes.py` turns the prior broad BF16 disk bucket
+into a header-only module and TP-geometry audit. It distinguishes target
+dense/shared/KDA/MLA/router/head/embedding/vision/MTP/routed-expert bytes,
+models the mixed replicated and sharded KDA/MLA paths, and reports rank
+residency plus routed-expert traffic envelopes. `docs/14-selective-quantization-gate.md`
+records the separate draft-only and target dense/head A/Bs, quality gates,
+aborts and rollback.
+
+The exact candidate script SHA256
+`1b69b17894b7c9e8b0b84f5f8116b565e38c6cf851acae6b7bd83f8d971702d1`
+ran against the selected incumbent snapshots on both target nodes. Their
+reports matched after path normalization, classified all tensors, and measured
+175,622,979,576 target payload bytes plus 2,342,160,896 drafter bytes. Estimated
+resident weight bytes were 88,614,683,128 on rank 0 and 86,272,522,232 on rank
+1; the difference is the rank-0-only BF16 drafter. The target's MTP layer
+accounts for 4,004,169,728 on-disk bytes but zero live DFlash-target residency;
+text-idle vision accounts for 1,127,254,016 on disk. These are loaded-byte
+attribution figures, not DRAM traffic counters.
+
+The same-day prose control recorded 2.607 accepted drafts per verification
+step. At that rate, the accounting model estimates 3.79/4.38/5.56/7.92 GB of
+rank-0 weight reads per emitted token for 8/16/32/64 unique routed experts per
+MoE layer. The 64-expert case reproduces the upstream report's approximately
+17 GB routed-expert read premise per verification step, while making the
+uncertainty explicit. Hardware-counter profiling remains open; these envelopes
+must not be presented as measured DRAM traffic.
+
+Permission gates stop the implementation before a weight build. The target
+pack reports `shapleymcg-1.0` and requires manual attribution/license review.
+The drafter reports `cc-by-nc-nd-4.0`, so a derived quantized draft remains
+blocked pending explicit derivative/commercial permission. Target dense/head
+quantization also remains blocked until the owner explicitly replaces the
+standing bit-exact gate with task 1's KL/top-1/task-quality contract. Therefore
+the audit/runbook is adopted, but both quantization arms stay parked and the
+original weights remain untouched.
+
+No production file, image, model, drafter, KV pin, service or watchdog state
+changed. Post-audit service/health were active/200, preemptions were zero, and
+MemFree was 6,906,112 / 4,040,188 kB. Local validation: 131 passed, 1 skipped,
+4 subtests passed before review; after fail-closed review fixes the full suite
+was **134 passed, 1 skipped, 4 subtests passed**. Ruff, Python compile, bash
+syntax and diff checks passed.
+
 ### 2026-09-05: P0 runtime diagnostics and null-gap repair adopted
 
 The next priority block combines tasks 18, 9 and the task-27 null-gap
