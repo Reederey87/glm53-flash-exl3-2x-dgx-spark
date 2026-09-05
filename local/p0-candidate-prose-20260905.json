@@ -1,0 +1,159 @@
+{
+  "phase": "p0-candidate-prose",
+  "health_code": 200,
+  "health_body": "",
+  "runs": [
+    {
+      "http": 200,
+      "ttft_s": 0.3816934999995283,
+      "wall_s": 7.210853042000963,
+      "decode_s": 6.829159542001435,
+      "tok_s": 29.139749741690572,
+      "completion_tokens": 200,
+      "prompt_tokens": 40,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# How a Hash Map Works: A Complete Guide\n\nA hash map (also called a hash table or dictionary) is a data structure that stores key-value pairs and provides near-constant-time lookup, insertion, and deletion. Let's build up an understanding from the ground up.\n\n---\n\n## 1. The Core Idea\n\nA hash map lets you associate values with keys and retrieve them quickly. Instead of searching through data (like ",
+      "text_len": 872,
+      "usage": {
+        "prompt_tokens": 40,
+        "total_tokens": 240,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 59,
+        "draft_tokens": 413,
+        "accepted": 141,
+        "accept_ratio": 0.3414,
+        "accepted_per_step": 2.39,
+        "pos": [
+          0.7458,
+          0.5085,
+          0.3559,
+          0.2542,
+          0.2034,
+          0.1864,
+          0.1356
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.3643798749999405,
+      "wall_s": 7.129478374999962,
+      "decode_s": 6.765098500000022,
+      "tok_s": 29.415684043624694,
+      "completion_tokens": 200,
+      "prompt_tokens": 40,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# How a Hash Map Works: A Complete Guide\n\nA hash map (also called a hash table or dictionary) is a data structure that stores key-value pairs and provides near-constant-time lookup, insertion, and deletion. Let's build up an understanding from the ground up.\n\n---\n\n## 1. The Core Concept\n\nA hash map stores data as **key-value pairs**. You provide a key (e.g., a username) and a value (e.g., the user",
+      "text_len": 850,
+      "usage": {
+        "prompt_tokens": 40,
+        "total_tokens": 240,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 59,
+        "draft_tokens": 413,
+        "accepted": 140,
+        "accept_ratio": 0.339,
+        "accepted_per_step": 2.373,
+        "pos": [
+          0.8305,
+          0.5932,
+          0.4068,
+          0.2712,
+          0.1525,
+          0.0678,
+          0.0508
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.36511554200114915,
+      "wall_s": 6.934680083000785,
+      "decode_s": 6.569564540999636,
+      "tok_s": 30.291201000929632,
+      "completion_tokens": 200,
+      "prompt_tokens": 40,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# How a Hash Map Works: A Complete Guide\n\nA hash map (also called a hash table or dictionary) is a data structure that stores key-value pairs and provides near-constant-time lookup, insertion, and deletion. Here's a thorough breakdown of how it works.\n\n---\n\n## 1. The Core Concept\n\nA hash map stores data as **key-value pairs**. Instead of searching through data linearly (like an array) or following",
+      "text_len": 861,
+      "usage": {
+        "prompt_tokens": 40,
+        "total_tokens": 240,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 52,
+        "draft_tokens": 364,
+        "accepted": 154,
+        "accept_ratio": 0.4231,
+        "accepted_per_step": 2.962,
+        "pos": [
+          0.8654,
+          0.7115,
+          0.5192,
+          0.3269,
+          0.2692,
+          0.1923,
+          0.0769
+        ]
+      }
+    }
+  ],
+  "ts": 1788605814.203147,
+  "prompt": "hashmap-prose",
+  "thinking": false,
+  "temperature": 0,
+  "tok_s_median": 29.415684043624694,
+  "tok_s_min": 29.139749741690572,
+  "tok_s_max": 30.291201000929632,
+  "ttft_median_s": 0.36511554200114915,
+  "completion_tokens_median": 200.0,
+  "accept_ratio_median": 0.3414,
+  "accepted_per_step_median": 2.39,
+  "any_nan": false,
+  "coherence": {
+    "paris": {
+      "ok": true,
+      "text": "Paris",
+      "http": 200
+    },
+    "cmp": {
+      "ok": true,
+      "text": "Yes. 9.9 is greater than 9.11 because 9.9 equals 9.90, and 90 hundredths is more than 11 hundredths.",
+      "http": 200
+    },
+    "sky": {
+      "ok": true,
+      "text": "The sky-blue paint on the nursery walls seemed to capture a perfect summer afternoon, bringing a sense of calm and endless possibility to the little room.",
+      "http": 200
+    },
+    "nan": false
+  },
+  "coherent": true,
+  "health_code_after": 200,
+  "short_after": {
+    "http": 200,
+    "ttft_s": 0.3617778339994402,
+    "wall_s": 0.47696787499990023,
+    "decode_s": 0.11519004100046004,
+    "tok_s": 60.76914235990283,
+    "completion_tokens": 8,
+    "prompt_tokens": 40,
+    "finish_reason": "length",
+    "nan": false,
+    "text_head": "# How a Hash Map Works: A",
+    "text_len": 25,
+    "usage": {
+      "prompt_tokens": 40,
+      "total_tokens": 48,
+      "completion_tokens": 8
+    }
+  }
+}

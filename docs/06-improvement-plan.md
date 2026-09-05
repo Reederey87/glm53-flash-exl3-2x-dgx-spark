@@ -80,7 +80,7 @@ worker logs contained zero CUDA/IMA/Xid/Traceback matches, and MemFree was
 6,441,380 / 6,091,752 kB. These are correctness smokes, not performance
 samples. The full canonical baseline is prepared, not yet a performance claim:
 
-### 2026-09-05: P0 runtime diagnostics and null-gap repair candidate
+### 2026-09-05: P0 runtime diagnostics and null-gap repair adopted
 
 The next priority block combines tasks 18, 9 and the task-27 null-gap
 reproducer:
@@ -115,6 +115,48 @@ shape stamp and bind stay unchanged; acceptance 7/7, serving 6/6, toolcall
 soak pass with zero CUDA/IMA/Xid/preemption regressions. Rollback is the saved
 pre-window `start.sh` plus removal of the null-gap mount, followed by the guarded
 unit restart.
+
+**Executed and ADOPTED on candidate `39d3ee5`.** Exact published-candidate
+hashes installed atomically on spark1:
+`start.sh d8fe5a644ebd2a6d6e79f38b89c10f206a2596db01df6513d8a9dbcad51a5fe1`;
+null-gap overlay
+`181b2d5ad93b1ae3a7eb8a878bba33e3a5934c1bf21893de9863c66119ba3dd8`.
+The overlay applied and passed the upstream-style CPU regression on both
+nodes' exact installed source; before the patch the same fixture left
+`old.ref_cnt=1` / free blocks 4, after it produced
+`[null,null,committed,in-flight]`, refs `[0,1,1]`, free blocks 5 and cleared
+per-request tracking.
+
+Guarded restart changed no `.env`, image, model, pool pin or JIT shape:
+shape stamp stayed `91fbe73a55b2590a3009762603dff284`; the boot reported
+82.03 GiB model load, 1,396,551 pool tokens / 1.40×, rightsize workspace and
+`127.0.0.1:8000`. Both ranks logged the overlay install. The head retained one
+empty API-key environment entry; the headless worker had **zero** API-key
+entries. No patch-helper re-entry/segfault appeared.
+
+Short gates: acceptance **7/7**, serving **6/6**, tool calls **23/23** with
+zero blank required arguments; structured n=3 median **71.94 tok/s** at
+**1.0000 / 7.0** (every position 1.0); prose n=3 median **29.42 tok/s**,
+coherent/no NaN. The P0 control and candidate batteries each completed three
+1,800-token temp-0.7 essays plus thinking-SSE with no mojibake/repetition,
+zero preemptions and a final answer after reasoning. Candidate wall times
+111.1/92.3/89.3 s versus control 105.6/90.2/86.9 s are descriptive small-n,
+not a throughput regression claim. The established 4×60k×3 cache burst held
+**98.7%** counter hits on rounds 2–3 with zero errors.
+
+The required mixed-state soak ran **3,949 s / 8 cycles**:
+96 24k/60k concurrency cells (thinking/SSE, C1/C4, code/data/chat),
+8 cached unequal-length shared-prefix forks, 128 quick tool turns and
+32 long-form/thinking streams. Results: zero errors/preemptions, concurrency
+hit ratio 0.98–1.00, unequal-fork hit ratio 0.572 every cycle, all 8 cache
+resets succeeded, MemFree floor 3,946,516 / 3,387,340 kB. Post-soak:
+health 200, running/waiting/preemptions 0, prefix hits still advancing, zero
+head/worker CUDA/IMA/Traceback/segfault matches and zero kernel Xids. Production
+kept the candidate and the watchdog was re-armed. Receipts:
+`local/p0-runtime-{control,candidate}-20260905.json`,
+`local/p0-candidate-{structured,prose}-20260905.json`,
+`local/p0-cache-burst-candidate-20260905.txt` and
+`local/p0-soak-summary-20260905.json`.
 
 ```bash
 GLM53_BASE=http://127.0.0.1:8000 uv run python tests/bench_concurrency.py \

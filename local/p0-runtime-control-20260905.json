@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "run_id": "5b3c437a88",
+  "started": 1788604007.231663,
+  "base": "http://127.0.0.1:18000",
+  "model": "GLM-5.3-Flash-EXL3",
+  "before": {
+    "num_requests_running": 0.0,
+    "num_requests_waiting": 0.0,
+    "num_preemptions_total": 0.0,
+    "prefix_cache_queries_total": 291790.0,
+    "prefix_cache_hits_total": 220800.0
+  },
+  "runs": [
+    {
+      "request_id": "glm53-p0-5b3c437a88-essay-1",
+      "http": 200,
+      "sse_chunks": 675,
+      "done": true,
+      "ttfb_s": 0.387,
+      "wall_s": 105.622,
+      "finish_reason": "length",
+      "usage": {
+        "prompt_tokens": 58,
+        "total_tokens": 1858,
+        "completion_tokens": 1800
+      },
+      "content_sha256": "9f142013f3bc31120e5b6f5551c6027e26d276986dec28bffae6a47d46afa05b",
+      "content_head": "# How Ocean Tides Work\n\n## Introduction\n\nTides are among the most familiar yet most misunderstood phenomena in nature. Nearly everyone who has spent time near the ocean has seen the water advance and retreat, but the underlying physics invo",
+      "content_tail": "ours), so near-resonance amplifies the tide to a mean range of ~12 m and extremes above 16 m. Similar (if smaller) amplification occurs in Bristol Channel, England; Cook Inlet, Alaska; and the Severn Estuary.\n\n**Resonance.** Fundy's case is",
+      "diagnostics": {
+        "replacement_or_mojibake": [],
+        "max_16gram_repeats": 1,
+        "content_chars": 7931,
+        "reasoning_chars": 0
+      },
+      "name": "essay-1",
+      "thinking": false
+    },
+    {
+      "request_id": "glm53-p0-5b3c437a88-essay-2",
+      "http": 200,
+      "sse_chunks": 753,
+      "done": true,
+      "ttfb_s": 0.394,
+      "wall_s": 90.186,
+      "finish_reason": "length",
+      "usage": {
+        "prompt_tokens": 54,
+        "total_tokens": 1854,
+        "completion_tokens": 1800
+      },
+      "content_sha256": "d82063e14027653b1cca03169f054d6f8292b548d52adb6d9c190d30dc4e5c79",
+      "content_head": "# Virtual Memory in Modern Operating Systems\n\n## Introduction\n\nVirtual memory is one of the most consequential abstractions in computer science. By giving each process the illusion of a large, private, contiguous address space, it decouples",
+      "content_tail": "s allocating and zeroing memory for pages that are reserved but never used\u2014important because physical memory allocation usually includes security-driven zeroing (preventing information leaks from previous owners of a frame).\n\n## 4. Copy-on-",
+      "diagnostics": {
+        "replacement_or_mojibake": [],
+        "max_16gram_repeats": 1,
+        "content_chars": 8587,
+        "reasoning_chars": 0
+      },
+      "name": "essay-2",
+      "thinking": false
+    },
+    {
+      "request_id": "glm53-p0-5b3c437a88-essay-3",
+      "http": 200,
+      "sse_chunks": 729,
+      "done": true,
+      "ttfb_s": 0.434,
+      "wall_s": 86.938,
+      "finish_reason": "length",
+      "usage": {
+        "prompt_tokens": 51,
+        "total_tokens": 1851,
+        "completion_tokens": 1800
+      },
+      "content_sha256": "c644b2dffeced5ea07c6bb24229f212b821d1869480229749477a9f137f8296c",
+      "content_head": "# The Scientific Method in Practice\n\n## Introduction\n\nThe scientific method is often presented as a tidy flowchart: observe, hypothesize, experiment, conclude. Real science rarely works that way. In practice, it is a messy, iterative, self-",
+      "content_tail": "s, theories fall.\n\n## Peer Review: Quality Control by the Community\n\nIndividual scientists are fallible; the community is the corrective. **Peer review**\u2014evaluation of manuscripts and grant proposals by independent experts\u2014serves as quality",
+      "diagnostics": {
+        "replacement_or_mojibake": [],
+        "max_16gram_repeats": 1,
+        "content_chars": 9489,
+        "reasoning_chars": 0
+      },
+      "name": "essay-3",
+      "thinking": false
+    },
+    {
+      "request_id": "glm53-p0-5b3c437a88-thinking-sse",
+      "http": 200,
+      "sse_chunks": 42,
+      "done": true,
+      "ttfb_s": 0.52,
+      "wall_s": 9.99,
+      "finish_reason": "stop",
+      "usage": {
+        "prompt_tokens": 24,
+        "total_tokens": 169,
+        "completion_tokens": 145
+      },
+      "content_sha256": "550115119cb73967fbde945339c84051cc742e78b0ddcff2cb12a005a9049ecf",
+      "content_head": "THINKING_STREAM_OK",
+      "content_tail": "THINKING_STREAM_OK",
+      "diagnostics": {
+        "replacement_or_mojibake": [],
+        "max_16gram_repeats": 0,
+        "content_chars": 18,
+        "reasoning_chars": 657
+      },
+      "name": "thinking-sse",
+      "thinking": true
+    }
+  ],
+  "after": {
+    "num_requests_running": 0.0,
+    "num_requests_waiting": 0.0,
+    "num_preemptions_total": 0.0,
+    "prefix_cache_queries_total": 291977.0,
+    "prefix_cache_hits_total": 220800.0
+  },
+  "metric_delta": {
+    "num_requests_running": 0.0,
+    "num_requests_waiting": 0.0,
+    "num_preemptions_total": 0.0,
+    "prefix_cache_queries_total": 187.0,
+    "prefix_cache_hits_total": 0.0
+  },
+  "failures": [],
+  "passed": true,
+  "finished": 1788604300.026411
+}
