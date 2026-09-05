@@ -125,6 +125,39 @@ MemFree was 6,906,112 / 4,040,188 kB. Local validation: 131 passed, 1 skipped,
 was **134 passed, 1 skipped, 4 subtests passed**. Ruff, Python compile, bash
 syntax and diff checks passed.
 
+### 2026-09-05: hardware-counter profile rejected; no quantized A/B
+
+The degraded prose baseline recovered after an unchanged clean restart. Five
+1,200-token prose controls reached 27.61 tok/s median, nine 2,600-token controls
+reached 27.73 tok/s median, and five structured controls reached 67.32 tok/s.
+This closed the suspected production regression without another configuration
+change.
+
+Nsight Systems 2025.3.2 exposed SM/tensor activity on GB10 but no usable
+external-memory byte counter. Nsight Compute 2025.3.1 validated that external
+LPDDR traffic appears as 32-byte L2 sysmem-aperture sectors on isolated
+workloads. A default-off, bounded two-rank profiler candidate passed local
+tests and independent review before each target attempt.
+
+The exact production TP2, DFlash2 k=7/draft-TP1, MNBT=3584 request did not
+produce a valid receipt. Per-kernel replay failed on
+`unrolled_elementwise_kernel` on both ranks. A separately reviewed whole-graph
+retry failed on `graph` on both ranks. Each lifecycle log contains
+`==ERROR==`; neither partial capture was parsed or used as evidence.
+
+The profiling launcher and helpers were reverted rather than published.
+Production returned to launcher SHA256
+`d8fe5a644ebd2a6d6e79f38b89c10f206a2596db01df6513d8a9dbcad51a5fe1`,
+with the service, watchdog and metrics timer active. Post-rollback controls:
+five 1,200-token prose runs at 27.35 tok/s median, coherent and NaN-free; five
+structured runs at 69.21 tok/s with acceptance 1.000/7.000; health 200 and zero
+preemptions.
+
+Decision: **NO A/B**. Header accounting remains a model, not a hardware
+measurement. Do not build or test quantized weights unless a different exact
+production counter path succeeds and the existing drafter-permission and
+target-quality-waiver gates are both cleared.
+
 ### 2026-09-05: P0 runtime diagnostics and null-gap repair adopted
 
 The next priority block combines tasks 18, 9 and the task-27 null-gap
