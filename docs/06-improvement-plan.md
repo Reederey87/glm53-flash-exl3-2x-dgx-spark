@@ -36,6 +36,71 @@ Mainline GLM support (#53906) has merged, so model resolution is no longer the
 mainline blocker described in the historical section above; EXL3 integration
 and overlay compatibility still block a stock-image replacement.
 
+### 2026-09-06: task 7 rejects DFlash2 exact-fit page promotion
+
+The production mismatch is now accounted exactly at boot. A 2,351,104-byte
+MLA page holds 1,148 DFlash2 tokens at 2,048 bytes/token. Kernel block 64 can
+use 1,088 of those tokens, leaving 122,880 bytes (5.23%) of structural tail
+waste. The next exact 64-token multiple is 1,152 tokens / 2,359,296 bytes,
+an 8,192-byte (0.35%) page increase. The existing drafter overlay logs all of
+these computed values without changing allocation geometry.
+
+The guarded candidate gave the five DFlash2 layers standalone, unpadded
+2,359,296-byte pages with a 1,152-token manager block split into 18×64 kernel
+blocks. MLA and Mamba pages remained 2,351,104 bytes. This replaced an unsafe
+first design before cluster testing: pinned runner-source review established
+that `KVCacheTensor.block_stride` marks a packed allocation, not a per-layer
+physical stride, so Task 7 never used that field or `page_size_padded` for the
+standalone candidate.
+
+The A/B used reviewed exact-source overlays, effective-arm JIT invalidation,
+both-node memory aborts, exact geometry/admission checks, correctness-aware
+acceptance/tool/decode probes, preemption checks and fatal-log scans. Bounded
+control and two promoted-arm smokes passed acceptance 7/7 and quick tool calls
+16/16 with zero preemptions or fatal logs. Full mixed traffic correctly
+aborted at the deployment memory floor in both attempted control windows, so
+performance was measured separately at bounded concurrency.
+
+| measure | control | promoted exact-fit | delta |
+|---|---:|---:|---:|
+| total / usable block IDs | 567 / 566 | 395 / 394 | -30.3% usable |
+| reported 1M-token admission | 1.40× | 1.22× | -12.9% |
+| structured decode | 69.60 tok/s | 69.70 tok/s | +0.14% |
+| accepted fraction / drafts per step | 1.000 / 7.000 | 1.000 / 7.000 | unchanged |
+| prose decode | 27.01 tok/s | 28.86 tok/s | +6.84% |
+| 60k cold prefill | 1,115.3 tok/s | 1,060.4 tok/s | -4.92% |
+| 240k cold prefill | 1,057.0 tok/s | 1,025.4 tok/s | -2.99% |
+| 36,040-token APC replay | 36,032 hits, ~0.6 s | 32,256 hits, ~3.6 s | regressed |
+
+One of three long prose runs contained the broad standalone-`NaN` text marker
+in each arm, so it did not distinguish the candidate. The promoted prose gain
+does not offset the materially smaller pool, lower max-context admission,
+prefill regression and severe APC replay regression.
+
+**Decision: REJECT.** The exact pre-window production files were restored:
+`start.sh` SHA256 `1f004b5b...83114`, `local/prod-start.sh`
+`7a655020...b2cd`, and `.env` `6e7a206e...983a`. The experimental runtime
+overlay and runner were removed from production. The restored boot returned
+to 1,396,551 reported tokens / 566 usable block IDs, health 200, zero
+preemptions, and the watchdog was re-armed. Task 7 is closed with the
+boot-accounting fallback; any future page redesign needs a new allocation
+model that preserves shared-pool capacity and APC alignment.
+
+The fallback overlay SHA256 `d6634b8d...0e86` was then validated against
+temporary copies of both live scheduler sources and deployed without changing
+the launcher, `.env`, allocation geometry or JIT shape. Its first production
+boot logged the exact 122,880-byte / 5.23% waste and 2,359,296-byte candidate
+page values above. Post-deploy acceptance passed 7/7 and quick tool calls
+16/16 with zero blank required arguments. Final health was 200 with
+running/waiting/preemptions zero, selected runtime errors and Xids zero,
+MemFree 5,243,676 / 4,431,980 KiB, and the watchdog active. Rollback is
+`overlay/patch_glm5_drafter_group.py.bak-20260906-task7` on spark1 followed
+by the guarded unit restart.
+
+Cluster receipts remain on spark1 under
+`/home/nvidia/task7-ab-20260906/`; the exact pre-window backups remain under
+`/home/nvidia/.task7-backup-20260906/`.
+
 ### 2026-09-06: task 14 adopts caller precedence and gate v3.1 accounting
 
 The launcher now implements its general precedence contract instead of a
