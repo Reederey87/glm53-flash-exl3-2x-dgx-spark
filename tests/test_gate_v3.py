@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Gate v3 behavior: bypass, hold, deadline, aging escalation and the late-path log lines,
-driven with a fake monotonic clock against the overlay's own helper text."""
+"""Gate v3.1 behavior: deadline, aging, and split crawl accounting."""
 from __future__ import annotations
 
 import importlib.util
@@ -74,6 +73,8 @@ def test_bypass_hold_deadline_and_aging() -> None:
         assert log.count("late-admit req=cold") == 1, log
         assert "cap=512->1024" in log and "cap=1024->1792" in log, log
         assert log.count("late-done req=cold") == 1 and "final_cap=1792" in log, log
+        assert "crawl_wall_ms=70000" in log, log
+        assert "crawl_capped_ms=70000" in log, log
         # no peer decoding -> no policy
         assert gate([], Req("solo", 100_000), 0) is None
     finally:
@@ -95,6 +96,37 @@ def test_flat_v2_crawl_when_escalation_off() -> None:
             clock[0] += 120.0
             assert gate(running, cold, 30_000) == 512   # never escalates
         assert "late-escalate" not in out.getvalue()
+    finally:
+        time.monotonic = real
+
+
+def test_capped_time_excludes_uncapped_wall_intervals() -> None:
+    clock = [100.0]
+    ns, real = _helper_ns(
+        {
+            "GLM53_MIXED_PREFILL_MAX_WAIT_MS": "1",
+            "GLM53_MIXED_PREFILL_ESCALATE_MS": "10000",
+        },
+        clock,
+    )
+    try:
+        gate = ns["_glm53_mixed_prefill_gate"]
+        cold = Req("split", 60_000)
+        peer = _decoding_peer()
+        out = io.StringIO()
+        with redirect_stdout(out):
+            assert gate([peer], cold, 0) == 0
+            clock[0] += 0.01
+            assert gate([peer], cold, 0) == 512
+            clock[0] += 5.0
+            assert gate([], cold, 512) is None
+            clock[0] += 20.0
+            assert gate([peer], cold, 512) == 1792
+            clock[0] += 5.0
+            assert gate([peer], cold, 60_000 - 3_000) is None
+        log = out.getvalue()
+        assert "crawl_wall_ms=30000" in log, log
+        assert "crawl_capped_ms=10000" in log, log
     finally:
         time.monotonic = real
 
@@ -163,6 +195,7 @@ def test_fallback_when_request_rejects_attributes() -> None:
 if __name__ == "__main__":
     test_bypass_hold_deadline_and_aging()
     test_flat_v2_crawl_when_escalation_off()
+    test_capped_time_excludes_uncapped_wall_intervals()
     test_wait_forever_when_max_wait_zero()
     test_preemption_rollback_starts_a_new_crawl_episode()
     test_fallback_when_request_rejects_attributes()

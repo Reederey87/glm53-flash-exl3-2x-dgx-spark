@@ -61,8 +61,8 @@ def test_validation_rejects_wrong_or_unsafe_arm() -> None:
 def test_extracts_only_sub_page_decode_floor_caps() -> None:
     module = load_module()
     logs = """
-[glm53-decode-floor-v3] late-admit req=chatcmpl-a waited_ms=1501 remaining=60000 cap=512
-[glm53-decode-floor-v3] late-escalate req=chatcmpl-a-1a2b3c4d cap=512->1024
+[glm53-decode-floor-v3.1] late-admit req=chatcmpl-a waited_ms=1501 remaining=60000 cap=512
+[glm53-decode-floor-v3.1] late-escalate req=chatcmpl-a-1a2b3c4d cap=512->1024
 [glm53-decode-floor-v3] late-admit req=chatcmpl-unrelated-a-1a2b3c4d waited_ms=1501 remaining=60000 cap=1792
 [glm53-decode-floor-v3] late-escalate req=chatcmpl-a-1234567g cap=1024->1792
 [glm53-decode-floor-v3] late-escalate req=chatcmpl-a-lookalike cap=1024->1792
