@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "run_id": "498b9d9af3",
+  "started": 1788695648.5000455,
+  "base": "http://127.0.0.1:8000",
+  "model": "GLM-5.3-Flash-EXL3",
+  "before": {
+    "num_requests_running": 0.0,
+    "num_requests_waiting": 0.0,
+    "num_preemptions_total": 0.0,
+    "prefix_cache_queries_total": 1330903.0,
+    "prefix_cache_hits_total": 617664.0
+  },
+  "runs": [
+    {
+      "request_id": "glm53-p0-498b9d9af3-essay-1",
+      "http": 200,
+      "sse_chunks": 694,
+      "done": true,
+      "ttfb_s": 0.307,
+      "wall_s": 85.36,
+      "finish_reason": "length",
+      "usage": {
+        "prompt_tokens": 58,
+        "total_tokens": 1858,
+        "completion_tokens": 1800
+      },
+      "content_sha256": "0f4bb09dabf28b59b35e751e24fc3dec8a073694b7b00201d405f2e4dabf4a9f",
+      "content_head": "# How Ocean Tides Work: A Comprehensive Explanation\n\n## Introduction\n\nTides are among the most familiar yet most misunderstood phenomena in the natural world. Nearly everyone who has visited a coastline has witnessed the rhythmic rise and f",
+      "content_tail": "ughly midway between Hawaii and the Aleutians). One sits in the middle of the North Atlantic (near 30\u00b0N, 40\u00b0W). The North Sea contains three amphidromic points, one of which is \"degenerate\" \u2014 pinned on the coast near... \n\nHmm, the North Sea",
+      "diagnostics": {
+        "replacement_or_mojibake": [],
+        "max_16gram_repeats": 1,
+        "content_chars": 7910,
+        "reasoning_chars": 0
+      },
+      "name": "essay-1",
+      "thinking": false
+    },
+    {
+      "request_id": "glm53-p0-498b9d9af3-essay-2",
+      "http": 200,
+      "sse_chunks": 705,
+      "done": true,
+      "ttfb_s": 0.306,
+      "wall_s": 87.165,
+      "finish_reason": "length",
+      "usage": {
+        "prompt_tokens": 54,
+        "total_tokens": 1854,
+        "completion_tokens": 1800
+      },
+      "content_sha256": "2002f8d7bdbf5d94b0c746dd027f6aae0c13bc3d101350b278a89d6d16c52a30",
+      "content_head": "# Virtual Memory in Modern Operating Systems\n\n## Introduction\n\nVirtual memory is one of the most consequential abstractions in computer science. By giving each process the illusion of a large, private, contiguous address space, it decouples",
+      "content_tail": " pages are actually dirtied \u2014 essential for sparse data structures and for fork-heavy workloads.\n\n## Copy-on-Write\n\nCopy-on-write is the canonical example of using the fault mechanism to defer work. When a process forks, the child logically",
+      "diagnostics": {
+        "replacement_or_mojibake": [],
+        "max_16gram_repeats": 1,
+        "content_chars": 8084,
+        "reasoning_chars": 0
+      },
+      "name": "essay-2",
+      "thinking": false
+    },
+    {
+      "request_id": "glm53-p0-498b9d9af3-essay-3",
+      "http": 200,
+      "sse_chunks": 773,
+      "done": true,
+      "ttfb_s": 0.292,
+      "wall_s": 95.415,
+      "finish_reason": "length",
+      "usage": {
+        "prompt_tokens": 51,
+        "total_tokens": 1851,
+        "completion_tokens": 1800
+      },
+      "content_sha256": "ff4165453cc78870ac501ce683093b59708beb76244a578208b6113626ee6ddd",
+      "content_head": "# The Scientific Method in Practice\n\n## Introduction\n\nThe scientific method is often taught as a tidy, linear sequence\u2014observe, hypothesize, experiment, conclude\u2014but practicing scientists know it as something far messier and more interestin",
+      "content_tail": "n a particular instrument's quirk or a particular lab's technique, independent replication will reveal it. And it establishes generality: a drug that works only in one lab's strain of mice is of limited value.\n\nReplication comes in degrees.",
+      "diagnostics": {
+        "replacement_or_mojibake": [],
+        "max_16gram_repeats": 1,
+        "content_chars": 9598,
+        "reasoning_chars": 0
+      },
+      "name": "essay-3",
+      "thinking": false
+    },
+    {
+      "request_id": "glm53-p0-498b9d9af3-thinking-sse",
+      "http": 200,
+      "sse_chunks": 42,
+      "done": true,
+      "ttfb_s": 0.243,
+      "wall_s": 5.014,
+      "finish_reason": "stop",
+      "usage": {
+        "prompt_tokens": 24,
+        "total_tokens": 152,
+        "completion_tokens": 128
+      },
+      "content_sha256": "550115119cb73967fbde945339c84051cc742e78b0ddcff2cb12a005a9049ecf",
+      "content_head": "THINKING_STREAM_OK",
+      "content_tail": "THINKING_STREAM_OK",
+      "diagnostics": {
+        "replacement_or_mojibake": [],
+        "max_16gram_repeats": 0,
+        "content_chars": 18,
+        "reasoning_chars": 588
+      },
+      "name": "thinking-sse",
+      "thinking": true
+    }
+  ],
+  "after": {
+    "num_requests_running": 0.0,
+    "num_requests_waiting": 0.0,
+    "num_preemptions_total": 0.0,
+    "prefix_cache_queries_total": 1331090.0,
+    "prefix_cache_hits_total": 617664.0
+  },
+  "metric_delta": {
+    "num_requests_running": 0.0,
+    "num_requests_waiting": 0.0,
+    "num_preemptions_total": 0.0,
+    "prefix_cache_queries_total": 187.0,
+    "prefix_cache_hits_total": 0.0
+  },
+  "failures": [],
+  "passed": true,
+  "finished": 1788695921.4693804
+}

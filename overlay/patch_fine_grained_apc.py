@@ -1,18 +1,14 @@
 #!/usr/bin/env python3
-"""[glm53-fgapc] Fine-grained APC for the GLM-5.3 hybrid: exempt the KpoolTail
-scratch manager from the partial-hash-hit veto.
+"""[glm53-fgapc] Fine-grained APC for the GLM-5.3 hybrid: exclude cache
+managers that do not participate in prefix caching from the partial-hit veto.
 
-LOCAL: ported from upstream kit PR #59 (W18 A/B window). Upstream disables
-fine-grained prefix-cache hits whenever ANY cache manager lacks
-`supports_fine_grained_hash_lookup` and is not already hash-grained. On this
-hybrid the only such manager is KpoolTailManager — a one-block circular
-scratch per request that (a) never has block hashes computed, (b) already
-opts out of the hybrid hit min (its find_longest_cache_hit returns 0), and
-(c) whose group is reseeded fresh when the cached window does not cover the
-hit. Its veto therefore zeroes a capability the MLA + mamba(align) managers
-do support (hash grain = gcd of participating groups = 64 here), and every
-follow-up re-prefills up to a full 3584-token hybrid block. Exempting it
-lets the MLA/mamba hit reconcile at hash granularity.
+LOCAL: the W18 A/B originally ported upstream kit PR #59 by exempting the
+manager named ``KpoolTailManager``. Upstream kit PR #125 scopes the decision
+to the cache-spec contract instead: a manager whose group explicitly sets
+``participates_in_prefix_caching=False`` cannot constrain lookup granularity.
+On this hybrid that covers the one-block circular KpoolTail scratch without
+depending on a class name that can change during a rebase. Participating MLA
+and mamba managers still veto fine-grained lookup if they lack support.
 
 Gated by GLM53_FINE_GRAINED_APC (start.sh default 0 here — flipped to 1 for
 the window; env-only, not in the JIT shape hash). Idempotent via the
@@ -35,14 +31,15 @@ VETO_OLD = """            unsupported_partial_hit_managers = {
 
 VETO_NEW = """            unsupported_partial_hit_managers = {
                 type(manager).__name__
-                for manager in self.single_type_managers
-                if not manager.supports_fine_grained_hash_lookup
+                for manager, group in zip(
+                    self.single_type_managers, kv_cache_config.kv_cache_groups
+                )
+                # [glm53-fgapc] A transient/non-shareable manager cannot
+                # constrain prefix-hit granularity because it never
+                # participates in the lookup.
+                if group.kv_cache_spec.participates_in_prefix_caching
+                and not manager.supports_fine_grained_hash_lookup
                 and manager.block_size != hash_block_size
-                # [glm53-fgapc] KpoolTail is a 1-block/req scratch: it never
-                # sees block hashes and already opts out of the hybrid hit
-                # min, so its block-aligned-only lookup must not veto
-                # fine-grained hits for the managers that do participate.
-                and type(manager).__name__ != "KpoolTailManager"
             }"""
 
 DIAG_OLD = """        self.verify_and_split_kv_cache_groups()"""
@@ -56,13 +53,16 @@ DIAG_NEW = """        logger.info(
                 (
                     type(manager).__name__,
                     manager.block_size,
+                    bool(group.kv_cache_spec.participates_in_prefix_caching),
                     bool(
                         getattr(
                             manager, "supports_fine_grained_hash_lookup", False
                         )
                     ),
                 )
-                for manager in self.single_type_managers
+                for manager, group in zip(
+                    self.single_type_managers, kv_cache_config.kv_cache_groups
+                )
             ),
         )
         self.verify_and_split_kv_cache_groups()"""
@@ -109,7 +109,10 @@ def patch_file(path: str, dry_run: bool = False) -> int:
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(text)
         os.replace(tmp, path)  # atomic: never leave a marker-bearing partial file
-        print(f"[patch_fine_grained_apc] {path}: fine-grained APC exemption applied.")
+        print(
+            f"[patch_fine_grained_apc] {path}: "
+            "participation-scoped fine-grained APC applied."
+        )
     return 1
 
 

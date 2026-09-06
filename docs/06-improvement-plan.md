@@ -36,6 +36,58 @@ Mainline GLM support (#53906) has merged, so model resolution is no longer the
 mainline blocker described in the historical section above; EXL3 integration
 and overlay compatibility still block a stock-image replacement.
 
+### 2026-09-06: task 6 adopts PR #125 participation-scoped fine-grained APC
+
+The W18 fine-grained APC overlay no longer exempts a cache manager by the
+literal class name `KpoolTailManager`. It now uses upstream kit PR #125's
+cache-spec contract: only groups with
+`kv_cache_spec.participates_in_prefix_caching=True` can veto fine-grained
+lookup. The transient Kpool tail still opts out, while participating MLA and
+Mamba managers still disable the 64-token path if they lack lookup support.
+This is a rebase-robust scoping change, not a new cache policy or allocation
+geometry.
+
+Local fixtures cover a renamed non-participating scratch manager, a
+participating unsupported manager, the supported path, exact anchor drift,
+partial markers, missing targets, idempotence and atomic writes. Validation
+passed 158 tests, 1 skipped and 4 subtests, plus shell syntax, Python compile
+and diff checks. The independent final reviewer approved the exact two-file
+candidate with no required findings. Both Sparks then applied candidate
+overlay SHA256
+`a7aee3a19e1421ef8df4819e1e614686c0fddf2c43f8139ecd7fd65393d029d3`
+idempotently to the pristine production-image coordinator before deployment.
+
+The guarded control/candidate comparison kept `.env`, image, model, drafter,
+template, KV pin and shape stamp fixed. Control overlay SHA256 was
+`9ba0e6e80f504475633f01839f75370c6484f707d216312ad3fdc04a3fcade95`;
+the candidate was installed atomically and booted through
+`vllm-glm53exl3.service`. The shape stamp remained
+`91fbe73a55b2590a3009762603dff284`, and both boots reported the same
+1,396,551-token pool / 566 usable block IDs.
+
+The fixed-seed follow-up ladder was identical in both arms: 2,624 / 6,464 /
+10,368 / 38,720 hit tokens for the approximately 2k / 5k / 8k / 30k prompts.
+The 4×60k×3 fork shape retained 98.7% hits in rounds 2 and 3 with zero request
+errors in both arms; candidate cold-round wall time was 228.0 s versus 233.8 s
+control, a descriptive single sample rather than a performance claim. The
+diagnostic cold-vs-replay prose probe remained non-bit-exact in both arms
+(1/3 control, 0/3 candidate), the already known cached/recomputed-state
+variability; the standing semantic and target-output gates below passed.
+
+**Decision: ADOPT.** Acceptance passed 7/7, serving 6/6, tool calls 23/23 with
+zero blank required arguments, and the long-form/thinking-SSE battery had zero
+failures. The dedicated speculative diagnostic returned structured acceptance
+1.000 / 7.000 at 72.28 tok/s; the broader five-run structured bench was stable
+at 66.82 tok/s median with no NaN. Final health was 200, running/waiting/
+preemptions were zero, selected head/worker runtime errors and kernel Xids were
+zero, and MemFree was 4,493,772 / 4,140,992 KiB. The watchdog was re-armed.
+Rollback is
+`overlay/patch_fine_grained_apc.py.task6-control-20260906` on spark1 followed
+by the guarded unit restart. Task 6 is closed.
+
+Receipts: `local/task6-pr125-{control,candidate,deploy,gates,final-audit,
+serving,spec-accept,structured,runtime}-20260906.*`.
+
 ### 2026-09-05: A3 align-floor window completed; LPTT 3584 remains rejected
 
 Task 12 ran the previously blocked 60k mixed-prefill window at

@@ -1,0 +1,86 @@
+TASK6 GATES 2026-09-06T07:48:18-04:00
+overlay=a7aee3a19e1421ef8df4819e1e614686c0fddf2c43f8139ecd7fd65393d029d3  overlay/patch_fine_grained_apc.py
+--- acceptance ---
+
+== 1. served model id ==
+  PASS  /v1/models advertises GLM-5.3-Flash-EXL3
+
+== 2. basic completion, thinking OFF, temp 0 ==
+  PASS  basic completion
+
+== 3. thinking ON (reasoning parser glm45) ==
+    reasoning field: reasoning
+    reasoning chars: 201 | content chars: 411
+    finish_reason: stop
+  PASS  thinking returns reasoning + content
+
+== 4. tool call (parser glm47, auto tool choice) ==
+    finish_reason: tool_calls | tool_calls: 1
+    name: get_weather | args: {"city": "Oslo"}
+  PASS  tool call emitted and parsed
+
+== 5. production sampling: temp 1.0, thinking ON ==
+    finish_reason: stop | content chars: 423
+  PASS  temp 1.0 + thinking (the real production path)
+
+== 6. vision (LANGUAGE_MODEL_ONLY=0, limit-mm image:4) ==
+    content: Minimalist
+  PASS  vision tower accepts an image
+
+== 7. long-context needle (~32k tokens) ==
+    prompt_tokens: 36040 | answer: CORMORANT-8815
+  PASS  needle retrieved at ~32k
+
+== RESULT ==
+  passed: 7   failed: 0
+  ACCEPTANCE PASSED
+--- structured decode ---
+[bench] warmup (32 tokens)
+{"tok_s": 85.59305675755245, "ttft_s": 0.35208993300329894, "completion_tokens": 32}
+[bench] run 1/5 phase=task6-pr125-candidate
+{"tok_s": 66.8775926195396, "ttft_s": 0.3588526639941847, "completion_tokens": 404, "finish_reason": "stop", "nan": false, "accept_ratio": 0.967, "accepted_per_step": 6.769, "pos": [1.0, 0.9808, 0.9808, 0.9808, 0.9808, 0.9231, 0.9231]}
+[bench] run 2/5 phase=task6-pr125-candidate
+{"tok_s": 66.69102505341868, "ttft_s": 0.35155540400592145, "completion_tokens": 404, "finish_reason": "stop", "nan": false, "accept_ratio": 0.967, "accepted_per_step": 6.769, "pos": [1.0, 0.9808, 0.9808, 0.9808, 0.9808, 0.9231, 0.9231]}
+[bench] run 3/5 phase=task6-pr125-candidate
+{"tok_s": 67.06363146683776, "ttft_s": 0.36216993400012143, "completion_tokens": 404, "finish_reason": "stop", "nan": false, "accept_ratio": 0.967, "accepted_per_step": 6.769, "pos": [1.0, 0.9808, 0.9808, 0.9808, 0.9808, 0.9231, 0.9231]}
+[bench] run 4/5 phase=task6-pr125-candidate
+{"tok_s": 66.42791448945754, "ttft_s": 0.3478574460023083, "completion_tokens": 404, "finish_reason": "stop", "nan": false, "accept_ratio": 0.967, "accepted_per_step": 6.769, "pos": [1.0, 0.9808, 0.9808, 0.9808, 0.9808, 0.9231, 0.9231]}
+[bench] run 5/5 phase=task6-pr125-candidate
+{"tok_s": 66.81661091192137, "ttft_s": 0.34749222999380436, "completion_tokens": 404, "finish_reason": "stop", "nan": false, "accept_ratio": 0.967, "accepted_per_step": 6.769, "pos": [1.0, 0.9808, 0.9808, 0.9808, 0.9808, 0.9231, 0.9231]}
+{
+  "phase": "task6-pr125-candidate",
+  "health_code": 200,
+  "health_body": "",
+  "ts": 1788695348.6826332,
+  "prompt": "structured-count-1-200",
+  "thinking": false,
+  "temperature": 0,
+  "warmup": {
+    "tok_s": 85.59305675755245,
+    "ttft_s": 0.35208993300329894,
+    "completion_tokens": 32
+  },
+  "tok_s_median": 66.81661091192137,
+  "tok_s_min": 66.42791448945754,
+  "tok_s_max": 67.06363146683776,
+  "ttft_median_s": 0.35155540400592145,
+  "completion_tokens_median": 404.0,
+  "accept_ratio_median": 0.967,
+  "accepted_per_step_median": 6.769,
+  "any_nan": false,
+  "health_code_after": 200
+}
+wrote /tmp/task6-pr125-structured-20260906.json
+--- tool calls ---
+c=1 stream temp0 x3                          n= 3 bad_args=0 short=0 errors=0 wall=   4.3s
+c=1 non-stream temp0 x2                      n= 2 bad_args=0 short=0 errors=0 wall=   2.8s
+c=1 stream temp1 (prod sampling) x3          n= 3 bad_args=0 short=0 errors=0 wall=   4.2s
+c=4 homogeneous stream temp1 x8              n= 8 bad_args=0 short=0 errors=0 wall=   5.2s
+c=4 mixed: 2 cold ~60000 pads + 2 tool (wave 1) n= 2 bad_args=0 short=0 errors=0 wall=  97.9s
+c=4 mixed: 2 cold ~60000 pads + 2 tool (wave 2) n= 2 bad_args=0 short=0 errors=0 wall=  97.9s
+c=4 mixed: 1 cold pad + 3 tool               n= 3 bad_args=0 short=0 errors=0 wall=  54.0s
+
+TOTAL tool turns: 23, blank-required-arg turns: 0
+--- long form and thinking SSE ---
+{"passed": true, "failures": [], "out": "/tmp/task6-pr125-runtime-20260906.json"}
+TASK6_GATES_DONE 2026-09-06T07:58:41-04:00

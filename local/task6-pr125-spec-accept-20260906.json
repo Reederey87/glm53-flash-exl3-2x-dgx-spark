@@ -1,0 +1,159 @@
+{
+  "ts": 1788695959.3058932,
+  "base": "http://127.0.0.1:18000",
+  "max_tokens": 200,
+  "pre": {
+    "running": 0.0,
+    "waiting": 0.0,
+    "kv": 0.0,
+    "hits": 617664.0,
+    "queries": 1331483.0,
+    "drafts": 2940.0,
+    "acc": 6645.0
+  },
+  "arms": [
+    {
+      "name": "S0-struct-off-t0",
+      "thinking": false,
+      "temp": 0.0,
+      "effort": null,
+      "http": 200,
+      "ttft_s": 0.425,
+      "wall_s": 3.192,
+      "tok_s": 72.28,
+      "prompt_tokens": 34,
+      "completion_tokens": 200,
+      "finish_reason": "length",
+      "content_chars": 292,
+      "reasoning_chars": 0,
+      "content_head": "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30",
+      "spec": {
+        "drafts": 25,
+        "draft_tokens": 175,
+        "accepted": 175,
+        "accept_ratio": 1.0,
+        "accepted_per_step": 7.0,
+        "pos": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "hit_delta": 0,
+        "query_delta": 34
+      }
+    },
+    {
+      "name": "P0-prose-off-t0",
+      "thinking": false,
+      "temp": 0.0,
+      "effort": null,
+      "http": 200,
+      "ttft_s": 0.368,
+      "wall_s": 7.221,
+      "tok_s": 29.18,
+      "prompt_tokens": 40,
+      "completion_tokens": 200,
+      "finish_reason": "length",
+      "content_chars": 852,
+      "reasoning_chars": 0,
+      "content_head": "# How a Hash Map Works: A Complete Guide\n\nA hash map (also called a hash table o",
+      "spec": {
+        "drafts": 58,
+        "draft_tokens": 406,
+        "accepted": 144,
+        "accept_ratio": 0.3547,
+        "accepted_per_step": 2.483,
+        "pos": [
+          0.7931,
+          0.569,
+          0.4138,
+          0.3276,
+          0.1897,
+          0.1034,
+          0.0862
+        ],
+        "hit_delta": 0,
+        "query_delta": 40
+      }
+    },
+    {
+      "name": "S1-struct-on-t1-max",
+      "thinking": true,
+      "temp": 1.0,
+      "effort": "max",
+      "http": 200,
+      "ttft_s": 0.359,
+      "wall_s": 4.548,
+      "tok_s": 47.73,
+      "prompt_tokens": 33,
+      "completion_tokens": 200,
+      "finish_reason": "length",
+      "content_chars": 0,
+      "reasoning_chars": 471,
+      "content_head": "",
+      "spec": {
+        "drafts": 35,
+        "draft_tokens": 245,
+        "accepted": 171,
+        "accept_ratio": 0.698,
+        "accepted_per_step": 4.886,
+        "pos": [
+          0.8571,
+          0.8286,
+          0.7143,
+          0.6571,
+          0.6571,
+          0.6,
+          0.5714
+        ],
+        "hit_delta": 0,
+        "query_delta": 33
+      }
+    },
+    {
+      "name": "P1-prose-on-t1-max",
+      "thinking": true,
+      "temp": 1.0,
+      "effort": "max",
+      "http": 200,
+      "ttft_s": 0.443,
+      "wall_s": 7.115,
+      "tok_s": 29.98,
+      "prompt_tokens": 39,
+      "completion_tokens": 200,
+      "finish_reason": "length",
+      "content_chars": 0,
+      "reasoning_chars": 886,
+      "content_head": "",
+      "spec": {
+        "drafts": 57,
+        "draft_tokens": 399,
+        "accepted": 145,
+        "accept_ratio": 0.3634,
+        "accepted_per_step": 2.544,
+        "pos": [
+          0.807,
+          0.5614,
+          0.4561,
+          0.2807,
+          0.2105,
+          0.1228,
+          0.1053
+        ],
+        "hit_delta": 0,
+        "query_delta": 39
+      }
+    }
+  ],
+  "post": {
+    "running": 0.0,
+    "waiting": 0.0,
+    "kv": 0.0,
+    "hits": 617664.0,
+    "queries": 1331629.0
+  }
+}
