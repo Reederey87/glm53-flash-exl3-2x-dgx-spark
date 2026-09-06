@@ -1381,6 +1381,17 @@ three corruption modes). Gates after ship: structured 66.52 / 66.57 / 66.69 @
 1.0000/7.0, acceptance 7/7, pool 1,396,551 byte-identical, loopback bind, both ranks log
 `patched scheduler.py (align floor=1)`.
 
+The scratchpad coverage is now committed as `tests/test_align_floor.py`. It
+preserves the recorded 608-case production-equivalence grid (19 scheduler
+positions × 8 sub-page chunks × 4 scheduling budgets) at LPTT=1792, proves the
+helper remains unevaluated there, reproduces upstream 0 versus fixed
+512/1024/1792 at the 3584 boundary, and covers mid-page and mandatory-tail
+stops. Exact candidate bytes passed 5/5 on both Sparks against synthetic
+fresh-install fixtures and temporary copies of the live scheduler; the running
+container source hash stayed `1a4ca8b6ad26` on both nodes. No service restart or
+production-file change was made. A3 is unblocked but remains a separate
+guarded restart window.
+
 ### W35 — mixed-prefill warm-bypass knee (owner-requested), CLEAN
 
 24 randomised rows, two reps per point, fresh tool seed every rep, a peer generation
@@ -1778,9 +1789,9 @@ For a future restart:
   **W43** (seqs 4→8, capture 40 48 56 64). Memory tripwire both nodes.
 - Otherwise, do not repeat W28; select a later candidate only with its own
   pre-registered decision variable and rollback.
-- Commit the 608-combination align-floor unit test **before**
-  A3. A3 itself (LPTT ≥ 3584, prove the floor acts) stays after this
-  restart.
+- The 608-combination align-floor unit test is committed and exact-byte
+  cluster-smoked. A3 itself (LPTT ≥ 3584, prove the floor acts) remains a
+  separate guarded restart window.
 
 #### Cheap overlay / stopped-window after the above
 
