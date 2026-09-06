@@ -590,6 +590,8 @@ def _check_dflash2() -> None:
     assert "compact_block = 64" in kv
     assert "page_size_padded=mla_page" in kv
     assert "padded slot-share block=%d" in kv
+    assert "structural_padding_waste_bytes=%d" in kv
+    assert "exact_fit_page=%d growth_bytes=%d" in kv
     assert "s.block_size != 64 or s.page_size_padded != mla_page" in kv
     standalone = kv.split("PADDED SLOT-SHARE:")[1].split("draft_uniform")[0]
     assert "compact_block" in standalone

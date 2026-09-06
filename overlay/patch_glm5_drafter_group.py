@@ -207,14 +207,39 @@ EDIT_GROUPS_RETURN_NEW = """\
             # to mla_page is a safe strided view (boot 8 OOB was kernel 64
             # inside a 2304-token manager). Layer i co-owns MLA tensor i.
             compact_block = 64
+            kernel_page_bytes = compact_block * draft_bytes_per_token
+            draft_tokens_per_mla_page = mla_page // draft_bytes_per_token
+            usable_draft_tokens = (
+                draft_tokens_per_mla_page // compact_block * compact_block
+            )
+            structural_padding_waste_bytes = (
+                draft_tokens_per_mla_page - usable_draft_tokens
+            ) * draft_bytes_per_token
+            exact_fit_draft_tokens = (
+                (draft_tokens_per_mla_page + compact_block - 1)
+                // compact_block
+                * compact_block
+            )
+            exact_fit_page_bytes = exact_fit_draft_tokens * draft_bytes_per_token
             logger.info(
                 "DFlash2 drafter KV: padded slot-share block=%d "
                 "mla_page=%d (was block=%d); exact-fit page mismatch "
-                "draft_bytes/token=%d",
+                "draft_bytes/token=%d kernel_page=%d "
+                "draft_tokens/page=%d usable_draft_tokens=%d "
+                "structural_padding_waste_bytes=%d (%.2f%% of mla_page) "
+                "exact_fit_page=%d growth_bytes=%d (%.2f%%)",
                 compact_block,
                 mla_page,
                 any_draft.block_size,
                 draft_bytes_per_token,
+                kernel_page_bytes,
+                draft_tokens_per_mla_page,
+                usable_draft_tokens,
+                structural_padding_waste_bytes,
+                100.0 * structural_padding_waste_bytes / mla_page,
+                exact_fit_page_bytes,
+                exact_fit_page_bytes - mla_page,
+                100.0 * (exact_fit_page_bytes - mla_page) / mla_page,
             )
             new_draft_specs = {
                 name: replace(
@@ -654,38 +679,8 @@ def patch_file(path: str, dry_run: bool = False) -> int:
             "                return None\n"
         )
         v3_marker = "padded slot-share block=%d"
-        if v4_old in text:
-            text = text.replace(v4_old, v4_new, 1)
-            try:
-                ast.parse(text, filename=path)
-            except SyntaxError as e:
-                raise AssertionError(
-                    f"POST-EDIT ast.parse FAILED for {path}: {e}"
-                ) from e
-            if v3_marker in text:
-                if dry_run:
-                    print(f"[patch_glm5_drafter_group] DRY RUN -- {path} not written.")
-                else:
-                    with open(path, "w", encoding="utf-8") as f:
-                        f.write(text)
-                print(
-                    f"[patch_glm5_drafter_group] {path}: padded slot-share v4 "
-                    "(allow padded draft in glm5 layout) applied."
-                )
-                return 0
-            # v3 grouping not yet present; keep going with mutated text.
-        elif v3_marker in text:
-            print(
-                f"[patch_glm5_drafter_group] {path}: already patched "
-                f"({MARKER} + padded slot-share); no-op."
-            )
-            return 0
-
-        new_padded = (
-            "            # PADDED SLOT-SHARE: 656 vs 4096 cannot exact-fill on this MLA\n"
-            "            # block. Manager 64 matches the SWA kernel, so padding the page\n"
-            "            # to mla_page is a safe strided view (boot 8 OOB was kernel 64\n"
-            "            # inside a 2304-token manager). Layer i co-owns MLA tensor i.\n"
+        waste_marker = "structural_padding_waste_bytes=%d"
+        old_padded_log = (
             "            compact_block = 64\n"
             "            logger.info(\n"
             "                \"DFlash2 drafter KV: padded slot-share block=%d \"\n"
@@ -696,7 +691,89 @@ def patch_file(path: str, dry_run: bool = False) -> int:
             "                any_draft.block_size,\n"
             "                draft_bytes_per_token,\n"
             "            )\n"
-            "            new_draft_specs = {\n"
+        )
+        new_padded_log = (
+            "            compact_block = 64\n"
+            "            kernel_page_bytes = compact_block * draft_bytes_per_token\n"
+            "            draft_tokens_per_mla_page = mla_page // draft_bytes_per_token\n"
+            "            usable_draft_tokens = (\n"
+            "                draft_tokens_per_mla_page // compact_block * compact_block\n"
+            "            )\n"
+            "            structural_padding_waste_bytes = (\n"
+            "                draft_tokens_per_mla_page - usable_draft_tokens\n"
+            "            ) * draft_bytes_per_token\n"
+            "            exact_fit_draft_tokens = (\n"
+            "                (draft_tokens_per_mla_page + compact_block - 1)\n"
+            "                // compact_block\n"
+            "                * compact_block\n"
+            "            )\n"
+            "            exact_fit_page_bytes = exact_fit_draft_tokens * draft_bytes_per_token\n"
+            "            logger.info(\n"
+            "                \"DFlash2 drafter KV: padded slot-share block=%d \"\n"
+            "                \"mla_page=%d (was block=%d); exact-fit page mismatch \"\n"
+            "                \"draft_bytes/token=%d kernel_page=%d \"\n"
+            "                \"draft_tokens/page=%d usable_draft_tokens=%d \"\n"
+            "                \"structural_padding_waste_bytes=%d (%.2f%% of mla_page) \"\n"
+            "                \"exact_fit_page=%d growth_bytes=%d (%.2f%%)\",\n"
+            "                compact_block,\n"
+            "                mla_page,\n"
+            "                any_draft.block_size,\n"
+            "                draft_bytes_per_token,\n"
+            "                kernel_page_bytes,\n"
+            "                draft_tokens_per_mla_page,\n"
+            "                usable_draft_tokens,\n"
+            "                structural_padding_waste_bytes,\n"
+            "                100.0 * structural_padding_waste_bytes / mla_page,\n"
+            "                exact_fit_page_bytes,\n"
+            "                exact_fit_page_bytes - mla_page,\n"
+            "                100.0 * (exact_fit_page_bytes - mla_page) / mla_page,\n"
+            "            )\n"
+        )
+        upgraded = []
+        if v4_old in text:
+            text = text.replace(v4_old, v4_new, 1)
+            upgraded.append("allow padded draft in glm5 layout")
+        if v3_marker in text and waste_marker not in text:
+            if old_padded_log not in text:
+                raise AssertionError(
+                    f"{path}: padded slot-share marker present but exact legacy "
+                    "boot-log block is missing"
+                )
+            text = text.replace(old_padded_log, new_padded_log, 1)
+            upgraded.append("exact padding-waste boot accounting")
+        if v3_marker in text and upgraded:
+            try:
+                ast.parse(text, filename=path)
+            except SyntaxError as e:
+                raise AssertionError(
+                    f"POST-EDIT ast.parse FAILED for {path}: {e}"
+                ) from e
+            if dry_run:
+                print(f"[patch_glm5_drafter_group] DRY RUN -- {path} not written.")
+            else:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(text)
+            print(
+                f"[patch_glm5_drafter_group] {path}: upgraded "
+                + ", ".join(upgraded)
+                + "."
+            )
+            return 0
+        if v3_marker in text and waste_marker in text:
+            print(
+                f"[patch_glm5_drafter_group] {path}: already patched "
+                f"({MARKER} + padded slot-share + padding-waste accounting); "
+                "no-op."
+            )
+            return 0
+
+        new_padded = (
+            "            # PADDED SLOT-SHARE: 656 vs 4096 cannot exact-fill on this MLA\n"
+            "            # block. Manager 64 matches the SWA kernel, so padding the page\n"
+            "            # to mla_page is a safe strided view (boot 8 OOB was kernel 64\n"
+            "            # inside a 2304-token manager). Layer i co-owns MLA tensor i.\n"
+            + new_padded_log
+            + "            new_draft_specs = {\n"
             "                name: replace(\n"
             "                    s,\n"
             "                    block_size=compact_block,\n"
