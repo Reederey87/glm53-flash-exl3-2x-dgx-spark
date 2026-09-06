@@ -719,7 +719,7 @@ def stat_mode(path: Path) -> int:
 def defaults_source() -> str:
     """The fork's W41/W42 knob-defaults block in start.sh. Top level, but it
     only substitutes UNSET -> 1 and never exits: strict validation lives in
-    validate_numeric_config (start/restart only), so a bad value can never
+    validate_numeric_config (before start/restart or through validate), so a bad value can never
     block stop/status/logs on a running pair."""
     text = START.read_text()
     begin = text.index("# LOCAL: W41/W42 knob defaults (begin)")
@@ -818,8 +818,8 @@ def _launcher_wiring(prefix: str, host_var: str, overlay: str, knob: str, tag: s
         check(rc == 0 and o == f"{len(value)}|{value}", f"{prefix}4 top level passes {value!r} through byte-exact (rc=0) -- stop/status/logs unblockable")
     src2 = START.read_text()
     check(src2.count("# LOCAL: W41/W42 strict-bool validation (begin)") == 1, f"{prefix}5 strict-bool validator present exactly once")
-    check(src2.index("# LOCAL: W41/W42 strict-bool validation (begin)") > src2.index("validate_numeric_config() {"), f"{prefix}5 validator lives inside validate_numeric_config (start/restart only)")
-    check("start|restart) validate_numeric_config" in src2, f"{prefix}5 validator wired to start|restart only")
+    check(src2.index("# LOCAL: W41/W42 strict-bool validation (begin)") > src2.index("validate_numeric_config() {"), f"{prefix}5 validator lives inside validate_numeric_config")
+    check("start|restart|validate) validate_numeric_config" in src2, f"{prefix}5 validator wired before start/restart and through validate")
     check("bool knob guard (begin)" not in src2, f"{prefix}5 no top-level W41/W42 guard remains")
     for value in ("1", "0"):
         rc, o, e = _run_validator(knob, value)

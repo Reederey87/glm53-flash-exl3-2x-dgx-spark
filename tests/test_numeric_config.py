@@ -26,17 +26,35 @@ def guard_source() -> str:
     return source[d_begin:d_end] + "\n" + source[begin:end]
 
 
-def validate(util: str, model: str, seqs: str, batch: str) -> subprocess.CompletedProcess[str]:
+def validate(
+    util: str,
+    model: str,
+    seqs: str,
+    batch: str,
+    spec_method: str = "dflash",
+    dflash_tokens: str = "7",
+) -> subprocess.CompletedProcess[str]:
     script = (
         guard_source()
         + '\nGPU_MEM_UTIL="$1"; MAX_MODEL_LEN="$2"; MAX_NUM_SEQS="$3"; '
-        + 'MAX_NUM_BATCHED_TOKENS="$4"\n'
+        + 'MAX_NUM_BATCHED_TOKENS="$4"; SPEC_METHOD="$5"; DFLASH_TOKENS="$6"\n'
         + 'validate_numeric_config || exit $?\n'
-        + 'printf "%s|%s|%s|%s\\n" "$GPU_MEM_UTIL" "$MAX_MODEL_LEN" '
-        + '"$MAX_NUM_SEQS" "$MAX_NUM_BATCHED_TOKENS"\n'
+        + 'printf "%s|%s|%s|%s|%s\\n" "$GPU_MEM_UTIL" "$MAX_MODEL_LEN" '
+        + '"$MAX_NUM_SEQS" "$MAX_NUM_BATCHED_TOKENS" "$DFLASH_TOKENS"\n'
     )
     return subprocess.run(
-        ["bash", "-c", script, "test", util, model, seqs, batch],
+        [
+            "bash",
+            "-c",
+            script,
+            "test",
+            util,
+            model,
+            seqs,
+            batch,
+            spec_method,
+            dflash_tokens,
+        ],
         text=True,
         capture_output=True,
         check=False,
@@ -65,15 +83,25 @@ def test_matrix() -> None:
 
 
 def test_decimal_normalization() -> None:
-    result = validate(".87", "01000000", "0004", "01024")
+    result = validate(".87", "01000000", "0004", "01024", dflash_tokens="07")
     assert result.returncode == 0
-    assert result.stdout.strip() == ".87|1000000|4|1024"
+    assert result.stdout.strip() == ".87|1000000|4|1024|7"
+
+
+def test_dflash2_rejects_non_native_block_lengths() -> None:
+    for tokens in ("3", "4", "8", "nope"):
+        result = validate("0.87", "1000000", "4", "1024", dflash_tokens=tokens)
+        assert result.returncode == 2
+    result = validate(
+        "0.87", "1000000", "4", "1024", spec_method="none", dflash_tokens="4"
+    )
+    assert result.returncode == 0
 
 
 def test_restart_validates_before_stop() -> None:
     source = START.read_text()
     main = source.index("main() {")
-    validation = source.index("start|restart) validate_numeric_config", main)
+    validation = source.index("start|restart|validate) validate_numeric_config", main)
     restart = source.index("restart)  stop; start", main)
     assert validation < restart
 

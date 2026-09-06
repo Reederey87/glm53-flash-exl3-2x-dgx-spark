@@ -36,6 +36,7 @@
 #                                 (no worker). Same as ./download.sh
 #   ./start.sh stop               stop both nodes
 #   ./start.sh restart            stop + start
+#   ./start.sh validate           validate start/restart configuration only
 #   ./start.sh status             containers + API health
 #   ./start.sh logs               follow head logs
 #   ./start.sh logs worker        follow worker container logs
@@ -47,7 +48,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 
-if [ ! -f "$SCRIPT_DIR/.env" ]; then
+if [ ! -f "$SCRIPT_DIR/.env" ] && [ "${1:-start}" = validate ]; then
+    echo "ERROR: missing .env; validation does not create configuration files" >&2
+    exit 1
+elif [ ! -f "$SCRIPT_DIR/.env" ]; then
     [ -f "$SCRIPT_DIR/env.example" ] || {
         echo "ERROR: missing env.example" >&2
         exit 1
@@ -199,6 +203,10 @@ if [ -n "${DFLASH_REVISION:-}" ] && ! [[ "$DFLASH_REVISION" =~ ^[0-9a-f]{40}$ ]]
     exit 1
 fi
 DFLASH_TOKENS="${DFLASH_TOKENS:-7}"
+# The pinned DFlash2 checkpoint has a native eight-row block. On this legacy
+# proposer num_speculative_tokens also controls query/mask rows, grouped
+# convolution, selector walking and draft-logit cache shape. It is not an
+# independent verification-length knob; task 4 parked k=3/4 for MRV2.
 # 2 = shard the ~2.3 GiB DFlash2 drafter across TP (C4 keep, 2026-08-30:
 # idle 8k 938 / 16k 972 / 100k 997; decode structured 65.1 / prose 27.1).
 # 1 = rank 0 only (no CX7 on every draft step). Empty = inherit target TP.
@@ -294,7 +302,7 @@ GLM53_SUPPRESS_STOPS_IN_REASONING="${GLM53_SUPPRESS_STOPS_IN_REASONING:-1}"
 # LOCAL (W27, kit PR #87): server-side default reasoning effort, injected as
 # --default-chat-template-kwargs '{"reasoning_effort":"<v>"}'. EMPTY (default)
 # sends no flag and the template renders Max for any client that omits it.
-# low | high | max (validated in validate_numeric_config — start/restart only,
+# low | high | max (validated before start/restart, or by `validate`,
 # so a bad value never blocks stop/status/logs). Per-request
 # chat_template_kwargs.reasoning_effort overrides the default.
 GLM53_DEFAULT_REASONING_EFFORT="${GLM53_DEFAULT_REASONING_EFFORT-}"
@@ -317,9 +325,9 @@ GLM53_FINE_GRAINED_APC="${GLM53_FINE_GRAINED_APC:-0}"
 # (scheduler livelock, dormant at LPTT=1792 — proven 0 mismatches over 608 combinations). Read once at import.
 GLM53_ALIGN_FLOOR="${GLM53_ALIGN_FLOOR:-1}"
 # LOCAL: W41/W42 knob defaults (begin) -- exactly 0 or 1; UNSET -> 1; "" is a
-# value and is rejected. Strict validation lives in validate_numeric_config
-# (start/restart only), so a bad value can never block stop/status/logs on a
-# running pair; the overlays re-validate in-process and fail closed at boot.
+# value and is rejected. Strict validation runs before start/restart and through
+# `validate`, so a bad value cannot block stop/status/logs on a running pair;
+# the overlays re-validate in-process and fail closed at boot.
 GLM53_KV_CAPACITY_LOG="${GLM53_KV_CAPACITY_LOG-1}"
 GLM53_APC_NO_STORE="${GLM53_APC_NO_STORE-1}"
 # W28: stock is the shipped allocation; rightsize enables the GLM-5.3-only
@@ -407,6 +415,13 @@ validate_numeric_config() {
     _glm53_canonical_positive_int MAX_MODEL_LEN "$MAX_MODEL_LEN" 1000000 || return
     _glm53_canonical_positive_int MAX_NUM_SEQS "$MAX_NUM_SEQS" 4096 || return
     _glm53_canonical_positive_int MAX_NUM_BATCHED_TOKENS "$MAX_NUM_BATCHED_TOKENS" 8388608 || return
+    if [ "$SPEC_METHOD" = dflash ]; then
+        _glm53_canonical_positive_int DFLASH_TOKENS "$DFLASH_TOKENS" 64 || return
+        if [ "$DFLASH_TOKENS" != 7 ]; then
+            echo "DFLASH_TOKENS must remain 7 for this fixed-block DFlash2 path; verification-only k=3/4 is unsupported (got: $DFLASH_TOKENS)" >&2
+            return 2
+        fi
+    fi
     # LOCAL: W27 — strict enum; it is also the safety boundary for the worker's
     # word-split `-e` transport (never widen it without adding quoting).
     case "${GLM53_DEFAULT_REASONING_EFFORT-}" in
@@ -414,9 +429,9 @@ validate_numeric_config() {
         *) echo "GLM53_DEFAULT_REASONING_EFFORT must be one of: low high max (got: ${GLM53_DEFAULT_REASONING_EFFORT})" >&2; return 2 ;;
     esac
     # LOCAL: W41/W42 strict-bool validation (begin) -- exactly 0 or 1; "" is a
-    # value and is rejected. Lives in validate_numeric_config (start/restart
-    # only): a bad value fails the boot, never stop/status/logs on a running
-    # pair; the overlays re-validate in-process and fail closed.
+    # value and is rejected. Runs before start/restart and through `validate`:
+    # a bad value fails before boot, never stop/status/logs on a running pair;
+    # the overlays re-validate in-process and fail closed.
     for _v in GLM53_KV_CAPACITY_LOG GLM53_APC_NO_STORE; do
         case "${!_v}" in 0|1) ;; *) echo "$_v must be exactly 0 or 1 (got: '${!_v}')" >&2; return 2 ;; esac
     done
@@ -1761,11 +1776,12 @@ logs() {
 main() {
     local cmd="${1:-start}"
     case "$cmd" in
-        start|restart) validate_numeric_config ;;
+        start|restart|validate) validate_numeric_config ;;
     esac
     case "$cmd" in
         stop)     banner stop.sh ;;
         download) banner download.sh ;;
+        validate) ;;
         *)        banner start.sh ;;
     esac
     case "$cmd" in
@@ -1773,6 +1789,7 @@ main() {
         download) download_only ;;
         stop)     stop ;;
         restart)  stop; start ;;
+        validate) log "configuration valid" ;;
         status)   status ;;
         logs)     shift || true; logs "$@" ;;
         -h|--help|help) usage ;;
