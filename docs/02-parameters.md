@@ -4,6 +4,20 @@ Every value in `env.example`, and why. The short version: **four knobs form a lo
 system — `MAX_MODEL_LEN=1000000`, `MAX_NUM_BATCHED_TOKENS=3584`, the KV pin, and
 `--no-async-scheduling`. Change one and you must re-derive the others.**
 
+## Caller exports and `.env`
+
+For every key assigned by `.env`, a non-empty caller export wins for that
+invocation. This makes guarded commands such as
+`MAX_MODEL_LEN=200000 ./start.sh validate` reflect the requested arm instead of
+silently retaining the file value. The launcher captures only exported,
+non-readonly names and never evaluates generated shell text.
+
+An empty caller export normally keeps the `.env` value, matching the historical
+launcher behavior. `GLM53_KV_CAPACITY_LOG`, `GLM53_APC_NO_STORE`, and
+`GLM53_INDEXER_WORKSPACE` are deliberate exceptions: empty is invalid for those
+strict knobs, so it survives to `validate_numeric_config` and fails before any
+restart side effect.
+
 ## MAX_MODEL_LEN=1000000
 
 This deployment started at 262k because the pinned pool then counted 318,640 tokens

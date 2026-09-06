@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""The gate-v2 patcher must handle a scheduler.py that already carries the BAKED v1
-overlay (the self-built production image applies overlays at image build): pristine ->
-full v3, v1-baked -> v3, v2 (applied or baked) -> v3, v3 -> no-op. Discovered live 2026-08-31: the original
+"""The gate patcher must handle every deployed predecessor state: pristine ->
+v3.1, v1-baked -> v3.1, v2 (applied or baked) -> v3.1, v3 -> v3.1,
+v3.1 -> no-op. Discovered live 2026-08-31: the original
 PR #80 installer saw the v1 marker and skipped, leaving production on the v1 gate."""
 from __future__ import annotations
 
@@ -85,19 +85,19 @@ def build_v1_file(mod) -> str:
     return v1
 
 
-def test_pristine_v2_then_noop() -> None:
+def test_pristine_v31_then_noop() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         t = Path(tmp) / "scheduler.py"
         mod = load_overlay(t)
         assert mod.RUNNING_OLD in PRISTINE and mod.WAITING_OLD in PRISTINE, "fixture drifted"
         t.write_text(PRISTINE)
         r = run_patcher(t); assert r.returncode == 0, r.stderr
-        v2 = t.read_text()
-        assert v2.count("[glm53-decode-floor-v2]") >= 3
-        assert v2.count("_glm53_mixed_prefill_gate(") >= 3
-        compile(v2, "v2.py", "exec")
+        v31 = t.read_text()
+        assert mod.MARK_V31 in v31
+        assert v31.count("_glm53_mixed_prefill_gate(") >= 3
+        compile(v31, "v31.py", "exec")
         r = run_patcher(t); assert r.returncode == 0 and "already present" in r.stdout, r.stdout
-        assert t.read_text() == v2
+        assert t.read_text() == v31
 
 
 def test_v1_baked_upgrades_then_noop() -> None:
@@ -110,7 +110,7 @@ def test_v1_baked_upgrades_then_noop() -> None:
         compile(v1, "v1.py", "exec")
         t.write_text(v1)
         r = run_patcher(t); assert r.returncode == 0, r.stderr
-        assert "upgraded v1 -> v3" in r.stdout, r.stdout
+        assert "upgraded v1 -> v3.1" in r.stdout, r.stdout
         up = t.read_text()
         assert mod.V1_RUNNING not in up and mod.V1_WAITING not in up
         assert up.count("_glm53_mixed_prefill_gate(") >= 3
@@ -140,9 +140,9 @@ def test_v2_baked_upgrades_to_v3_then_noop() -> None:
         compile(v2, "v2.py", "exec")
         t.write_text(v2)
         r = run_patcher(t); assert r.returncode == 0, r.stderr
-        assert "upgraded v2 -> v3" in r.stdout, r.stdout
+        assert "upgraded v2 -> v3.1" in r.stdout, r.stdout
         up = t.read_text()
-        assert mod.HELPER_V2_ONLY not in up and mod.HELPER_V3_ONLY in up
+        assert mod.HELPER_V2_ONLY not in up and mod.HELPER_V31_ONLY in up
         assert up.count("def _glm53_mixed_prefill_gate(") == 1
         assert up.count("def _glm53_gate_state(") == 1
         assert up.count("_glm53_mixed_prefill_gate(") >= 3   # call sites untouched
@@ -151,8 +151,121 @@ def test_v2_baked_upgrades_to_v3_then_noop() -> None:
         assert t.read_text() == up
 
 
+def test_v3_baked_upgrades_to_v31_then_noop() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        t = Path(tmp) / "scheduler.py"
+        mod = load_overlay(t)
+        v3 = PRISTINE.replace(mod.IMPORT_OLD, mod.IMPORT_NEW, 1)
+        v3 = v3.replace(
+            "from vllm.compilation.cuda_graph import CUDAGraphStat\n",
+            mod.HELPER_V3_ONLY
+            + mod.HELPER_POLICY
+            + "from vllm.compilation.cuda_graph import CUDAGraphStat\n",
+            1,
+        )
+        v3 = v3.replace(mod.RUNNING_OLD, mod.RUNNING_NEW, 1).replace(
+            mod.WAITING_OLD, mod.WAITING_NEW, 1
+        )
+        assert mod.MARK_V3 in v3 and mod.MARK_V31 not in v3
+        compile(v3, "v3.py", "exec")
+        t.write_text(v3)
+        r = run_patcher(t)
+        assert r.returncode == 0 and "upgraded v3 -> v3.1" in r.stdout, r.stdout
+        up = t.read_text()
+        assert mod.HELPER_V3_ONLY not in up and mod.HELPER_V31_ONLY in up
+        compile(up, "v31.py", "exec")
+        r = run_patcher(t)
+        assert r.returncode == 0 and "already present" in r.stdout, r.stdout
+        assert t.read_text() == up
+
+
+def test_damaged_v3_predecessor_fails_without_writing() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        t = Path(tmp) / "scheduler.py"
+        mod = load_overlay(t)
+        v3 = PRISTINE.replace(mod.IMPORT_OLD, mod.IMPORT_NEW, 1)
+        v3 = v3.replace(
+            "from vllm.compilation.cuda_graph import CUDAGraphStat\n",
+            mod.HELPER_V3_ONLY
+            + mod.HELPER_POLICY
+            + "from vllm.compilation.cuda_graph import CUDAGraphStat\n",
+            1,
+        )
+        v3 = v3.replace(mod.RUNNING_OLD, mod.RUNNING_NEW, 1).replace(
+            mod.WAITING_OLD, mod.WAITING_NEW, 1
+        )
+        damaged = v3.replace(mod.V2_RUNNING, "            mixed_cap = None\n", 1)
+        t.write_text(damaged)
+        before = t.read_bytes()
+        r = run_patcher(t)
+        assert r.returncode != 0
+        assert "complete running gate" in r.stderr
+        assert t.read_bytes() == before
+
+
+def test_damaged_v31_noop_fails_without_writing() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        t = Path(tmp) / "scheduler.py"
+        mod = load_overlay(t)
+        t.write_text(PRISTINE)
+        r = run_patcher(t)
+        assert r.returncode == 0, r.stderr
+        damaged = t.read_text().replace(
+            "_glm53_set_capped(st, now, True)",
+            "_glm53_set_capped(st, now, False)",
+            1,
+        )
+        t.write_text(damaged)
+        before = t.read_bytes()
+        r = run_patcher(t)
+        assert r.returncode != 0
+        assert "v3.1 helper" in r.stderr
+        assert t.read_bytes() == before
+
+
+def test_damaged_waiting_body_fails_without_writing() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        t = Path(tmp) / "scheduler.py"
+        load_overlay(t)
+        t.write_text(PRISTINE)
+        r = run_patcher(t)
+        assert r.returncode == 0, r.stderr
+        damaged = t.read_text().replace(
+            "                        num_new_tokens = min(num_new_tokens, mixed_cap)\n",
+            "                        pass\n",
+            1,
+        )
+        t.write_text(damaged)
+        before = t.read_bytes()
+        r = run_patcher(t)
+        assert r.returncode != 0
+        assert "complete waiting gate" in r.stderr
+        assert t.read_bytes() == before
+
+
+def test_commented_import_fails_without_writing() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        t = Path(tmp) / "scheduler.py"
+        load_overlay(t)
+        t.write_text(PRISTINE)
+        r = run_patcher(t)
+        assert r.returncode == 0, r.stderr
+        damaged = t.read_text().replace("import os\n", "# import os\n", 1)
+        t.write_text(damaged)
+        before = t.read_bytes()
+        r = run_patcher(t)
+        assert r.returncode != 0
+        assert "top-level unaliased import os" in r.stderr
+        assert t.read_bytes() == before
+
+
 if __name__ == "__main__":
-    test_pristine_v2_then_noop()
+    test_pristine_v31_then_noop()
     test_v1_baked_upgrades_then_noop()
     test_v2_baked_upgrades_to_v3_then_noop()
+    test_v3_baked_upgrades_to_v31_then_noop()
+    test_damaged_v3_predecessor_fails_without_writing()
+    test_damaged_v31_noop_fails_without_writing()
+    test_damaged_waiting_body_fails_without_writing()
+    test_commented_import_fails_without_writing()
     print("gate v2 upgrade paths OK")

@@ -4,7 +4,7 @@
 The service restart and environment flip stay operator-controlled. This runner
 validates the effective container environment, starts both-node MemFree
 monitoring before the first request, runs the fixed 60k newcomer probe, and
-requires a decode-floor-v3 log showing a sub-page cap.
+requires a decode-floor-v3/v3.1 log showing a sub-page cap.
 """
 from __future__ import annotations
 
@@ -139,9 +139,15 @@ def extract_subblock_caps(log_text: str, request_ids: set[str]) -> list[int]:
             request_match.group(1), request_ids
         ):
             continue
-        if "[glm53-decode-floor-v3] late-admit" in line:
+        if (
+            "[glm53-decode-floor-v3] late-admit" in line
+            or "[glm53-decode-floor-v3.1] late-admit" in line
+        ):
             match = re.search(r"\bcap=(\d+)\b", line)
-        elif "[glm53-decode-floor-v3] late-escalate" in line:
+        elif (
+            "[glm53-decode-floor-v3] late-escalate" in line
+            or "[glm53-decode-floor-v3.1] late-escalate" in line
+        ):
             match = re.search(r"->(\d+)\b", line)
         else:
             continue
@@ -397,11 +403,14 @@ def main() -> int:
         receipt["decode_floor_log_lines"] = [
             line
             for line in logs.splitlines()
-            if "[glm53-decode-floor-v3]" in line
+            if (
+                "[glm53-decode-floor-v3]" in line
+                or "[glm53-decode-floor-v3.1]" in line
+            )
         ]
         if not caps:
             receipt["errors"].append(
-                "no decode-floor-v3 sub-page late cap was logged"
+                "no decode-floor-v3/v3.1 sub-page late cap was logged"
             )
 
         final_metrics = run_text(["curl", "-fsS", f"{BASE}/metrics"])

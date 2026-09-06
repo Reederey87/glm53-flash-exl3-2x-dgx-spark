@@ -165,6 +165,13 @@ local/prod-start.sh         # NOT start.sh directly — see docs/03-bringup.md
 local/acceptance.sh         # 7 checks: tools, thinking, vision, long-context needle
 ```
 
+For direct launcher operations, a non-empty caller export wins over any
+matching key assigned by `.env`, for example
+`MAX_MODEL_LEN=200000 ./start.sh validate`. The scanner accepts lexical
+`[export ]NAME[+]=VALUE` assignments. Empty exports normally leave `.env` in
+control; the three strict runtime-overlay knobs documented in `env.example`
+preserve empty so validation can reject it.
+
 Then install the units in `local/` (`systemctl --user enable ...`) so the pair
 survives reboots and heals itself. Full drill: `docs/03-bringup.md`.
 

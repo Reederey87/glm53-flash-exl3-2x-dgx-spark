@@ -59,27 +59,25 @@ elif [ ! -f "$SCRIPT_DIR/.env" ]; then
     cp "$SCRIPT_DIR/env.example" "$SCRIPT_DIR/.env"
     printf '\033[1;36m[glm53-exl3]\033[0m wrote .env from env.example — edit HEAD_IP / WORKER_IP if needed\n'
 fi
-# Caller exports (MTP_TOKENS=2 ./start.sh restart) must win over .env.
-_cli_mtp="${MTP_TOKENS-}"
-_cli_spec="${SPEC_METHOD-}"
-_cli_eager="${ENFORCE_EAGER-}"
-_cli_fused="${EXL3_FUSED_MOE-}"
-_cli_row_tile="${EXL3_MOE_ROW_TILE-}"
-_cli_temp_rows="${EXL3_TEMP_ROWS_FUSED-}"
-_cli_fat_sorted="${EXL3_FAT_SORTED-}"
-_cli_fat_batched="${EXL3_FAT_BATCHED-}"
-_cli_fat_kernel="${EXL3_FAT_KERNEL-}"
-_cli_mnbt="${MAX_NUM_BATCHED_TOKENS-}"
-_cli_image="${IMAGE-}"
-_cli_util="${GPU_MEM_UTIL-}"
-_cli_lm="${LANGUAGE_MODEL_ONLY-}"
-_cli_max_num_seqs="${MAX_NUM_SEQS-}"
-_cli_chunk="${GLM53_MIXED_PREFILL_CHUNK-}"
-_cli_warm="${GLM53_MIXED_PREFILL_WARM_TOKENS-}"
-_cli_wait="${GLM53_MIXED_PREFILL_MAX_WAIT_MS-}"
-_cli_late="${GLM53_MIXED_PREFILL_LATE_CAP-}"
-_cli_esc="${GLM53_MIXED_PREFILL_ESCALATE_MS-}"  # LOCAL: W26
-_cli_latemax="${GLM53_MIXED_PREFILL_LATE_CAP_MAX-}"  # LOCAL: W26
+# Caller exports must win over .env for every key .env defines: remember each
+# caller's non-empty exported value, source .env, then re-apply it. The scanner
+# is lexical and accepts `[export ]NAME[+]=VALUE`. Empty caller values retain
+# the historical generic behavior (the .env value wins); strict knobs that
+# treat empty as an operator error keep the setness-aware exceptions below.
+# Only exported, non-readonly names are captured, so shell internals are never
+# replayed and nothing is eval'd. This works under bash 3.2 and 5.x.
+_env_keys="$(sed -nE 's/^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)\+?=.*/\2/p' "$SCRIPT_DIR/.env")"
+_caller_overrides=()
+while IFS= read -r _k; do
+    [ -n "$_k" ] || continue
+    _flags="$(declare -p "$_k" 2>/dev/null || true)"
+    _flags="${_flags#declare -}"
+    _flags="${_flags%% *}"
+    case "$_flags" in *r*) continue ;; *x*) ;; *) continue ;; esac
+    if [ -n "${!_k:+x}" ]; then
+        _caller_overrides+=("$_k=${!_k}")
+    fi
+done <<< "$_env_keys"
 # LOCAL: W41/W42 caller-wins capture (begin) -- setness-aware: a caller-provided
 # value (even explicitly EMPTY, which is a value the validator must see) wins
 # over .env. ${VAR+a} is non-empty iff the variable was set at entry.
@@ -94,26 +92,12 @@ set -a
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/.env"
 set +a
-[ -n "${_cli_mtp}" ] && MTP_TOKENS="$_cli_mtp"
-[ -n "${_cli_chunk}" ] && GLM53_MIXED_PREFILL_CHUNK="$_cli_chunk"
-[ -n "${_cli_warm}" ] && GLM53_MIXED_PREFILL_WARM_TOKENS="$_cli_warm"
-[ -n "${_cli_wait}" ] && GLM53_MIXED_PREFILL_MAX_WAIT_MS="$_cli_wait"
-[ -n "${_cli_late}" ] && GLM53_MIXED_PREFILL_LATE_CAP="$_cli_late"
-[ -n "${_cli_esc}" ] && GLM53_MIXED_PREFILL_ESCALATE_MS="$_cli_esc"
-[ -n "${_cli_latemax}" ] && GLM53_MIXED_PREFILL_LATE_CAP_MAX="$_cli_latemax"
-[ -n "${_cli_spec}" ] && SPEC_METHOD="$_cli_spec"
-[ -n "${_cli_eager}" ] && ENFORCE_EAGER="$_cli_eager"
-[ -n "${_cli_fused}" ] && EXL3_FUSED_MOE="$_cli_fused"
-[ -n "${_cli_row_tile}" ] && EXL3_MOE_ROW_TILE="$_cli_row_tile"
-[ -n "${_cli_temp_rows}" ] && EXL3_TEMP_ROWS_FUSED="$_cli_temp_rows"
-[ -n "${_cli_fat_sorted}" ] && EXL3_FAT_SORTED="$_cli_fat_sorted"
-[ -n "${_cli_fat_batched}" ] && EXL3_FAT_BATCHED="$_cli_fat_batched"
-[ -n "${_cli_fat_kernel}" ] && EXL3_FAT_KERNEL="$_cli_fat_kernel"
-[ -n "${_cli_mnbt}" ] && MAX_NUM_BATCHED_TOKENS="$_cli_mnbt"
-[ -n "${_cli_image}" ] && IMAGE="$_cli_image"
-[ -n "${_cli_util}" ] && GPU_MEM_UTIL="$_cli_util"
-[ -n "${_cli_lm}" ] && LANGUAGE_MODEL_ONLY="$_cli_lm"
-[ -n "${_cli_max_num_seqs}" ] && MAX_NUM_SEQS="$_cli_max_num_seqs"
+# Each entry is NAME=value (SC2163 misreads the indirection).
+# shellcheck disable=SC2163
+for _kv in ${_caller_overrides[@]+"${_caller_overrides[@]}"}; do
+    export "$_kv"
+done
+unset _k _kv _flags _env_keys _caller_overrides
 # LOCAL: W41/W42 caller-wins restore (begin)
 [ -n "${_glm53_cli_kvlog_set}" ] && GLM53_KV_CAPACITY_LOG="$_glm53_cli_kvlog_val"
 [ -n "${_glm53_cli_apcns_set}" ] && GLM53_APC_NO_STORE="$_glm53_cli_apcns_val"

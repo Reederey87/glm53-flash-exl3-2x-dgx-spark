@@ -36,6 +36,67 @@ Mainline GLM support (#53906) has merged, so model resolution is no longer the
 mainline blocker described in the historical section above; EXL3 integration
 and overlay compatibility still block a stock-image replacement.
 
+### 2026-09-06: task 14 adopts caller precedence and gate v3.1 accounting
+
+The launcher now implements its general precedence contract instead of a
+per-knob allowlist. Before sourcing `.env`, it captures every non-empty,
+exported, non-readonly caller value for keys lexically assigned by the file,
+then replays those values without `eval`. The three strict runtime-overlay
+knobs (`GLM53_KV_CAPACITY_LOG`, `GLM53_APC_NO_STORE`, and
+`GLM53_INDEXER_WORKSPACE`) retain their setness-aware exception so an explicit
+empty caller value reaches validation and fails before a restart.
+
+The decode-floor overlay advances from v3 to v3.1 without changing scheduling
+decisions. `late-done` now reports `crawl_wall_ms` and `crawl_capped_ms`
+separately; intervals where no decoding peer exists close the capped interval
+while the overall late episode continues. The installer upgrades pristine,
+v1, v2, and exact deployed-v3 sources, validates the complete helper, policy,
+both scheduler gate bodies, a real top-level `import os`, and syntax before
+every write or idempotent success. Damaged predecessor and v3.1 fixtures fail
+without changing target bytes.
+
+Local validation passed 169 tests, 1 skipped and 4 subtests, plus Bash syntax,
+Python compilation, ShellCheck and diff checks. Independent final review
+approved exact candidate diff
+`24a8c8c1fc17bcf9c84cf61488f474c99b3ccb79817fbd53c0793e832ef5931a`
+after the fail-closed installer checks were strengthened.
+
+The guarded cluster control proved the defect without touching production:
+`MAX_MODEL_LEN=bogus ./start.sh validate` returned rc=0 because `.env` silently
+won. Candidate launcher SHA256
+`1f004b5bc1c5d3ffa225107a9a65c3eb4153c886260e1d8eeafd79e569983114`
+returned rc=2 with the named positive-integer error before stop. Candidate
+overlay SHA256
+`055283cbdce1cbd5ce4cbb35eb7cfc2868bf29ce251c4d481801019db6d20d74`
+was staged atomically; both live schedulers then matched SHA256
+`45e73c4aef98a6e91c541fac237706853252cbc0009eb5a4c4fe470f72bef2c4`
+with the v3.1 marker. `.env` stayed byte-identical at
+`6e7a206ec05be1cf624df167128470a313d12566b744e1f542808373aaf0983a`;
+the shape stamp stayed `91fbe73a55b2590a3009762603dff284`, so no JIT-cache
+wipe occurred. The pool remained 1,396,551 tokens / 566 usable block IDs.
+
+The fixed 9.7k newcomer smoke was 13.517 s control, 18.207 s on the first
+post-restart candidate sample, and 13.578 s after warmup, all with zero
+preemptions. This is a correctness smoke, not a powered performance claim.
+The scheduling-equivalence fixtures cover admission, aging, peer gaps,
+preemption and tail bypass. Live mixed tool traffic demonstrated the accounting
+split directly: representative completed crawls logged 87,556 / 1,045 ms and
+90,394 / 1,045 ms wall / capped time, where v3 had reported only the inflated
+wall figure.
+
+**Decision: ADOPT.** Acceptance passed 7/7, serving passed 6/6, tool calls
+passed 23/23 with zero blank required arguments, and the long-form/thinking-SSE
+battery passed. Structured decode was 69.87 tok/s median at 1.000 / 7.000;
+prose was 28.20 tok/s median with coherence passing. One prose run tripped the
+broad standalone-`NaN` text diagnostic, while a deterministic repeat, the
+coherence battery and the dedicated runtime probe had no corruption marker.
+Final health was 200 with running/waiting/preemptions zero, selected errors and
+kernel Xids zero, and MemFree 4,563 / 4,218 MiB. The watchdog was re-armed.
+Rollback files are `start.sh.bak-20260906-task14` and
+`overlay/patch_scheduler_decode_floor.py.bak-20260906-task14` on spark1,
+followed by the guarded unit restart. Task 14's caller-precedence and
+crawl-accounting subitems are closed; W31 remains closed separately by task 6.
+
 ### 2026-09-06: task 6 adopts PR #125 participation-scoped fine-grained APC
 
 The W18 fine-grained APC overlay no longer exempts a cache manager by the
@@ -1117,11 +1178,11 @@ probe finish at 512 and 1,024 respectively — exactly the intended split. The e
 "a 512 crawl already runs at ~840 tok/s (84% of solo)" measurement is why the
 throughput gain is real but bounded: the cap costs per-step overhead, not bandwidth.
 
-⚠ `crawl_ms` semantics: the line measures **wall time from late-admit to bypass**, not
-capped-step time. If the peer decoder stops mid-crawl the request finishes at full
-chunks while the timer keeps running — the 240k HoL probe logged `crawl_ms=206898`
-with `final_cap=512` for exactly this reason. Read it as "time spent late", not "time
-spent capped". A v3.1 could split the two.
+v3.1 now reports both meanings explicitly. `crawl_wall_ms` is wall time from
+late admission to bypass; `crawl_capped_ms` accumulates only intervals while
+the late cap is active. Mixed tool traffic measured 87,556 / 1,045 ms and
+90,394 / 1,045 ms wall / capped, confirming that the old single timer could
+overstate capped time by almost the whole request.
 
 Production setting: `GLM53_MIXED_PREFILL_ESCALATE_MS=10000`,
 `GLM53_MIXED_PREFILL_LATE_CAP=512` (default), `GLM53_MIXED_PREFILL_LATE_CAP_MAX=1792`
@@ -1150,8 +1211,8 @@ proposal that must pass our own review and gates.
 | W29 | Extend the F0 ladder past 195k (measurement only) | vLLM #54691/#52258/#48944, kit #73, **our F0** | **Not a speculation gate.** F0 (2026-08-31) already found no long-context decay here — structured flat 56–65 tok/s @ 0.93–0.98 to ~195k, both ladder orders; #73's 70%→16% was on ABLIT=1 / MNBT 2048 / draft TP=2. But F0 stopped at 195k, droid compacts at 300k and the window is 1M, so 195k–400k is unmeasured and is where #54691's profiled mechanism (drafter re-scans the full accumulated drafter KV each cycle) would first bite. | none |
 | W30 | `/reset_prefix_cache` endpoint | kit PR #37 | Every cache A/B so far (W3, W18, W25, W25b) needed a full restart for a cold cache — 8–12 min, and restart churn contaminates the first probe pass with swap fault-in. An endpoint removes that confound from the protocol. | restart once to install |
 | W31 | Fine-grained APC #59 → #84 | kit PR #84 | #84 excludes every non-participating manager (not just `KpoolTailManager`), enforces `hash_block_size % index_kpool == 0` at init, composes with `patch_hybrid_prefix_hit` both orders, and no-ops on a future image where upstream scopes the veto. Author: re-turn hit 96.4–99.4% → 99.9–100%, TTFT 0.9–4.0 s → 0.3–0.5 s. We already have the 64 grid from W18, so this needs a same-day A/B against our own numbers. | restart |
-| W32 | Caller-export precedence | kit PR #92 / issue #91 | Caller exports beat `.env` for only 17 allowlisted knobs while the README promises the general rule; `GLM53_MIXED_PREFILL_CHUNK`, `CG_ESTIMATE`, `MAX_MODEL_LEN` silently lose. Our protocol edits `.env` and is accidentally safe — the trap is one export away and fails as a silent null result. | restart |
-| W33 | Gate v3.1 — split crawl accounting | ours (W26) | `crawl_ms` is wall time since late-admit, not time spent capped. Bundle with the next restart. | none |
+| W32 | Caller-export precedence | kit PR #92 / issue #91 | **ADOPTED 2026-09-06.** Every non-empty exported key assigned by `.env` now follows the documented caller-wins rule; strict empty-value guards are preserved. | restart |
+| W33 | Gate v3.1 — split crawl accounting | ours (W26) | **ADOPTED 2026-09-06.** `late-done` now separates total late wall time from intervals actually spent under the cap. | none |
 
 ### Codex review of PR #86 — DO NOT RUN AS WRITTEN
 

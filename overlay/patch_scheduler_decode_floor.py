@@ -31,8 +31,11 @@ TTFT/completion bound (the request then crawls like cap:N). Both gate sites call
 v3 (aging + instrumentation): once late, the cap doubles every GLM53_MIXED_PREFILL_ESCALATE_MS
 (default 0 = flat v2 crawl) up to GLM53_MIXED_PREFILL_LATE_CAP_MAX (default 1792 = the
 long-prefill chunk ceiling), and the late path logs one line per admission / escalation /
-crawl end. Installer states: pristine -> v3, v1-baked -> v3, v2 (applied or baked) -> v3,
-v3 -> no-op. The v2 helper text is kept verbatim as the byte-exact upgrade anchor.
+crawl end. v3.1 splits crawl wall time from time actually spent under the late
+cap, so intervals where no peer is decoding no longer inflate the operational
+receipt. Installer states: pristine -> v3.1, v1-baked -> v3.1, v2 (applied or
+baked) -> v3.1, v3 -> v3.1, v3.1 -> no-op. The v2 and v3 helper texts are kept
+verbatim as byte-exact upgrade anchors.
 """
 from __future__ import annotations
 
@@ -288,6 +291,122 @@ def _glm53_mixed_prefill_gate(running, current, num_computed_tokens):
 
 '''
 
+
+def _build_v31_helper() -> str:
+    """Derive v3.1 from the exact v3 block retained as the upgrade anchor."""
+    text = HELPER_V3_ONLY.replace(
+        "[glm53-decode-floor-v3]", "[glm53-decode-floor-v3.1]"
+    )
+
+    old = """def _glm53_gate_state(current, create=False):
+    \"\"\"Per-request gate state (first_seen / late_at / cap / done / last_computed) kept on the Request so it
+    survives chunking, preemption and requeue; bounded id-keyed fallback (request_id-checked) if the Request
+    class rejects attributes -- no weakrefs, so slotted or unhashable Request types cannot raise here.  [glm53-decode-floor-v3.1]\"\"\"
+    st = getattr(current, "_glm53_gate_state", None)
+    if st is None:
+        st = _glm53_fallback_get(current)
+    if st is None and create:
+        st = {}
+        try:
+            current._glm53_gate_state = st
+        except AttributeError:
+            _glm53_fallback_put(current, st)
+    return st
+"""
+    new = old + """
+
+def _glm53_set_capped(st, now, active):
+    \"\"\"Accumulate only intervals where the late-admitted request is capped.\"\"\"
+    if st is None or st.get("late_at") is None:
+        return
+    capped_at = st.get("capped_at")
+    if active:
+        if capped_at is None:
+            st["capped_at"] = now
+    elif capped_at is not None:
+        st["capped_s"] = st.get("capped_s", 0.0) + max(now - capped_at, 0.0)
+        st["capped_at"] = None
+"""
+    if text.count(old) != 1:
+        raise RuntimeError("v3.1 state-helper anchor drift")
+    text = text.replace(old, new, 1)
+
+    old = """    import time as _t
+    cfg = _glm53_gate_config()
+    remaining = current.num_tokens - num_computed_tokens
+"""
+    new = """    import time as _t
+    cfg = _glm53_gate_config()
+    now = _t.monotonic()
+    remaining = current.num_tokens - num_computed_tokens
+"""
+    if text.count(old) != 1:
+        raise RuntimeError("v3.1 monotonic anchor drift")
+    text = text.replace(old, new, 1)
+
+    old = """            st.pop("late_at", None); st.pop("cap", None); st.pop("done", None)
+"""
+    new = """            st.pop("late_at", None); st.pop("cap", None); st.pop("done", None)
+            st.pop("capped_at", None); st.pop("capped_s", None)
+"""
+    if text.count(old) != 1:
+        raise RuntimeError("v3.1 preemption anchor drift")
+    text = text.replace(old, new, 1)
+
+    old = """        if st is not None and st.get("late_at") is not None and not st.get("done"):
+            st["done"] = True
+            print(f"[glm53-decode-floor-v3.1] late-done req={getattr(current, 'request_id', '?')} "
+                  f"crawl_ms={int((_t.monotonic() - st['late_at']) * 1000)} final_cap={st.get('cap')}", flush=True)
+"""
+    new = """        if st is not None and st.get("late_at") is not None and not st.get("done"):
+            _glm53_set_capped(st, now, False)
+            st["done"] = True
+            print(f"[glm53-decode-floor-v3.1] late-done req={getattr(current, 'request_id', '?')} "
+                  f"crawl_wall_ms={round((now - st['late_at']) * 1000)} "
+                  f"crawl_capped_ms={round(st.get('capped_s', 0.0) * 1000)} "
+                  f"final_cap={st.get('cap')}", flush=True)
+"""
+    if text.count(old) != 1:
+        raise RuntimeError("v3.1 completion anchor drift")
+    text = text.replace(old, new, 1)
+
+    old = """    cap = _glm53_mixed_prefill_policy(running, current)
+    if cap is None or cap > 0:
+        return cap
+"""
+    new = """    cap = _glm53_mixed_prefill_policy(running, current)
+    if cap is None or cap > 0:
+        _glm53_set_capped(st, now, False)
+        return cap
+"""
+    if text.count(old) != 1:
+        raise RuntimeError("v3.1 uncapped-policy anchor drift")
+    text = text.replace(old, new, 1)
+
+    old = """    now = _t.monotonic()
+    if st.get("first_seen") is None:
+"""
+    new = """    if st.get("first_seen") is None:
+"""
+    if text.count(old) != 1:
+        raise RuntimeError("v3.1 late-clock anchor drift")
+    text = text.replace(old, new, 1)
+
+    old = """        st["cap"] = late_cap
+    return max(min(late_cap, remaining), 1)
+"""
+    new = """        st["cap"] = late_cap
+    _glm53_set_capped(st, now, True)
+    return max(min(late_cap, remaining), 1)
+"""
+    if text.count(old) != 1:
+        raise RuntimeError("v3.1 capped-return anchor drift")
+    return text.replace(old, new, 1)
+
+
+HELPER_V31_ONLY = _build_v31_helper()
+
+
 HELPER_POLICY = '''def _glm53_mixed_prefill_policy(running, current):
     """Mixed-step prefill policy when a peer in `running` is decoding.
 
@@ -316,9 +435,9 @@ HELPER_POLICY = '''def _glm53_mixed_prefill_policy(running, current):
 
 '''
 
-# pristine insert = v3 helper + the v1 policy; the v2 text is kept verbatim as the byte-exact
-# anchor that the v2-baked (image build) -> v3 upgrade replaces.
-HELPER = HELPER_V3_ONLY + HELPER_POLICY
+# Pristine insert = v3.1 helper + the v1 policy. The older helpers remain
+# byte-exact anchors for already-built image and already-deployed overlay states.
+HELPER = HELPER_V31_ONLY + HELPER_POLICY
 
 RUNNING_OLD = """            if 0 < self.scheduler_config.long_prefill_token_threshold < num_new_tokens:
                 num_new_tokens = self.scheduler_config.long_prefill_token_threshold
@@ -384,6 +503,7 @@ V2_WAITING = """                    mixed_cap = _glm53_mixed_prefill_gate(self.r
                     if mixed_cap is not None:
 """
 MARK_V3 = "[glm53-decode-floor-v3]"
+MARK_V31 = "[glm53-decode-floor-v3.1]"
 
 
 def upgrade_v1_to_v2(text: str) -> str:
@@ -397,11 +517,19 @@ def upgrade_v1_to_v2(text: str) -> str:
     return text
 
 
-def upgrade_v2_to_v3(text: str) -> str:
-    """v2 (applied or baked) -> v3: swap the byte-exact v2 helper block for the v3 one; call sites are unchanged."""
-    text = replace_once(text, HELPER_V2_ONLY, HELPER_V3_ONLY, "v2 helper block")
-    if MARK_V3 not in text or HELPER_V2_ONLY in text or text.count("def _glm53_mixed_prefill_gate(") != 1:
-        raise SystemExit(f"{P}: v2 -> v3 upgrade postcondition failed")
+def upgrade_v2_to_v31(text: str) -> str:
+    """v2 (applied or baked) -> v3.1; call sites are unchanged."""
+    text = replace_once(text, HELPER_V2_ONLY, HELPER_V31_ONLY, "v2 helper block")
+    if MARK_V31 not in text or HELPER_V2_ONLY in text or text.count("def _glm53_mixed_prefill_gate(") != 1:
+        raise SystemExit(f"{P}: v2 -> v3.1 upgrade postcondition failed")
+    return text
+
+
+def upgrade_v3_to_v31(text: str) -> str:
+    """Already-deployed v3 -> v3.1 using the exact retained v3 helper."""
+    text = replace_once(text, HELPER_V3_ONLY, HELPER_V31_ONLY, "v3 helper block")
+    if MARK_V31 not in text or HELPER_V3_ONLY in text or text.count("def _glm53_mixed_prefill_gate(") != 1:
+        raise SystemExit(f"{P}: v3 -> v3.1 upgrade postcondition failed")
     return text
 
 
@@ -412,28 +540,59 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 
+def validate_v31(text: str) -> None:
+    """Fail closed unless the complete installed v3.1 contract is intact."""
+    import ast as _ast
+
+    expected = (
+        ("v3.1 helper", HELPER_V31_ONLY),
+        ("mixed-prefill policy", HELPER_POLICY),
+        ("complete running gate", RUNNING_NEW),
+        ("complete waiting gate", WAITING_NEW),
+    )
+    for label, snippet in expected:
+        count = text.count(snippet)
+        if count != 1:
+            raise SystemExit(f"{P}: expected one {label}, found {count}")
+    if HELPER_V2_ONLY in text or HELPER_V3_ONLY in text:
+        raise SystemExit(f"{P}: predecessor helper remains after v3.1 install")
+    tree = _ast.parse(text, filename=str(P))
+    has_top_level_os = any(
+        isinstance(node, _ast.Import)
+        and any(alias.name == "os" and alias.asname is None for alias in node.names)
+        for node in tree.body
+    )
+    if not has_top_level_os:
+        raise SystemExit(f"{P}: required top-level unaliased import os is missing")
+
+
 def main() -> int:
     if not P.is_file():
         raise SystemExit(f"missing {P}")
     text = P.read_text()
+    if MARK_V31 in text:
+        validate_v31(text)
+        print(f"{P.name}: {MARK_V31} already present — skipping")
+        return 0
     if MARK_V3 in text:
-        print(f"{P.name}: {MARK_V3} already present — skipping")
+        text = upgrade_v3_to_v31(text)
+        validate_v31(text)
+        P.write_text(text)
+        print(f"{P.name}: upgraded v3 -> v3.1 (split crawl wall/capped accounting active)")
         return 0
     if MARK_V2 in text:
-        # v2 applied at start or baked into the image (the w24 production image): upgrade in place.
-        text = upgrade_v2_to_v3(text)
-        import ast as _ast
-        _ast.parse(text, filename=str(P))
+        # v2 applied at start or baked into an older image: upgrade in place.
+        text = upgrade_v2_to_v31(text)
+        validate_v31(text)
         P.write_text(text)
-        print(f"{P.name}: upgraded v2 -> v3 (mixed-prefill gate v3 active: aging + late-path log)")
+        print(f"{P.name}: upgraded v2 -> v3.1 (aging + split crawl accounting active)")
         return 0
     if MARK in text:
-        # v1 baked into the image (self-built production path): upgrade in place, v1 -> v2 -> v3.
-        text = upgrade_v2_to_v3(upgrade_v1_to_v2(text))
-        import ast as _ast
-        _ast.parse(text, filename=str(P))
+        # v1 baked into an older image: upgrade in place, v1 -> v2 -> v3.1.
+        text = upgrade_v2_to_v31(upgrade_v1_to_v2(text))
+        validate_v31(text)
         P.write_text(text)
-        print(f"{P.name}: upgraded v1 -> v3 (mixed-prefill gate v3 active: aging + late-path log)")
+        print(f"{P.name}: upgraded v1 -> v3.1 (aging + split crawl accounting active)")
         return 0
     if "import os\n" not in text.split("import time\n", 1)[0]:
         text = replace_once(text, IMPORT_OLD, IMPORT_NEW, "import os")
@@ -444,6 +603,7 @@ def main() -> int:
         text = text.replace(needle, HELPER + needle, 1)
     text = replace_once(text, RUNNING_OLD, RUNNING_NEW, "running-prefill")
     text = replace_once(text, WAITING_OLD, WAITING_NEW, "waiting-prefill")
+    validate_v31(text)
     P.write_text(text)
     cap = os.environ.get("GLM53_MIXED_PREFILL_CHUNK", "skip")
     print(f"patched {P.name} (mixed prefill policy={cap})")
