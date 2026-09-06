@@ -36,6 +36,52 @@ Mainline GLM support (#53906) has merged, so model resolution is no longer the
 mainline blocker described in the historical section above; EXL3 integration
 and overlay compatibility still block a stock-image replacement.
 
+### 2026-09-05: A3 align-floor window completed; LPTT 3584 remains rejected
+
+Task 12 ran the previously blocked 60k mixed-prefill window at
+`LONG_PREFILL_TOKEN_THRESHOLD=3584`. `scripts/run_a3_align_floor_window.py`
+validates the effective container environment, pins traffic to the local
+service, samples both nodes before the first request and throughout the run,
+terminates on the 3 GiB MemFree floor, correlates `decode-floor-v3` logs to the
+benchmark's transformed scheduler request ID, requires a sub-page cap and
+records preemption deltas. The first control smoke exposed that post-startup
+scheduler output lives in `docker logs`, not the systemd journal; the reviewed
+runner was corrected to collect both container output streams before the
+decision runs.
+
+The exact 57,049-token newcomer and incumbent prompt were held fixed. Both
+arms used MNBT 3584, W26 `skip`, wait 1500 ms, warm tail 3584, cap
+512→1024→1792, C4 admission, the same image/model/pool and zero preemptions.
+Both correlated receipts logged late admission at 512, escalation to 1024 and
+1792, then completion of the capped crawl while the incumbent remained active.
+Neither node approached the tripwire.
+
+| arm | newcomer TTFT | incumbent rate retention | aggregate | MemFree floor head / worker |
+|---|---:|---:|---:|---:|
+| align-floor `0` control | 58.293 s | 0.1678 | 4.991 tok/s | 5,128,692 / 4,316,624 KiB |
+| align-floor `1` candidate | 58.650 s | 0.1265 | 3.623 tok/s | 4,517,340 / 4,407,384 KiB |
+
+The candidate did not improve newcomer TTFT (+0.6% worse), and its
+single-sample incumbent retention and aggregate throughput were lower. This
+correctness smoke is not a powered performance comparison, but it provides no
+reason to reopen W34a's already decisive head-of-line rejection or to keep
+LPTT 3584. The exact pre-window `.env` was restored, returning production to
+LPTT 1792 where the align-floor overlay remains dormant. Restored `.env`
+SHA256 was `6e7a206ec05be1cf624df167128470a313d12566b744e1f542808373aaf0983a`,
+byte-identical to the saved rollback. Post-rollback gates passed acceptance
+7/7, serving 6/6 and tool calls 23/23 with zero blank required arguments.
+Health finished 200 with running/waiting/preemptions all zero, selected runtime
+errors and kernel Xids zero, MemFree 4,474,264 / 4,648,192 KiB, and the
+watchdog re-armed. Task 12 is closed; a future adaptive-threshold proposal
+needs a new mechanism and its own guarded window rather than reusing this arm.
+
+Runner SHA256:
+`9ad310e535426aee07d8897be6dbb34962f06c5e72f94eb2cb09479edc85e009`.
+Local validation passed 158 tests, 1 skipped and 4 subtests; exact cluster
+focused tests passed 19/19. Receipts:
+`local/a3-control-align-floor-off-v2-20260905.json` and
+`local/a3-candidate-align-floor-on-20260905.json`.
+
 ### 2026-09-05: task 4 verification-length study parked before restart
 
 The required implementation audit found no supported verification-only k=4/3
