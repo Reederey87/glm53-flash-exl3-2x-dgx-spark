@@ -42,6 +42,15 @@ SETTLE_INTERVAL="${SETTLE_INTERVAL:-10}"
 
 log() { echo "[prod-start] $*"; }
 
+log "validating configuration before stop or JIT-cache handling"
+if ./start.sh validate; then
+    :
+else
+    rc=$?
+    log "configuration invalid — production left untouched"
+    exit "$rc"
+fi
+
 log "stopping any running pair (idempotent)"
 ./start.sh stop || true
 

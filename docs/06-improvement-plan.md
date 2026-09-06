@@ -36,6 +36,41 @@ Mainline GLM support (#53906) has merged, so model resolution is no longer the
 mainline blocker described in the historical section above; EXL3 integration
 and overlay compatibility still block a stock-image replacement.
 
+### 2026-09-05: task 4 verification-length study parked before restart
+
+The required implementation audit found no supported verification-only k=4/3
+arm in the production legacy DFlash2 path. The pinned checkpoint declares an
+eight-row block. The proposer derives its query/mask rows from
+`1 + num_speculative_tokens`; the DFlash2 overlay uses the same value for the
+grouped-convolution block, selector walk and draft-logit cache. The image does
+contain adaptive-verification machinery, but its configuration rejects every
+method except DSpark. Therefore changing `DFLASH_TOKENS` would change the
+trained draft contract, not only target verification work.
+
+`scripts/audit_dflash_verification_length.py` records this decision from exact
+checkpoint and image source files and fails closed on source drift. The
+launcher exposes a side-effect-free `validate` command, and the production
+wrapper invokes it before stopping either node or handling JIT caches. It
+refuses non-native DFlash2 values while leaving production untouched. No k=3/4
+arm, shape-cache invalidation or production restart was performed. Reopen only
+on a reviewed MRV2/adaptive-verification path that keeps the native eight-row
+draft intact.
+
+Exact candidate audit SHA256 `180f18e35deee722bcf27378ca88f15501726d649be92148ca41176ec70c3fd4`
+launcher SHA256 `e7a98c6db84cbb55dad404e09e07a8f88094f5aad9c91b3e95673ee90c72c3ad`
+and production-wrapper SHA256
+`3e6a1bd49ba5b246be13ee1e86a509c849271a14ec7c53770e6e63deb52575ca`
+were staged under `/tmp` and matched on both nodes. Both audits returned
+`decision=park`, native block 8 / k=7, and all six checkpoint/source-contract
+checks true. The exact launcher accepted the current production configuration
+and non-DFlash k=4, while the exact wrapper rejected DFlash k=4 on the head and
+k=3 on the worker with rc=2 before stop or cache handling. The head JIT stamp
+remained SHA256 `9ef05abc7f69f015838edda9b3ddac3b975f300a1450f4166db5ef033cf55c34`.
+The head stayed HTTP 200 with zero preemptions; head and worker containers
+remained running with unchanged start timestamps `23:17:30.503013329Z` /
+`23:17:29.752030646Z`. Local validation was 139 passed, 1 skipped and 4
+subtests; Ruff, shell syntax, shellcheck, Python compile and diff checks passed.
+
 ### 2026-09-05: R0 harness foundation implemented
 
 The first priority block from the September 5 survey is implemented without a
