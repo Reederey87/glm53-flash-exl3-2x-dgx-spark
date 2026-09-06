@@ -1,0 +1,13 @@
+TASK6 DEPLOY 2026-09-06T07:32:53-04:00
+env=6e7a206ec05be1cf624df167128470a313d12566b744e1f542808373aaf0983a  .env
+image=sha256:87a2cfd32aece0d9cf682fd3bc7821f9c074c7b3cb537017f8a1e9b96cdb80dc glm53-selfbuild:b5ab8091-s2b
+model=MODEL=brandonmusic/GLM-5.3-Flash-tr3-4bpw
+DFLASH_MODEL=incoai/GLM-5.3-Flash-DFlash2
+DFLASH_TOKENS=7
+DFLASH_DRAFT_TP=1
+DFLASH_REVISION=7d74cdd881ed7e32c31175984a67823127b66cfe
+template=9df580ab99a062ad48105c3337063c7dfcb9c630a33cddc681ec60fcd5a3c3d3  files/chat_template.jinja
+control_overlay=9ba0e6e80f504475633f01839f75370c6484f707d216312ad3fdc04a3fcade95  overlay/patch_fine_grained_apc.py
+candidate_overlay=a7aee3a19e1421ef8df4819e1e614686c0fddf2c43f8139ecd7fd65393d029d3  overlay/patch_fine_grained_apc.py.task6-stage
+shape_stamp=91fbe73a55b2590a3009762603dff284
+CANDIDATE_BOOT_OK 2026-09-06T07:41:16-04:00 shape_stamp=91fbe73a55b2590a3009762603dff284

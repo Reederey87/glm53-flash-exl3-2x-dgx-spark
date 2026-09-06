@@ -3,7 +3,8 @@
 
 Covers: disabled = no-op exit 0; enabled + missing target = exit 1 (fail closed);
 first application rewrites both anchors and parses; re-application is a no-op;
-a marker-bearing partial file is refused; a drifted anchor is refused.
+a marker-bearing partial file is refused; a drifted anchor is refused; transient
+renamed managers do not veto fine-grained lookup while participating managers do.
 """
 from __future__ import annotations
 
@@ -20,8 +21,8 @@ SYNTHETIC = '''import logging
 logger = logging.getLogger(__name__)
 
 class HybridKVCacheCoordinator:
-    def __init__(self, hash_block_size):
-        self.single_type_managers = []
+    def __init__(self, hash_block_size, managers, kv_cache_config):
+        self.single_type_managers = managers
         self.enable_partial_hash_hits = True
         if self.enable_partial_hash_hits:
             unsupported_partial_hit_managers = {
@@ -68,10 +69,48 @@ def test_apply_then_idempotent() -> None:
         r = run(env)
         assert r.returncode == 0, r.stderr
         text = target.read_text()
-        assert 'and type(manager).__name__ != "KpoolTailManager"' in text
+        assert "for manager, group in zip(" in text
+        assert "group.kv_cache_spec.participates_in_prefix_caching" in text
+        assert 'type(manager).__name__ != "KpoolTailManager"' not in text
         assert '"[glm53-fgapc] partial_hash=%s hash_block=%s managers=%s"' in text
         assert text.count("[glm53-fgapc]") >= 2
         compile(text, "kv.py", "exec")
+        ns: dict[str, object] = {}
+        exec(text, ns)
+        coordinator = ns["HybridKVCacheCoordinator"]
+
+        class Spec:
+            def __init__(self, participates: bool):
+                self.participates_in_prefix_caching = participates
+
+        class Group:
+            def __init__(self, participates: bool):
+                self.kv_cache_spec = Spec(participates)
+
+        class Config:
+            def __init__(self, *participates: bool):
+                self.kv_cache_groups = [Group(value) for value in participates]
+
+        class RenamedTransientScratch:
+            block_size = 3584
+            supports_fine_grained_hash_lookup = False
+
+        class ParticipatingLegacyManager:
+            block_size = 3584
+            supports_fine_grained_hash_lookup = False
+
+        class ParticipatingFineManager:
+            block_size = 3584
+            supports_fine_grained_hash_lookup = True
+
+        transient = coordinator(64, [RenamedTransientScratch()], Config(False))
+        assert transient.enable_partial_hash_hits is True
+        supported = coordinator(64, [ParticipatingFineManager()], Config(True))
+        assert supported.enable_partial_hash_hits is True
+        unsupported = coordinator(
+            64, [ParticipatingLegacyManager()], Config(True)
+        )
+        assert unsupported.enable_partial_hash_hits is False
         assert not list(Path(tmp).glob("*.tmp"))
         r2 = run(env)
         assert r2.returncode == 0 and "already patched" in r2.stdout

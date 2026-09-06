@@ -1,0 +1,28 @@
+TASK6 CONTROL 2026-09-06T07:25:59-04:00
+overlay=9ba0e6e80f504475633f01839f75370c6484f707d216312ad3fdc04a3fcade95  overlay/patch_fine_grained_apc.py
+service=active watchdog_before=active
+drained running=0.0 waiting=0.0 watchdog=inactive
+reset_before_w18={"success":true}
+== Part A: follow-up ladder (turn 2 = same prompt + ~200-token follow-up)
+     N~  prompt1  prompt2   hits2 page-floor   hit%   wall1   wall2
+   2000     2643     2857    2624          0   91.8    4.40    5.91
+   5000     6506     6725    6464       3584   96.1    7.52    0.93
+   8000    10401    10616   10368       7168   97.7    9.94    0.97
+  30000    38730    38945   38720      35840   99.4   41.26    0.93
+
+== Part B: temp-0 cold vs replay, 3 unique prompts, max_tokens 48
+prompt 0: replay hits=7744 identical=True
+prompt 1: replay hits=7744 identical=False
+   cold:   'The document is a long, unstructured list of randomly generated token pairs—each combining a word (such as beam, quartz,'
+   replay: 'The document is a long, unstructured list of alphanumeric tokens—each combining a word (such as beam, quartz, cache, ion'
+prompt 2: replay hits=7744 identical=False
+   cold:   'The document is a long, unstructured list of randomly generated token pairs—each combining a word (such as yield, rotor,'
+   replay: 'The document is a long, unstructured list of random word-number tokens (such as "yield752," "hinge923," "rotor41," and "'
+
+Part B: 1/3 byte-identical
+reset_before_burst={"success":true}
+sessions=4 ctx~60000 tok each (~240,000 total vs 1,396,551 pool) rounds=3 conc=4
+round 1: wall  233.8s  hit%   0.0 (usage: 0/271,653)  [counters   0.0]  prefill_tps    1162  lat p50/max 232.9/233.8s  errors 0
+round 2: wall    5.2s  hit%   0.0 (usage: 0/271,653)  [counters  98.7]  prefill_tps   52326  lat p50/max 5.1/5.2s  errors 0
+round 3: wall    5.5s  hit%   0.0 (usage: 0/271,653)  [counters  98.7]  prefill_tps   49243  lat p50/max 5.4/5.5s  errors 0
+CONTROL_DONE 2026-09-06T07:32:05-04:00

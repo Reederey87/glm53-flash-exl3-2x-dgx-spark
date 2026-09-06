@@ -1,0 +1,30 @@
+TASK6 CANDIDATE 2026-09-06T07:41:53-04:00
+overlay=a7aee3a19e1421ef8df4819e1e614686c0fddf2c43f8139ecd7fd65393d029d3  overlay/patch_fine_grained_apc.py
+service=active watchdog=inactive
+drained running=0.0 waiting=0.0
+reset_before_w18={"success":true}
+== Part A: follow-up ladder (turn 2 = same prompt + ~200-token follow-up)
+     N~  prompt1  prompt2   hits2 page-floor   hit%   wall1   wall2
+   2000     2643     2857    2624          0   91.8    3.14    1.04
+   5000     6506     6725    6464       3584   96.1    6.55    0.88
+   8000    10401    10616   10368       7168   97.7   10.05    0.93
+  30000    38730    38945   38720      35840   99.4   36.22    0.93
+
+== Part B: temp-0 cold vs replay, 3 unique prompts, max_tokens 48
+prompt 0: replay hits=7744 identical=False
+   cold:   'The document is a long, unstructured list of alphanumeric tokens—each pairing a word (such as delta, xenon, yield, torus'
+   replay: 'The document is a long, unstructured list of randomly generated token pairs—each combining a word (such as "delta," "xen'
+prompt 1: replay hits=7744 identical=False
+   cold:   'The document is a long, unstructured list of randomly generated token pairs—each combining a word (such as beam, quartz,'
+   replay: 'The document is a long, unstructured list of alphanumeric tokens—each combining a word (such as beam, quartz, cache, ion'
+prompt 2: replay hits=7744 identical=False
+   cold:   'The document is a long, unstructured list of randomly generated token pairs—each combining a word (such as yield, rotor,'
+   replay: 'The document is a long, unstructured list of randomly generated token pairs—each combining a word (such as "yield," "rot'
+
+Part B: 0/3 byte-identical
+reset_before_burst={"success":true}
+sessions=4 ctx~60000 tok each (~240,000 total vs 1,396,551 pool) rounds=3 conc=4
+round 1: wall  228.0s  hit%   0.0 (usage: 0/271,653)  [counters   0.0]  prefill_tps    1191  lat p50/max 227.4/228.0s  errors 0
+round 2: wall    5.3s  hit%   0.0 (usage: 0/271,653)  [counters  98.7]  prefill_tps   51590  lat p50/max 5.0/5.3s  errors 0
+round 3: wall    5.4s  hit%   0.0 (usage: 0/271,653)  [counters  98.7]  prefill_tps   50479  lat p50/max 5.1/5.4s  errors 0
+CANDIDATE_DONE 2026-09-06T07:47:27-04:00

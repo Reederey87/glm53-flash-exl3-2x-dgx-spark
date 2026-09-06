@@ -1,0 +1,16 @@
+TASK6 FINAL 2026-09-06T08:00:19-04:00
+service=active
+health=200
+overlay=a7aee3a19e1421ef8df4819e1e614686c0fddf2c43f8139ecd7fd65393d029d3  overlay/patch_fine_grained_apc.py
+mount=a7aee3a19e1421ef8df4819e1e614686c0fddf2c43f8139ecd7fd65393d029d3  /opt/glm53/patch_fine_grained_apc.py
+shape_stamp=91fbe73a55b2590a3009762603dff284
+metrics:
+vllm:num_requests_running{engine="0",model_name="GLM-5.3-Flash-EXL3"} 0.0
+vllm:num_requests_waiting{engine="0",model_name="GLM-5.3-Flash-EXL3"} 0.0
+vllm:num_requests_waiting_by_reason{engine="0",model_name="GLM-5.3-Flash-EXL3",reason="capacity"} 0.0
+vllm:num_requests_waiting_by_reason{engine="0",model_name="GLM-5.3-Flash-EXL3",reason="deferred"} 0.0
+vllm:num_preemptions_total{engine="0",model_name="GLM-5.3-Flash-EXL3"} 0.0
+memfree:
+MemFree:         4493772 kB
+selected_errors:
+watchdog=active
