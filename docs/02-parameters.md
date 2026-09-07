@@ -74,6 +74,13 @@ cache is invisible to it). 0.87 demands 105.87 GiB free against boots measured a
 ## The rest
 
 - `MAX_NUM_SEQS=4` — matches the cudagraph capture set (4 seqs × 8 spec tokens = 32).
+- `ENFORCE_EAGER` stays **0** in production. Live argv captures
+  `--cudagraph-capture-sizes 1 2 4 8 16 24 32` (k=7 × C4). Do not restart into
+  eager from a `/metrics` scrape. `scripts/spec-graph-probe.sh` classifies
+  accepted fraction, accepted drafts/step and output tokens/step separately.
+  Structured 1.000/7.000 is a healthy ceiling, not vllm#53030 LENGTH=1. A
+  graph-vs-eager comparison is a guarded restarted/rewarmed arm, parked unless
+  that probe reports `collapse`.
 - `DFLASH_TOKENS=7` — k=5 was rejected in A/B (structured −28%; the k+1 ceiling is
   arithmetic). The capture sizes are sized for k=7; they are not free memory.
 - `READY_TIMEOUT=4800` / `VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS=1800` — a cold JIT rebuild

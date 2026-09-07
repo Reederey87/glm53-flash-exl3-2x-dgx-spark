@@ -84,3 +84,26 @@ If bounded CUDA work still cannot launch after the containers are gone, a warm
 service restart is not evidence of recovery. Preserve diagnostics and cold
 power-cycle both nodes together when the driver remains stuck. Never automate a
 bounce for Xid/off-the-bus classes.
+
+## 6. Spec-graph probe: do not treat 1.000/7.000 as CUDA-graph collapse
+
+Kit PR #70's `spec-accept-gate.sh` fails when pos0 acceptance is ~1.00. That is
+the vllm#53030 LENGTH=1 signature only when later positions also collapse and
+accepted drafts/step sit near 1. This cluster's structured bench is
+**1.000/7.000**: every position is ~1.00 because seven drafts are accepted, not
+because graphs pinned a one-token verify. `#54374` "acceptance LENGTH=1" is
+that collapse, not `accepted_fraction=1.0`.
+
+Use `scripts/spec-graph-probe.sh` (classifier
+`scripts/audit_spec_graph_probe.py`). It reports three different quantities:
+
+| Quantity | Meaning |
+|---|---|
+| accepted fraction | `accepted_tokens / draft_tokens` |
+| accepted drafts/step | `accepted_tokens / drafts` (7.0 on the structured path) |
+| output tokens/step | `1 + accepted drafts/step` |
+
+A read-only `/metrics` scrape is **not** a graph-vs-eager comparison. The
+eager arm is parked unless the probe returns `collapse`. If that arm is ever
+run, it is `ENFORCE_EAGER=1` through the guarded unit, one-time JIT wipe,
+rewarm, and rollback to the live capture sizes.
