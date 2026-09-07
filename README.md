@@ -97,6 +97,17 @@ Hub blob symlinks count as files; dangling links, missing/unindexed shards,
 truncated payloads, and a wrong explicit revision fail closed. An explicit
 `MODEL_REVISION` always wins over `refs/main`.
 
+After any graph-enabled boot that has produced ≥100 drafts, classify spec
+acceptance without treating the structured 1.000/7.000 ceiling as collapse:
+
+```bash
+GLM53_BASE=http://127.0.0.1:8000 ./scripts/spec-graph-probe.sh
+```
+
+`healthy-decay` or `healthy-ceiling` means keep CUDA graphs. `collapse` is the
+only justification for a guarded `ENFORCE_EAGER=1` restart. Do not copy kit PR
+#70's pos0≈1.00 gate; that false-fails the structured bench.
+
 For concurrency work, `tests/bench_concurrency.py` runs simultaneous streaming
 lanes and records usage-token goodput, per-stream decode, TTFT/ITL percentiles,
 cache hits, preemptions, and unique request IDs for log audit. It refuses a busy

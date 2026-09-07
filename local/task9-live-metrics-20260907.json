@@ -1,0 +1,57 @@
+{
+  "accepted": 1013.0,
+  "accepted_drafts_per_step": 3.896153846153846,
+  "accepted_fraction": 0.5565934065934066,
+  "argv_known": true,
+  "capture_sizes": [
+    1,
+    2,
+    4,
+    8,
+    16,
+    24,
+    32
+  ],
+  "capture_sizes_match_k7_c4": true,
+  "decision": "healthy-decay",
+  "draft_tokens": 1820.0,
+  "drafts": 260.0,
+  "enforce_eager": false,
+  "graph_vs_eager_arm_justified": false,
+  "inconclusive_arm_parked": true,
+  "k": 7,
+  "live_argv_capture_sizes": true,
+  "live_argv_has_enforce_eager": false,
+  "metrics_only": true,
+  "min_drafts": 100,
+  "output_tokens_per_step": 4.896153846153846,
+  "pin_signature": false,
+  "pos_ratios": [
+    0.8692307692307693,
+    0.7076923076923077,
+    0.6,
+    0.5230769230769231,
+    0.4346153846153846,
+    0.39615384615384613,
+    0.36538461538461536
+  ],
+  "positions": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+  ],
+  "pr70_would_fail_live": false,
+  "pr70_would_fail_structured_ceiling": true,
+  "quantities": {
+    "acceptance_length_1": "collapse to one emitted token per verify, not fraction=1.0",
+    "accepted_drafts_per_step": "accepted_tokens / drafts",
+    "accepted_fraction": "accepted_tokens / draft_tokens",
+    "output_tokens_per_step": "1 + accepted_drafts_per_step"
+  },
+  "reason": "mixed-traffic decay: pos0 is below 1.00 and later positions fall. Do not restart into ENFORCE_EAGER from this shape.",
+  "unknown_argv_arm_parked": true
+}

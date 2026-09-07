@@ -37,6 +37,33 @@ Mainline GLM support (#53906) has merged, so model resolution is no longer the
 mainline blocker described in the historical section above; EXL3 integration
 and overlay compatibility still block a stock-image replacement.
 
+### 2026-09-07: task 9 spec-graph probe (eager arm parked)
+
+Kit PR #70's read-only gate fails when pos0 acceptance is ~1.00. That rule
+cannot be copied here: the structured bench is 1.000/7.000 (every position
+~1.00 because seven drafts are accepted). `#54374` "acceptance LENGTH=1"
+means collapse to one emitted token per verify, not `accepted_fraction=1.0`.
+Accepted fraction, accepted drafts/step, and output tokens/step are different
+quantities; a `/metrics` scrape is not a graph-vs-eager comparison.
+
+`scripts/audit_spec_graph_probe.py` plus `scripts/spec-graph-probe.sh` classify
+live counters:
+
+| Decision | Meaning |
+|---|---|
+| `skip` | fewer than 100 drafts since boot |
+| `healthy-ceiling` | structured 1.000/k path; keep graphs |
+| `healthy-decay` | mixed-traffic monotone decay; keep graphs |
+| `collapse` | LENGTH=1 pin: pos0 ~1.00, later positions dead or identical, drafts/step ~1 |
+| `inconclusive` | populated but unmatched; inspect, do not restart from pos0 alone |
+
+Live production on `glm53-selfbuild:ca13bdd-v147` (graphs on, capture
+`1 2 4 8 16 24 32`, no `--enforce-eager`): 260 drafts, 1,820 draft tokens,
+1,013 accepted, per-pos 226/184/156/136/113/103/95 → pos0 **0.869**, tail
+**0.365**, accepted drafts/step **3.90**. Verdict **`healthy-decay`**. The
+guarded eager restart stays **parked**. Rollback for that unrun arm would be
+`ENFORCE_EAGER=0` plus the same capture sizes. No performance claim.
+
 ### 2026-09-07: task 16 ExLlamaV3 v1.4.7 image qualification
 
 Bundled rebuilt-image qualification of ExLlamaV3 v1.4.7
