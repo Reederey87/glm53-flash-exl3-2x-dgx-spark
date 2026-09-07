@@ -37,6 +37,25 @@ Mainline GLM support (#53906) has merged, so model resolution is no longer the
 mainline blocker described in the historical section above; EXL3 integration
 and overlay compatibility still block a stock-image replacement.
 
+### 2026-09-07: task 23 E3 grouped fat-expert MoE (prepared)
+
+Additive overlay + layered candidate for the grouping step in docs/11 §5.
+Independent variable is `EXL3_FAT_GROUPED=1` on the current 1M / pin /
+TRF=128 / C4 geometry. Control remains `glm53-selfbuild:ca13bdd-v147` with
+`EXL3_FAT_GROUPED=0`. Candidate vehicle: `Dockerfile.e3-layer` →
+`glm53-selfbuild:e3-grouped`. Do not bundle the rest of kit PR #132
+(900k/850k default, GPU_MEM_UTIL, TRF=32, clock-lock, client docs).
+
+Intake already on this tree: warp-MMA + 4-stage `cp.async`, SMEM 32,768 B,
+CUDA 13 / `sm_121a`, K4/MCG no-mul1, hidden % 256, intermediate % 128,
+`min(K) ≥ 128`, fail-closed missing symbols, SiLU `exp(double)` +
+`__fdiv_rn`, `atomicAdd(float4*)`. Predicted scratch 336 MiB/rank at
+28,672 rows. `EXL3_FAT_GROUPED=0` is the E2 path (ROW_TILE
+short-circuit and `_exl3_last_fat_fallback` retained). Cluster window
+not yet run: adopt only on ≥5% 240k cold-prefill gain with pool
+1,396,551 / 1.40× and both-node MemFree ≥ 2.5 GiB; otherwise restore
+`IMAGE=glm53-selfbuild:ca13bdd-v147` and `EXL3_FAT_GROUPED=0`.
+
 ### 2026-09-07: task 9 spec-graph probe (eager arm parked)
 
 Kit PR #70's read-only gate fails when pos0 acceptance is ~1.00. That rule

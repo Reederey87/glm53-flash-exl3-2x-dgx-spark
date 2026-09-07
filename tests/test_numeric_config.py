@@ -131,6 +131,34 @@ def test_v2_runner_force_off_is_refused() -> None:
     assert invalid.returncode == 2
 
 
+def test_fat_grouped_is_strict_bool() -> None:
+    refused = validate(
+        "0.87",
+        "1000000",
+        "4",
+        "1024",
+        extra_env={"EXL3_FAT_GROUPED": "2"},
+    )
+    assert refused.returncode == 2
+    assert "EXL3_FAT_GROUPED must be exactly 0 or 1" in refused.stderr
+    allowed = validate(
+        "0.87",
+        "1000000",
+        "4",
+        "1024",
+        extra_env={"EXL3_FAT_GROUPED": "1"},
+    )
+    assert allowed.returncode == 0
+    off = validate(
+        "0.87",
+        "1000000",
+        "4",
+        "1024",
+        extra_env={"EXL3_FAT_GROUPED": "0"},
+    )
+    assert off.returncode == 0
+
+
 def test_mtp_above_12_seqs_is_refused() -> None:
     refused = validate("0.87", "1000000", "13", "1024", spec_method="mtp")
     assert refused.returncode == 2

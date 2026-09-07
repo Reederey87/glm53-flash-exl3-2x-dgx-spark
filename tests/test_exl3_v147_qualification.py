@@ -190,10 +190,14 @@ def test_fat_kernel_anchors_on_v147_bindings(tmp_path):
     text = (ext / "bindings.cpp").read_text()
     assert text.count('#include "quant/exl3_moe.cuh"') == 1
     assert text.count('#include "quant/exl3_fat_gemm.cuh"') == 1
+    assert text.count('#include "quant/exl3_fat_moe.cuh"') == 1
     assert 'm.def("exl3_fat_gemm", &exl3_fat_gemm, "exl3_fat_gemm");' in text
     assert 'm.def("exl3_fat_gemm_scatter", &exl3_fat_gemm_scatter, "exl3_fat_gemm_scatter");' in text
+    assert 'm.def("exl3_fat_moe_gather", &exl3_fat_moe_gather, "exl3_fat_moe_gather");' in text
     assert (ext / "quant" / "exl3_fat_gemm.cu").is_file()
     assert (ext / "quant" / "exl3_fat_gemm.cuh").is_file()
+    assert (ext / "quant" / "exl3_fat_moe.cu").is_file()
+    assert (ext / "quant" / "exl3_fat_moe.cuh").is_file()
     # Prefix anchors stay unique after the additive insert, so a second
     # apply is not the drift case. Re-applying would duplicate the fat
     # entries; the build runs the installer once on a fresh pin tarball.
