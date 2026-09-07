@@ -1,0 +1,24 @@
+TASK16 B-CANDIDATE 2026-09-07
+image=glm53-selfbuild:ca13bdd-v147  sha256:07ce8a41078ad4b28eb3dc629da51e736b0c530544b252922c7fd9dcf6f257d1
+env=1d7fe6d93459625274662f6875637dc28782156d6f048c950e99e309ca435de1
+control_env_backup=.env.bak-pre-task16-v147-20260907 6e7a206ec05be1cf624df167128470a313d12566b744e1f542808373aaf0983a
+shape_stamp=93eb38bbe6b5f7969a84a7fdf326322c  (IMAGE changed; JIT wipe both nodes)
+pool=1,396,551 tokens / 1.40x
+bind=127.0.0.1:8000
+health=200
+running=0
+unit=active
+watchdog.timer=inactive (window)
+acceptance=7/7
+serving=6/6 (tunnel :18000)
+structured_b1_median_tok_s=69.2887728150058  min=24.279 (contended) max=69.683  accept=1.0000/7.0  nan=false
+structured_b2_median_tok_s=70.0339434323071  min=69.591 max=70.119  accept=1.0000/7.0  nan=false
+control_structured_median=70.07696140661014
+exl3_commit_in_image=ca13bdd83a1f4a74fd817b88f49509e0f22a9b07  version=1.4.7
+namespace_exists=True
+ticket_doc_num_active=False  args=30  fat_gemm=True  (native v1.4.7 pybind names; Dockerfile accepted arg-count>=30)
+warmup=20/20 in 43s
+content_warmup=droid-exec.json 9s
+MemFree_head_GiB=4.7
+build=cpu_moe=stubbed x86_pause=all_reduce_cpu.cu,moe_handoff.cu f16c=stubbed native_ticket_skip
+wheel=exllamav3-1.4.7-cp312-cp312-linux_aarch64.whl

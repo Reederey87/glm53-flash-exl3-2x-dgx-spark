@@ -1,0 +1,15 @@
+TASK16 A-CONTROL 2026-09-07
+image=glm53-selfbuild:b5ab8091-s2b  sha256:87a2cfd32aece0d9cf682fd3bc7821f9c074c7b3cb537017f8a1e9b96cdb80dc
+env=6e7a206ec05be1cf624df167128470a313d12566b744e1f542808373aaf0983a
+shape_stamp=91fbe73a55b2590a3009762603dff284
+pool=1,396,551 tokens / 1.40x
+bind=127.0.0.1:8000
+health=200
+running=0 waiting=0
+watchdog.timer=active
+acceptance=7/7
+serving=6/6 (tunnel :18000)
+structured_median_tok_s=70.07696140661014  accept=1.0000/7.0  nan=false
+exl3_commit_in_image=c5d9c657  version=0.0.43
+ticket_doc_num_active=False  fat_gemm=True
+MemFree_head_kB=5092668  MemFree_worker_kB=5440560

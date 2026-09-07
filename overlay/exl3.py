@@ -13,12 +13,7 @@ runner all-reduces the combined output.
 
 from __future__ import annotations
 
-import importlib
-import importlib.util
 import os
-import sys
-import types
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import torch
@@ -35,6 +30,12 @@ from vllm.model_executor.layers.quantization.base_config import QuantizationConf
 from vllm.model_executor.layers.quantization import register_quantization_config
 from vllm.model_executor.utils import set_weight_attrs
 
+from vllm.model_executor.layers.quantization.exl3_namespace import (  # noqa: F401
+    InferParams,
+    NullConfig,
+    load_linear_exl3_cls,
+)
+
 if TYPE_CHECKING:
     from vllm.model_executor.layers.fused_moe.routed_experts import RoutedExperts
     from vllm.model_executor.layers.fused_moe.runner.shared_experts import (
@@ -43,8 +44,8 @@ if TYPE_CHECKING:
 
 logger = init_logger(__name__)
 
-EXLLAMAV3_COMMIT = "c5d9c657966ffeeaa9353f0cc899f18629da4a13"
-EXLLAMAV3_VERSION = "0.0.43"
+EXLLAMAV3_COMMIT = "ca13bdd83a1f4a74fd817b88f49509e0f22a9b07"
+EXLLAMAV3_VERSION = "1.4.7"
 MCG_MULTIPLIER = 0xCBAC1FED
 MCG_MARKER_SIGNED_INT32 = -877912083
 EXL3_SUFFIXES = ("trellis", "suh", "svh", "mcg")
@@ -195,45 +196,6 @@ def shard_exl3_row(loaded: torch.Tensor, suffix: str, tp_rank: int, tp_size: int
     if suffix == "suh":
         return _narrow_tp(loaded, 0, tp_rank, tp_size)
     return loaded.contiguous()
-
-
-def _install_exllamav3_namespace() -> None:
-    """Load LinearEXL3 without running exllamav3/__init__.py (FlashAttention)."""
-    if "exllamav3.modules.quant.exl3" in sys.modules:
-        return
-    import exllamav3_ext  # noqa: F401  — compiled extension must exist
-
-    spec = importlib.util.find_spec("exllamav3")
-    if spec is None or not spec.submodule_search_locations:
-        raise RuntimeError("exllamav3 package is not installed in this image")
-    package_root = Path(list(spec.submodule_search_locations)[0])
-
-    # Stub only packages whose __init__.py pulls FlashAttention / serving extras.
-    # Leave .ext, .util, and .modules.quant as real modules so LinearEXL3 loads.
-    for name, path in (
-        ("exllamav3", package_root),
-        ("exllamav3.modules", package_root / "modules"),
-        ("exllamav3.model", package_root / "model"),
-    ):
-        if name in sys.modules:
-            continue
-        module = types.ModuleType(name)
-        module.__file__ = str(path / "__init__.py")
-        module.__package__ = name
-        module.__path__ = [str(path)]
-        sys.modules[name] = module
-
-    if "exllamav3.model.config" not in sys.modules:
-        config = types.ModuleType("exllamav3.model.config")
-        config.__file__ = str(package_root / "model/config.py")
-        config.__package__ = "exllamav3.model"
-        config.Config = type("Config", (), {})
-        sys.modules[config.__name__] = config
-
-
-def load_linear_exl3_cls():
-    _install_exllamav3_namespace()
-    return importlib.import_module("exllamav3.modules.quant.exl3").LinearEXL3
 
 
 def make_linear_exl3(

@@ -375,9 +375,10 @@ COPY overlay/exl3_fat_gemm.cuh /opt/glm53/exl3-fat-kernel/exl3_fat_gemm.cuh
 COPY overlay/patch_exl3_ticket_scheduler.py /opt/glm53/patch_exl3_ticket_scheduler.py
 COPY overlay/exl3-ticket/ /opt/glm53/exl3-ticket/
 
-ARG EXLLAMAV3_COMMIT=c5d9c657966ffeeaa9353f0cc899f18629da4a13
-# Build-time opt-out for the S2a ticket-scheduler overlay (docs/11 S2a):
-# --build-arg GLM53_EXL3_TICKET_SCHEDULER=0 ships the pristine pin ext.
+ARG EXLLAMAV3_COMMIT=ca13bdd83a1f4a74fd817b88f49509e0f22a9b07
+# v1.4.7 already contains the d5e4361 ticket scheduler. The installer is
+# retained for the historical c5d9c657 pin and skips native v1.4.7 trees.
+# --build-arg GLM53_EXL3_TICKET_SCHEDULER=0 still skips the overlay.
 # Rollback at runtime = previous image tag + .env IMAGE= flip (the scheduler
 # is compile-time, not a runtime knob).
 ARG GLM53_EXL3_TICKET_SCHEDULER=1
@@ -420,16 +421,18 @@ print("registered exl3 in QUANTIZATION_METHODS (lazy import)")
 PY
 
 # The vLLM image keeps CUDA toolkit headers under nvidia/cu13 (cusparse.h), not
-# /usr/local/cuda/include. ExLlamaV3 also ships AVX2/AVX512 CPU targets that
-# do not compile on aarch64; stub them so the SM121 GEMM still builds.
+# /usr/local/cuda/include. ExLlamaV3 also ships AVX2/AVX512 CPU targets and,
+# from v1.4.7, an unguarded x86 CPU-MoE TU; stub them so the SM121 GEMM still
+# builds. Do not copy published x86_64 wheels onto these aarch64 nodes.
 RUN set -eux; \
     mkdir -p /tmp/exllamav3; \
     curl -fsSL "https://github.com/turboderp-org/exllamav3/archive/${EXLLAMAV3_COMMIT}.tar.gz" \
       | tar -xz -C /tmp/exllamav3 --strip-components=1; \
-    python3 -c "from pathlib import Path; assert (Path('/tmp/exllamav3')/'exllamav3/modules/quant/exl3.py').is_file()"; \
+    python3 -c "from pathlib import Path; p = Path('/tmp/exllamav3'); assert (p/'exllamav3/modules/quant/exl3.py').is_file(); ver = (p/'exllamav3/version.py').read_text(); assert '1.4.7' in ver, ver"; \
     python3 /opt/glm53/patch_exl3_ext_aarch64.py /tmp/exllamav3/exllamav3/exllamav3_ext; \
     python3 /opt/glm53/patch_exl3_fat_kernel.py /tmp/exllamav3/exllamav3/exllamav3_ext /opt/glm53/exl3-fat-kernel; \
     python3 /opt/glm53/patch_exl3_ticket_scheduler.py /tmp/exllamav3/exllamav3/exllamav3_ext; \
+    python3 -c "from pathlib import Path; root = Path('/tmp/exllamav3/exllamav3/exllamav3_ext'); markers=(b'immintrin.h', b'__builtin_ia32_pause', b'_mm_pause', b'__attribute__((target(\"avx', b'target_clones(\"avx', b'__builtin_cpu_supports'); hits=[p for p in root.rglob('*') if p.suffix in {'.c','.cpp','.h','.hpp','.cu','.cuh'} and any(m in p.read_bytes() for m in markers)]; assert not hits, hits; moe=(root/'cpu'/'moe_mul1.cpp'); assert moe.is_file() and 'GLM53_AARCH64_CPU_MOE_STUB' in moe.read_text(); handoff=(root/'cpu'/'moe_handoff.cu').read_text(); assert 'GLM53_AARCH64_CPU_PAUSE_STUB' in handoff; assert 'is_f16c_supported' in (root/'avx2_target.h').read_text(); assert 'bool is_f16c_supported() { return false; }' in (root/'avx2_target.cpp').read_text(); bind=(root/'bindings.cpp').read_text(); assert 'exl3_fat_gemm' in bind"; \
     export CPATH="/usr/local/lib/python3.12/dist-packages/nvidia/cu13/include${CPATH:+:$CPATH}"; \
     export CPLUS_INCLUDE_PATH="/usr/local/lib/python3.12/dist-packages/nvidia/cu13/include${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}"; \
     export C_INCLUDE_PATH="/usr/local/lib/python3.12/dist-packages/nvidia/cu13/include${C_INCLUDE_PATH:+:$C_INCLUDE_PATH}"; \
@@ -448,6 +451,7 @@ RUN set -eux; \
 # rebuild exllamav3_ext. Exl3Config.override_quantization_method requires
 # "exl3" in ModelConfig's ordered overrides list.
 COPY overlay/exl3.py /usr/local/lib/python3.12/dist-packages/vllm/model_executor/layers/quantization/exl3.py
+COPY overlay/exl3_namespace.py /usr/local/lib/python3.12/dist-packages/vllm/model_executor/layers/quantization/exl3_namespace.py
 COPY overlay/patch_model_overrides.py /opt/glm53/patch_model_overrides.py
 COPY overlay/qwen3_dflash2.py /opt/glm53/qwen3_dflash2.py
 COPY overlay/dflash2_speculator.py /opt/glm53/dflash2_speculator.py

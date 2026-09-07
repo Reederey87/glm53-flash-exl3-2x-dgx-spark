@@ -115,8 +115,9 @@ the official enablement lineage **before** it merged upstream (#53906 is still o
 and the tree predates vLLM's native DFlash2). Preview code is why this kit pins the
 base **by digest** and adds every capability explicitly, verified on the real pair:
 
-- **EXL3 kernels** — `exllamav3` built for aarch64/sm_121 at a pinned commit; keeps
-  the 320B experts packed at 82 GiB/node, which is what leaves room for the 1M pool.
+- **EXL3 kernels** — `exllamav3` built for aarch64/sm_121 at pinned **v1.4.7
+  `ca13bdd`**; keeps the 320B experts packed at 82 GiB/node, which is what
+  leaves room for the 1M pool.
 - **MoE expert kernels, hand-tuned for GB10** — this repo's fat-expert GEMM for
   oversized prefill experts, upstream's dynamic ticket scheduler in the fused
   launch, and a 3-stage `cp.async` pipeline (+41% kernel throughput at production
@@ -207,8 +208,9 @@ clients. **Tokenize** is mounted at the root (`/v1/tokenize` is 404) and validat
 > code: this repo carries (1) the **fat-expert GEMM** (`overlay/exl3_fat_gemm.cu`
 > — oversized prefill experts run a fused trellis-GEMM + Hadamard + scatter
 > launch instead of per-expert reconstruction), (2) the **dynamic ticket
-> scheduler** in the fused `exl3_moe` kernel (upstream exllamav3 `d5e4361`,
-> cherry-picked — idle SM groups steal heavy experts instead of round-robin),
+> scheduler** in the fused `exl3_moe` kernel (native in v1.4.7; originally
+> cherry-picked from `d5e4361` onto `c5d9c657` — idle SM groups steal heavy
+> experts instead of round-robin),
 > and (3) a **3-stage `cp.async` pipeline** in the fat GEMM k-loop —
 > **+38.6/+41.4/+40.8%** kernel throughput at production shapes (52 → ~73.5
 > TFLOP/s), bit-exact vs the stock kernel over 56 comparisons,

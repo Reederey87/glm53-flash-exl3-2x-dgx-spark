@@ -22,8 +22,9 @@ fusions, and all of EXL3 — zero EXL3 code exists in vLLM mainline). Consequenc
 
 ## Current queue (research refresh, 2026-09-05)
 
-The S1/S2 kernel program is closed. Production is `glm53-selfbuild:b5ab8091-s2b`
-(fat GEMM pipelined, ticket scheduler live). The initial contended **+0.3%**
+The S1/S2 kernel program is closed. Production is `glm53-selfbuild:ca13bdd-v147`
+(ExLlamaV3 v1.4.7 native pin, fat GEMM pipelined, ticket scheduler native).
+Rollback remains `glm53-selfbuild:b5ab8091-s2b`. The initial contended **+0.3%**
 end-to-end result is superseded by PR #32's powered re-window:
 **+5.3–5.6% cold prefill**. Further kernel work needs a new current-stack
 profile, not extrapolation from the isolated +41% kernel result.
@@ -35,6 +36,97 @@ implementation below still made no runtime/config change or performance claim.
 Mainline GLM support (#53906) has merged, so model resolution is no longer the
 mainline blocker described in the historical section above; EXL3 integration
 and overlay compatibility still block a stock-image replacement.
+
+### 2026-09-07: task 16 ExLlamaV3 v1.4.7 image qualification
+
+Bundled rebuilt-image qualification of ExLlamaV3 v1.4.7
+`ca13bdd83a1f4a74fd817b88f49509e0f22a9b07`. Not a standalone performance
+window: the v1.4.6→v1.4.7 release does not change the production K4/MCG
+`exl3_moe` hot path, and the custom fat-GEMM remains overlay-owned. Reachable
+release changes are bounds/device/allocation hardening and an autotune-cache
+race fix. Expected fused-MoE/decode gain is zero.
+
+Three build/runtime blockers, all fail-closed on the host before any cluster
+restart:
+
+1. `overlay/patch_exl3_ext_aarch64.py` now stubs the unguarded x86
+   `cpu/moe_mul1.cpp` (`<immintrin.h>` / AVX target attributes) in addition
+   to AVX CPU-target / all-reduce TUs. AVX2 stubs expose
+   `is_f16c_supported() { return false; }` so `all_reduce_cpu.cu` still
+   compiles (native-TP CPU reduce is not the serving path). Leftover
+   `__builtin_ia32_pause` / `_mm_pause` in `cpu/moe_handoff.cu` and
+   `parallel/all_reduce_cpu.cu` become `std::this_thread::yield()`.
+   Leftover `immintrin.h`, x86 pause, `target("avx...")` and
+   `__builtin_cpu_supports` fail closed. Callers of CPU MoE raise a
+   runtime error on aarch64 — fused GPU `exl3_moe` is the serving path.
+2. `overlay/patch_exl3_ticket_scheduler.py` skips the exact pinned v1.4.7
+   (`ca13bdd`) quant SHA256 set — including `exl3_moe.cuh`, which is
+   byte-identical to the historical patched header — instead of treating
+   that shared header as mixed native/c5d9 state. The byte-exact c5d9c657
+   installer is retained for that historical pin. Mixed native/pristine
+   trees and ordinary drift still fail closed. Host fixtures are the
+   exact `ca13bdd` quant sources under `tests/fixtures/exl3-v147/quant/`.
+3. `overlay/exl3_namespace.py` injects `NullConfig`/`InferParams` so
+   v1.4.7 `LinearEXL3(config=None)` can read `config.infer_params`. The
+   previous Config-only stub would AttributeError at first construction.
+
+Host fixtures under `tests/fixtures/exl3-v147/` cover those three
+conditions plus the existing fat-kernel binding anchors. Control remains
+`glm53-selfbuild:b5ab8091-s2b`. Candidate image tag is
+`glm53-selfbuild:ca13bdd-v147`. Same-day A-B-B-A gates: extension
+import/signature, fallback rows ≤144 and >144, structured/serving/tool/
+vision/thinking-SSE, acceptance 7/7, pool bytes and both-node memory
+headroom unchanged, cold 60k/240k prefill and decode non-inferior. Abort
+on any build assertion, ext exception, output mismatch/corruption,
+CUDA/Xid/IMA, worker loss, `MemFree < 2.5 GiB`, or >2% reproducible
+hot-path regression. Adopt for maintenance/hardening only after parity.
+
+Fused reconstruct (`d33be5c`) is expected dormant: it engages only
+through `LinearEXL3.forward` at rows ≥1024, while the primary production
+path is fused `exl3_moe`/`exl3_fat_gemm`. Prove whether fallback reaches
+it during the cluster window; if it does, compare
+`EXL3_NO_FUSED_RECONSTRUCT=1/0` for output parity instead of attributing
+an upstream-claimed fallback gain to the whole deployment. Autotune
+robustness (`d409d3d` + `555ee4f` + v1.4.7 atomic disk-cache update) rides
+this rebuild; re-prove bit-exact parity if tile/split selection changes.
+
+**Cluster verdict: ADOPT `glm53-selfbuild:ca13bdd-v147` for
+maintenance/hardening. No performance claim.**
+
+Guarded 2026-09-07 window versus control `glm53-selfbuild:b5ab8091-s2b`
+(digest `sha256:87a2cfd32aec…`). Candidate image digest
+`sha256:07ce8a41078a…`. Live production tree overlays were not mutated;
+the candidate was built from a sibling tree and selected only by
+`IMAGE=`.
+
+| Gate | A-control | B-candidate | Return-A | Adopt |
+|---|---|---|---|---|
+| Acceptance | 7/7 | 7/7 | 7/7 | 7/7 |
+| Serving (tunnel :18000) | 6/6 | 6/6 | 6/6 | 6/6 |
+| Pool | 1,396,551 / 1.40× | identical | identical | identical |
+| Structured median tok/s | 70.08 | 70.03 (b2; b1 69.29 with one 24 tok/s contended pass) | not re-sampled | 69.91 |
+| Accept / drafts | 1.0000 / 7.0 | 1.0000 / 7.0 | 1.0000 / 7.0 | 1.0000 / 7.0 |
+| Health / bind | 200 / loopback | 200 / loopback | 200 / loopback | 200 / loopback |
+| MemFree head/worker GiB | 4.9 / 5.2 | 4.7 / (B SSH awk miss) | 4.2 / 4.1 | 6.2 / 4.3 |
+
+B1's 24 tok/s pass kept accept 1.0000/7.0; b2 (70.03) matches control
+within 0.1%. Adopt structured 69.91 is −0.24% versus 70.08, inside the
+>2% abort. Routed experts logged `fused_moe=exl3_moe` with no BF16
+reconstruct at load, so the fused-reconstruct LinearEXL3 fallback
+(`d33be5c`) stayed dormant and `EXL3_NO_FUSED_RECONSTRUCT` was not
+toggled. Native ticket skip, `exl3_namespace.py`, fat GEMM, and
+30-arg `exl3_moe` pybind all present in-image.
+
+Cold 60k/240k prefill was **not** re-measured. This pin is
+maintenance/hardening with expected fused-MoE/decode gain of zero;
+decode, acceptance, serving and pool already matched. Do not read
+this adoption as a prefill win.
+
+Watchdog timer was re-armed only after `watchdog.service` was
+inactive. Rollback remains
+`IMAGE=glm53-selfbuild:b5ab8091-s2b` via
+`.env.bak-pre-task16-v147-20260907` (hash `6e7a206e…`). Do not copy
+v1.4.7's published x86_64 wheels onto the Sparks.
 
 ### 2026-09-07: tasks 27 + 13 + 17 compatibility lane
 
