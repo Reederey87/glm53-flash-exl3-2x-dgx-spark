@@ -36,6 +36,47 @@ Mainline GLM support (#53906) has merged, so model resolution is no longer the
 mainline blocker described in the historical section above; EXL3 integration
 and overlay compatibility still block a stock-image replacement.
 
+### 2026-09-07: task 15 bounded-filesystem KV restore rejected at control
+
+Task 15 did not reach an enabled candidate arm. The complete default-off
+implementation was locally validated against exact production vLLM sources,
+passed 191 tests plus four subtests, and cleared independent review. It used one
+64 GB sparse local-NVMe extent per node, retained Mamba state, excluded scratch
+and fine-grained DFlash2/SWA groups, preserved the production C4 serving shape,
+and added exact cleanup, transfer-engagement, cross-session correctness and
+both-node safety gates.
+
+Two initial controls failed the registered zero-swap-growth rule within their
+first two samples: head/worker `pswpin` rose by 1,092/47 pages on 2026-09-06
+and 1,880/151 pages on the unchanged 2026-09-07 retry. Both had zero swap-out,
+memory above 2.5 GiB, healthy containers and clean immutable-image dmesg
+audits. Ten minutes of idle sampling after the reboot also showed continuing
+background swap-in, so the owner approved a reviewed matched-control protocol:
+control records swap-in but still rejects any swap-out; candidate swap-in would
+be bounded to 125% of the same-day control plus 1,024 pages per node, with
+image, environment, node, workload and receipt-hash binding.
+
+The revised control first refused a recent six-event
+`NV_ERR_NO_MEMORY` startup burst. After the 12-minute audit window cleared, it
+ran for 3,371.6 seconds before aborting on 75 head swap-out pages (300 KiB).
+Head/worker swap-in was 9,036/1,660 pages, worker swap-out was zero, memory
+floors were 4,923,536/4,486,220 KiB, containers remained healthy and the
+post-run kernel audit was clean. The workload was terminated before producing
+a correctness/performance receipt, and no B arm was started.
+
+**Decision: REJECT.** A production control that fails the standing swap-out
+gate cannot authorize an NVMe-backed arm. The exact pre-window `.env`, launcher
+and deployed file tree were restored. Acceptance passed 7/7, client serving
+passed 6/6, health returned 200 and the watchdog was re-armed. No task-15
+runtime, overlay, runner or test file is published; task 15 is closed as a
+guarded rejection. Reopening requires a new owner-approved safety contract and
+a new implementation review, not reinterpretation of these failed controls.
+
+Receipts remain on spark1 under
+`/home/nvidia/GLM-5.3-Flash-EXL3-2x-DGX-Sparks/local/task15-window-20260906T182207Z/`
+and
+`/home/nvidia/GLM-5.3-Flash-EXL3-2x-DGX-Sparks/local/task15-window-20260907T110241Z/`.
+
 ### 2026-09-06: task 7 rejects DFlash2 exact-fit page promotion
 
 The production mismatch is now accounted exactly at boot. A 2,351,104-byte
