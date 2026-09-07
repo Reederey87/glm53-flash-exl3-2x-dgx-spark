@@ -1,0 +1,25 @@
+TASK16 ADOPT 2026-09-07
+image=glm53-selfbuild:ca13bdd-v147
+digest=sha256:07ce8a41078ad4b28eb3dc629da51e736b0c530544b252922c7fd9dcf6f257d1
+env=1d7fe6d93459625274662f6875637dc28782156d6f048c950e99e309ca435de1
+rollback=.env.bak-pre-task16-v147-20260907 IMAGE=glm53-selfbuild:b5ab8091-s2b
+pool=1,396,551 tokens / 1.40x
+bind=127.0.0.1:8000
+health=200
+running=0
+unit=active
+watchdog.timer=active  (re-armed after watchdog.service inactive)
+acceptance=7/7
+serving=6/6 (tunnel :18000)
+structured_median_tok_s=69.90882813129107  min=69.786 max=70.046  accept=1.0000/7.0  nan=false
+control_structured_median=70.07696140661014
+exl3_commit_in_image=ca13bdd83a1f4a74fd817b88f49509e0f22a9b07  version=1.4.7
+namespace_exists=True
+ticket_doc_num_active=False  args=30  fat_gemm=True
+fused_moe=exl3_moe  no BF16 expert reconstruct at load
+warmup=20/20 in 25s
+content_warmup=droid-exec.json 9s
+MemFree_head_GiB=6.2
+MemFree_worker_GiB=4.3
+both_ranks=ca13bdd-v147
+prefill_60k_240k=not re-measured (maintenance/hardening pin; expected fused-MoE/decode gain zero)

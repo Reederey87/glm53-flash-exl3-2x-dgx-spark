@@ -1,0 +1,17 @@
+TASK16 RETURN-A CONTROL 2026-09-07
+image=glm53-selfbuild:b5ab8091-s2b
+env=6e7a206ec05be1cf624df167128470a313d12566b744e1f542808373aaf0983a
+backup=.env.bak-pre-task16-v147-20260907  identical
+pool=1,396,551 tokens / 1.40x
+bind=127.0.0.1:8000
+health=200
+running=0
+unit=active
+watchdog.timer=inactive (window; re-armed only after adopt)
+acceptance=7/7
+serving=6/6 (tunnel :18000)
+warmup=20/20 in 33s
+content_warmup=droid-exec.json 9s
+MemFree_head_GiB=4.2
+MemFree_worker_GiB=4.1
+both_ranks=b5ab8091-s2b

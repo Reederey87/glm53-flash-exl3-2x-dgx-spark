@@ -1,13 +1,17 @@
 """Byte-exact three-state installer tests for the exllamav3 ticket-scheduler overlay.
 
 The installer (overlay/patch_exl3_ticket_scheduler.py) applies upstream
-exllamav3 d5e4361 onto the pinned c5d9c657 ext source at image build time from
-vendored pristine/patched byte sets. These tests exercise the installer logic
-host-side with fixture extension roots — no torch, no CUDA.
+exllamav3 d5e4361 onto the historical c5d9c657 ext source at image build
+time from vendored pristine/patched byte sets. v1.4.7 already contains the
+ticket scheduler, so a native tree is a skip, not drift. These tests
+exercise the installer logic host-side with fixture extension roots — no
+torch, no CUDA.
 """
 
 from __future__ import annotations
 
+import hashlib
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -21,6 +25,7 @@ PATCHER = KIT_ROOT / "overlay" / "patch_exl3_ticket_scheduler.py"
 TICKET_DIR = KIT_ROOT / "overlay" / "exl3-ticket"
 PRISTINE = TICKET_DIR / "pristine"
 PATCHED = TICKET_DIR / "patched"
+NATIVE_V147 = KIT_ROOT / "tests" / "fixtures" / "exl3-v147" / "quant"
 FILES = (
     "exl3_devctx.cu",
     "exl3_devctx.cuh",
@@ -142,11 +147,45 @@ def test_mixed_state_refused_before_any_write(tmp_path):
     assert _read_all(ext) == before
 
 
+def test_native_v147_tree_is_skipped_not_drift(tmp_path):
+    ext = _make_ext(tmp_path, NATIVE_V147)
+    before = _read_all(ext)
+    r = _run(ext)
+    assert r.returncode == 0, r.stderr
+    assert "native=1" in r.stdout
+    assert "patched=0" in r.stdout
+    assert "already=0" in r.stdout
+    assert _read_all(ext) == before
+    assert (ext / "quant" / "exl3_moe.cuh").read_bytes() == (
+        PATCHED / "exl3_moe.cuh"
+    ).read_bytes()
+
+
+def test_native_v147_hashes_match_vendored_pin():
+    spec = importlib.util.spec_from_file_location("ticket_installer", PATCHER)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert set(module.NATIVE_V147_SHA256) == set(FILES)
+    for name in FILES:
+        data = (NATIVE_V147 / name).read_bytes()
+        assert hashlib.sha256(data).hexdigest() == module.NATIVE_V147_SHA256[name]
+    shared = (NATIVE_V147 / "exl3_moe.cuh").read_bytes()
+    assert shared == (PATCHED / "exl3_moe.cuh").read_bytes()
+    assert shared != (PRISTINE / "exl3_moe.cuh").read_bytes()
+    for name in FILES:
+        if name == "exl3_moe.cuh":
+            continue
+        assert (NATIVE_V147 / name).read_bytes() != (PATCHED / name).read_bytes()
+        assert (NATIVE_V147 / name).read_bytes() != (PRISTINE / name).read_bytes()
+
+
 def test_dockerfile_wiring():
     """Static guard: the build must declare + forward the opt-out, copy the
     vendored sets, run the installer after the fat-kernel step, and assert
     num_active via the pybind-safe __doc__ check (inspect.signature raises
-    ValueError on pybind11 builtins)."""
+    ValueError on pybind11 builtins). v1.4.7 is the current pin; the
+    installer remains for the historical c5d9c657 rollback pin."""
     dockerfile = (KIT_ROOT / "Dockerfile").read_text()
     assert "ARG GLM53_EXL3_TICKET_SCHEDULER=1" in dockerfile
     assert "ENV GLM53_EXL3_TICKET_SCHEDULER=${GLM53_EXL3_TICKET_SCHEDULER}" in dockerfile
@@ -160,6 +199,8 @@ def test_dockerfile_wiring():
     assert "inspect.signature(exllamav3_ext.exl3_moe)" not in dockerfile
     assert "'num_active' in doc or 'arg29' in doc" in dockerfile
     assert 'if [ "${GLM53_EXL3_TICKET_SCHEDULER}" = "1" ]' in dockerfile
+    assert "ARG EXLLAMAV3_COMMIT=ca13bdd83a1f4a74fd817b88f49509e0f22a9b07" in dockerfile
+    assert "v1.4.7 already contains the d5e4361 ticket scheduler" in dockerfile
 
 
 def _read_all_of(source_dir: Path) -> dict[str, bytes]:

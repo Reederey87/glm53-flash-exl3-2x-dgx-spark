@@ -2,8 +2,8 @@
 
 Written 2026-09-02. Companion to `docs/06-improvement-plan.md` (the A/B ledger) and
 `docs/07-rebase-plan.md`. Sources: local receipts, the local exllamav3 tree
-(`~/Developer/dgx-spark/exllamav3`, upstream master `499890c` v1.4.6, fetched
-2026-09-02), and web research (exa) — cited inline.
+(`~/Developer/dgx-spark/exllamav3`; survey freeze was master `499890c` v1.4.6 on
+2026-09-02; task 16 pins v1.4.7 `ca13bdd`), and web research (exa) — cited inline.
 
 ## 1. Scope
 
@@ -116,10 +116,13 @@ APC-hit-contaminated; ours are same-image, same-boot-class, warm-JIT A/Bs and st
 ## 5. New finding: the pinned exllamav3 ext is 27 kernel commits behind upstream
 
 Local tree `~/Developer/dgx-spark/exllamav3` = upstream master `499890c` (v1.4.6);
-production pins `c5d9c657` (0.0.43). **434 commits behind overall, 27 touching
-`exllamav3_ext/quant`** (+`ptx.cuh`/`util.cuh`). The fat-kernel overlay anchors
-(`bindings.cpp` `#include "quant/exl3_moe.cuh"` and `m.def("exl3_moe", …)`) **still
-hold verbatim on HEAD** — `patch_exl3_fat_kernel.py` applies cleanly to master.
+the 2026-09-02 survey freeze still pinned production at `c5d9c657` (0.0.43),
+**434 commits behind overall, 27 touching `exllamav3_ext/quant`**. Task 16
+(2026-09-07) adopted native v1.4.7 `ca13bdd` as `glm53-selfbuild:ca13bdd-v147`;
+ticket scheduling is now upstream in the pin, and the custom fat-GEMM remains
+overlay-owned. The fat-kernel overlay anchors (`bindings.cpp`
+`#include "quant/exl3_moe.cuh"` and `m.def("exl3_moe", …)`) **still hold
+verbatim on HEAD** — `patch_exl3_fat_kernel.py` applies cleanly to master.
 
 Ranked relevance to this deployment:
 
@@ -135,10 +138,15 @@ Ranked relevance to this deployment:
 | `56e0b84` | TP `pg_gather_kernel` missing `__syncthreads` race fix | vLLM serve does not use exllamav3's own TP; N/A likely |
 | `e82c1cf` | Extension split into `comp_units/` | Build restructuring; anchors verified OK |
 
-**Honest caveat:** a full pin advance (434 commits, python-side 0.0.43→1.4.6) is a
-rebase-scale change; the cheap path is an S2-window that cherry-picks the
-quant-kernel range onto the pinned ext (kernel sources are self-contained; overlay
-anchors verified). Both go through the standing protocol with a JIT wipe expected.
+**Honest caveat (2026-09-02):** a full pin advance (434 commits, python-side
+0.0.43→1.4.6) is a rebase-scale change; the cheap path then was an S2-window
+that cherry-picks the quant-kernel range onto the pinned ext. **Task 16
+(2026-09-07) now pins v1.4.7 `ca13bdd` as a bundled image rebuild.** The
+v1.4.6→v1.4.7 delta does not change the production K4/MCG `exl3_moe` hot
+path; ticket scheduling is native; the custom fat-GEMM remains overlay-owned.
+Expected fused-MoE/decode gain is zero. Cluster window adopted the pin
+for maintenance/hardening after acceptance/serving/pool/decode parity;
+not a performance claim.
 
 ## 6. Stage plans
 
@@ -222,10 +230,13 @@ rollback = `IMAGE=` flip to `b5ab8091-w24`.
   experts instead of serializing their statically assigned share under skewed
   agentic traffic). Dynamic group widening stays latent until a caller passes a
   real count (would need a D2H sync; deliberately not taken).
-- **Packaging:** `overlay/patch_exl3_ticket_scheduler.py` — byte-exact three-state
-  installer (patched→skip / pristine→atomic replace / anything else→fail closed)
-  over vendored `overlay/exl3-ticket/{pristine,patched}` sets (pin bytes vs
-  pin+d5e4361 bytes); build-time opt-out `GLM53_EXL3_TICKET_SCHEDULER=0` (real
+- **Packaging:** `overlay/patch_exl3_ticket_scheduler.py` — byte-exact four-state
+  installer. Native skip is SHA256-exact against the pinned v1.4.7 (`ca13bdd`)
+  quant set, including `exl3_moe.cuh` which is byte-identical to the historical
+  patched header. Historical c5d9c657: patched→skip / pristine→atomic replace.
+  Mixed native/c5d9 or any other drift fails closed with no writes. Vendored
+  sets live in `overlay/exl3-ticket/{pristine,patched}`; native hashes live in
+  the installer. Build-time opt-out `GLM53_EXL3_TICKET_SCHEDULER=0` (real
   `ARG`+`ENV` forwarding; the build assert skips on opt-out builds); Dockerfile
   wired after the fat-kernel step with a pybind-safe `__doc__`-based build assert
   on the `num_active` signature (`inspect.signature` raises on pybind11 builtins;

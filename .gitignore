@@ -5,6 +5,7 @@ tool-eval-bench/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.venv/
 
 
 # Local working ledgers — maintained on disk, never tracked
