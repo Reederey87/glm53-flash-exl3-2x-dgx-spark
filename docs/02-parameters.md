@@ -128,6 +128,22 @@ cache is invisible to it). 0.87 demands 105.87 GiB free against boots measured a
   evicting other sessions' cached prefixes. Malformed values are an HTTP 400 at
   the API boundary. Not in the JIT shape hash.
 
+## Added 2026-09-07
+
+- `VLLM_USE_V2_MODEL_RUNNER` — not a configuration knob on this image.
+  Production already logs `Using V2 Model Runner`, GLM is in the default V2
+  architecture set, and W28 patches `v1/worker/gpu/model_runner.py`. Unset
+  or `1` is a no-op; `0` is refused by `start.sh validate` before any
+  stop/restart. Adaptive verification stays parked.
+- `SPEC_METHOD=mtp` — MTP rollback is refused when `MAX_NUM_SEQS > 12`
+  (capture-size guard). `dflash` remains production. Validation runs before
+  stop, so a refused rollback cannot tear the pair down.
+- Inherited `KVCacheSpec.merge` — `overlay/patch_kv_merge_assert.py` ports
+  upstream #55234's `assert` → `raise AssertionError` so grouping stays
+  fail-closed under `python -O`. The DSpark `non_causal_multi_token_decode`
+  any-merge and 656 B/token `fp8_ds_mla` page are already on this image.
+  Not in the JIT shape hash.
+
 ## Added 2026-09-02
 
 - `EXL3_FAT_SORTED=1` / `EXL3_FAT_BATCHED=1` / `EXL3_FAT_KERNEL=1` — the

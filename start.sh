@@ -235,6 +235,8 @@ APC_NO_STORE_PATCH_HOST="${APC_NO_STORE_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_ap
 INDEXER_WORKSPACE_PATCH_HOST="${INDEXER_WORKSPACE_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_indexer_workspace.py}"
 W28_CORRECTNESS_PATCH_HOST="${W28_CORRECTNESS_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_w28_correctness.py}"
 MAMBA_NULL_GAP_PATCH_HOST="${MAMBA_NULL_GAP_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_mamba_null_gap_retirement.py}"
+# LOCAL: task 17 / #55234 — inherited KVCacheSpec.merge assert -> raise (python -O)
+KV_MERGE_ASSERT_PATCH_HOST="${KV_MERGE_ASSERT_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_kv_merge_assert.py}"
 KV_CACHE_DTYPE="${KV_CACHE_DTYPE:-fp8}"
 QUANTIZATION="${QUANTIZATION:-exl3}"
 LANGUAGE_MODEL_ONLY="${LANGUAGE_MODEL_ONLY:-0}"
@@ -405,6 +407,25 @@ validate_numeric_config() {
             echo "DFLASH_TOKENS must remain 7 for this fixed-block DFlash2 path; verification-only k=3/4 is unsupported (got: $DFLASH_TOKENS)" >&2
             return 2
         fi
+    fi
+    # LOCAL: task 13 — production already uses the V2 GPU model runner; W28
+    # patches v1/worker/gpu/model_runner.py. Forcing V1 would miss W28.
+    # Unset or 1 is a no-op; 0 is refused before stop/restart.
+    case "${VLLM_USE_V2_MODEL_RUNNER-}" in
+        ""|1) ;;
+        0)
+            echo "VLLM_USE_V2_MODEL_RUNNER=0 is refused: production already uses the V2 runner and W28 patches that path" >&2
+            return 2
+            ;;
+        *)
+            echo "VLLM_USE_V2_MODEL_RUNNER must be unset or 1 (got: ${VLLM_USE_V2_MODEL_RUNNER})" >&2
+            return 2
+            ;;
+    esac
+    # LOCAL: task 13 — MTP capture-size guard (kit #88 / PR #93).
+    if [ "$SPEC_METHOD" = mtp ] && [ "$MAX_NUM_SEQS" -gt 12 ]; then
+        echo "SPEC_METHOD=mtp refuses to boot when MAX_NUM_SEQS > 12 (MTP capture-size guard; got MAX_NUM_SEQS=${MAX_NUM_SEQS})" >&2
+        return 2
     fi
     # LOCAL: W27 — strict enum; it is also the safety boundary for the worker's
     # word-split `-e` transport (never widen it without adding quoting).
@@ -625,6 +646,7 @@ preflight() {
     [ -f "$APC_NO_STORE_PATCH_HOST" ] || die "$APC_NO_STORE_PATCH_HOST missing"  # LOCAL: W42
     [ -f "$INDEXER_WORKSPACE_PATCH_HOST" ] || die "$INDEXER_WORKSPACE_PATCH_HOST missing"  # LOCAL: W28
     [ -f "$W28_CORRECTNESS_PATCH_HOST" ] || die "$W28_CORRECTNESS_PATCH_HOST missing"  # LOCAL: W28
+    [ -f "$KV_MERGE_ASSERT_PATCH_HOST" ] || die "$KV_MERGE_ASSERT_PATCH_HOST missing"
 
     local need_kb=$((180 * 1024 * 1024)) avail
     mkdir -p "$HF_CACHE_DIR"
@@ -1161,6 +1183,9 @@ fi
 if [ -f /opt/glm53/patch_mamba_null_gap_retirement.py ]; then
     python3 -S /opt/glm53/patch_mamba_null_gap_retirement.py
 fi
+if [ -f /opt/glm53/patch_kv_merge_assert.py ]; then  # LOCAL: #55234 inherited merge
+    python3 -S /opt/glm53/patch_kv_merge_assert.py
+fi
 say "launching: vllm serve ${MODEL_DIR} ${ARGS[*]}"
 exec vllm serve "${MODEL_DIR}" "${ARGS[@]}"
 EOF
@@ -1294,6 +1319,9 @@ fi
 if [ -f /opt/glm53/patch_mamba_null_gap_retirement.py ]; then
     python3 -S /opt/glm53/patch_mamba_null_gap_retirement.py
 fi
+if [ -f /opt/glm53/patch_kv_merge_assert.py ]; then  # LOCAL: #55234 inherited merge
+    python3 -S /opt/glm53/patch_kv_merge_assert.py
+fi
 say "joining TP2 at ${HEAD_IP}:${MASTER_PORT} as rank 1"
 exec vllm serve "${MODEL_DIR}" "${ARGS[@]}"
 EOF
@@ -1346,6 +1374,8 @@ launch_cluster() {
     scp -q -o BatchMode=yes "$INDEXER_WORKSPACE_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_indexer_workspace.py"
     [ -f "$MAMBA_NULL_GAP_PATCH_HOST" ] || die "missing $MAMBA_NULL_GAP_PATCH_HOST"
     scp -q -o BatchMode=yes "$MAMBA_NULL_GAP_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_mamba_null_gap_retirement.py"
+    [ -f "$KV_MERGE_ASSERT_PATCH_HOST" ] || die "missing $KV_MERGE_ASSERT_PATCH_HOST"
+    scp -q -o BatchMode=yes "$KV_MERGE_ASSERT_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_kv_merge_assert.py"
 
 
     local -a nccl_common=(
@@ -1486,6 +1516,7 @@ launch_cluster() {
         -v '/tmp/patch_w28_correctness.py:/opt/glm53/patch_w28_correctness.py:ro' \
         -v '/tmp/patch_indexer_workspace.py:/opt/glm53/patch_indexer_workspace.py:ro' \
         -v '/tmp/patch_mamba_null_gap_retirement.py:/opt/glm53/patch_mamba_null_gap_retirement.py:ro' \
+        -v '/tmp/patch_kv_merge_assert.py:/opt/glm53/patch_kv_merge_assert.py:ro' \
         ${worker_preload} \
         ${worker_nccl} \
         -e NCCL_SOCKET_IFNAME='$WORKER_CX7_IF' \
@@ -1525,6 +1556,7 @@ launch_cluster() {
         -v "$W28_CORRECTNESS_PATCH_HOST:/opt/glm53/patch_w28_correctness.py:ro" \
         -v "$INDEXER_WORKSPACE_PATCH_HOST:/opt/glm53/patch_indexer_workspace.py:ro" \
         -v "$MAMBA_NULL_GAP_PATCH_HOST:/opt/glm53/patch_mamba_null_gap_retirement.py:ro" \
+        -v "$KV_MERGE_ASSERT_PATCH_HOST:/opt/glm53/patch_kv_merge_assert.py:ro" \
         "${head_preload[@]}" \
         "${nccl_common[@]}" \
         -e NCCL_SOCKET_IFNAME="$HEAD_CX7_IF" \

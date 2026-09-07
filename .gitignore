@@ -9,3 +9,6 @@ __pycache__/
 
 # Local working ledgers — maintained on disk, never tracked
 spec/
+
+# Full live-image Python dump for local audits; never ship
+tests/fixtures/live-image-vllm/

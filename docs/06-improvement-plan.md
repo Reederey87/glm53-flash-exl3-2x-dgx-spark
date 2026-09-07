@@ -36,6 +36,53 @@ Mainline GLM support (#53906) has merged, so model resolution is no longer the
 mainline blocker described in the historical section above; EXL3 integration
 and overlay compatibility still block a stock-image replacement.
 
+### 2026-09-07: tasks 27 + 13 + 17 compatibility lane
+
+Production already logs `Using V2 Model Runner`. GLM is in the default V2
+architecture set, and W28 patches `v1/worker/gpu/model_runner.py`. Forcing
+`VLLM_USE_V2_MODEL_RUNNER=1` is a no-op; forcing `0` is now a launcher
+refusal so a rollback cannot miss W28. `SPEC_METHOD=mtp` with
+`MAX_NUM_SEQS > 12` is the same class of refusal (MTP capture-size guard).
+Both run in `validate_numeric_config` before stop.
+
+The live inherited `KVCacheSpec.merge` still uses `assert`. Optimized Python
+strips that, so unequal specs can be reported as uniform. The new
+`overlay/patch_kv_merge_assert.py` ports only that inherited merge to
+`raise AssertionError` (#55234). MLA `non_causal_multi_token_decode=any(...)`
+and 656 B/token `fp8_ds_mla` are already present and are not rewritten.
+
+Parked on this exact image, with CPU fixtures that keep the classification
+fail-closed:
+
+- #54374: live DFlash proposer has no `set_attn` AOT path.
+- #55178: live GDN classifies speculative rows by draft tags; BaseMamba
+  padded-tail is a different class.
+- #55449: live MLA already returns 656 B/token.
+- #54394: solo LPTT 1792 at TP2 is 896 rows/rank, below the ≥1024 gate.
+  Do not raise LPTT.
+- #55061: C4 decode uses fused `exl3_moe`; `index_select` is the overflow
+  path. No ncu probe is claimed here.
+
+`scripts/audit_source_compat.py` plus compact fixtures under
+`tests/fixtures/source-compat/` are the task-27 matrix. A full live-image
+dump may exist locally at `tests/fixtures/live-image-vllm/` and stays
+gitignored. No stock-image swap. No JIT-shape change. Overlay apply is
+idempotent and fail-closed on drift.
+
+**Cluster verdict: ADOPT.** Guarded restart 2026-09-07 on production image
+`glm53-selfbuild:b5ab8091-s2b`. Watchdog timer stopped first; validate and
+the V1/MTP refusals ran before stop; rollback files live at
+`/home/nvidia/glm53-task27-backup-20260907T152959Z`. Both ranks logged
+`kv-merge-assert patched` and retained the V2 runner. Live
+`kv_cache_interface.py` has the raise marker, no inherited `assert`, the
+MLA any-merge, and 656 B/token. Health 200, warmup 20/20 in 32s,
+acceptance 7/7, serving 6/6, running/waiting/preemptions 0, errors 0,
+watchdog re-armed. Overlay SHA256
+`ee21d4c50d15ae8b6f97ac0d3e08a5bcd0e1accc7b00a02f5c46d4793bacab85`
+(classifier helper added after review; apply ANCHOR/PATCHED unchanged);
+launcher SHA256
+`cff6107d4d8bf70ffa40430e9bb0d23a0f2e5dea7e47af516c191ae616f99a66`.
+
 ### 2026-09-07: task 15 bounded-filesystem KV restore rejected at control
 
 Task 15 did not reach an enabled candidate arm. The complete default-off
