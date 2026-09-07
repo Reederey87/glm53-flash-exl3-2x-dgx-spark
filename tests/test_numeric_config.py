@@ -33,6 +33,7 @@ def validate(
     batch: str,
     spec_method: str = "dflash",
     dflash_tokens: str = "7",
+    extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     script = (
         guard_source()
@@ -42,6 +43,10 @@ def validate(
         + 'printf "%s|%s|%s|%s|%s\\n" "$GPU_MEM_UTIL" "$MAX_MODEL_LEN" '
         + '"$MAX_NUM_SEQS" "$MAX_NUM_BATCHED_TOKENS" "$DFLASH_TOKENS"\n'
     )
+    env = {**os.environ, "LC_ALL": "C"}
+    env.pop("VLLM_USE_V2_MODEL_RUNNER", None)
+    if extra_env:
+        env.update(extra_env)
     return subprocess.run(
         [
             "bash",
@@ -58,7 +63,7 @@ def validate(
         text=True,
         capture_output=True,
         check=False,
-        env={**os.environ, "LC_ALL": "C"},
+        env=env,
     )
 
 
@@ -96,6 +101,44 @@ def test_dflash2_rejects_non_native_block_lengths() -> None:
         "0.87", "1000000", "4", "1024", spec_method="none", dflash_tokens="4"
     )
     assert result.returncode == 0
+
+
+def test_v2_runner_force_off_is_refused() -> None:
+    refused = validate(
+        "0.87",
+        "1000000",
+        "4",
+        "1024",
+        extra_env={"VLLM_USE_V2_MODEL_RUNNER": "0"},
+    )
+    assert refused.returncode == 2
+    assert "VLLM_USE_V2_MODEL_RUNNER=0 is refused" in refused.stderr
+    allowed = validate(
+        "0.87",
+        "1000000",
+        "4",
+        "1024",
+        extra_env={"VLLM_USE_V2_MODEL_RUNNER": "1"},
+    )
+    assert allowed.returncode == 0
+    invalid = validate(
+        "0.87",
+        "1000000",
+        "4",
+        "1024",
+        extra_env={"VLLM_USE_V2_MODEL_RUNNER": "true"},
+    )
+    assert invalid.returncode == 2
+
+
+def test_mtp_above_12_seqs_is_refused() -> None:
+    refused = validate("0.87", "1000000", "13", "1024", spec_method="mtp")
+    assert refused.returncode == 2
+    assert "SPEC_METHOD=mtp refuses to boot when MAX_NUM_SEQS > 12" in refused.stderr
+    allowed = validate("0.87", "1000000", "12", "1024", spec_method="mtp")
+    assert allowed.returncode == 0
+    small = validate("0.87", "1000000", "4", "1024", spec_method="mtp")
+    assert small.returncode == 0
 
 
 def test_restart_validates_before_stop() -> None:

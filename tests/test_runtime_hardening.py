@@ -21,6 +21,7 @@ def test_patch_installers_skip_site_initialization() -> None:
     assert invocations
     assert all(command.startswith("python3 -S ") for command in invocations)
     assert sum("patch_mamba_null_gap_retirement.py" in command for command in invocations) == 2
+    assert sum("patch_kv_merge_assert.py" in command for command in invocations) == 2
 
 
 def test_api_key_is_head_only() -> None:
