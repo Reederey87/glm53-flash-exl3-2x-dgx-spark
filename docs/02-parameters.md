@@ -171,9 +171,14 @@ cache is invisible to it). 0.87 demands 105.87 GiB free against boots measured a
   loop over fat experts. Decode stays fused `exl3_moe`. Requires the
   additive `exl3_fat_moe` symbols from `glm53-selfbuild:e3-grouped`
   (`Dockerfile.e3-layer` on `ca13bdd-v147`). Missing symbols fail closed.
-  Predicted persistent scratch at MNBT × top-8 = 28,672 rows is
-  **336 MiB/rank**; the 1M KV pin did not move. Same-day A-B-B-A: 240k
-  cold prefill **+19.6%** (1075 → 1286 tok/s), structured decode
-  non-inferior, pool 1,396,551 / 1.40×. Rollback: `EXL3_FAT_GROUPED=0`
-  and `IMAGE=glm53-selfbuild:ca13bdd-v147`. GHCR/old images must leave
-  this 0.
+  Live TP2 scratch is h13 + h2 at `intermediate_size_per_partition=1024`.
+  Production (`e3-grouped`) **pre-sizes** that to MNBT × top-8 =
+  28,672 rows ≈ **280 MiB/rank**. W1 lazy grow-only was **REVERTED
+  2026-09-07**: CUDA-graph capture already requests 28,672 rows, so
+  idle MemFree did not shrink. Overlay vehicle
+  `Dockerfile.e3-py-layer` / `EXL3_FAT_SCRATCH_ROWS` remains in-tree
+  for a later capture-aware window; do not set it on production.
+  Same-day A-B-B-A (E3 adopt): 240k cold prefill **+19.6%** (1075 →
+  1286 tok/s), structured decode non-inferior, pool 1,396,551 / 1.40×.
+  Rollback: `EXL3_FAT_GROUPED=0` and `IMAGE=glm53-selfbuild:ca13bdd-v147`.
+  GHCR/old images must leave this 0.

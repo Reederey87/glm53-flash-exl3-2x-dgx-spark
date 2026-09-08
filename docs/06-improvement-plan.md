@@ -73,9 +73,36 @@ fail-closed before SUH downgrade). Watchdog re-armed after
 `EXL3_FAT_GROUPED=0`).
 
 E3 follow-ups are **not automatic-next**. Ranked TEST-NEXT queue (cuda-reviewer
-2026-09-07, `docs/11` §8): W1 lazy scratch → W2 TRF=32 (decode-skip gate) →
-W3 zero-fill A-pad → W4 fused gather → W5 occupancy (ncu gate). Decode is
-fused `exl3_moe`; do not retune E3 for prose.
+2026-09-07, `docs/11` §8): ~~W1 lazy scratch~~ **REVERTED** → W2 TRF=32
+(decode-skip gate) → W3 zero-fill A-pad → W4 fused gather → W5 occupancy
+(ncu gate). Decode is fused `exl3_moe`; do not retune E3 for prose.
+
+**W1 lazy scratch REVERTED 2026-09-07.** Overlay-only grow-only capacity
+`max(256, this-call rows)` on `glm53-selfbuild:e3-w1-scratch`
+(`sha256:26b674c2f0c5…`, Python layer on `e3-grouped`, cubin unchanged).
+Same-day A-control vs B:
+
+| Gate | A `e3-grouped` | B `e3-w1-scratch` | Return-A |
+|---|---|---|---|
+| Acceptance | — | 7/7 | 7/7 |
+| Serving (:18000) | — | 6/6 | 6/6 |
+| Pool | 1,396,551 / 1.40× | identical | identical |
+| 60k median tok/s | 1344.0 | 1284.5 (−4.4%) | — |
+| 240k median tok/s | 1296.2 | 1259.7 (−2.8%) | — |
+| Structured median | 70.28 @ 7.0/1.000 | 69.81 (two contended 55.98/58.81; rest 69.8–70.1) | 70.14 |
+| MemFree head/worker GiB | 5.0 / 4.1 after B-ladder | 3.61 / 3.19 after B | 5.01 / 4.30 restored |
+| Scratch | schema=2 MNBT pre-size | schema=3 grew **rows=28672 / 280 MiB / growths=1 during CUDA-graph capture** | schema=2 |
+
+Idle MemFree was the decision variable and did **not** improve: capture
+warmup already requested MNBT×topk, so lazy never stayed at LPTT=1792
+(14,336 rows / ~140 MiB). Prefill wash expected; observed −2.8% at
+240k is inside same-day noise vs adopt-day 1285, not a reason to keep
+the image. Decode non-inferior. Production restored
+`IMAGE=glm53-selfbuild:e3-grouped` (`bd711518d87f`),
+`EXL3_FAT_GROUPED=1`, empty `EXL3_FAT_SCRATCH_ROWS` omitted. Watchdog
+re-armed. Next E3 window is **not** W1 again unless capture is excluded
+from the grow trigger (separate design). Do not start W2 without the
+decode-skip probe.
 
 ### 2026-09-07: task 9 spec-graph probe (eager arm parked)
 

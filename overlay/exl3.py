@@ -71,8 +71,9 @@ _FAT_STATS: dict[str, Any] = {
     "hist": [0] * (len(_FAT_BUCKET_EDGES) + 1),
 }
 _FAT_TIERS = ("grouped", "kernel", "batched", "sorted", "legacy")
-# Schema 2 adds the E3 grouped tier. Extend the key set only with a schema bump.
-EXL3_FAT_DIAG_SCHEMA = 2
+# Schema 3 adds grouped_scratch_growths (W1 lazy scratch). Extend the
+# key set only with a schema bump.
+EXL3_FAT_DIAG_SCHEMA = 3
 EXL3_FAT_DIAG_KEYS = (
     "schema",
     "configured_tier",
@@ -87,6 +88,7 @@ EXL3_FAT_DIAG_KEYS = (
     "sym_fat_moe",
     "grouped_calls",
     "grouped_scratch_bytes",
+    "grouped_scratch_growths",
     "grouped_eligible",
     "cap_major",
     "cap_minor",
@@ -117,6 +119,7 @@ _EXL3_FAT_DIAG: dict[str, Any] = {
     "sym_fat_moe": False,
     "grouped_calls": 0,
     "grouped_scratch_bytes": 0,
+    "grouped_scratch_growths": 0,
     "grouped_eligible": False,
     "cap_major": -1,
     "cap_minor": -1,
@@ -425,6 +428,7 @@ def _exl3_fat_diag_line() -> str:
         f"grouped_eligible={int(d['grouped_eligible'])}",
         f"grouped_calls={d['grouped_calls']}",
         f"grouped_scratch_bytes={d['grouped_scratch_bytes']}",
+        f"grouped_scratch_growths={d['grouped_scratch_growths']}",
         f"cap={d['cap_major']}.{d['cap_minor']}",
         f"cap_ok={int(d['cap_ok'])}",
         f"tp_rank={d['tp_rank']} tp_size={d['tp_size']}",
@@ -531,6 +535,22 @@ def reset_exl3_fat_diag_counters() -> None:
     diag["fallback_calls"] = {tier: 0 for tier in _FAT_TIERS}
     diag["fallback_reasons"] = {}
     diag["grouped_scratch_bytes"] = sum(_FAT_GROUPED_BYTES.values())
+    # Growths stay: they are lifetime alloc events, like the live byte total.
+
+
+GROUPED_SCRATCH_MIN_ROWS = 256
+
+
+def grouped_scratch_capacity(rows: int, scratch_rows: int = 0) -> int:
+    """Grow-only row capacity from host-known routed slots.
+
+    Default is max(256, this-call rows). Does not pre-size to MNBT × top-k.
+    `scratch_rows` is the explicit EXL3_FAT_SCRATCH_ROWS floor in row units
+    (0 = lazy). Never size from a D2H fat-count.
+    """
+    needed = max(GROUPED_SCRATCH_MIN_ROWS, int(rows))
+    floor = max(0, int(scratch_rows))
+    return max(needed, floor)
 
 
 def grouped_scratch_bytes_for(hidden: int, intermediate: int, rows: int) -> int:
@@ -994,28 +1014,27 @@ def apply_exl3_batched_fat(
     return out
 
 
+def _grouped_scratch_rows_env() -> int:
+    raw = os.environ.get("EXL3_FAT_SCRATCH_ROWS", "").strip()
+    if not raw:
+        return 0
+    return max(0, int(raw))
+
+
 def _grouped_scratch(
     device: torch.device, rows: int, hidden: int, intermediate: int
 ) -> dict[str, torch.Tensor]:
-    """Fat-row activation buffers for the grouped tier, grown once.
+    """Fat-row activation buffers for the grouped tier, grown outside capture.
 
-    Capacity covers every routed slot of the configured prefill chunk
-    (MAX_NUM_BATCHED_TOKENS x top-k, EXL3_FAT_GROUPED_TOPK, default 8) so
-    steady-state prefill never reallocates; a larger request grows it once
-    more (outside CUDA graph capture, where growth would be illegal).
+    Capacity is max(256, this-call routed slots). It does not pre-size to
+    MNBT × top-k. A larger later call grows once (illegal during CUDA graph
+    capture). EXL3_FAT_SCRATCH_ROWS, if set, is an explicit row floor.
+
     Persistent: h13 [rows, hidden] fp16 + h2 [rows, intermediate] fp16.
-    Predicted production bytes at MNBT=3584 × topk=8 = 28,672 rows:
-    hidden=4096 → 224 MiB, intermediate=2048 → 112 MiB, ≈336 MiB/rank.
+    Live TP2 (hidden=4096, intermediate=1024): LPTT=1792 × topk=8 = 14,336
+    rows → ~140 MiB/rank; a full MNBT=3584 step → 28,672 rows → ~280 MiB.
     """
-    configured = int(
-        os.environ.get(
-            "EXL3_FAT_SCRATCH_ROWS",
-            os.environ.get("MAX_NUM_BATCHED_TOKENS", "0"),
-        )
-        or 0
-    )
-    topk = int(os.environ.get("EXL3_FAT_GROUPED_TOPK", "8") or 8)
-    needed = max(256, rows)
+    needed = grouped_scratch_capacity(rows, _grouped_scratch_rows_env())
     key = (str(device), hidden, intermediate)
     scratch = _FAT_GROUPED_CACHE.get(key)
     if scratch is not None and int(scratch["h13"].shape[0]) >= needed:
@@ -1025,7 +1044,7 @@ def _grouped_scratch(
             "EXL3 grouped scratch growth during CUDA graph capture; warm the "
             f"largest shape first (need {needed} rows)"
         )
-    capacity = max(needed, configured * topk)
+    capacity = needed
     scratch = {
         "h13": torch.empty((capacity, hidden), dtype=torch.float16, device=device),
         "h2": torch.empty(
@@ -1037,6 +1056,17 @@ def _grouped_scratch(
         t.numel() * t.element_size() for t in scratch.values()
     )
     _EXL3_FAT_DIAG["grouped_scratch_bytes"] = sum(_FAT_GROUPED_BYTES.values())
+    _EXL3_FAT_DIAG["grouped_scratch_growths"] = (
+        int(_EXL3_FAT_DIAG.get("grouped_scratch_growths", 0)) + 1
+    )
+    logger.info(
+        "EXL3 grouped scratch grow rows=%d hidden=%d intermediate=%d bytes=%d growths=%d",
+        capacity,
+        hidden,
+        intermediate,
+        _FAT_GROUPED_BYTES[key],
+        _EXL3_FAT_DIAG["grouped_scratch_growths"],
+    )
     return scratch
 
 
