@@ -250,11 +250,13 @@ def test_kernel_intake_and_float4_atomic() -> None:
     assert "EXL3_SELFCHECK_GPU=0" in layer
 
 
-def test_launcher_and_env_keep_grouped_off() -> None:
+def test_launcher_and_env_grouped_adopted() -> None:
     start = LAUNCHER.read_text()
     env = ENV_EXAMPLE.read_text()
+    # Launcher default stays 0 so GHCR/old images fail closed; env.example
+    # documents the adopted production arm.
     assert 'EXL3_FAT_GROUPED="${EXL3_FAT_GROUPED:-0}"' in start
-    assert "EXL3_FAT_GROUPED=0" in env
+    assert "EXL3_FAT_GROUPED=1" in env
     assert "EXL3_FAT_GROUPED" in start
     assert "-e EXL3_FAT_GROUPED=" in start
     assert "must be exactly 0 or 1" in start
