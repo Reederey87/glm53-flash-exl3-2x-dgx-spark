@@ -281,6 +281,32 @@ def test_kernel_intake_and_float4_atomic() -> None:
     assert "exl3_fat_moe.cu" not in py_layer
 
 
+def test_w3_zero_fill_a_pad_not_clone() -> None:
+    """W3: unused A-tile rows are cp.async src-size 0, not a clone of rows-1.
+
+    Swizzled SMEM is still fully written so ldsm4 never reads stale bytes.
+    Epilogue already skips r >= rows, so outputs are bit-identical to clone.
+    Cubin-only vehicle: Dockerfile.e3-cubin-layer on e3-grouped, no exl3.py.
+    """
+    src = KERNEL.read_text()
+    load = src[src.index("auto load_stage") : src.index("for (int s = 0; s < FM_STAGES - 1;")]
+    assert "rows - 1" not in load
+    assert "src_row" not in load
+    assert "cp_async_cg16" in load
+    assert "cp_async_cg16(dst, a, 0)" in load
+    assert "cp_async_pred(" not in src
+    helper = src[src.index("void cp_async_cg16") : src.index("__global__ __launch_bounds__(FM_THREADS)\nvoid fm_gather_kernel")]
+    assert "cp.async.cg.shared.global" in helper
+    assert ", %2" in helper
+    cubin_layer = (KIT_ROOT / "Dockerfile.e3-cubin-layer").read_text()
+    assert "BASE=glm53-selfbuild:e3-grouped" in cubin_layer
+    assert "COPY overlay/exl3_fat_moe.cu" in cubin_layer
+    assert "\nCOPY overlay/exl3.py" not in cubin_layer
+    assert "e3-w3-zfill" in cubin_layer
+    assert "RUN CUDA_VISIBLE_DEVICES= python3" in cubin_layer
+    assert "ENV CUDA_VISIBLE_DEVICES=" not in cubin_layer
+
+
 def test_launcher_and_env_grouped_adopted() -> None:
     start = LAUNCHER.read_text()
     env = ENV_EXAMPLE.read_text()

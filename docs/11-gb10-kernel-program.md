@@ -355,14 +355,14 @@ Live TP2 scratch is **~280 MiB/rank**, not the 336 MiB microbench figure:
 `intermediate_size_per_partition` (1024) × 2 B = 56 MiB.
 
 **Queue:** ~~W1 lazy scratch~~ **REVERTED 2026-09-07** → W2 isolated TRF=32
-(gated) → W3 zero-fill A-pad → W4 fused gather → W5 occupancy (gated).
-Not automatic-next.
+(gated) → ~~W3 zero-fill A-pad~~ **ADOPTED 2026-09-08** → W4 fused gather →
+W5 occupancy (gated). Not automatic-next.
 
 | Window | Path it can move | Rebuild | Expected sign |
 |---|---|---|---|
 | ~~**W1 lazy scratch**~~ **REVERTED** | CUDA-graph capture already requests MNBT×topk (28,672 rows / 280 MiB). Idle MemFree unchanged. | overlay Python | no MemFree win |
 | **W2 TRF=32 vs E3@128** (cheap 2nd, env) | Cold prefill (S1 trend: lose). Mixed TTFT / C4 co-batch (plausible win). **Decode leak.** | env only | unknown, leaning lose on cold |
-| **W3 zero-fill A-pad** | Hygiene; tiny LPDDR save on <64-row tails. Outputs bit-identical. | cubin | wash |
+| ~~**W3 zero-fill A-pad**~~ **ADOPTED** | Same-boot 240k −2.5% (wash). Structured 69.04 @ 7.0/1.000. | cubin | wash |
 | **W4 fuse gather into gate/up A-tile** | Reclaim 224 MiB `h13`. Prefill not obviously faster (8× redundant gather). | cubin | MemFree win; speed unknown |
 | **W5 occupancy sweep** | Cold prefill **only if ncu shows a gap**. | cubin | stop if regs > 96 or <3% |
 
@@ -417,11 +417,23 @@ outside the pre-registered band, structured outside 68–70, prose
 outside 28–31. Rollback: env flip to 128. Do not arm until an owner
 window; do not combine with W1/W4.
 
-**W3 — zero-fill A-pad.** In `fm_mainloop::load_stage`, `cp.async` of
-size 0 into unused A-tile rows instead of cloning `rows-1`. Swizzled
-SMEM must still be fully written so `ldsm4` never reads stale bytes.
-Epilogue already skips `r >= rows_mb`, so outputs are bit-identical.
-Abort: any output delta vs clone, sanitizer non-zero.
+**W3 — zero-fill A-pad. ADOPTED 2026-09-08.** In `fm_mainloop::load_stage`,
+4-operand `cp.async.cg` of src-size 0 into unused A-tile rows instead of
+cloning `rows-1`. Dummy global src is the A buffer base (`a`, 16 B
+aligned); src-size 0 does not read it. Do not use `cp_async_pred`
+(Blackwell miscompile). Swizzled SMEM is still fully written so `ldsm4`
+never reads stale bytes. Epilogue already skips `r >= rows_mb`.
+Vehicle: `Dockerfile.e3-cubin-layer` on `e3-grouped` (cubin only; does
+not COPY `exl3.py`). Compile-time `CUDA_VISIBLE_DEVICES=` is a RUN
+prefix, **not** an image ENV (first boot failed overlay GPU self-check
+when it was baked). Cluster: `glm53-selfbuild:e3-w3-zfill`
+(`sha256:d8144f02…`), cubin `exl3_fat_moe_ext.so` sha
+`09d5c9c76c…` vs grouped `a841128a1e…`, Python overlay identical
+(schema 2). Same-boot A vs B: structured 68.96 → 69.04 @ 7.0/1.000;
+60k 1336.9 → 1331.6; 240k 1293.7 → 1261.3 (−2.5%, wash vs expected
+sign). Acceptance 7/7, serving 6/6, pool 1,396,551 / 1.40×,
+`grouped_ok` both ranks. Production stays `e3-w3-zfill`. Rollback:
+`IMAGE=glm53-selfbuild:e3-grouped`. Do not combine with W4.
 
 **W4 — fuse gather.** Drop `h13`; gate/up A-tile loads from `x` +
 `row_token`/`row_expert` + gate SUH. Input Hadamard is 128-wide while

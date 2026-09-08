@@ -1,0 +1,32 @@
+# W3 cubin-only layer on the adopted grouped image.
+#
+# Rebuilds `exl3_fat_moe_ext` from overlay/exl3_fat_moe.cu inside a copy of
+# the installed exllamav3_ext tree (WITHOUT --use_fast_math). Does **not**
+# COPY overlay/exl3.py: the independent variable is the A-pad cubin, not
+# W1 lazy-scratch Python. Production Python stays the e3-grouped overlay
+# (schema 2).
+#
+# Build (repo root of the experiment worktree):
+#   docker build -f Dockerfile.e3-cubin-layer \
+#     --build-arg BASE=glm53-selfbuild:e3-grouped \
+#     --build-arg GLM53_RECIPE_STAMP=$(git rev-parse --short HEAD) \
+#     -t glm53-selfbuild:e3-w3-zfill .
+ARG BASE=glm53-selfbuild:e3-grouped
+FROM ${BASE}
+
+COPY overlay/exl3_fat_moe.cu /opt/glm53/exl3-fat-kernel/exl3_fat_moe.cu
+COPY overlay/exl3_fat_moe.cuh /opt/glm53/exl3-fat-kernel/exl3_fat_moe.cuh
+COPY overlay/build_exl3_fat_moe_ext.py /opt/glm53/build_exl3_fat_moe_ext.py
+
+ENV MAX_JOBS=2
+# Compile does not need a device. Prefix CUDA_VISIBLE_DEVICES= on this RUN
+# only so the layer can build while production holds GB10 UMA. Do not bake
+# it as ENV: start.sh GPU overlay self-check needs CUDA at runtime.
+RUN CUDA_VISIBLE_DEVICES= python3 /opt/glm53/build_exl3_fat_moe_ext.py \
+        --src /opt/glm53/exl3-fat-kernel --out /tmp/e3build \
+        --install /usr/local/lib/python3.12/dist-packages \
+    && python3 -c "import torch, exl3_fat_moe_ext as m; print('exl3_fat_moe_ext OK tile_gu', m.exl3_fat_moe_tile_rows_gateup(), 'tile_dn', m.exl3_fat_moe_tile_rows_down())" \
+    && rm -rf /tmp/e3build
+
+ARG GLM53_RECIPE_STAMP=unknown
+LABEL glm53.recipe.stamp=${GLM53_RECIPE_STAMP} glm53.e3.w3=1
