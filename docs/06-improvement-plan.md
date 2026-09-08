@@ -74,8 +74,10 @@ fail-closed before SUH downgrade). Watchdog re-armed after
 
 E3 follow-ups are **not automatic-next**. Ranked TEST-NEXT queue (cuda-reviewer
 2026-09-07, `docs/11` §8): ~~W1 lazy scratch~~ **REVERTED** → W2 TRF=32
-(decode-skip gate) → W3 zero-fill A-pad → W4 fused gather → W5 occupancy
-(ncu gate). Decode is fused `exl3_moe`; do not retune E3 for prose.
+(decode-skip probe 2026-09-07: C4 T=32 does **not** skip at TRF=32 because
+the kernel uses `>`; not armed) → W3 zero-fill A-pad → W4 fused gather →
+W5 occupancy (ncu gate). Decode is fused `exl3_moe`; do not retune E3
+for prose. Production TRF stays 128.
 
 **W1 lazy scratch REVERTED 2026-09-07.** Overlay-only grow-only capacity
 `max(256, this-call rows)` on `glm53-selfbuild:e3-w1-scratch`
