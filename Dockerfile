@@ -372,6 +372,8 @@ COPY overlay/patch_exl3_ext_aarch64.py /opt/glm53/patch_exl3_ext_aarch64.py
 COPY overlay/patch_exl3_fat_kernel.py /opt/glm53/patch_exl3_fat_kernel.py
 COPY overlay/exl3_fat_gemm.cu /opt/glm53/exl3-fat-kernel/exl3_fat_gemm.cu
 COPY overlay/exl3_fat_gemm.cuh /opt/glm53/exl3-fat-kernel/exl3_fat_gemm.cuh
+COPY overlay/exl3_fat_moe.cu /opt/glm53/exl3-fat-kernel/exl3_fat_moe.cu
+COPY overlay/exl3_fat_moe.cuh /opt/glm53/exl3-fat-kernel/exl3_fat_moe.cuh
 COPY overlay/patch_exl3_ticket_scheduler.py /opt/glm53/patch_exl3_ticket_scheduler.py
 COPY overlay/exl3-ticket/ /opt/glm53/exl3-ticket/
 
@@ -432,14 +434,14 @@ RUN set -eux; \
     python3 /opt/glm53/patch_exl3_ext_aarch64.py /tmp/exllamav3/exllamav3/exllamav3_ext; \
     python3 /opt/glm53/patch_exl3_fat_kernel.py /tmp/exllamav3/exllamav3/exllamav3_ext /opt/glm53/exl3-fat-kernel; \
     python3 /opt/glm53/patch_exl3_ticket_scheduler.py /tmp/exllamav3/exllamav3/exllamav3_ext; \
-    python3 -c "from pathlib import Path; root = Path('/tmp/exllamav3/exllamav3/exllamav3_ext'); markers=(b'immintrin.h', b'__builtin_ia32_pause', b'_mm_pause', b'__attribute__((target(\"avx', b'target_clones(\"avx', b'__builtin_cpu_supports'); hits=[p for p in root.rglob('*') if p.suffix in {'.c','.cpp','.h','.hpp','.cu','.cuh'} and any(m in p.read_bytes() for m in markers)]; assert not hits, hits; moe=(root/'cpu'/'moe_mul1.cpp'); assert moe.is_file() and 'GLM53_AARCH64_CPU_MOE_STUB' in moe.read_text(); handoff=(root/'cpu'/'moe_handoff.cu').read_text(); assert 'GLM53_AARCH64_CPU_PAUSE_STUB' in handoff; assert 'is_f16c_supported' in (root/'avx2_target.h').read_text(); assert 'bool is_f16c_supported() { return false; }' in (root/'avx2_target.cpp').read_text(); bind=(root/'bindings.cpp').read_text(); assert 'exl3_fat_gemm' in bind"; \
+    python3 -c "from pathlib import Path; root = Path('/tmp/exllamav3/exllamav3/exllamav3_ext'); markers=(b'immintrin.h', b'__builtin_ia32_pause', b'_mm_pause', b'__attribute__((target(\"avx', b'target_clones(\"avx', b'__builtin_cpu_supports'); hits=[p for p in root.rglob('*') if p.suffix in {'.c','.cpp','.h','.hpp','.cu','.cuh'} and any(m in p.read_bytes() for m in markers)]; assert not hits, hits; moe=(root/'cpu'/'moe_mul1.cpp'); assert moe.is_file() and 'GLM53_AARCH64_CPU_MOE_STUB' in moe.read_text(); handoff=(root/'cpu'/'moe_handoff.cu').read_text(); assert 'GLM53_AARCH64_CPU_PAUSE_STUB' in handoff; assert 'is_f16c_supported' in (root/'avx2_target.h').read_text(); assert 'bool is_f16c_supported() { return false; }' in (root/'avx2_target.cpp').read_text(); bind=(root/'bindings.cpp').read_text(); assert 'exl3_fat_gemm' in bind and 'exl3_fat_moe' in bind"; \
     export CPATH="/usr/local/lib/python3.12/dist-packages/nvidia/cu13/include${CPATH:+:$CPATH}"; \
     export CPLUS_INCLUDE_PATH="/usr/local/lib/python3.12/dist-packages/nvidia/cu13/include${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}"; \
     export C_INCLUDE_PATH="/usr/local/lib/python3.12/dist-packages/nvidia/cu13/include${C_INCLUDE_PATH:+:$C_INCLUDE_PATH}"; \
     cd /tmp/exllamav3; \
     TORCH_CUDA_ARCH_LIST=12.1a MAX_JOBS=8 \
       pip install --no-deps --no-build-isolation --no-cache-dir .; \
-    python3 -c "import torch; import exllamav3_ext; assert hasattr(exllamav3_ext, 'exl3_moe'), dir(exllamav3_ext); assert hasattr(exllamav3_ext, 'exl3_fat_gemm'), dir(exllamav3_ext); assert hasattr(exllamav3_ext, 'exl3_fat_gemm_scatter'), dir(exllamav3_ext); print('exllamav3_ext', exllamav3_ext.__file__, 'exl3_moe=yes fat_gemm=yes')"; \
+    python3 -c "import torch; import exllamav3_ext; assert hasattr(exllamav3_ext, 'exl3_moe'), dir(exllamav3_ext); assert hasattr(exllamav3_ext, 'exl3_fat_gemm'), dir(exllamav3_ext); assert hasattr(exllamav3_ext, 'exl3_fat_gemm_scatter'), dir(exllamav3_ext); assert hasattr(exllamav3_ext, 'exl3_fat_moe_gather'), dir(exllamav3_ext); print('exllamav3_ext', exllamav3_ext.__file__, 'exl3_moe=yes fat_gemm=yes fat_moe=yes')"; \
     if [ "${GLM53_EXL3_TICKET_SCHEDULER}" = "1" ]; then \
       python3 -c "import torch, exllamav3_ext; doc = exllamav3_ext.exl3_moe.__doc__ or ''; assert 'num_active' in doc or 'arg29' in doc or doc.count('arg') >= 30, 'ticket scheduler (d5e4361) not applied'; print('exl3_moe num_active=yes (ticket scheduler)')"; \
     else \

@@ -1,0 +1,9 @@
+c=1 stream temp0 x3                          n= 3 bad_args=0 short=0 errors=0 wall=   9.2s
+c=1 non-stream temp0 x2                      n= 2 bad_args=0 short=0 errors=0 wall=   7.9s
+c=1 stream temp1 (prod sampling) x3          n= 3 bad_args=0 short=0 errors=0 wall=   4.3s
+c=4 homogeneous stream temp1 x8              n= 8 bad_args=0 short=0 errors=0 wall=   5.6s
+c=4 mixed: 2 cold ~60000 pads + 2 tool (wave 1) n= 2 bad_args=0 short=0 errors=0 wall=  79.6s
+c=4 mixed: 2 cold ~60000 pads + 2 tool (wave 2) n= 2 bad_args=0 short=0 errors=0 wall=  79.8s
+c=4 mixed: 1 cold pad + 3 tool                    n= 3 bad_args=0 short=0 errors=0 (continuation)
+
+TOTAL tool turns: 23, blank-required-arg turns: 0

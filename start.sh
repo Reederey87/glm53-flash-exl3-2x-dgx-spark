@@ -277,6 +277,10 @@ EXL3_FAT_SORTED="${EXL3_FAT_SORTED:-0}"
 EXL3_FAT_BATCHED="${EXL3_FAT_BATCHED:-0}"
 # E2 direct trellis kernel; implies BATCHED=1 and SORTED=1.
 EXL3_FAT_KERNEL="${EXL3_FAT_KERNEL:-0}"
+# E3 grouped fat-expert MoE (prefill). Default off; needs exl3_fat_moe
+# symbols (layered candidate or a rebuilt image). Implies KERNEL=1 when
+# the checkpoint is ineligible. Decode never takes this path.
+EXL3_FAT_GROUPED="${EXL3_FAT_GROUPED:-0}"
 
 # recipe: layers 15-45 edited with the dealign direction, 0-14 stay stock
 # safety anchors, MTP block included. 0 = stock weights. Applied identically
@@ -444,6 +448,10 @@ validate_numeric_config() {
     case "${GLM53_INDEXER_WORKSPACE-stock}" in
         stock|rightsize) ;;
         *) echo "GLM53_INDEXER_WORKSPACE must be exactly one of: stock rightsize (got: '${GLM53_INDEXER_WORKSPACE-<unset>}')" >&2; return 2 ;;
+    esac
+    case "${EXL3_FAT_GROUPED-0}" in
+        0|1) ;;
+        *) echo "EXL3_FAT_GROUPED must be exactly 0 or 1 (got: '${EXL3_FAT_GROUPED-<unset>}')" >&2; return 2 ;;
     esac
     # LOCAL: W41/W42 strict-bool validation (end)
     # LOCAL: DEFAULT_MAX_NEW_TOKENS is spliced into generated shell + JSON; empty = off.
@@ -1481,7 +1489,7 @@ launch_cluster() {
              KV_CACHE_DTYPE MTP_TOKENS SPEC_METHOD DFLASH_TOKENS DFLASH_MODEL_DIR \
              DFLASH_DRAFT_TP \
              LANGUAGE_MODEL_ONLY SKIP_MM_PROFILING \
-             LIMIT_MM CHAT_TEMPLATE ENFORCE_EAGER EXL3_FUSED_MOE EXL3_MOE_ROW_TILE EXL3_TEMP_ROWS_FUSED EXL3_FAT_SORTED EXL3_FAT_BATCHED EXL3_FAT_KERNEL MODEL_DIR EXTRA_ARGS; do
+             LIMIT_MM CHAT_TEMPLATE ENFORCE_EAGER EXL3_FUSED_MOE EXL3_MOE_ROW_TILE EXL3_TEMP_ROWS_FUSED EXL3_FAT_SORTED EXL3_FAT_BATCHED EXL3_FAT_KERNEL EXL3_FAT_GROUPED MODEL_DIR EXTRA_ARGS; do
         serve_env+=" -e $v='${!v:-}'"
     done
     # VLLM_API_KEY belongs only on rank 0, which owns the API server. Never send
@@ -1588,6 +1596,7 @@ launch_cluster() {
         -e EXL3_FAT_SORTED="$EXL3_FAT_SORTED" \
         -e EXL3_FAT_BATCHED="$EXL3_FAT_BATCHED" \
         -e EXL3_FAT_KERNEL="$EXL3_FAT_KERNEL" \
+        -e EXL3_FAT_GROUPED="$EXL3_FAT_GROUPED" \
         -e MODEL_DIR="$MODEL_DIR" \
         -e VLLM_API_KEY="$VLLM_API_KEY" \
         -e EXTRA_ARGS="${EXTRA_ARGS:-}" \

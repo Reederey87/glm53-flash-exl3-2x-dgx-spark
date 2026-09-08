@@ -330,6 +330,13 @@ Operator queue lives in `docs/06` (night rewrite) and `spec/TODO.md`.
    change is a separate guarded window.
 8. **S3** Trellis — **PARKED** (`docs/12`). Re-open only on the existing
    trigger (≥ ~80 TFLOP/s rank-sliced, or s2b idle e2e < 5%).
-9. Watch (not EXL3 kernels): adaptive-K at **verification** #52228/#52559,
+9. ~~**E3 grouped fat-expert MoE (task 23)**~~ — **ADOPTED 2026-09-07**
+   (`glm53-selfbuild:e3-grouped`, `EXL3_FAT_GROUPED=1`). Additive
+   `overlay/exl3_fat_moe.cu`: warp-MMA + 4-stage `cp.async`, SMEM
+   **32,768 B**, CUDA 13 / `sm_121a`. End-to-end 240k cold prefill
+   **+19.6%** vs `ca13bdd-v147` E2; decode non-inferior; pool unchanged.
+   This is the grouping step, not a Trellis substitute. Rollback:
+   `EXL3_FAT_GROUPED=0` + `IMAGE=glm53-selfbuild:ca13bdd-v147`.
+10. Watch (not EXL3 kernels): adaptive-K at **verification** #52228/#52559,
    CUTLASS sm120 grouped GEMM #43814 (FP8 path only), DeepGEMM sm120, Marlin
    sm121 W4A8 corruption #49546 (**do not adopt**).

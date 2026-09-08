@@ -22,9 +22,10 @@ fusions, and all of EXL3 — zero EXL3 code exists in vLLM mainline). Consequenc
 
 ## Current queue (research refresh, 2026-09-05)
 
-The S1/S2 kernel program is closed. Production is `glm53-selfbuild:ca13bdd-v147`
-(ExLlamaV3 v1.4.7 native pin, fat GEMM pipelined, ticket scheduler native).
-Rollback remains `glm53-selfbuild:b5ab8091-s2b`. The initial contended **+0.3%**
+The S1/S2 kernel program is closed. Production is `glm53-selfbuild:e3-grouped`
+(ExLlamaV3 v1.4.7 native pin, E2 fat GEMM pipelined, E3 grouped fat-expert
+MoE on). Rollback remains `glm53-selfbuild:ca13bdd-v147` with
+`EXL3_FAT_GROUPED=0`. The initial contended **+0.3%**
 end-to-end result is superseded by PR #32's powered re-window:
 **+5.3–5.6% cold prefill**. Further kernel work needs a new current-stack
 profile, not extrapolation from the isolated +41% kernel result.
@@ -36,6 +37,40 @@ implementation below still made no runtime/config change or performance claim.
 Mainline GLM support (#53906) has merged, so model resolution is no longer the
 mainline blocker described in the historical section above; EXL3 integration
 and overlay compatibility still block a stock-image replacement.
+
+### 2026-09-07: task 23 E3 grouped fat-expert MoE ADOPTED
+
+Additive overlay + layered cubin for the grouping step in docs/11 §5.
+Independent variable was `EXL3_FAT_GROUPED=1` on the current 1M / pin /
+TRF=128 / C4 geometry. Control: `glm53-selfbuild:ca13bdd-v147` /
+`EXL3_FAT_GROUPED=0`. Candidate: `Dockerfile.e3-layer` →
+`glm53-selfbuild:e3-grouped` (`sha256:bd711518d87f…`, stamp `189b653`).
+Did not bundle the rest of kit PR #132.
+
+**Cluster verdict: ADOPT.** Same-day A-B-B-A. Both ranks `grouped_ok`
+/ `sym_fat_moe=1`. Isolated GPU microbench: PARITY OK vs LinearEXL3
+and E2; Zipf-1.0 cap=32 median 29.0 vs 54.3 ms (**1.87×**). End-to-end
+240k cold prefill **+19.6% / +19.5%** (B/B2) vs the 5% adopt bar.
+
+| Gate | A-control | B | B2 | Return-A | Adopt |
+|---|---|---|---|---|---|
+| Acceptance | (pre-window healthy) | 7/7 | — | 7/7 | 7/7 |
+| Serving (:18000) | — | 6/6 | — | 6/6 | 6/6 |
+| Toolcall | — | 23/23 | — | — | — |
+| Pool | 1,396,551 / 1.40× | identical | identical | identical | identical |
+| 60k median tok/s | 1108.8 | 1330.3 | 1328.2 | — | — |
+| 240k median tok/s | 1075.0 | 1285.7 | 1284.2 | — | — |
+| Structured median | 69.79 @ 7.0/1.000 | 69.18 (one 25.6 contended; rest 69.0–69.7) | — | 69.98 | 69.62 |
+| Health / bind | 200 / loopback | 200 / loopback | 200 / loopback | 200 / loopback | 200 / loopback |
+| MemFree head/worker GiB | 6.0–7.0 / 4.3–4.5 | 5.3–6.3 / 4.1–4.5 | — | 3.34 / 4.08 | 4.51 / 3.98 |
+
+Host suite 233 passed / 1 skipped / 4 subtests. CUDA review APPROVED;
+final review APPROVED after two P2s (microbench schema key; missing-symbol
+fail-closed before SUH downgrade). Watchdog re-armed after
+`watchdog.service` inactive. Rollback:
+`.env.bak-pre-task23-e3-20260907-175016` +
+`start.sh.bak-pre-task23-e3-20260907` (`IMAGE=glm53-selfbuild:ca13bdd-v147`,
+`EXL3_FAT_GROUPED=0`).
 
 ### 2026-09-07: task 9 spec-graph probe (eager arm parked)
 

@@ -164,3 +164,16 @@ cache is invisible to it). 0.87 demands 105.87 GiB free against boots measured a
   Ticket-scheduler cherry-pick (`d5e4361`) is baked at image build
   (`GLM53_EXL3_TICKET_SCHEDULER=1`, not an env.example knob). Rollback of
   the kernel stack is an `IMAGE=` flip, not a flag.
+
+- `EXL3_FAT_GROUPED=1` — E3 grouped fat-expert MoE, **adopted 2026-09-07**.
+  Prefill only: device-side segment tables plus three launches (gather /
+  gate+up+SwiGLU / down+`float4` atomic scatter) instead of the E2 host
+  loop over fat experts. Decode stays fused `exl3_moe`. Requires the
+  additive `exl3_fat_moe` symbols from `glm53-selfbuild:e3-grouped`
+  (`Dockerfile.e3-layer` on `ca13bdd-v147`). Missing symbols fail closed.
+  Predicted persistent scratch at MNBT × top-8 = 28,672 rows is
+  **336 MiB/rank**; the 1M KV pin did not move. Same-day A-B-B-A: 240k
+  cold prefill **+19.6%** (1075 → 1286 tok/s), structured decode
+  non-inferior, pool 1,396,551 / 1.40×. Rollback: `EXL3_FAT_GROUPED=0`
+  and `IMAGE=glm53-selfbuild:ca13bdd-v147`. GHCR/old images must leave
+  this 0.
