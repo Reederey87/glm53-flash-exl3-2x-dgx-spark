@@ -72,6 +72,11 @@ fail-closed before SUH downgrade). Watchdog re-armed after
 `start.sh.bak-pre-task23-e3-20260907` (`IMAGE=glm53-selfbuild:ca13bdd-v147`,
 `EXL3_FAT_GROUPED=0`).
 
+E3 follow-ups are **not automatic-next**. Ranked TEST-NEXT queue (cuda-reviewer
+2026-09-07, `docs/11` §8): W1 lazy scratch → W2 TRF=32 (decode-skip gate) →
+W3 zero-fill A-pad → W4 fused gather → W5 occupancy (ncu gate). Decode is
+fused `exl3_moe`; do not retune E3 for prose.
+
 ### 2026-09-07: task 9 spec-graph probe (eager arm parked)
 
 Kit PR #70's read-only gate fails when pos0 acceptance is ~1.00. That rule
@@ -2204,7 +2209,10 @@ Candidate ranking from that review, with later closure status applied:
    The fail-closed row, metadata, actual-allocation, and production-import
    corrections shipped; `rightsize` reclaimed 4,909.5 MiB per rank with no
    KV-pin change.
-3. **`num_active` widening on the fused thin launch**, using the `counts_host` D2H **already paid** by the fat path. Today dispatch hardcodes `n_active_host = -1`, so `MOE_SMS_PER_EXPERT` stays 8. Overlay + stopped microbench; no rebuild. Targets the *complement* of the spent fat path.
+3. ~~**`num_active` widening on the fused thin launch**~~ — **superseded by E3
+   (2026-09-07).** Grouped path has no host-synced `counts_host`; a real
+   `num_active` would reintroduce the D2H E3 removed. Decode stays `-1`.
+   Current E3 follow-up queue: docs/11 §8 (W1–W5).
 4. **KDA/GDN profile-first.** P0 traces (2026-08-29) already put KDA at ~6% of a 1024-token chunk. Confirm on MNBT=3584 before any Triton/CuTe work. Do not guess.
 5. **Sub-16-row fused GEMM** — decode-tail kernel, moderate risk. W44 showed the accept gap is traffic mix, so this is occupancy/GEMV work, not "fix 2.71".
 

@@ -319,9 +319,10 @@ Operator queue lives in `docs/06` (night rewrite) and `spec/TODO.md`.
    numbers still owed; **do not collect them on a swap-degraded / busy boot**.
 4. **Stop fat-ISA work.** Dual-issue K16 / tail-tiles for 128–384 are below
    the hist (37k of fat experts sit in 1024–2048 rows) and below Amdahl.
-5. **C1 (kernel-adjacent, overlay):** pass real `num_active` into fused
-   `exl3_moe` from the already-synced fat `counts_host`. Today hardcoded `-1`.
-   Stopped microbench. Decode stays `-1` (no new D2H).
+5. **C1 (`num_active` from counts_host):** **superseded by E3.** The grouped
+   path has no host sync. Passing a real count would reintroduce the D2H E3
+   removed. Park unless `EXL3_FAT_GROUPED=0` becomes permanent. Decode stays
+   `-1` either way.
 6. **C3 (later):** sub-16-row fused GEMM for decode-tail experts. Image
    rebuild + full K4×M sweep. W44 (2026-09-03) showed the 2.71 vs 6.88
    gap is traffic mix, not a GEMM problem — this is occupancy/GEMV work.
@@ -340,3 +341,96 @@ Operator queue lives in `docs/06` (night rewrite) and `spec/TODO.md`.
 10. Watch (not EXL3 kernels): adaptive-K at **verification** #52228/#52559,
    CUTLASS sm120 grouped GEMM #43814 (FP8 path only), DeepGEMM sm120, Marlin
    sm121 W4A8 corruption #49546 (**do not adopt**).
+
+## 8. E3 follow-up TEST-NEXT (cuda-reviewer, 2026-09-07)
+
+Plan only. No implementation candidate. Ranked after task 23 adopted
+`EXL3_FAT_GROUPED=1` on `glm53-selfbuild:e3-grouped`. E3 is **prefill-only**:
+`tokens <= TRF` stays fused `exl3_moe` and never enters grouped kernels.
+Prose (~28–31 tok/s) and structured (~70 @ 7.0/1.000) are decode-path
+numbers; do not retune E3 to chase them.
+
+Live TP2 scratch is **~280 MiB/rank**, not the 336 MiB microbench figure:
+`h13` 28,672 × 4096 × 2 B = 224 MiB plus `h2` 28,672 ×
+`intermediate_size_per_partition` (1024) × 2 B = 56 MiB.
+
+**Queue:** W1 lazy scratch → W2 isolated TRF=32 (gated) → W3 zero-fill
+A-pad → W4 fused gather → W5 occupancy (gated). Not automatic-next.
+
+| Window | Path it can move | Rebuild | Expected sign |
+|---|---|---|---|
+| **W1 lazy scratch** (first) | MemFree / 1M-pin headroom. Wash on 60k/240k at full chunks. Decode-neutral. | overlay Python | wash speed, win MemFree |
+| **W2 TRF=32 vs E3@128** (cheap 2nd, env) | Cold prefill (S1 trend: lose). Mixed TTFT / C4 co-batch (plausible win). **Decode leak.** | env only | unknown, leaning lose on cold |
+| **W3 zero-fill A-pad** | Hygiene; tiny LPDDR save on <64-row tails. Outputs bit-identical. | cubin | wash |
+| **W4 fuse gather into gate/up A-tile** | Reclaim 224 MiB `h13`. Prefill not obviously faster (8× redundant gather). | cubin | MemFree win; speed unknown |
+| **W5 occupancy sweep** | Cold prefill **only if ncu shows a gap**. | cubin | stop if regs > 96 or <3% |
+
+### Decode vs prefill vs concurrency
+
+- **Decode-neutral by construction:** W1, W3, W4, W5. Graph-captured fused
+  decode is untouched.
+- **Decode leak = W2 only.** Fused `exl3_moe` skips experts with
+  `token_count > max_tokens_per_expert` (`exl3_moe_kernel.cuh`; comment:
+  "batch is handled by reconstruct path outside kernel"). Decode has **no
+  fat tier** behind that skip (`tokens <= cap` returns after the fused
+  launch). C4 can route 4 × 8 × topk 8 = 256 slots; TRF=32 makes
+  `count > 32` reachable under Zipf. Latent today at TRF=128 (`count > 128`
+  of 256). **Hard gate before any TRF=32 arm:** synthetic skewed-routing
+  decode probe vs TRF=128 logits. If any skip, abort the window. Do not
+  ship a decode-fat guard as a ride-along.
+- **Mixed C4 / LPTT=1792:** W2 increases fat-path share during co-batched
+  prefills (its actual upside hypothesis). W1 changes MemFree headroom
+  for C4. W4's 224 MiB is the only reclaim that could later fund capacity
+  (W43) — separate window, do not combine.
+
+### Per-window contract
+
+**W1 — lazy scratch.** Independent variable: `_grouped_scratch` capacity
+= `max(256, needed)` grow-only, not `max(needed, MNBT × topk)`. Size from
+host-known `tokens × topk`, **not** actual fat rows (that needs D2H and
+breaks E3's no-sync property). Keep the capture-time realloc raise.
+Add a growth counter to `_EXL3_FAT_DIAG`. Abort: that raise fires, or
+pool/MemFree regression. Rollback: the policy line.
+
+**W2 — isolated TRF=32.** Independent variable: `EXL3_TEMP_ROWS_FUSED=32`.
+Floor is `MAX_NUM_SEQS × (DFLASH_TOKENS+1) = 32`, so C4 capture still
+fits fused temps. Frozen: `ROW_TILE=0`, `EXL3_FAT_GROUPED=1`, scratch
+policy, geometry. S1 on E2 already lost at TRF=64 (−7.2% / −5.6%); E3's
+cheaper spill (isolated 1.87× at Zipf cap=32) is why this is not a
+re-open of S1. Abort: decode-skip, prefill outside the pre-registered
+band, structured outside 68–70, prose outside 28–31. Rollback: env flip
+to 128.
+
+**W3 — zero-fill A-pad.** In `fm_mainloop::load_stage`, `cp.async` of
+size 0 into unused A-tile rows instead of cloning `rows-1`. Swizzled
+SMEM must still be fully written so `ldsm4` never reads stale bytes.
+Epilogue already skips `r >= rows_mb`, so outputs are bit-identical.
+Abort: any output delta vs clone, sanitizer non-zero.
+
+**W4 — fuse gather.** Drop `h13`; gate/up A-tile loads from `x` +
+`row_token`/`row_expert` + gate SUH. Input Hadamard is 128-wide while
+the pipeline stage is `FM_TILE_K=32`, so this is a 128-K slab redesign
+(fewer stages: 2 × ~32 KiB fits 101,376 B; 4-stage 128-K does not).
+Preserve fp16 `__hmul2` **before** the fp32 Hadamard. Abort: ptxas
+spill > 0, SMEM > 101,376 B, dequant-reuse break, microbench parity fail.
+
+**W5 — occupancy.** `__launch_bounds__(256, 2)` is already on gateup/down.
+SMEM 32,768 B is not the limiter. Open only on ncu at production shapes
+(TP2 inter=1024, E3@128 fat histogram) showing achieved occupancy ≪
+theoretical from registers or the 512 grid-Y cap.
+
+Measure before coding: live `grouped_scratch_bytes` (expect ≈280 MiB/rank);
+E3@128 fat-row / segment-mod-64 histograms; gather vs gateup share of
+layer time; table-build share (persist tables only if ≥2% of layer time).
+
+### Do-not-bundle / parked
+
+- W1×W4, W2×W1, W2×W4, W5×anything. W3 before W4 (both rewrite `load_stage`).
+- Do not spend W4's 224 MiB in the same window it is earned.
+- **C1** superseded (above). **C3** sub-16 fused GEMM stays parked until
+  ncu decode-tail occupancy data. **S3** Trellis parked behind ≥ ~80
+  TFLOP/s vs 73.5.
+- Still parked: merge down into gateup; replace `float4` atomics unless
+  parity fails; dual-issue K16 / more stages / larger MB; cluster /
+  DSMEM / multicast; CUDA-graphing prefill fat as a reason to change
+  kernels.
