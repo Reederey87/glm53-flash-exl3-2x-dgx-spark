@@ -40,6 +40,8 @@ def _exec_helpers():
         "resolve_exl3_fat_tier",
         "grouped_scratch_bytes_for",
         "grouped_scratch_capacity",
+        "fused_moe_decode_skips_fat",
+        "temp_rows_fused",
     }
     wanted_assign = {
         "EXL3_FAT_MOE_SYMBOLS",
@@ -49,6 +51,7 @@ def _exec_helpers():
         "EXL3_FAT_DIAG_KEYS",
         "_FAT_TIERS",
         "GROUPED_SCRATCH_MIN_ROWS",
+        "TEMP_ROWS_FUSED",
     }
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name in wanted_fn:
@@ -308,3 +311,34 @@ def test_row_tile_still_short_circuits_grouped() -> None:
     assert "and not use_row_tiles" in src
     assert 'layer._exl3_last_fat_fallback = "none"' in src
     assert "EXL3_MOE_ROW_TILE" in src
+
+
+def test_w2_decode_skip_gate_c4_unique_topk() -> None:
+    """W2 hard gate: fused decode drops count > TRF with no fat fallback.
+
+    C4 decode T = 4 seqs × 8 drafts = 32. Hottest expert count ≤ T when
+    top-k is unique per token. Kernel skip is `token_count > cap`, so
+    TRF=32 does not drop experts even Zipf-all-to-one. Prefill T > cap
+    takes fat/grouped (helper False). No-fallback skip needs hottest >
+    cap while T ≤ cap (non-unique top-k). Production TRF stays 128.
+    """
+    skip = HELPERS["fused_moe_decode_skips_fat"]
+    assert HELPERS["TEMP_ROWS_FUSED"] == 128
+    # Decode early-return in apply_exl3_fused_moe, then kernel skip.
+    apply = OVERLAY.read_text()
+    assert "if tokens <= cap:" in apply
+    assert "Decode never reaches here" in apply
+    kernel = (KIT_ROOT / "tests" / "fixtures" / "exl3-v147" / "quant" / "exl3_moe_kernel.cuh").read_text()
+    assert "if (token_count > max_tokens_per_expert) continue;" in kernel
+    # Production C4 unique-per-token: 4 × 8 drafts → T=32, hottest ≤ T.
+    assert skip(tokens=32, hottest_expert_count=32, cap=128) is False
+    assert skip(tokens=32, hottest_expert_count=32, cap=32) is False
+    # Prefill T > cap takes fat/grouped instead of the decode skip.
+    assert skip(tokens=1792, hottest_expert_count=1792, cap=32) is False
+    assert skip(tokens=40, hottest_expert_count=40, cap=32) is False
+    c4_unique = 4 * 8
+    assert c4_unique == 32
+    assert skip(c4_unique, c4_unique, 32) is False
+    # Non-unique top-k (one expert appears twice in a token) can make
+    # hottest > T; then decode T ≤ cap still skips with no fat fallback.
+    assert skip(tokens=32, hottest_expert_count=33, cap=32) is True

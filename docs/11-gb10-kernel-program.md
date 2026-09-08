@@ -374,11 +374,18 @@ Not automatic-next.
   `token_count > max_tokens_per_expert` (`exl3_moe_kernel.cuh`; comment:
   "batch is handled by reconstruct path outside kernel"). Decode has **no
   fat tier** behind that skip (`tokens <= cap` returns after the fused
-  launch). C4 can route 4 × 8 × topk 8 = 256 slots; TRF=32 makes
-  `count > 32` reachable under Zipf. Latent today at TRF=128 (`count > 128`
-  of 256). **Hard gate before any TRF=32 arm:** synthetic skewed-routing
-  decode probe vs TRF=128 logits. If any skip, abort the window. Do not
-  ship a decode-fat guard as a ride-along.
+  launch). Hottest count is tokens that routed to one expert, **not**
+  T×topk slots. Distinguish fused-kernel skip **with fallback** (prefill
+  T > cap → fat/grouped) from dropped experts **without fallback**
+  (tokens ≤ cap and hottest > cap). C4 decode T = 4 × 8 = 32, so
+  TRF=32 does **not** drop experts (`32 > 32` is false) even
+  Zipf-all-to-one unique-per-token. No-fallback skip needs non-unique
+  top-k (hottest > T while T ≤ cap). Extra sequences are prefill
+  (T > cap) and take the fat path. **Hard gate before any TRF=32 arm:**
+  `fused_moe_decode_skips_fat` on the live decode shape, plus a
+  skewed-routing logit probe vs TRF=128. If any no-fallback skip,
+  abort. Do not ship a decode-fat guard as a ride-along. Production
+  TRF stays 128.
 - **Mixed C4 / LPTT=1792:** W2 increases fat-path share during co-batched
   prefills (its actual upside hypothesis). W1 changes MemFree headroom
   for C4. W4's 224 MiB is the only reclaim that could later fund capacity
@@ -397,14 +404,18 @@ non-inferior; pool identical. Production stays `e3-grouped`. A later
 attempt must not grow from capture dummy shapes (or must size capture
 to LPTT, not MNBT). Do not re-run the same grow-from-this-call design.
 
-**W2 — isolated TRF=32.** Independent variable: `EXL3_TEMP_ROWS_FUSED=32`.
-Floor is `MAX_NUM_SEQS × (DFLASH_TOKENS+1) = 32`, so C4 capture still
-fits fused temps. Frozen: `ROW_TILE=0`, `EXL3_FAT_GROUPED=1`, scratch
-policy, geometry. S1 on E2 already lost at TRF=64 (−7.2% / −5.6%); E3's
-cheaper spill (isolated 1.87× at Zipf cap=32) is why this is not a
-re-open of S1. Abort: decode-skip, prefill outside the pre-registered
-band, structured outside 68–70, prose outside 28–31. Rollback: env flip
-to 128.
+**W2 — isolated TRF=32. Probe 2026-09-07; not armed.** Independent
+variable would be `EXL3_TEMP_ROWS_FUSED=32`. Floor is
+`MAX_NUM_SEQS × (DFLASH_TOKENS+1) = 32`, so C4 capture still fits fused
+temps. Host probe: `fused_moe_decode_skips_fat(32, 32, 32) is False`
+(skip is `>`; Zipf-all-to-one C4 unique-per-token does not drop
+experts). Frozen: `ROW_TILE=0`, `EXL3_FAT_GROUPED=1`, scratch policy,
+geometry. S1 on E2 already lost at TRF=64 (−7.2% / −5.6%); E3's cheaper
+spill (isolated 1.87× at Zipf cap=32) is why this is not a re-open of
+S1. Abort: no-fallback skip (hottest > cap with T ≤ cap), prefill
+outside the pre-registered band, structured outside 68–70, prose
+outside 28–31. Rollback: env flip to 128. Do not arm until an owner
+window; do not combine with W1/W4.
 
 **W3 — zero-fill A-pad.** In `fm_mainloop::load_stage`, `cp.async` of
 size 0 into unused A-tile rows instead of cloning `rows-1`. Swizzled

@@ -150,6 +150,29 @@ def temp_rows_fused() -> int:
         return int(TEMP_ROWS_FUSED)
     return max(1, int(raw))
 
+
+def fused_moe_decode_skips_fat(
+    tokens: int, hottest_expert_count: int, cap: int
+) -> bool:
+    """True when decode would drop fat experts with no fallback.
+
+    Host-side of the fused-kernel skip
+    (`token_count > max_tokens_per_expert` in `exl3_moe_kernel.cuh`) plus
+    `apply_exl3_fused_moe`'s `if tokens <= cap: return` after one fused
+    launch. Decode has no fat/grouped/row-tile tier.
+
+    Production C4 decode T = MAX_NUM_SEQS × (DFLASH_TOKENS+1) = 32.
+    One expert's count is tokens that routed to it (≤ T under unique
+    per-token top-k). TRF=32 does **not** drop experts (`>` not `>=`)
+    even when every token picks the same expert. No-fallback skip
+    requires tokens ≤ cap **and** hottest > cap (non-unique top-k).
+    Prefill T > cap takes the fat/grouped path instead. Abort a
+    TRF=32 arm if this helper is true for the live decode shape.
+    """
+    if int(tokens) > int(cap):
+        return False
+    return int(hottest_expert_count) > int(cap)
+
 def sorted_fat_fallback_enabled() -> bool:
     """Use the existing expert-sorted buffers for oversized prefill experts."""
     return os.environ.get("EXL3_FAT_SORTED", "0") != "0"
