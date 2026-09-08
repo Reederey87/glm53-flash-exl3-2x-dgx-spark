@@ -88,6 +88,21 @@ __device__ __forceinline__ int fm_swz(int row, int chunk)
     return chunk ^ ((row >> 1) & 3);
 }
 
+// 16 B cp.async with runtime src-size. src_bytes=16 is a full copy;
+// src_bytes=0 zero-fills dst and does not touch glob_ptr (PTX 4-operand
+// form). Do not use cp_async_pred: it miscompiles on Blackwell. Do not
+// clone rows-1 into unused A-tile rows: ldsm4 still reads those bytes,
+// and the clone re-fetches LPDDR. Epilogue skips r >= rows, so outputs
+// stay bit-identical to the clone.
+__device__ __forceinline__ void cp_async_cg16(void* smem_ptr, const void* glob_ptr, int src_bytes)
+{
+    uint32_t smem = static_cast<uint32_t>(__cvta_generic_to_shared(smem_ptr));
+    asm volatile(
+        "cp.async.cg.shared.global [%0], [%1], 16, %2;\n"
+        :: "r"(smem), "l"(glob_ptr), "r"(src_bytes)
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Gather + input Hadamard: h13[row] = had128(x[token[row]] * suh[expert[row]])
 // ---------------------------------------------------------------------------
@@ -177,10 +192,17 @@ __device__ __forceinline__ void fm_mainloop(
             {
                 int row = c >> 2;
                 int chunk = c & 3;
-                int src_row = row < rows ? row : rows - 1;
-                const half* src = a + (int64_t) (row0 + src_row) * size_k + kt * FM_TILE_K + chunk * 8;
                 half* dst = sa + row * FM_TILE_K + fm_swz(row, chunk) * 8;
-                cp_async(dst, src);
+                if (row < rows)
+                {
+                    const half* src = a + (int64_t) (row0 + row) * size_k + kt * FM_TILE_K + chunk * 8;
+                    cp_async_cg16(dst, src, 16);
+                }
+                else
+                {
+                    // Dummy src is unused at src-size 0; a is 16 B aligned.
+                    cp_async_cg16(dst, a, 0);
+                }
             }
         }
         uint16_t* sb = sh_b + stage * B_STAGE;

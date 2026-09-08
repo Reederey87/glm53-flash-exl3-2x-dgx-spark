@@ -75,9 +75,33 @@ fail-closed before SUH downgrade). Watchdog re-armed after
 E3 follow-ups are **not automatic-next**. Ranked TEST-NEXT queue (cuda-reviewer
 2026-09-07, `docs/11` §8): ~~W1 lazy scratch~~ **REVERTED** → W2 TRF=32
 (decode-skip probe 2026-09-07: C4 T=32 does **not** skip at TRF=32 because
-the kernel uses `>`; not armed) → W3 zero-fill A-pad → W4 fused gather →
-W5 occupancy (ncu gate). Decode is fused `exl3_moe`; do not retune E3
-for prose. Production TRF stays 128.
+the kernel uses `>`; not armed) → ~~W3 zero-fill A-pad~~ **ADOPTED
+2026-09-08** (`e3-w3-zfill` `d8144f02`, 240k −2.5% wash, structured
+69.04 @ 7.0/1.000) → W4 fused gather → W5 occupancy (ncu gate). Decode
+is fused `exl3_moe`; do not retune E3 for prose. Production TRF stays
+128. Do not combine W3 with W4.
+
+**W3 zero-fill A-pad ADOPTED 2026-09-08.** Cubin-only
+`Dockerfile.e3-cubin-layer` on `e3-grouped` (`glm53-selfbuild:e3-w3-zfill`
+`sha256:d8144f02…`). Unused A-tile rows use 4-operand `cp.async.cg`
+src-size 0 instead of cloning `rows-1`. Python overlay identical
+(schema 2). First boot failed: baked `ENV CUDA_VISIBLE_DEVICES=` hid
+the GPU from `start.sh` overlay self-check; rebuilt with RUN prefix
+only. Same-boot A vs B:
+
+| Gate | A `e3-grouped` | B `e3-w3-zfill` |
+|---|---|---|
+| Acceptance | — | 7/7 |
+| Serving (:18000) | — | 6/6 |
+| Pool | 1,396,551 / 1.40× | identical |
+| 60k median tok/s | 1336.9 | 1331.6 (−0.4%) |
+| 240k median tok/s | 1293.7 | 1261.3 (−2.5%) |
+| Structured median | 68.96 @ 7.0/1.000 | 69.04 @ 7.0/1.000 (one 15.6 contended) |
+
+**Verdict: ADOPT.** Expected sign was wash. Production
+`IMAGE=glm53-selfbuild:e3-w3-zfill`, `EXL3_FAT_GROUPED=1`. Rollback:
+`.env.bak-pre-task24-w3-20260908-052000` last-wins
+`IMAGE=glm53-selfbuild:e3-grouped`.
 
 **W1 lazy scratch REVERTED 2026-09-07.** Overlay-only grow-only capacity
 `max(256, this-call rows)` on `glm53-selfbuild:e3-w1-scratch`
