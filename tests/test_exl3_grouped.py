@@ -3,7 +3,7 @@
 
 No CUDA and no vLLM import. Confirms EXL3_FAT_GROUPED=0 never inspects E3
 symbols, missing symbols fail closed when grouped is requested, min(K) ≥ 128
-is documented in eligibility, and production TP2 shapes predict 336 MiB/rank.
+is documented in eligibility, and scratch is lazy grow-only (not MNBT × top-k).
 """
 
 from __future__ import annotations
@@ -39,6 +39,7 @@ def _exec_helpers():
         "grouped_fat_eligibility",
         "resolve_exl3_fat_tier",
         "grouped_scratch_bytes_for",
+        "grouped_scratch_capacity",
     }
     wanted_assign = {
         "EXL3_FAT_MOE_SYMBOLS",
@@ -47,6 +48,7 @@ def _exec_helpers():
         "EXL3_FAT_DIAG_SCHEMA",
         "EXL3_FAT_DIAG_KEYS",
         "_FAT_TIERS",
+        "GROUPED_SCRATCH_MIN_ROWS",
     }
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name in wanted_fn:
@@ -103,11 +105,12 @@ def _layer(
 
 
 def test_schema_keys_include_grouped() -> None:
-    assert HELPERS["EXL3_FAT_DIAG_SCHEMA"] == 2
+    assert HELPERS["EXL3_FAT_DIAG_SCHEMA"] == 3
     for key in (
         "sym_fat_moe",
         "grouped_calls",
         "grouped_scratch_bytes",
+        "grouped_scratch_growths",
         "grouped_eligible",
     ):
         assert key in HELPERS["EXL3_FAT_DIAG_KEYS"]
@@ -220,15 +223,36 @@ def test_eligibility_accepts_production_tp2_shape() -> None:
     assert (ok, reason) == (True, "eligible")
 
 
-def test_grouped_scratch_bytes_336mib_at_production() -> None:
-    hidden, inter, mnbt, topk = 4096, 2048, 3584, 8
-    rows = mnbt * topk
-    bytes_ = HELPERS["grouped_scratch_bytes_for"](hidden, inter, rows)
-    assert bytes_ == 352_321_536
-    assert bytes_ == 336 * 1024 * 1024
+def test_grouped_scratch_is_lazy_not_mnbt_topk() -> None:
+    cap = HELPERS["grouped_scratch_capacity"]
+    min_rows = HELPERS["GROUPED_SCRATCH_MIN_ROWS"]
+    assert min_rows == 256
+    assert cap(0) == 256
+    assert cap(255) == 256
+    assert cap(256) == 256
+    assert cap(14_336) == 14_336
+    assert cap(28_672) == 28_672
+    assert cap(1_000, scratch_rows=28_672) == 28_672
+    assert cap(40_000, scratch_rows=28_672) == 40_000
+    src = OVERLAY.read_text()
+    body = src[src.index("def grouped_scratch_capacity") : src.index("def grouped_scratch_bytes_for")]
+    assert "MAX_NUM_BATCHED_TOKENS" not in body
+    assert "EXL3_FAT_GROUPED_TOPK" not in body
+    alloc = src[src.index("def _grouped_scratch(") : src.index("def _excl_cumsum")]
+    assert "is_current_stream_capturing" in alloc
+    assert "grouped_scratch_growths" in alloc
+    hidden, inter_full, inter_tp2, mnbt, lptt, topk = 4096, 2048, 1024, 3584, 1792, 8
+    full_rows = mnbt * topk
+    lptt_rows = lptt * topk
+    bytes_full = HELPERS["grouped_scratch_bytes_for"](hidden, inter_full, full_rows)
+    assert bytes_full == 352_321_536
+    assert bytes_full == 336 * 1024 * 1024
+    bytes_live = HELPERS["grouped_scratch_bytes_for"](hidden, inter_tp2, full_rows)
+    assert bytes_live == 293_601_280
+    bytes_lptt = HELPERS["grouped_scratch_bytes_for"](hidden, inter_tp2, lptt_rows)
+    assert bytes_lptt == 146_800_640
     assert hidden % 256 == 0
-    assert inter % 128 == 0
-    assert inter % 256 == 0
+    assert inter_tp2 % 128 == 0
 
 
 def test_kernel_intake_and_float4_atomic() -> None:
@@ -248,6 +272,10 @@ def test_kernel_intake_and_float4_atomic() -> None:
     layer = LAYER.read_text()
     assert "BASE=glm53-selfbuild:ca13bdd-v147" in layer
     assert "EXL3_SELFCHECK_GPU=0" in layer
+    py_layer = (KIT_ROOT / "Dockerfile.e3-py-layer").read_text()
+    assert "BASE=glm53-selfbuild:e3-grouped" in py_layer
+    assert "COPY overlay/exl3.py" in py_layer
+    assert "exl3_fat_moe.cu" not in py_layer
 
 
 def test_launcher_and_env_grouped_adopted() -> None:
@@ -260,6 +288,13 @@ def test_launcher_and_env_grouped_adopted() -> None:
     assert "EXL3_FAT_GROUPED" in start
     assert "-e EXL3_FAT_GROUPED=" in start
     assert "must be exactly 0 or 1" in start
+    assert 'EXL3_FAT_SCRATCH_ROWS="${EXL3_FAT_SCRATCH_ROWS:-}"' in start
+    assert "EXL3_FAT_SCRATCH_ROWS" in env
+    # Empty must stay unset in the container: the adopted e3-grouped overlay
+    # treats empty as 0 and skips MNBT×topk, which would contaminate image A/B.
+    assert "EXL3_FAT_KERNEL EXL3_FAT_GROUPED EXL3_FAT_SCRATCH_ROWS MODEL_DIR" not in start
+    assert '[ -n "${EXL3_FAT_SCRATCH_ROWS:-}" ]' in start
+    assert '${EXL3_FAT_SCRATCH_ROWS:+-e EXL3_FAT_SCRATCH_ROWS="$EXL3_FAT_SCRATCH_ROWS"}' in start
     docker = DOCKERFILE.read_text()
     assert "COPY overlay/exl3_fat_moe.cu" in docker
     assert "exl3_fat_moe_gather" in docker

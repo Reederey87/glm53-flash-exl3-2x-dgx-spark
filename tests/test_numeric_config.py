@@ -159,6 +159,34 @@ def test_fat_grouped_is_strict_bool() -> None:
     assert off.returncode == 0
 
 
+def test_fat_scratch_rows_optional_int() -> None:
+    allowed = validate(
+        "0.87",
+        "1000000",
+        "4",
+        "1024",
+        extra_env={"EXL3_FAT_SCRATCH_ROWS": "28672"},
+    )
+    assert allowed.returncode == 0
+    empty = validate(
+        "0.87",
+        "1000000",
+        "4",
+        "1024",
+        extra_env={"EXL3_FAT_SCRATCH_ROWS": ""},
+    )
+    assert empty.returncode == 0
+    refused = validate(
+        "0.87",
+        "1000000",
+        "4",
+        "1024",
+        extra_env={"EXL3_FAT_SCRATCH_ROWS": "nope"},
+    )
+    assert refused.returncode == 2
+    assert "EXL3_FAT_SCRATCH_ROWS must be empty" in refused.stderr
+
+
 def test_mtp_above_12_seqs_is_refused() -> None:
     refused = validate("0.87", "1000000", "13", "1024", spec_method="mtp")
     assert refused.returncode == 2

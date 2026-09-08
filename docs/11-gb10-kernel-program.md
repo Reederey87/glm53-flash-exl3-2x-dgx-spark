@@ -354,12 +354,13 @@ Live TP2 scratch is **~280 MiB/rank**, not the 336 MiB microbench figure:
 `h13` 28,672 × 4096 × 2 B = 224 MiB plus `h2` 28,672 ×
 `intermediate_size_per_partition` (1024) × 2 B = 56 MiB.
 
-**Queue:** W1 lazy scratch → W2 isolated TRF=32 (gated) → W3 zero-fill
-A-pad → W4 fused gather → W5 occupancy (gated). Not automatic-next.
+**Queue:** ~~W1 lazy scratch~~ **REVERTED 2026-09-07** → W2 isolated TRF=32
+(gated) → W3 zero-fill A-pad → W4 fused gather → W5 occupancy (gated).
+Not automatic-next.
 
 | Window | Path it can move | Rebuild | Expected sign |
 |---|---|---|---|
-| **W1 lazy scratch** (first) | MemFree / 1M-pin headroom. Wash on 60k/240k at full chunks. Decode-neutral. | overlay Python | wash speed, win MemFree |
+| ~~**W1 lazy scratch**~~ **REVERTED** | CUDA-graph capture already requests MNBT×topk (28,672 rows / 280 MiB). Idle MemFree unchanged. | overlay Python | no MemFree win |
 | **W2 TRF=32 vs E3@128** (cheap 2nd, env) | Cold prefill (S1 trend: lose). Mixed TTFT / C4 co-batch (plausible win). **Decode leak.** | env only | unknown, leaning lose on cold |
 | **W3 zero-fill A-pad** | Hygiene; tiny LPDDR save on <64-row tails. Outputs bit-identical. | cubin | wash |
 | **W4 fuse gather into gate/up A-tile** | Reclaim 224 MiB `h13`. Prefill not obviously faster (8× redundant gather). | cubin | MemFree win; speed unknown |
@@ -385,12 +386,16 @@ A-pad → W4 fused gather → W5 occupancy (gated). Not automatic-next.
 
 ### Per-window contract
 
-**W1 — lazy scratch.** Independent variable: `_grouped_scratch` capacity
-= `max(256, needed)` grow-only, not `max(needed, MNBT × topk)`. Size from
-host-known `tokens × topk`, **not** actual fat rows (that needs D2H and
-breaks E3's no-sync property). Keep the capture-time realloc raise.
-Add a growth counter to `_EXL3_FAT_DIAG`. Abort: that raise fires, or
-pool/MemFree regression. Rollback: the policy line.
+**W1 — lazy scratch. REVERTED 2026-09-07.** Independent variable was
+`_grouped_scratch` capacity = `max(256, needed)` grow-only. Sized from
+host-known `tokens × topk`, capture-time realloc still raised, schema 3
+`grouped_scratch_growths`. Cluster: both ranks logged
+`grow rows=28672 bytes=293601280 growths=1` during CUDA-graph capture,
+before any serving request. Idle MemFree therefore matched the MNBT
+pre-size (~280 MiB/rank). 240k −2.8% vs same-boot control; structured
+non-inferior; pool identical. Production stays `e3-grouped`. A later
+attempt must not grow from capture dummy shapes (or must size capture
+to LPTT, not MNBT). Do not re-run the same grow-from-this-call design.
 
 **W2 — isolated TRF=32.** Independent variable: `EXL3_TEMP_ROWS_FUSED=32`.
 Floor is `MAX_NUM_SEQS × (DFLASH_TOKENS+1) = 32`, so C4 capture still

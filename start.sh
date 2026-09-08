@@ -281,6 +281,11 @@ EXL3_FAT_KERNEL="${EXL3_FAT_KERNEL:-0}"
 # symbols (layered candidate or a rebuilt image). Implies KERNEL=1 when
 # the checkpoint is ineligible. Decode never takes this path.
 EXL3_FAT_GROUPED="${EXL3_FAT_GROUPED:-0}"
+# Optional grouped-scratch row floor. Empty = omit from docker env so
+# IMAGE=e3-grouped keeps MNBT×topk pre-size. W1 lazy grow was REVERTED
+# 2026-09-07 (CUDA-graph capture already requested 28672 rows). Do not
+# set this on production. Capture-time growth still fail-closed.
+EXL3_FAT_SCRATCH_ROWS="${EXL3_FAT_SCRATCH_ROWS:-}"
 
 # recipe: layers 15-45 edited with the dealign direction, 0-14 stay stock
 # safety anchors, MTP block included. 0 = stock weights. Applied identically
@@ -453,6 +458,14 @@ validate_numeric_config() {
         0|1) ;;
         *) echo "EXL3_FAT_GROUPED must be exactly 0 or 1 (got: '${EXL3_FAT_GROUPED-<unset>}')" >&2; return 2 ;;
     esac
+    if [ -n "${EXL3_FAT_SCRATCH_ROWS:-}" ]; then
+        if ! [[ "$EXL3_FAT_SCRATCH_ROWS" =~ ^[0-9]+$ ]] \
+           || [ "${#EXL3_FAT_SCRATCH_ROWS}" -gt 7 ] \
+           || [ "$((10#$EXL3_FAT_SCRATCH_ROWS))" -gt 8388608 ]; then
+            echo "EXL3_FAT_SCRATCH_ROWS must be empty (lazy) or a base-10 integer 0..8388608 (got: '${EXL3_FAT_SCRATCH_ROWS}')" >&2
+            return 2
+        fi
+    fi
     # LOCAL: W41/W42 strict-bool validation (end)
     # LOCAL: DEFAULT_MAX_NEW_TOKENS is spliced into generated shell + JSON; empty = off.
     if [ -n "${DEFAULT_MAX_NEW_TOKENS:-}" ]; then
@@ -1492,6 +1505,11 @@ launch_cluster() {
              LIMIT_MM CHAT_TEMPLATE ENFORCE_EAGER EXL3_FUSED_MOE EXL3_MOE_ROW_TILE EXL3_TEMP_ROWS_FUSED EXL3_FAT_SORTED EXL3_FAT_BATCHED EXL3_FAT_KERNEL EXL3_FAT_GROUPED MODEL_DIR EXTRA_ARGS; do
         serve_env+=" -e $v='${!v:-}'"
     done
+    # Omit empty EXL3_FAT_SCRATCH_ROWS so IMAGE=e3-grouped keeps MNBT×topk
+    # pre-size (old overlay treats empty as 0). Forward only a real floor.
+    if [ -n "${EXL3_FAT_SCRATCH_ROWS:-}" ]; then
+        serve_env+=" -e EXL3_FAT_SCRATCH_ROWS='${EXL3_FAT_SCRATCH_ROWS}'"
+    fi
     # VLLM_API_KEY belongs only on rank 0, which owns the API server. Never send
     # the bearer credential to the headless worker.
 
@@ -1597,6 +1615,7 @@ launch_cluster() {
         -e EXL3_FAT_BATCHED="$EXL3_FAT_BATCHED" \
         -e EXL3_FAT_KERNEL="$EXL3_FAT_KERNEL" \
         -e EXL3_FAT_GROUPED="$EXL3_FAT_GROUPED" \
+        ${EXL3_FAT_SCRATCH_ROWS:+-e EXL3_FAT_SCRATCH_ROWS="$EXL3_FAT_SCRATCH_ROWS"} \
         -e MODEL_DIR="$MODEL_DIR" \
         -e VLLM_API_KEY="$VLLM_API_KEY" \
         -e EXTRA_ARGS="${EXTRA_ARGS:-}" \

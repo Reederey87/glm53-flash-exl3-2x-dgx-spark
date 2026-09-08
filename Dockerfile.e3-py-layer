@@ -1,0 +1,18 @@
+# E3 overlay-only layer. Copies Python `exl3.py` onto the adopted grouped
+# image without rebuilding the cubin. Vehicle for W1 lazy scratch.
+#
+# Build (repo root of the experiment worktree):
+#   docker build -f Dockerfile.e3-py-layer \
+#     --build-arg BASE=glm53-selfbuild:e3-grouped \
+#     --build-arg GLM53_RECIPE_STAMP=$(git rev-parse --short HEAD) \
+#     -t glm53-selfbuild:e3-w1-scratch .
+ARG BASE=glm53-selfbuild:e3-grouped
+FROM ${BASE}
+
+COPY overlay/exl3.py /usr/local/lib/python3.12/dist-packages/vllm/model_executor/layers/quantization/exl3.py
+COPY tests/test_exl3_overlay.py /opt/glm53/test_exl3_overlay.py
+
+RUN EXL3_SELFCHECK_GPU=0 python3 /opt/glm53/test_exl3_overlay.py
+
+ARG GLM53_RECIPE_STAMP=unknown
+LABEL glm53.recipe.stamp=${GLM53_RECIPE_STAMP} glm53.e3.w1=1
