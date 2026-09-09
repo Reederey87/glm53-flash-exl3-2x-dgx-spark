@@ -147,7 +147,28 @@ def test_graph_grouping_and_gzip(tmp_path: Path) -> None:
     assert graphs["9"]["total_us"] == 50.0
     fused = next(k for k in report["kernels"] if k["family"] == "fused_moe")
     assert fused["grid_volume"] == [4, 8]
-    assert fused["graph_ids"] == ["7", "9"]
+    # graph ids are per-process, so they are namespaced by trace/rank
+    assert fused["graph_ids"] == ["rank1:7", "rank1:9"]
+    assert {g["graph_key"] for g in report["graphs"]} == {"rank1:7", "rank1:9"}
+
+
+def test_rank_attribution_keeps_clock_domains_separate(tmp_path: Path) -> None:
+    """Two ranks share graph-id numbers but not timelines; each trace must be
+    joined on its own clock and reported separately."""
+    for rank, ts, dur in (("rank0", 100.0, 40.0), ("rank1", 900.0, 20.0)):
+        write_trace(
+            tmp_path / f"{rank}.pt.trace.json",
+            [
+                annotation(f"execute_context_0({rank})_generation_4(12)", ts, 50.0),
+                kernel("exl3_moe_kernel<k4>", dur, ts=ts + 5.0, **{"graph id": 1}),
+            ],
+        )
+    report = audit.audit(sorted(tmp_path.glob("*.json")), 0.05, 50.0)
+    assert {t["rank"] for t in report["traces"]} == {"rank0", "rank1"}
+    assert {g["graph_key"] for g in report["graphs"]} == {"rank0:1", "rank1:1"}
+    # both kernels land in the same realized-T bucket, summed across ranks
+    entry = report["generations"]["execute_context_0(rank0)_generation_4(12)"]
+    assert entry["tokens"] == 12 and entry["kernel_us"] == 40.0
 
 
 def test_fail_closed_parsing(tmp_path: Path) -> None:
@@ -160,6 +181,14 @@ def test_fail_closed_parsing(tmp_path: Path) -> None:
     assert audit.main(["--trace-dir", str(tmp_path)]) == 2
 
 
+def test_truncated_trace_is_rejected(tmp_path: Path) -> None:
+    truncated = tmp_path / "cut.pt.trace.json"
+    truncated.write_text('{"traceEvents": [{"cat": "kernel", "name": "k", "dur": 1.0}')
+    # a truncated trace must never silently yield a prefix into a verdict
+    assert audit.main(["--trace", str(truncated)]) == 2
+    assert list(audit.iter_trace_events(truncated, strict=False))  # diagnostic path
+
+
 def test_cli_writes_json(tmp_path: Path) -> None:
     write_trace(
         tmp_path / "rank0.pt.trace.json",
@@ -169,7 +198,7 @@ def test_cli_writes_json(tmp_path: Path) -> None:
     out = tmp_path / "report.json"
     assert audit.main(["--trace-dir", str(tmp_path), "--json-out", str(out)]) == 0
     payload = json.loads(out.read_text())
-    assert payload["schema"] == 2
+    assert payload["schema"] == 3
     assert payload["decision"]["task29"]["fused_moe_share"] == 0.1
 
 
@@ -186,8 +215,14 @@ def test_streaming_parser_handles_pretty_printed_trace(tmp_path: Path) -> None:
 
     truncated = tmp_path / "truncated.pt.trace.json"
     truncated.write_text('{"traceEvents": [{"cat": "kernel", "name": "k", "dur": 1.0}')
-    # the complete object before the truncation is still yielded, then EOF stops cleanly
-    assert len(list(audit.iter_trace_events(truncated))) == 1
+    try:
+        list(audit.iter_trace_events(truncated))
+    except audit.TruncatedTrace:
+        pass
+    else:
+        raise AssertionError("a truncated trace must raise TruncatedTrace")
+    # the diagnostic (non-strict) path still reads the complete prefix
+    assert len(list(audit.iter_trace_events(truncated, strict=False))) == 1
 
 
 def test_generation_attribution_and_roofline(tmp_path: Path) -> None:
@@ -210,9 +245,12 @@ def test_generation_attribution_and_roofline(tmp_path: Path) -> None:
     roof = audit.Roofline(gbs=200.0, expert_bytes_per_rank=1_000_000, moe_layers=1,
                           target_t=(12,), tolerance=0.85)
     bounded = audit.audit([trace], 0.05, 50.0, roof)
-    # 82.7 unique experts x 1 MB in 400 us -> ~207 GB/s, past the 200 GB/s roofline
-    assert bounded["decision"]["task29"]["verdict"] == "STOP_ROOFLINE_BOUND"
-    assert bounded["roofline"]["roofline_bound"] is True
+    # uniform routing would need more than the node bandwidth here, but the
+    # model is advisory: it must not manufacture a stop verdict
+    assert bounded["roofline"]["by_t"]["12"]["implied_gbs_uniform"] > 200.0
+    assert bounded["roofline"]["advisory"] is True
+    assert bounded["decision"]["task29"]["verdict"] == "GAP_CANDIDATE_UNMEASURED"
+    assert "STOP_ROOFLINE_BOUND" not in json.dumps(bounded)
 
     slow = write_trace(
         tmp_path / "slow.pt.trace.json",
@@ -222,7 +260,8 @@ def test_generation_attribution_and_roofline(tmp_path: Path) -> None:
         ],
     )
     unbounded = audit.audit([slow], 0.05, 50.0, roof)
-    assert unbounded["roofline"]["roofline_bound"] is False
+    # even touching every expert slot cannot reach the roofline in 10 s
+    assert unbounded["roofline"]["roofline_explanation_viable"] is False
     assert unbounded["decision"]["task29"]["verdict"] == "GAP_CANDIDATE_UNMEASURED"
 
 
@@ -290,6 +329,92 @@ def test_window_gates_capture_acceptance_stdout() -> None:
     body = body[: body.index("\ndef ", 1)]
     assert "capture_output=True" in body
     assert "acc.stdout" in body
+
+
+def test_window_fails_closed_on_timers_and_traces() -> None:
+    """Timer operations and trace collection must not pass silently."""
+    src = (ROOT / "scripts" / "run_decode_profile_window.py").read_text()
+    disarm = src[src.index("def phase_disarm"):]
+    disarm = disarm[: disarm.index("\ndef ", 1)]
+    assert "proc.returncode != 0" in disarm
+    assert "timers still active after disarm" in disarm
+    rearm = src[src.index("def phase_rearm"):]
+    rearm = rearm[: rearm.index("\ndef ", 1)]
+    assert "timers not active after rearm" in rearm
+    profile = src[src.index("def phase_profile"):]
+    profile = profile[: profile.index("\ndef require_traces")]
+    assert "rsync of worker traces exited" in profile
+    assert "require_traces(outdir" in profile
+    assert "expected exactly one profiler trace" in src
+    assert "too small to contain a decode window" in src
+
+
+def test_window_interrupt_leaves_recoverable_state() -> None:
+    """A killed window must still know the backup path, and must restore."""
+    src = (ROOT / "scripts" / "run_decode_profile_window.py").read_text()
+    preflight = src[src.index("def phase_preflight"):]
+    preflight = preflight[: preflight.index("\ndef ", 1)]
+    # backup coordinates are persisted before any later step can fail
+    assert preflight.index('state.update({"backup"') < preflight.index("code, _ = curl")
+    assert "save(state)" in preflight
+    arm = src[src.index("def phase_arm"):]
+    arm = arm[: arm.index("\ndef ", 1)]
+    assert arm.index('state["armed_attempted"] = True') < arm.index("arm_env()")
+    assert "atexit.register(emergency_restore)" in src
+    assert "signal.signal(sig, _on_signal)" in src
+    assert "except (Exception, KeyboardInterrupt) as exc" in src
+    assert "if needs_restore(state):" in src
+
+
+def test_window_recovery_helpers(tmp_path: Path) -> None:
+    import run_decode_profile_window as win
+
+    assert win.needs_restore({}) is False
+    assert win.needs_restore({"backup": "/x"}) is False
+    assert win.needs_restore({"backup": "/x", "armed_attempted": True}) is True
+
+    receipt = tmp_path / "state.json"
+    win._RECEIPT = receipt
+    try:
+        win.save({"schema": 2, "backup": "/x"})
+    finally:
+        win._RECEIPT = None
+    assert json.loads(receipt.read_text())["backup"] == "/x"
+    assert not receipt.with_suffix(".json.tmp").exists()
+
+    head = tmp_path / "traces" / "head"
+    head.mkdir(parents=True)
+    try:
+        win.require_traces(tmp_path / "traces", "head")
+    except RuntimeError as exc:
+        assert "expected exactly one profiler trace" in str(exc)
+    else:
+        raise AssertionError("a rank without a trace must fail the window")
+
+    (head / "dp0_rank0.pt.trace.json.gz").write_bytes(b"x" * 16)
+    try:
+        win.require_traces(tmp_path / "traces", "head")
+    except RuntimeError as exc:
+        assert "too small" in str(exc)
+    else:
+        raise AssertionError("an empty trace must fail the window")
+
+    (head / "dp0_rank0.pt.trace.json.gz").write_bytes(b"x" * win.MIN_TRACE_BYTES)
+    sizes = win.require_traces(tmp_path / "traces", "head")
+    assert sizes == [{"name": "dp0_rank0.pt.trace.json.gz", "bytes": win.MIN_TRACE_BYTES}]
+
+
+def test_probe_gates_and_labels_are_truthful() -> None:
+    """The probe must require every stream past prefill, bracket the counters
+    against /start_profile, and label engine steps apart from draft counters."""
+    src = (ROOT / "scripts" / "probe_decode_profile.py").read_text()
+    assert "len(state) == args.seqs and all(v.get(\"first_ts\")" in src
+    assert src.index("before = metrics()") > src.index("live, conc_samples = wait_concurrency")
+    assert "engine_decode_steps_estimate" in src
+    assert "drafts_delta_per_request_sum" in src
+    assert '"counter_scope"' in src
+    assert "probe FAILED: streams" in src
+    assert "probe FAILED: /stop_profile failed" in src
 
 
 def test_launcher_argv_in_both_inner_scripts() -> None:
@@ -375,18 +500,24 @@ if __name__ == "__main__":
         test_gap_candidate_and_no_gap,
         test_sparse_mla_tactic_diversity,
         test_graph_grouping_and_gzip,
+        test_rank_attribution_keeps_clock_domains_separate,
         test_fail_closed_parsing,
+        test_truncated_trace_is_rejected,
         test_cli_writes_json,
         test_streaming_parser_handles_pretty_printed_trace,
         test_generation_attribution_and_roofline,
         test_derived_occupancy_from_launch_geometry,
         test_probe_refuses_unarmed_boot,
         test_probe_unreachable_server,
+        test_window_recovery_helpers,
     ):
         with tempfile.TemporaryDirectory() as tmp:
             fn(Path(tmp))
     test_launcher_argv_in_both_inner_scripts()
     test_window_gates_capture_acceptance_stdout()
+    test_window_fails_closed_on_timers_and_traces()
+    test_window_interrupt_leaves_recoverable_state()
+    test_probe_gates_and_labels_are_truthful()
     test_profiler_knobs_are_not_shape_hashed()
     test_profile_knob_validation()
     print("decode-profile oracle tests OK")

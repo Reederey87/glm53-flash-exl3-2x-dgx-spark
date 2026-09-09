@@ -21,11 +21,13 @@ Phases run in order and can be bounded with --from/--to for a stepwise window:
 from __future__ import annotations
 
 import argparse
+import atexit
 import hashlib
 import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -56,10 +58,60 @@ SELECTED = (
     "GLM53_INDEXER_WORKSPACE",
 )
 PHASES = ("preflight", "disarm", "arm", "profile", "restore", "gates", "rearm")
+TIMERS = ("vllm-glm53exl3-watchdog.timer", "glm53exl3-metrics-alert.timer")
+MIN_TRACE_BYTES = 1 << 20
+
+# Set by main(); the interrupt path needs them without threading state through
+# every handler.
+_RECEIPT: Path | None = None
+_ACTIVE: dict | None = None
+_KEEP_ARMED = False
+_RESTORE_DONE = False
 
 
 def log(message: str) -> None:
     print(f"[decode-profile] {message}", flush=True)
+
+
+def save(state: dict) -> None:
+    """Atomically persist the receipt so an interrupted window stays recoverable."""
+    if _RECEIPT is None:
+        return
+    tmp = _RECEIPT.with_suffix(_RECEIPT.suffix + ".tmp")
+    tmp.write_text(json.dumps(state, indent=1, default=str) + "\n")
+    os.replace(tmp, _RECEIPT)
+
+
+def armed_now() -> bool:
+    try:
+        env = effective_env()
+    except OSError:
+        return False
+    return any(key in env for key in ARM_KEYS)
+
+
+def needs_restore(state: dict) -> bool:
+    if "backup" not in state:
+        return False
+    return bool(state.get("armed_attempted")) or armed_now()
+
+
+def emergency_restore() -> None:
+    """Restore production when the window is interrupted outside its own flow."""
+    global _RESTORE_DONE
+    state = _ACTIVE
+    if _RESTORE_DONE or _KEEP_ARMED or not state or not needs_restore(state):
+        return
+    _RESTORE_DONE = True
+    log("interrupted — restoring the pre-window .env and rebooting production")
+    try:
+        phase_restore(state)
+        phase_rearm(state)
+        state["auto_restore"] = "ok (interrupt)"
+    except Exception as exc:  # noqa: BLE001
+        state["auto_restore"] = f"FAILED: {exc!r}"
+        log(f"EMERGENCY RESTORE FAILED: {exc} — operator action required")
+    save(state)
 
 
 def run(argv: list[str], timeout: float = 600, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -174,6 +226,10 @@ def phase_preflight(state: dict) -> None:
     stamp_before = STAMP.read_text().strip() if STAMP.is_file() else ""
     backup = ROOT / f".env.bak-pre-task29-profile-{time.strftime('%Y%m%d-%H%M%S')}"
     shutil.copy2(ENV_FILE, backup)
+    # Persist the recovery coordinates before anything else can fail: an
+    # interrupted window must still know which file to restore from.
+    state.update({"backup": str(backup), "env_sha256": sha256(ENV_FILE)})
+    save(state)
     env = effective_env()
     if any(k in env for k in ARM_KEYS):
         raise RuntimeError("profiler knobs already present in .env — window not clean")
@@ -182,8 +238,6 @@ def phase_preflight(state: dict) -> None:
         raise RuntimeError("server did not drain; refusing to take it down")
     state.update(
         {
-            "backup": str(backup),
-            "env_sha256": sha256(ENV_FILE),
             "start_sha256": sha256(ROOT / "start.sh"),
             "probe_sha256": sha256(PROBE),
             "auditor_sha256": sha256(ROOT / "scripts" / "audit_decode_kernel_share.py"),
@@ -195,16 +249,36 @@ def phase_preflight(state: dict) -> None:
     log(f"preflight OK backup={backup.name} stamp={stamp_before[:12]}")
 
 
-def phase_disarm(_state: dict) -> None:
-    for unit in ("vllm-glm53exl3-watchdog.timer", "glm53exl3-metrics-alert.timer"):
-        run(["systemctl", "--user", "stop", unit], timeout=60, check=False)
+def timer_states() -> dict[str, str]:
+    out: dict[str, str] = {}
+    for unit in TIMERS:
+        proc = run(["systemctl", "--user", "is-active", unit], timeout=30, check=False)
+        out[unit] = proc.stdout.strip() or "unknown"
+    return out
+
+
+def phase_disarm(state: dict) -> None:
+    for unit in TIMERS:
+        proc = run(["systemctl", "--user", "stop", unit], timeout=60, check=False)
+        if proc.returncode != 0:
+            raise RuntimeError(f"systemctl stop {unit} exited {proc.returncode}: {proc.stderr.strip()}")
     run(["systemctl", "--user", "reset-failed"], timeout=60, check=False)
-    log("watchdog + metrics-alert timers disarmed, failed units reset")
+    states = timer_states()
+    state["timers_after_disarm"] = states
+    bad = {unit: status for unit, status in states.items() if status == "active"}
+    if bad:
+        raise RuntimeError(f"timers still active after disarm: {bad}")
+    log(f"watchdog + metrics-alert timers disarmed {states}, failed units reset")
 
 
 def phase_arm(state: dict) -> None:
+    # Record the intent to arm before touching .env: if the window dies between
+    # here and restore, the recovery path must know production was modified.
+    state["armed_attempted"] = True
+    save(state)
     arm_env()
     state["env_sha256_armed"] = sha256(ENV_FILE)
+    save(state)
     guarded_start()
     if not wait_health():
         raise RuntimeError("head did not become healthy on the armed boot")
@@ -220,9 +294,11 @@ def phase_profile(state: dict) -> None:
     TRACE_HOST_DIR.mkdir(parents=True, exist_ok=True)
     for old in TRACE_HOST_DIR.glob("*"):
         old.unlink()
-    run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", WORKER,
-         f"mkdir -p ~/.cache/vllm-glm53-flash/profiler && rm -f ~/.cache/vllm-glm53-flash/profiler/*"],
-        timeout=60, check=False)
+    proc = run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", WORKER,
+                "mkdir -p ~/.cache/vllm-glm53-flash/profiler && rm -f ~/.cache/vllm-glm53-flash/profiler/*"],
+               timeout=60, check=False)
+    if proc.returncode != 0:
+        raise RuntimeError(f"worker trace-dir reset failed: {proc.stderr.strip()}")
     receipt = ROOT / "local" / f"task29-profile-probe-{time.strftime('%Y%m%d-%H%M%S')}.json"
     proc = subprocess.run(
         [sys.executable, str(PROBE), "--warmup", "--out", str(receipt)],
@@ -241,14 +317,30 @@ def phase_profile(state: dict) -> None:
     (outdir / "worker").mkdir(parents=True)
     for trace in TRACE_HOST_DIR.glob("*"):
         shutil.copy2(trace, outdir / "head" / trace.name)
-    run(["rsync", "-a", "-e", "ssh -o BatchMode=yes -o ConnectTimeout=10",
-         f"{WORKER}:~/.cache/vllm-glm53-flash/profiler/", str(outdir / "worker" / "")],
-        timeout=900, check=False)
+    proc = run(["rsync", "-a", "-e", "ssh -o BatchMode=yes -o ConnectTimeout=10",
+                f"{WORKER}:~/.cache/vllm-glm53-flash/profiler/", str(outdir / "worker" / "")],
+               timeout=900, check=False)
     state["probe_receipt"] = str(receipt)
     state["trace_dir"] = str(outdir)
-    state["head_traces"] = sorted(p.name for p in (outdir / "head").glob("*"))
-    state["worker_traces"] = sorted(p.name for p in (outdir / "worker").glob("*"))
+    state["trace_collect_rc"] = {"worker_reset": 0, "rsync": proc.returncode}
+    if proc.returncode != 0:
+        raise RuntimeError(f"rsync of worker traces exited {proc.returncode}: {proc.stderr.strip()}")
+    state["head_traces"] = require_traces(outdir, "head")
+    state["worker_traces"] = require_traces(outdir, "worker")
     log(f"traces collected head={len(state['head_traces'])} worker={len(state['worker_traces'])}")
+
+
+def require_traces(outdir: Path, rank: str) -> list[dict[str, object]]:
+    """Fail closed when a rank produced no usable profiler trace."""
+    files = sorted(p for p in (outdir / rank).glob("*") if p.is_file())
+    sizes = [{"name": p.name, "bytes": p.stat().st_size} for p in files]
+    traces = [entry for entry in sizes if str(entry["name"]).endswith(".pt.trace.json.gz")]
+    if len(traces) != 1:
+        raise RuntimeError(f"expected exactly one profiler trace for {rank}, got {sizes}")
+    small = [entry for entry in traces if int(entry["bytes"]) < MIN_TRACE_BYTES]
+    if small:
+        raise RuntimeError(f"{rank} trace too small to contain a decode window: {small}")
+    return sizes
 
 
 def phase_restore(state: dict) -> None:
@@ -288,10 +380,17 @@ def phase_gates(state: dict) -> None:
         raise RuntimeError("JIT shape stamp changed; profiler knob must be hash-neutral")
 
 
-def phase_rearm(_state: dict) -> None:
-    for unit in ("vllm-glm53exl3-watchdog.timer", "glm53exl3-metrics-alert.timer"):
-        run(["systemctl", "--user", "start", unit], timeout=60, check=False)
-    log("watchdog + metrics-alert timers re-armed")
+def phase_rearm(state: dict) -> None:
+    for unit in TIMERS:
+        proc = run(["systemctl", "--user", "start", unit], timeout=60, check=False)
+        if proc.returncode != 0:
+            raise RuntimeError(f"systemctl start {unit} exited {proc.returncode}: {proc.stderr.strip()}")
+    states = timer_states()
+    state["timers_after_rearm"] = states
+    bad = {unit: status for unit, status in states.items() if status != "active"}
+    if bad:
+        raise RuntimeError(f"timers not active after rearm: {bad}")
+    log(f"watchdog + metrics-alert timers re-armed {states}")
 
 
 HANDLERS = {
@@ -305,7 +404,12 @@ HANDLERS = {
 }
 
 
+def _on_signal(signum: int, _frame: object) -> None:
+    raise KeyboardInterrupt(f"signal {signum}")
+
+
 def main(argv: list[str] | None = None) -> int:
+    global _ACTIVE, _KEEP_ARMED, _RECEIPT, _RESTORE_DONE
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--from", dest="first", choices=PHASES, default=PHASES[0])
     ap.add_argument("--to", dest="last", choices=PHASES, default=PHASES[-1])
@@ -329,35 +433,53 @@ def main(argv: list[str] | None = None) -> int:
             state = json.loads(receipt.read_text())
         except json.JSONDecodeError:
             state = {}
-    state.update({"schema": 1, "started": state.get("started") or time.strftime("%Y-%m-%dT%H:%M:%S%z")})
+    state.update({"schema": 2, "started": state.get("started") or time.strftime("%Y-%m-%dT%H:%M:%S%z")})
     state.setdefault("phases", [])
     if args.first != PHASES[0] and "backup" not in state:
         print(f"--from {args.first} needs a prior preflight state (no backup in {receipt})", file=sys.stderr)
         return 2
-    failure: Exception | None = None
+    _RECEIPT, _ACTIVE, _KEEP_ARMED = receipt, state, args.keep_armed
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, _on_signal)
+    atexit.register(emergency_restore)
+    save(state)
+
+    failure: BaseException | None = None
     for name in PHASES[lo:hi + 1]:
+        # Persist the intent before the transition so an interruption between
+        # here and the handler still leaves a recoverable receipt on disk.
+        state["phase_in_progress"] = name
+        save(state)
         log(f"--- phase {name} ---")
         try:
             HANDLERS[name](state)
-            state["phases"].append({"phase": name, "ok": True})
-        except Exception as exc:  # noqa: BLE001
+        except (Exception, KeyboardInterrupt) as exc:  # noqa: BLE001
             state["phases"].append({"phase": name, "ok": False, "error": repr(exc)})
+            state["phase_in_progress"] = None
             failure = exc
             log(f"phase {name} FAILED: {exc}")
+            save(state)
             break
+        state["phases"].append({"phase": name, "ok": True})
+        state["phase_in_progress"] = None
+        save(state)
 
-    if failure is not None and "backup" in state and not args.keep_armed:
-        log("failure — restoring the pre-window .env and rebooting production")
-        try:
-            phase_restore(state)
-            phase_rearm(state)
-            state["auto_restore"] = "ok"
-        except Exception as exc:  # noqa: BLE001
-            state["auto_restore"] = f"FAILED: {exc!r}"
-            log(f"AUTO-RESTORE FAILED: {exc} — operator action required")
+    if failure is not None and not args.keep_armed:
+        if needs_restore(state):
+            log("failure — restoring the pre-window .env and rebooting production")
+            try:
+                phase_restore(state)
+                phase_rearm(state)
+                state["auto_restore"] = "ok"
+            except Exception as exc:  # noqa: BLE001
+                state["auto_restore"] = f"FAILED: {exc!r}"
+                log(f"AUTO-RESTORE FAILED: {exc} — operator action required")
+        else:
+            state["auto_restore"] = "not needed (production was never armed)"
 
+    _RESTORE_DONE = True
     state["finished"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
-    receipt.write_text(json.dumps(state, indent=1, default=str) + "\n")
+    save(state)
     log(f"receipt: {receipt}")
     return 1 if failure is not None else 0
 

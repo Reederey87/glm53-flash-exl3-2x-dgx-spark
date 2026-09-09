@@ -38,7 +38,7 @@ Mainline GLM support (#53906) has merged, so model resolution is no longer the
 mainline blocker described in the historical section above; EXL3 integration
 and overlay compatibility still block a stock-image replacement.
 
-### 2026-09-09: tasks 29 + 31 decode-step share oracle — 29 STOP, 31 STOP
+### 2026-09-09: tasks 29 + 31 decode-step share oracle — 31 STOP, 29 parked behind a measured counter
 
 Tasks 29 and 31 were both parked behind the same missing receipt: a
 decode-step breakdown at the realized adaptive-k shapes. This cluster cannot
@@ -64,15 +64,24 @@ launch geometry and an *estimated* occupancy — the only counter surface
 available here.
 
 **Window.** Guarded 7-phase runner (`scripts/run_decode_profile_window.py`;
-resumable, auto-restore on any failure). Preflight backed up `.env`
+resumable, auto-restore on any failure, receipt checkpointed before every
+operational transition and on SIGTERM/SIGINT/SIGHUP, per-rank trace and timer
+results checked). Preflight backed up `.env`
 (`.env.bak-pre-task29-profile-20260909-145950`, sha256 `46331cee…`), disarmed
 watchdog + metrics-alert, armed the knobs, booted the pair, then ran the C4
 decode probe (`scripts/probe_decode_profile.py`: 4 concurrent streaming
-requests, warmup, barrier at first token, concurrency gate). Probe receipt
-`local/task29-profile-probe-20260909-152958.json`: 4/4 streams OK
-(375/375/392/367 tokens), `window_drafts 1505`, `window_draft_tokens 3875`,
-`window_accepted 1693`, acceptance **0.4369**. Traces
-`local/task29-traces-20260909-153306/{head,worker}/` (93.5 / 93.8 MB gzip).
+requests, warmup, all-streams-past-prefill gate, concurrency gate). Probe
+receipt `local/task29-profile-probe-20260909-152958.json` (written by probe
+schema 1, whose fields are named `window_*`; the probe now emits schema 2 with
+the precise names below): 4/4 streams OK (375/375/392/367 tokens),
+`window_drafts 1505` over 4 streams → **376** engine decode steps,
+`window_draft_tokens 3875`, `window_accepted 1693`, acceptance **0.4369**. In
+the schema-2 probe these are `drafts_delta_per_request_sum`,
+`engine_decode_steps_estimate`, `draft_tokens_delta`, `accepted_tokens_delta`.
+The counters are sampled immediately before `/start_profile` and right after
+`/stop_profile` (`counter_scope`), so they bracket the capture and remain an
+upper bound. Traces `local/task29-traces-20260909-153306/{head,worker}/`
+(93.5 / 93.8 MB gzip).
 
 **Shares** (`scripts/audit_decode_kernel_share.py`, streaming parser, both
 ranks, 1,139,172 kernel events each; 62.73 / 62.88 s kernel time; 35,490 graph
@@ -89,41 +98,49 @@ executions; 12 distinct graphs; 143 distinct kernel names):
 | flash attention | 0.45% | 0.45% |
 
 The profiler's `execute_context_0(0)_generation_<seqs>(<tokens>)` ranges were
-interval-joined to the kernels, so the per-T split below is measured, not
-inferred (rank0; rank1 within 0.6 pp):
+interval-joined to the kernels *per rank* (two ranks have independent GPU clock
+domains, so they are never joined against each other, then aggregated), so the
+per-T split below is measured, not inferred. Rank0 is tabulated; rank1 matches
+within 0.1–0.6 pp at T=12/20 and at the low-T buckets, but **T=32 is 4.99 pp
+lower on rank1 (46.65% vs 51.63%) on a 3-step sample** — treat that row as
+noise, not a rank asymmetry:
 
 | Realized T | decode steps | fused share | fused ms/step | implied GB/s (uniform-E) |
 |---|---|---|---|---|
 | 12 (k=2) | 267 | 55.24% | 76.78 | 286 |
 | 20 (k=4) | 95 | 58.08% | 97.86 | 337 |
-| 32 (k=7) | 3 | 51.63% | 85.13 | 534 |
+| 32 (k=7) | 3 | 51.63% (rank1 46.65%) | 85.13 | 534 |
 | 3 / 5 / 6 / 9 | 7 / 10 / 1 / 7 | 34.7 / 43.2 / 45.4 / 51.9% | 29.3 / 42.9 / 48.3 / 63.5 | 212 / 234 / 246 / 270 |
 
-**Task 29 — STOP (roofline-bound, not occupancy-bound).** The fused kernel
-launches 128 regs/thread, 92,160 B SMEM, block 512, grid `[8,1,6]` = 48 blocks
-→ **1 block/SM**, 16 warps/SM, derived occupancy **33.3%**. Kineto's
-`est. achieved occupancy %` is 0 for every kernel whose
+**Task 29 — parked: `GAP_CANDIDATE_UNMEASURED`, no stop verdict.** The fused
+kernel launches 128 regs/thread, 92,160 B SMEM, block 512, grid `[8,1,6]` = 48
+blocks → **1 block/SM**, 16 warps/SM, derived occupancy **33.3%** (below the
+50% floor). Kineto's `est. achieved occupancy %` is 0 for every kernel whose
 `occupancy.blockLimitSharedMem == 0`; that is a calculation artifact, not a
 measurement. The register file alone (128 × 512 = 65,536 regs, `blockLimitRegs`
-1) and SMEM (93,184 B allocated) each cap the kernel at one block per SM.
-Against the routed-expert weight-streaming model — safetensors headers give
+1) and SMEM (93,184 B allocated) each cap the kernel at one block per SM. So
+the *auditor sees a gap candidate* but **no measured hardware counter exists on
+this cluster**, and the pre-registered gate asks for a counter. The
+weight-streaming model stays advisory: safetensors headers give
 `target.routed_experts` 76,473,186,048 B/rank ÷ (288 experts × 42 MoE layers) =
-**6,322,188 B per expert per layer per rank**; achievable unified bandwidth
-218 GB/s (docs/11 hardware table) — the measured per-step MoE time implies
-286 / 337 / 534 GB/s at T=12/20/32. Saturating 218 GB/s needs only 63 / 80 / 70
-unique experts per layer out of 96 / 160 / 256 slots, i.e. less uniqueness than
-uniform top-8 routing produces (82.6 / 124.1 / 171.1). Time per step scales
-with T the way weight streaming predicts, not the way a latency-limited kernel
-would. **No occupancy/GEMV gap; no cubin or Python kernel change opened.**
+**6,322,188 B per expert per layer per rank**; at 218 GB/s achievable
+(docs/11 hardware table) the measured per-step MoE time implies 286 / 337 /
+534 GB/s at T=12/20/32, and reaching 218 GB/s needs only 63 / 80 / 70 unique
+experts out of 96 / 160 / 256 slots, less uniqueness than uniform top-8 routing
+produces (82.6 / 124.1 / 171.1). That makes weight streaming a *viable*
+explanation, but it assumes a routing distribution and cannot measure achieved
+bandwidth, so it **cannot** close the task. **Verdict: keep task 29 open,
+parked behind a measured counter; no cubin or Python kernel change opened.**
 
-**Task 31 — STOP (one captured decode tactic, ~1% of decode).** Exactly one
-sparse-MLA *decode* kernel name appears in every graph:
+**Task 31 — STOP (`STOP_SHARE_BELOW_FLOOR`: one captured decode tactic, ~1% of
+decode).** Exactly one sparse-MLA *decode* kernel name appears in every graph:
 `flashinfer::sparse_mla_sm120::sparse_mla_decode_dsv3_2_kernel<(ModelType)2,32,2048,64>`
 (n=4,290, 1.01–1.02%). The only other sparse-MLA kernel is the stage-2
-`…_dsv4_merge_kernel<32,512,64,8>` (0.03%). All captured q∈{3,4,5,8} shapes
-dispatch to the same template, so there is no tactic diversity to exploit, and
-the whole family is ~1% of decode-step kernel time — an offline tactic cache
-cannot pay for itself.
+`…_dsv4_merge_kernel<32,512,64,8>` (0.03%), which the auditor excludes from the
+decode-tactic count. All captured q∈{3,4,5,8} shapes dispatch to the same
+template, so there is no tactic diversity to exploit, and the whole family is
+~1% of decode-step kernel time — below the 2% share floor, so an offline tactic
+cache cannot pay for itself even if a second tactic existed.
 
 **Production restored.** `.env` byte-identical to the pre-window backup
 (sha256 match), `/start_profile` gone (404), acceptance **7/7**, serving 6/6,
@@ -133,16 +150,44 @@ itself hit a runner bug (`acceptance.sh` output was read without
 7/7); the window auto-restored production, the bug is fixed, and the gates
 phase was re-run. Rollback remains `glm53-selfbuild:e3-w3-zfill` + TRF=32.
 
+**Re-validation (fixed tooling, second window).** After the review fixes the
+same window was run again on the cluster with the candidate bytes
+(`local/task29-profile-window-20260909b.json`, schema 2: all 7 phases ok,
+`probe_sha256 ce2e1f98…`, `auditor_sha256 609e10ea…`, timers verified inactive
+after disarm and active after re-arm, `trace_collect_rc` 0/0, acceptance 7/7,
+MemFree 4.25 / 4.63 GiB, JIT stamp unchanged). Probe receipt
+`local/task29-profile-probe-20260909-162457.json` (schema 2): 4/4 streams
+(373/368/387/373 tokens), `engine_decode_steps_estimate` 373,
+`draft_tokens_delta` 3732, `accepted_tokens_delta` 1700, acceptance 0.4555.
+The second capture
+(`local/task29-traces-20260909-162752/`, audited into
+`local/task29-decode-share-{head,worker}-20260909b.json`) reproduces every
+verdict: fused share 50.21% / 49.73% (first capture 49.70% / 49.32%), 13 graphs,
+144 distinct kernels, 1,120,466 kernel events per rank, derived occupancy
+33.3%, `GAP_CANDIDATE_UNMEASURED`; sparse MLA 1.05% on both ranks,
+`STOP_SHARE_BELOW_FLOOR`, one decode kernel name. Per-T fused ms/step is
+78.46 / 99.84 / 90.21 (head) vs 76.78 / 97.86 / 85.13 in the first capture.
+
 **Caveats.** (1) The probe's realized mix (267/95/3 steps at T=12/20/32,
 acceptance 0.437) is *not* the production prose mix — task 25's histogram was
-k=7-dominant — so the per-T shares transfer, the T distribution does not.
-(2) No hardware counter was available: the roofline is a model over safetensors
-headers plus a documented achievable-bandwidth figure, and Kineto's occupancy
-estimate is unusable for this kernel. A future window with `ncu`/GPU-metric
-privileges could still overturn task 29; the gate as pre-registered says stop.
-(3) New reusable assets: the launcher knobs, the trace auditor (streaming
-parser, per-family/per-T/per-graph shares, roofline model), the C4 probe, the
-guarded window runner, and 16 CPU-only tests.
+k=7-dominant — so the per-T shares transfer, the T distribution does not; the
+T=32 row is a 3-step sample on each rank. (2) No hardware counter was
+available: the roofline is a model over safetensors headers plus a documented
+achievable-bandwidth figure, and Kineto's occupancy estimate is unusable for
+this kernel. That is exactly why task 29 stays **parked** rather than stopped:
+only a future window with `ncu`/GPU-metric privileges (or a routing histogram
+plus a measured bandwidth) can close it. (3) The auditor fails closed on a
+truncated trace (`TruncatedTrace`, CLI rc 2) instead of reporting a prefix, and
+namespaces graph ids per rank. (4) New reusable assets: the launcher knobs, the
+trace auditor (streaming parser, per-family/per-T/per-graph shares, advisory
+roofline), the C4 probe, the guarded window runner, and 22 CPU-only tests.
+Receipts: `local/task29-decode-share-{head,worker}-20260909.json` (schema 3),
+`local/task29-decode-share-{head,worker}-20260909b.json` (schema 3,
+re-validation capture), `local/task29-profile-window-20260909.json`,
+`local/task29-profile-window-20260909b.json` (schema 2),
+`local/task29-profile-probe-20260909-152958.json`,
+`local/task29-profile-probe-20260909-162457.json` (schema 2).
+
 ### 2026-09-09: task 32 adaptive-k SATURATE=n REVERTED
 
 Independent variable `GLM53_ADAPTIVE_K_SATURATE=n` vs production

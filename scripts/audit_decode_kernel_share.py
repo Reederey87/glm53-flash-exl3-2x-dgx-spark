@@ -21,22 +21,27 @@ audit therefore derives occupancy from the launch geometry it can trust
 Task 29 gate (fused ``exl3_moe`` decode specialization):
   share of decode-step kernel time < ``--moe-share-floor``
       -> STOP_SHARE_BELOW_FLOOR  (no kernel change can pay end-to-end)
-  share >= floor and the weight-streaming model already demands at least
-  ``--roofline-tolerance`` of ``--roofline-gbs`` at every target T
-      -> STOP_ROOFLINE_BOUND  (routed-expert weight streaming, not occupancy)
   share >= floor and derived (or, failing that, Kineto) occupancy < floor
-      -> GAP_CANDIDATE_UNMEASURED  (needs a measured counter; parked here)
+      -> GAP_CANDIDATE_UNMEASURED  (parked; needs a measured counter)
   share >= floor and occupancy >= floor
       -> STOP_NO_OCCUPANCY_GAP
 
+The optional ``--roofline-*`` weight-streaming model is **advisory only**: it
+bounds the traffic a routed-expert kernel could be moving, but an assumed
+routing distribution cannot establish the *achieved* bandwidth. It therefore
+never produces a stop verdict by itself.
+
 Task 31 gate (sparse-MLA captured tactics): the trace cannot carry the runtime
-tile config, so the verdict is advisory and keyed on kernel-name diversity and
-the sparse-MLA share of decode-step kernel time.
+tile config, so the verdict is advisory and keyed on the family's share of
+decode-step kernel time (an offline tactic cache can only pay out that share)
+plus the observed kernel-name diversity.
 
 Per-generation attribution: the profiler emits one ``gpu_user_annotation`` range
 per captured graph execution, named ``execute_context_<pid>(<rank>)_generation_<seqs>(<tokens>)``.
 Joining each kernel into its innermost enclosing range recovers the realized
 adaptive-k token count (T) per step, which is what the task 29 gate asks for.
+Each trace is joined on its own timeline (two ranks' clock domains are
+independent), then aggregated.
 """
 from __future__ import annotations
 
@@ -47,7 +52,7 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterator
 
 # Kernel-name classifiers. Order matters: first match wins.
 FAMILIES: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -66,6 +71,10 @@ READ_CHUNK = 1 << 20
 COMPACT_AT = 1 << 20
 
 
+class TruncatedTrace(ValueError):
+    """The trace ended before its ``traceEvents`` array closed."""
+
+
 def classify(name: str) -> str:
     for family, pattern in FAMILIES:
         if pattern.search(name):
@@ -80,7 +89,8 @@ class Roofline:
     ``expert_bytes_per_rank`` is the per-expert-per-layer payload on one TP rank
     (safetensors headers, ``scripts/audit_live_weight_bytes.py``); ``gbs`` is the
     node's achievable unified-memory bandwidth. Both are model inputs, not
-    hardware counters.
+    hardware counters, and the routing distribution is assumed (uniform), so the
+    model bounds the traffic rather than measuring it.
     """
 
     gbs: float
@@ -92,11 +102,13 @@ class Roofline:
     tolerance: float = 0.85
 
 
-def iter_trace_events(path: Path) -> Iterator[dict[str, Any]]:
+def iter_trace_events(path: Path, strict: bool = True) -> Iterator[dict[str, Any]]:
     """Stream ``traceEvents`` without materialising the whole JSON document.
 
     Handles both minified and pretty-printed traces (the 93 MiB gzip traces
     decompress to ~2.2 GB and ~38 M lines; ``json.load`` on them is unusable).
+    With ``strict`` (the default) a trace that ends before the array closes
+    raises :class:`TruncatedTrace` instead of silently yielding a prefix.
     """
     opener = gzip.open if str(path).endswith(".gz") else open
     decoder = json.JSONDecoder()
@@ -105,6 +117,8 @@ def iter_trace_events(path: Path) -> Iterator[dict[str, Any]]:
         while '"traceEvents"' not in buf:
             chunk = fh.read(READ_CHUNK)
             if not chunk:
+                if strict:
+                    raise TruncatedTrace(f"{path}: no traceEvents array")
                 return
             buf += chunk
         buf = buf[buf.index('"traceEvents"'):]
@@ -115,6 +129,8 @@ def iter_trace_events(path: Path) -> Iterator[dict[str, Any]]:
                 break
             chunk = fh.read(READ_CHUNK)
             if not chunk:
+                if strict:
+                    raise TruncatedTrace(f"{path}: traceEvents array never opened")
                 return
             buf += chunk
         pos = 0
@@ -125,6 +141,8 @@ def iter_trace_events(path: Path) -> Iterator[dict[str, Any]]:
             if pos >= size:
                 chunk = fh.read(READ_CHUNK)
                 if not chunk:
+                    if strict:
+                        raise TruncatedTrace(f"{path}: trace ends before traceEvents closes")
                     return
                 buf = buf[pos:] + chunk
                 pos = 0
@@ -136,6 +154,8 @@ def iter_trace_events(path: Path) -> Iterator[dict[str, Any]]:
             except ValueError:
                 chunk = fh.read(READ_CHUNK)
                 if not chunk:
+                    if strict:
+                        raise TruncatedTrace(f"{path}: trace ends mid-event")
                     return
                 buf = buf[pos:] + chunk
                 pos = 0
@@ -219,7 +239,11 @@ def _attribute_generations(
     annotations: list[tuple[float, float, str]],
     kernels: list[tuple[float, float, str]],
 ) -> dict[str, dict[str, Any]]:
-    """Join each kernel into its innermost enclosing graph-execution range."""
+    """Join each kernel into its innermost enclosing graph-execution range.
+
+    Callers pass one trace's events: two ranks have independent GPU clock
+    domains, so their timelines must never be joined against each other.
+    """
     import heapq
 
     annotations.sort()
@@ -247,14 +271,26 @@ def _attribute_generations(
     return out
 
 
+def _merge_generations(
+    target: dict[str, dict[str, Any]], source: dict[str, dict[str, Any]]
+) -> None:
+    for label, bucket in source.items():
+        merged = target.setdefault(
+            label, {"kernel_us": 0.0, "kernel_count": 0, "kernels": {}}
+        )
+        merged["kernel_us"] += bucket["kernel_us"]
+        merged["kernel_count"] += bucket["kernel_count"]
+        for name, row in bucket["kernels"].items():
+            entry = merged["kernels"].setdefault(name, {"count": 0, "total_us": 0.0})
+            entry["count"] += row["count"]
+            entry["total_us"] += row["total_us"]
+
+
 def _generation_summary(
     attributed: dict[str, dict[str, Any]],
-    annotations: list[tuple[float, float, str]],
+    pieces: dict[str, int],
     roofline: Roofline | None,
 ) -> dict[str, Any]:
-    pieces: dict[str, int] = {}
-    for _start, _dur, label in annotations:
-        pieces[label] = pieces.get(label, 0) + 1
     out: dict[str, Any] = {}
     for label, bucket in sorted(attributed.items()):
         match = GENERATION.search(label)
@@ -308,20 +344,25 @@ def audit(
     moe_share_floor: float,
     occ_floor: float,
     roofline: Roofline | None = None,
+    mla_share_floor: float = 0.02,
 ) -> dict[str, Any]:
     per_kernel: dict[str, dict[str, Any]] = {}
     per_graph: dict[str, dict[str, Any]] = {}
-    annotations: list[tuple[float, float, str]] = []
-    kernels_index: list[tuple[float, float, str]] = []
+    attributed: dict[str, dict[str, Any]] = {}
+    pieces: dict[str, int] = {}
     total_kernel_us = 0.0
     total_kernel_count = 0
     total_memcpy_us = 0.0
+    total_ranges = 0
     per_trace: list[dict[str, Any]] = []
     graphs: set[str] = set()
 
     for path in traces:
+        rank = rank_of(path)
         trace_kernels = 0
         trace_us = 0.0
+        annotations: list[tuple[float, float, str]] = []
+        kernels_index: list[tuple[float, float, str]] = []
         for event in iter_trace_events(path):
             cat = event.get("cat")
             if cat == "gpu_user_annotation":
@@ -367,21 +408,34 @@ def audit(
                 row["occ_limiter"].add(str(occ["limitingFactors"]))
             gid = args.get("graph id")
             if gid is not None:
-                key = str(gid)
+                # graph ids are per-process; namespace them by rank
+                key = f"{rank}:{gid}"
                 row["graphs"].add(key)
                 graphs.add(key)
                 graph = per_graph.setdefault(
-                    key, {"graph_id": key, "kernel_count": 0, "total_us": 0.0, "kernels": {}}
+                    key,
+                    {
+                        "graph_id": str(gid),
+                        "rank": rank,
+                        "kernel_count": 0,
+                        "total_us": 0.0,
+                        "kernels": {},
+                    },
                 )
                 graph["kernel_count"] += 1
                 graph["total_us"] += dur
                 graph["kernels"][name] = graph["kernels"].get(name, 0.0) + dur
+        for _start, _dur, label in annotations:
+            pieces[label] = pieces.get(label, 0) + 1
+        total_ranges += len(annotations)
+        _merge_generations(attributed, _attribute_generations(annotations, kernels_index))
         per_trace.append(
             {
                 "file": str(path),
-                "rank": rank_of(path),
+                "rank": rank,
                 "kernel_events": trace_kernels,
                 "kernel_us": round(trace_us, 3),
+                "graph_execution_ranges": len(annotations),
             }
         )
 
@@ -425,7 +479,9 @@ def audit(
         top = sorted(graph["kernels"].items(), key=lambda kv: kv[1], reverse=True)[:8]
         graphs_out.append(
             {
+                "graph_key": f"{graph['rank']}:{graph['graph_id']}",
                 "graph_id": graph["graph_id"],
+                "rank": graph["rank"],
                 "kernel_count": graph["kernel_count"],
                 "total_us": round(graph["total_us"], 3),
                 "top": [{"name": n, "total_us": round(v, 3)} for n, v in top],
@@ -433,8 +489,7 @@ def audit(
         )
     graphs_out.sort(key=lambda g: g["total_us"], reverse=True)
 
-    attributed = _attribute_generations(annotations, kernels_index)
-    generations = _generation_summary(attributed, annotations, roofline)
+    generations = _generation_summary(attributed, pieces, roofline)
 
     fused = families.get("fused_moe", {"total_us": 0.0, "share": 0.0, "kernels": []})
     fused_kernels = [r for r in kernels_out if r["family"] == "fused_moe"]
@@ -444,10 +499,10 @@ def audit(
     min_derived_occ = min(derived_values) if derived_values else None
 
     roofline_out: dict[str, Any] | None = None
-    roofline_bound = False
     if roofline is not None:
         by_t: dict[str, Any] = {}
-        implied: list[float] = []
+        viable = True
+        measured = 0
         for tokens in roofline.target_t:
             calls = 0
             us = 0.0
@@ -457,7 +512,9 @@ def audit(
                     us += entry["fused_moe_us"]
             if not calls or us <= 0:
                 by_t[str(tokens)] = {"measured": False}
+                viable = False
                 continue
+            measured += 1
             steps = calls / roofline.moe_layers
             unique = roofline.n_experts * (
                 1.0 - (1.0 - roofline.topk / roofline.n_experts) ** tokens
@@ -468,21 +525,21 @@ def audit(
                 roofline.gbs * 1e9 * (us / 1e6)
                 / (calls * roofline.expert_bytes_per_rank)
             )
+            slots = tokens * roofline.topk
+            if at_roofline > slots:
+                # even touching every expert slot cannot reach the roofline, so
+                # the measured time is not explained by weight streaming alone
+                viable = False
             by_t[str(tokens)] = {
                 "measured": True,
                 "fused_moe_calls": calls,
                 "decode_steps": round(steps, 3),
                 "fused_moe_us_per_step": round(us / steps, 3),
-                "expert_slots": tokens * roofline.topk,
+                "expert_slots": slots,
                 "experts_uniform_estimate": round(unique, 2),
                 "experts_at_roofline": round(at_roofline, 2),
                 "implied_gbs_uniform": round(implied_gbs, 2),
             }
-            implied.append(implied_gbs)
-        measured = [v for v in by_t.values() if v.get("measured")]
-        roofline_bound = bool(measured) and len(measured) == len(roofline.target_t) and min(implied) >= (
-            roofline.gbs * roofline.tolerance
-        )
         roofline_out = {
             "gbs": roofline.gbs,
             "tolerance": roofline.tolerance,
@@ -492,12 +549,16 @@ def audit(
             "topk": roofline.topk,
             "target_t": list(roofline.target_t),
             "by_t": by_t,
-            "all_target_t_measured": len(measured) == len(roofline.target_t),
-            "roofline_bound": roofline_bound,
+            "all_target_t_measured": measured == len(roofline.target_t),
+            "roofline_explanation_viable": viable,
+            "advisory": True,
             "note": (
-                "weight-streaming model (safetensors headers + achievable bandwidth), "
-                "not a hardware counter; experts_uniform_estimate is an upper bound "
-                "on the unique routed experts per layer"
+                "weight-streaming model over safetensors headers plus an "
+                "achievable-bandwidth figure with an ASSUMED (uniform) routing "
+                "distribution. It bounds the traffic the kernel could be moving "
+                "and can therefore rule the streaming explanation out; it cannot "
+                "establish the achieved bandwidth, so it never yields a stop "
+                "verdict on its own."
             ),
         }
 
@@ -507,16 +568,6 @@ def audit(
             "reason": (
                 f"fused exl3_moe share {fused['share']:.4f} < floor {moe_share_floor:.4f}; "
                 "no decode-kernel specialization can pay end-to-end"
-            ),
-        }
-    elif roofline_bound:
-        task29 = {
-            "verdict": "STOP_ROOFLINE_BOUND",
-            "reason": (
-                f"fused exl3_moe share {fused['share']:.4f} >= floor {moe_share_floor:.4f}, "
-                "but the routed-expert weight-streaming model already demands "
-                f">= {roofline.tolerance:.0%} of {roofline.gbs:.0f} GB/s at every target T; "
-                "the kernel is memory-bound, not occupancy/GEMV-bound"
             ),
         }
     elif min_derived_occ is not None and min_derived_occ < occ_floor:
@@ -561,6 +612,13 @@ def audit(
             "measured_counter_available": False,
         }
     )
+    if roofline_out is not None:
+        task29["roofline_advisory"] = (
+            "the streaming model is "
+            + ("consistent with" if roofline_out["roofline_explanation_viable"] else "NOT consistent with")
+            + " the measured time, but it assumes a routing distribution and cannot "
+            "measure achieved bandwidth; it does not change this verdict"
+        )
 
     sparse = [r for r in kernels_out if r["family"] == "sparse_mla"]
     names = sorted({r["name"] for r in sparse})
@@ -572,10 +630,19 @@ def audit(
         }
     )
     sparse_us = sum(r["total_us"] for r in sparse)
-    if len(decode_names) <= 1:
+    sparse_share = round(sparse_us / total_kernel_us, 6) if total_kernel_us else 0.0
+    if sparse_share < mla_share_floor:
+        verdict31 = "STOP_SHARE_BELOW_FLOOR"
+        reason31 = (
+            f"sparse-MLA share {sparse_share:.4f} < floor {mla_share_floor:.4f}; an "
+            "offline tactic cache can only pay out this family's share"
+        )
+    elif len(decode_names) <= 1:
         verdict31 = "STOP_NO_TACTIC_DIVERSITY"
+        reason31 = f"one sparse-MLA decode kernel name across every captured graph ({decode_names})"
     else:
         verdict31 = "AUDIT_TACTIC_DIVERSITY"
+        reason31 = f"{len(decode_names)} sparse-MLA decode kernel names observed"
     task31 = {
         "sparse_mla_kernels": [
             {
@@ -590,22 +657,23 @@ def audit(
             }
             for r in sparse
         ],
-        "sparse_mla_share": round(sparse_us / total_kernel_us, 6) if total_kernel_us else 0.0,
+        "sparse_mla_share": sparse_share,
+        "mla_share_floor": mla_share_floor,
         "distinct_names": len(names),
         "distinct_decode_names": len(decode_names),
         "decode_kernel_names": decode_names,
         "verdict": verdict31,
+        "reason": reason31,
         "advisory": True,
         "note": (
-            "kernel name does not encode the runtime tile config; a single decode "
-            "kernel name across every captured q means the heuristic picked one "
-            "tactic, not that the tactic is optimal. sparse_mla_share bounds the "
-            "end-to-end payoff of any tactic change."
+            "the kernel name does not encode the runtime tile config, so a single "
+            "name is not proof of a single runtime tactic; the family's share of "
+            "decode-step kernel time bounds the end-to-end payoff either way"
         ),
     }
 
     return {
-        "schema": 2,
+        "schema": 3,
         "source": "vllm torch profiler (in-process, CUDA-graph aware)",
         "traces": per_trace,
         "totals": {
@@ -614,7 +682,7 @@ def audit(
             "memcpy_us": round(total_memcpy_us, 3),
             "distinct_graphs": len(graphs),
             "distinct_kernels": len(kernels_out),
-            "graph_execution_ranges": len(annotations),
+            "graph_execution_ranges": total_ranges,
         },
         "families": families,
         "kernels": kernels_out,
@@ -663,8 +731,8 @@ def render(report: dict[str, Any], top: int) -> str:
     if report.get("roofline"):
         roof = report["roofline"]
         lines.append(
-            f"roofline: {roof['gbs']:.0f} GB/s, {roof['expert_bytes_per_rank']} B/expert/layer/rank, "
-            f"{roof['moe_layers']} MoE layers -> bound={roof['roofline_bound']}"
+            f"roofline (advisory): {roof['gbs']:.0f} GB/s, {roof['expert_bytes_per_rank']} B/expert/layer/rank, "
+            f"{roof['moe_layers']} MoE layers -> viable={roof['roofline_explanation_viable']}"
         )
         for tokens, row in sorted(roof["by_t"].items(), key=lambda kv: int(kv[0])):
             if not row.get("measured"):
@@ -677,7 +745,7 @@ def render(report: dict[str, Any], top: int) -> str:
     lines.append("graphs (by time):")
     for graph in report["graphs"][:10]:
         lines.append(
-            f"  graph {graph['graph_id']:>5s}  {graph['total_us']:11.0f} us  n={graph['kernel_count']}"
+            f"  graph {graph['graph_key']:>12s}  {graph['total_us']:11.0f} us  n={graph['kernel_count']}"
         )
     d29 = report["decision"]["task29"]
     lines.append(
@@ -685,11 +753,14 @@ def render(report: dict[str, Any], top: int) -> str:
         f"est_occ_min={d29['est_occupancy_pct_min']} derived_occ_min={d29['derived_occupancy_pct_min']}"
     )
     lines.append(f"  reason: {d29['reason']}")
+    if d29.get("roofline_advisory"):
+        lines.append(f"  roofline: {d29['roofline_advisory']}")
     d31 = report["decision"]["task31"]
     lines.append(
         f"task31: {d31['verdict']}  distinct_sparse_mla={d31['distinct_names']} "
         f"decode_names={d31['distinct_decode_names']} share={d31['sparse_mla_share']*100:.2f}%"
     )
+    lines.append(f"  reason: {d31['reason']}")
     for row in d31["sparse_mla_kernels"][:10]:
         lines.append(f"  {row['share']*100:6.2f}%  n={row['count']:<6d} {row['name'][:88]}")
     return "\n".join(lines)
@@ -721,9 +792,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--json-out", type=Path)
     ap.add_argument("--moe-share-floor", type=float, default=0.05)
     ap.add_argument("--occ-floor", type=float, default=50.0)
+    ap.add_argument("--mla-share-floor", type=float, default=0.02)
     ap.add_argument("--top", type=int, default=15)
     ap.add_argument("--roofline-gbs", type=float, default=0.0,
-                    help="node achievable unified-memory bandwidth (0 disables the model)")
+                    help="node achievable unified-memory bandwidth (0 disables the advisory model)")
     ap.add_argument("--expert-bytes-per-rank", type=int, default=0,
                     help="per-expert per-layer payload bytes on one TP rank")
     ap.add_argument("--moe-layers", type=int, default=0)
@@ -738,7 +810,13 @@ def main(argv: list[str] | None = None) -> int:
         for path in traces:
             if not path.is_file():
                 raise FileNotFoundError(path)
-        report = audit(traces, args.moe_share_floor, args.occ_floor, parse_roofline(args))
+        report = audit(
+            traces,
+            args.moe_share_floor,
+            args.occ_floor,
+            parse_roofline(args),
+            args.mla_share_floor,
+        )
     except (FileNotFoundError, ValueError, json.JSONDecodeError) as exc:
         print(f"decode-share audit FAILED: {exc}", file=sys.stderr)
         return 2

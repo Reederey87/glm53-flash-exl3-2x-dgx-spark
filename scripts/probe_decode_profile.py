@@ -132,7 +132,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--seqs", type=int, default=4)
     ap.add_argument("--prompt-repeats", type=int, default=110, help="~8000 tokens at ~14 words/repeat")
     ap.add_argument("--max-tokens", type=int, default=800)
-    ap.add_argument("--min-steps", type=int, default=60)
+    ap.add_argument(
+        "--min-steps",
+        type=int,
+        default=60,
+        help="minimum engine decode steps (draft sum / seqs) required to keep the capture",
+    )
     ap.add_argument("--warmup", action="store_true", help="one unprofiled C4 burst first")
     ap.add_argument("--dry-run", action="store_true",
                     help="run the workload only; no /start_profile or /stop_profile")
@@ -180,7 +185,6 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         print("warmup complete", flush=True)
 
-    before = metrics()
     state: dict[int, dict] = {}
     barrier = threading.Barrier(args.seqs)
     threads = [
@@ -191,17 +195,25 @@ def main(argv: list[str] | None = None) -> int:
         t.start()
 
     started = False
+    stop_error: str | None = None
+    before: dict[str, float] | None = None
+    after: dict[str, float] | None = None
+    conc_samples: list[float] = []
     try:
-        # All streams are past prefill once every thread cleared the barrier.
+        # All streams are past prefill only once every worker has published its
+        # first token: a running-request metric alone does not prove that.
         deadline = time.monotonic() + 900.0
         while time.monotonic() < deadline:
-            if len(state) and all(v.get("first_ts") for v in state.values()):
+            if len(state) == args.seqs and all(v.get("first_ts") for v in state.values()):
                 break
             if any(not v.get("ok", True) for v in state.values() if v):
                 raise RuntimeError(f"stream failed before profiling: {state}")
             time.sleep(0.25)
         else:
-            raise RuntimeError("timed out waiting for all streams to start decoding")
+            raise RuntimeError(
+                f"timed out waiting for all {args.seqs} streams to start decoding "
+                f"(published {sorted(state)})"
+            )
 
         live, conc_samples = wait_concurrency(args.seqs)
         if live < args.seqs:
@@ -209,6 +221,9 @@ def main(argv: list[str] | None = None) -> int:
                 f"only {live} of {args.seqs} requests running at profile start "
                 f"(samples={conc_samples})"
             )
+        # Sample the counters immediately before /start_profile so the deltas
+        # bracket the capture as tightly as the API allows.
+        before = metrics()
         if not args.dry_run:
             with request("POST", BASE + "/start_profile", timeout=60.0) as resp:
                 if resp.status != 200:
@@ -228,39 +243,62 @@ def main(argv: list[str] | None = None) -> int:
                 with request("POST", BASE + "/stop_profile", timeout=120.0) as resp:
                     print(f"profiler stopped ({resp.status})", flush=True)
             except Exception as exc:  # noqa: BLE001
-                print(f"WARN: /stop_profile failed: {exc!r}", file=sys.stderr)
+                stop_error = repr(exc)
+                print(f"ERROR: /stop_profile failed: {exc!r}", file=sys.stderr)
+        if before is not None:
+            after = metrics()
 
-    after = metrics()
-    drafts = after.get("vllm:spec_decode_num_drafts_total", 0.0) - before.get(
-        "vllm:spec_decode_num_drafts_total", 0.0
-    )
-    accepted = after.get("vllm:spec_decode_num_accepted_tokens_total", 0.0) - before.get(
-        "vllm:spec_decode_num_accepted_tokens_total", 0.0
-    )
-    draft_tokens = after.get("vllm:spec_decode_num_draft_tokens_total", 0.0) - before.get(
-        "vllm:spec_decode_num_draft_tokens_total", 0.0
-    )
+    def delta(name: str) -> float:
+        if before is None or after is None:
+            return 0.0
+        return after.get(name, 0.0) - before.get(name, 0.0)
+
+    drafts = delta("vllm:spec_decode_num_drafts_total")
+    accepted = delta("vllm:spec_decode_num_accepted_tokens_total")
+    draft_tokens = delta("vllm:spec_decode_num_draft_tokens_total")
+    engine_steps = drafts / args.seqs if args.seqs else 0.0
     receipt = {
-        "schema": 1,
+        "schema": 2,
         "dry_run": args.dry_run,
         "seqs": args.seqs,
         "prompt_repeats": args.prompt_repeats,
         "max_tokens": args.max_tokens,
         "streams": {str(k): v for k, v in sorted(state.items())},
         "concurrency_samples": conc_samples,
-        "window_drafts": drafts,
-        "window_accepted": accepted,
-        "window_draft_tokens": draft_tokens,
+        "counter_scope": (
+            "vLLM counters sampled immediately before /start_profile and right "
+            "after /stop_profile; they bracket the capture but still include any "
+            "in-flight step at each edge, so they are an upper bound"
+        ),
+        "drafts_delta_per_request_sum": drafts,
+        "engine_decode_steps_estimate": round(engine_steps, 3),
+        "accepted_tokens_delta": accepted,
+        "draft_tokens_delta": draft_tokens,
         "acceptance": (accepted / draft_tokens) if draft_tokens else None,
+        "stop_profile_error": stop_error,
         "max_iters_failsafe": os.environ.get("GLM53_PROFILE_MAX_ITERS"),
         "profile_dir": os.environ.get("GLM53_PROFILE_TORCH_DIR"),
     }
     args.out.write_text(json.dumps(receipt, indent=1) + "\n")
-    print(f"drafts(engine steps)={drafts:.0f} accepted={accepted:.0f} "
-          f"acceptance={receipt['acceptance']}")
-    if drafts < args.min_steps:
+    print(
+        f"engine_decode_steps~{engine_steps:.0f} "
+        f"(per-request draft sum {drafts:.0f} over {args.seqs} streams) "
+        f"accepted={accepted:.0f} acceptance={receipt['acceptance']}"
+    )
+    failed = sorted(k for k, v in state.items() if not v.get("ok"))
+    if failed:
         print(
-            f"probe FAILED: only {drafts:.0f} decode steps observed, need >= {args.min_steps}",
+            f"probe FAILED: streams {failed} did not complete: {[state[k] for k in failed]}",
+            file=sys.stderr,
+        )
+        return 4
+    if stop_error:
+        print(f"probe FAILED: /stop_profile failed: {stop_error}", file=sys.stderr)
+        return 4
+    if engine_steps < args.min_steps:
+        print(
+            f"probe FAILED: only {engine_steps:.0f} engine decode steps observed, "
+            f"need >= {args.min_steps}",
             file=sys.stderr,
         )
         return 3
