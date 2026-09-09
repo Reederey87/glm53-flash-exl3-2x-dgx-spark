@@ -1,0 +1,54 @@
+{
+ "schema": 3,
+ "dry_run": false,
+ "seqs": 4,
+ "prompt_repeats": 110,
+ "max_tokens": 800,
+ "streams": {
+  "0": {
+   "ok": true,
+   "tokens": 368,
+   "first_ts": 209876.518250734
+  },
+  "1": {
+   "ok": true,
+   "tokens": 361,
+   "first_ts": 209876.848464441
+  },
+  "2": {
+   "ok": true,
+   "tokens": 368,
+   "first_ts": 209876.847858582
+  },
+  "3": {
+   "ok": true,
+   "tokens": 368,
+   "first_ts": 209876.847926023
+  }
+ },
+ "concurrency_samples": [
+  4.0
+ ],
+ "counter_scope": "vLLM counters sampled immediately before /start_profile and right after /stop_profile; they keep counting if the profiler auto-stops on max_iterations, so they are an upper bound on captured work",
+ "drafts_delta_per_request_sum": 1456.0,
+ "engine_decode_steps_estimate": 364.0,
+ "accepted_tokens_delta": 1740.0,
+ "draft_tokens_delta": 3848.0,
+ "acceptance": 0.4521829521829522,
+ "captured": {
+  "moe_layers": 42,
+  "traces": [
+   {
+    "file": "dp0_pp0_tp0_dcp0_ep0_rank0.1788987786159489316.pt.trace.json.gz",
+    "fused_moe_calls": 15330,
+    "engine_steps": 365.0
+   }
+  ],
+  "fused_moe_calls": 15330,
+  "engine_steps": 365.0
+ },
+ "min_steps": 60,
+ "stop_profile_error": null,
+ "max_iters_failsafe": "2000",
+ "profile_dir": "/root/.cache/vllm/profiler"
+}

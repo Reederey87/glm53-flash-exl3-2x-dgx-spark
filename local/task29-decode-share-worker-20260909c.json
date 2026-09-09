@@ -1,0 +1,7467 @@
+{
+ "schema": 3,
+ "source": "vllm torch profiler (in-process, CUDA-graph aware)",
+ "traces": [
+  {
+   "file": "local/task29-traces-20260909-170511/worker/dp0_pp0_tp1_dcp0_ep1_rank1.1788987785842356491.pt.trace.json.gz",
+   "rank": "rank1",
+   "kernel_events": 1067920,
+   "kernel_us": 61647067.32,
+   "graph_execution_ranges": 33215
+  }
+ ],
+ "totals": {
+  "kernel_us": 61647067.32,
+  "kernel_count": 1067920,
+  "memcpy_us": 23413.632,
+  "distinct_graphs": 10,
+  "distinct_kernels": 142,
+  "graph_execution_ranges": 33215
+ },
+ "families": {
+  "fused_moe": {
+   "total_us": 31008650.976,
+   "count": 15330,
+   "kernels": [
+    "void exl3_moe_kernel<4, 256, 1>(__half const*, __half*, __half*, __half*, __half*, float*, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, long const*, long const*, __half const*, int, int, int, int, int, int, float, int, int, int, int, int*)"
+   ],
+   "share": 0.503003
+  },
+  "gemm": {
+   "total_us": 20335240.14,
+   "count": 217025,
+   "kernels": [
+    "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x1_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x1_tn_align8::Params)",
+    "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align8::Params)",
+    "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x2_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x2_tn_align8::Params)",
+    "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align2>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align2::Params)",
+    "nvjet_sm121_tst_mma_128x144x64_2_32x72x64_tmaAB_bz_TNNN",
+    "nvjet_sm121_tst_mma_64x32x64_8_16x32x64_tmaAB_bz_TNNN",
+    "void cutlass::Kernel2<cutlass_80_wmma_tensorop_s161616gemm_bf16_16x16_128x2_tn_align8>(cutlass_80_wmma_tensorop_s161616gemm_bf16_16x16_128x2_tn_align8::Params)",
+    "void cublasLt::splitKreduce_kernel<32, 16, int, float, float, float, float, false, float, float, float, true, false, false, false>(cublasLt::cublasSplitKParams<float>, float const*, float const*, float*, float*, float const*, float const*, float const*, float const*, float*, void*, long, float*, int*, float*, float*, float const*, float const*, float const*, float const*, float const*)",
+    "void gemmSN_NN_kernel<float, 256, 4, 2, 8, 6, 4, false, cublasGemvTensorStridedBatched<float const>, cublasGemvTensorStridedBatched<float const>, cublasGemvTensorStridedBatched<float> >(cublasGemmSmallNParams<cublasGemvTensorStridedBatched<float const>, cublasGemvTensorStridedBatched<float const>, cublasGemvTensorStridedBatched<float>, float>)",
+    "nvjet_sm121_tss_mma_192x16x64_3_32x16x64_tmaAB_splitK_TNNN",
+    "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_64x2_nn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_64x2_nn_align8::Params)",
+    "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_64x2_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_64x2_tn_align8::Params)",
+    "nvjet_sm121_tst_mma_32x32x64_12_32x8x64_tmaAB_bz_TNNN",
+    "nvjet_sm121_tst_mma_96x64x64_4_16x64x64_tmaAB_bz_TNNN",
+    "void deep_gemm::sm120_tf32_hc_prenorm_gemm_impl<24u, 16384u, 128u, 32u, 64u, 48u, 4u, 256u, 128u>(unsigned int, CUtensorMap_st, CUtensorMap_st, float*, float*)",
+    "nvjet_sm121_tst_mma_192x24x32_7_64x24x32_tmaAB_bz_TNNN",
+    "void deep_gemm::sm120_fp8_paged_mqa_logits<1u, 32u, 128u, 64u, true, false, 2u, 3u, 128u, 128u, 256u, float>(unsigned int, unsigned int, unsigned int, unsigned int const*, float*, unsigned int const*, unsigned int const*, unsigned int const*, CUtensorMap_st, CUtensorMap_st, CUtensorMap_st, CUtensorMap_st)",
+    "nvjet_sm121_tst_mma_192x16x64_3_32x16x64_tmaAB_splitK_TNNN",
+    "void cutlass::Kernel2<cutlass_80_simt_sgemm_64x64_8x5_nn_align1>(cutlass_80_simt_sgemm_64x64_8x5_nn_align1::Params)",
+    "void cublasLt::splitKreduce_kernel<32, 16, int, __nv_bfloat16, __nv_bfloat16, float, __nv_bfloat16, false, __nv_bfloat16, __nv_bfloat16, __nv_bfloat16, true, false, false, false>(cublasLt::cublasSplitKParams<float>, __nv_bfloat16 const*, __nv_bfloat16 const*, __nv_bfloat16*, __nv_bfloat16*, float const*, float const*, __nv_bfloat16 const*, __nv_bfloat16 const*, __nv_bfloat16*, void*, long, float*, int*, float*, float*, float const*, float const*, float const*, float const*, float const*)",
+    "void cublasLt::splitKreduce_kernel<32, 16, int, float, __nv_bfloat16, float, __nv_bfloat16, false, float, __nv_bfloat16, __nv_bfloat16, true, false, false, false>(cublasLt::cublasSplitKParams<float>, float const*, __nv_bfloat16 const*, float*, __nv_bfloat16*, float const*, float const*, __nv_bfloat16 const*, float const*, __nv_bfloat16*, void*, long, float*, int*, float*, float*, float const*, float const*, float const*, float const*, float const*)",
+    "void gemmSN_NN_kernel<float, 256, 4, 2, 8, 4, 4, false, cublasGemvTensorStridedBatched<float const>, cublasGemvTensorStridedBatched<float const>, cublasGemvTensorStridedBatched<float> >(cublasGemmSmallNParams<cublasGemvTensorStridedBatched<float const>, cublasGemvTensorStridedBatched<float const>, cublasGemvTensorStridedBatched<float>, float>)",
+    "void gemmSN_NN_kernel<float, 256, 4, 2, 8, 5, 4, false, cublasGemvTensorStridedBatched<float const>, cublasGemvTensorStridedBatched<float const>, cublasGemvTensorStridedBatched<float> >(cublasGemmSmallNParams<cublasGemvTensorStridedBatched<float const>, cublasGemvTensorStridedBatched<float const>, cublasGemvTensorStridedBatched<float>, float>)",
+    "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x2_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x2_tn_align8::Params)",
+    "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_32x1_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_32x1_tn_align8::Params)",
+    "void deep_gemm::sched::sm120_paged_mqa_logits_metadata<32u, 128u, 48u, false>(unsigned int, unsigned int, bool, unsigned int, unsigned int const*, unsigned int const*, unsigned int*)",
+    "void cutlass::Kernel2<cutlass_80_simt_sgemm_32x128_8x5_nn_align1>(cutlass_80_simt_sgemm_32x128_8x5_nn_align1::Params)"
+   ],
+   "share": 0.329865
+  },
+  "collective": {
+   "total_us": 4706562.149,
+   "count": 37960,
+   "kernels": [
+    "ncclDevKernel_AllReduce_Sum_bf16_RING_LL(ncclDevKernelArgsStorage<4096ul>)",
+    "ncclDevKernel_AllGather_RING_LL(ncclDevKernelArgsStorage<4096ul>)"
+   ],
+   "share": 0.076347
+  },
+  "kda": {
+   "total_us": 1947984.574,
+   "count": 24820,
+   "kernels": [
+    "fused_recurrent_gated_delta_rule_fwd_kernel",
+    "_causal_conv1d_update_kernel"
+   ],
+   "share": 0.031599
+  },
+  "sparse_mla": {
+   "total_us": 641897.775,
+   "count": 8030,
+   "kernels": [
+    "void flashinfer::sparse_mla_sm120::sparse_mla_decode_dsv3_2_kernel<(ModelType)2, 32, 2048, 64>(__nv_bfloat16 const*, unsigned char const*, int const*, __nv_bfloat16*, float*, int const*, int, int, int, float, unsigned long)",
+    "void flashinfer::sparse_mla_sm120::sparse_mla_decode_dsv4_merge_kernel<32, 512, 64, 8>(__nv_bfloat16 const*, float const*, __nv_bfloat16*, float*, float const*, int, int)"
+   ],
+   "share": 0.010412
+  },
+  "other": {
+   "total_us": 2734492.549,
+   "count": 762930,
+   "kernels": [
+    "mhc_fused_tilelang_kernel",
+    "mhc_pre_big_fuse_with_norm_tilelang_kernel",
+    "void vllm::moe::single_group_topk::detail::single_group_topk_block_kernel<float, float, int, (vllm::moe::ScoringFunc)1, 384, 8>(float const*, float*, int*, float const*, long, long, bool, float, bool)",
+    "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16)#1} const&)::{lambda(int)#1})",
+    "void at::native::vectorized_elementwise_kernel<2, at::native::FillFunctor<long>, std::array<char*, 1ul> >(int, at::native::FillFunctor<long>, std::array<char*, 1ul>)",
+    "void at::native::radixSortKVInPlace<-2, -1, 32, 32, long, long, unsigned int>(at::cuda::detail::TensorInfo<long, unsigned int>, unsigned int, unsigned int, unsigned int, at::cuda::detail::TensorInfo<long, unsigned int>, unsigned int, bool)",
+    "void at::native::vectorized_elementwise_kernel<4, at::native::compare_scalar_kernel<long>(at::TensorIteratorBase&, at::native::(anonymous namespace)::OpType, long)::{lambda(long)#1}, std::array<char*, 2ul> >(int, at::native::compare_scalar_kernel<long>(at::TensorIteratorBase&, at::native::(anonymous namespace)::OpType, long)::{lambda(long)#1}, std::array<char*, 2ul>)",
+    "void at::native::unrolled_elementwise_kernel<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}, std::array<char*, 2ul>, 4, TrivialOffsetCalculator<1, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<1>, at::native::memory::StoreWithCast<1> >(int, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}, std::array<char*, 2ul>, TrivialOffsetCalculator<1, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<1>, at::native::memory::StoreWithCast<1>)",
+    "void at::native::_scatter_gather_elementwise_kernel<128, 8, at::native::_cuda_scatter_gather_internal_kernel<true, long, long>::operator()<at::native::ReduceAdd>(at::TensorIterator&, long, long, long, at::native::ReduceAdd const&)::{lambda(int)#1}>(int, at::native::_cuda_scatter_gather_internal_kernel<true, long, long>::operator()<at::native::ReduceAdd>(at::TensorIterator&, long, long, long, at::native::ReduceAdd const&)::{lambda(int)#1})",
+    "void at::native::unrolled_elementwise_kernel<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#10}::operator()() const::{lambda(c10::Half)#1}, std::array<char*, 2ul>, 4, TrivialOffsetCalculator<1, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<1>, at::native::memory::StoreWithCast<1> >(int, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#10}::operator()() const::{lambda(c10::Half)#1}, std::array<char*, 2ul>, TrivialOffsetCalculator<1, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<1>, at::native::memory::StoreWithCast<1>)",
+    "memcpy32_post",
+    "void vllm::topKPerRowDecode<1024, true, false, true>(float const*, int const*, int*, int, int, int, int, int, float*, int, int const*)",
+    "void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<float>, std::array<char*, 1ul> >(int, at::native::FillFunctor<float>, std::array<char*, 1ul>)",
+    "mhc_post_tilelang_kernel",
+    "void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native::index_kernel_impl<at::native::OpaqueType<2> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1}>(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>, at::native::index_kernel_impl<at::native::OpaqueType<2> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1} const&, bool)::{lambda(int)#1}>(long, at::native::gpu_index_kernel<at::native::index_kernel_impl<at::native::OpaqueType<2> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1}>(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>, at::native::index_kernel_impl<at::native::OpaqueType<2> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1} const&, bool)::{lambda(int)#1})",
+    "void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native::index_kernel_impl<at::native::OpaqueType<8> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1}>(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>, at::native::index_kernel_impl<at::native::OpaqueType<8> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1} const&, bool)::{lambda(int)#1}>(long, at::native::gpu_index_kernel<at::native::index_kernel_impl<at::native::OpaqueType<8> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1}>(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>, at::native::index_kernel_impl<at::native::OpaqueType<8> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1} const&, bool)::{lambda(int)#1})",
+    "void (anonymous namespace)::elementwise_kernel_with_index<int, at::native::arange_cuda_out(c10::Scalar const&, c10::Scalar const&, c10::Scalar const&, at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}>(int, at::native::arange_cuda_out(c10::Scalar const&, c10::Scalar const&, c10::Scalar const&, at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}, function_traits<at::native::arange_cuda_out(c10::Scalar const&, c10::Scalar const&, c10::Scalar const&, at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}>::result_type*)",
+    "void at::native::warpMergeSortKVInPlace<-2, -1, 128, 16, long, long, at::native::LTOp<long, true>, unsigned int, 32>(at::cuda::detail::TensorInfo<long, unsigned int>, unsigned int, unsigned int, unsigned int, at::cuda::detail::TensorInfo<long, unsigned int>, unsigned int, at::native::LTOp<long, true>, long)",
+    "layer_norm_gated_fwd_kernel",
+    "void vllm::act_and_mul_kernel<c10::BFloat16, __nv_bfloat162, &(c10::BFloat16 vllm::silu_kernel<c10::BFloat16>(c10::BFloat16 const&, float)), &(__nv_bfloat162 vllm::packed_silu_kernel<__nv_bfloat162>(__nv_bfloat162 const&, float)), true, true, true, false>(c10::BFloat16*, c10::BFloat16 const*, int, float, float, float)",
+    "void at::native::vectorized_elementwise_kernel<4, at::native::BinaryFunctor<bool, bool, bool, at::native::BitwiseOrFunctor<bool> >, std::array<char*, 3ul> >(int, at::native::BinaryFunctor<bool, bool, bool, at::native::BitwiseOrFunctor<bool> >, std::array<char*, 3ul>)",
+    "void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctor_add<c10::BFloat16>, std::array<char*, 3ul> >(int, at::native::CUDAFunctor_add<c10::BFloat16>, std::array<char*, 3ul>)",
+    "void at::native::vectorized_elementwise_kernel<2, at::native::(anonymous namespace)::where_kernel_impl(at::TensorIterator&)::{lambda()#1}::operator()() const::{lambda()#4}::operator()() const::{lambda(bool, unsigned long, unsigned long)#1}, std::array<char*, 4ul> >(int, at::native::(anonymous namespace)::where_kernel_impl(at::TensorIterator&)::{lambda()#1}::operator()() const::{lambda()#4}::operator()() const::{lambda(bool, unsigned long, unsigned long)#1}, std::array<char*, 4ul>)",
+    "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1} const&)::{lambda(int)#1})",
+    "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1})",
+    "void at::native::vectorized_elementwise_kernel<4, at::native::float16_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda(float)#1}, std::array<char*, 2ul> >(int, at::native::float16_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda(float)#1}, std::array<char*, 2ul>)",
+    "_kpool_decode_update_batched_kernel",
+    "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl<at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl<at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1})",
+    "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::CUDAFunctor_add<c10::BFloat16> >(at::TensorIteratorBase&, at::native::CUDAFunctor_add<c10::BFloat16> const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::CUDAFunctor_add<c10::BFloat16> >(at::TensorIteratorBase&, at::native::CUDAFunctor_add<c10::BFloat16> const&)::{lambda(int)#1})",
+    "void at::native::vectorized_elementwise_kernel<4, at::native::bfloat16_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda(float)#1}, std::array<char*, 2ul> >(int, at::native::bfloat16_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda(float)#1}, std::array<char*, 2ul>)",
+    "void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<c10::BFloat16>, std::array<char*, 1ul> >(int, at::native::FillFunctor<c10::BFloat16>, std::array<char*, 1ul>)",
+    "void vllm::concat_and_cache_ds_mla_kernel<__nv_bfloat16, unsigned char, (vllm::Fp8KVCacheDataType)1>(__nv_bfloat16 const*, __nv_bfloat16 const*, unsigned char*, long const*, int, int, int, int, int, int, int, float const*)",
+    "void at::native::mbtopk::computeBlockDigitCounts<c10::BFloat16, unsigned int, unsigned int, 2>(at::cuda::detail::TensorInfo<c10::BFloat16 const, unsigned int>, unsigned int, unsigned int*, unsigned int, unsigned int, int, int, unsigned int, unsigned int, unsigned int*, short*)",
+    "void at::native::(anonymous namespace)::CatArrayBatchedCopy<at::native::(anonymous namespace)::OpaqueType<2u>, unsigned int, 3, 64, 64>(at::native::(anonymous namespace)::OpaqueType<2u>*, at::native::(anonymous namespace)::CatArrInputTensorMetadata<at::native::(anonymous namespace)::OpaqueType<2u>, unsigned int, 64, 64>, at::native::(anonymous namespace)::TensorSizeStride<unsigned int, 4u>, int, unsigned int)",
+    "void at::native::mbtopk::gatherTopK<c10::BFloat16, unsigned int, 2>(at::cuda::detail::TensorInfo<c10::BFloat16 const, unsigned int>, unsigned int, unsigned int, bool, unsigned int, unsigned int, at::cuda::detail::TensorInfo<c10::BFloat16, unsigned int>, unsigned int, at::cuda::detail::TensorInfo<long, unsigned int>, unsigned int, unsigned int, unsigned int, c10::BFloat16*, unsigned int*, unsigned int*, unsigned int)",
+    "_fwht_quant_kernel",
+    "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#3}::operator()() const::{lambda(int)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#3}::operator()() const::{lambda(int)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#3}::operator()() const::{lambda(int)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#3}::operator()() const::{lambda(int)#1} const&)::{lambda(int)#1})",
+    "std::enable_if<(((8)>(0)))&&vllm::_typeConvert<c10::BFloat16>::exists, void>::type vllm::fused_add_rms_norm_kernel<c10::BFloat16, 8, true>(c10::BFloat16*, long, c10::BFloat16*, c10::BFloat16 const*, float, int, int, long)",
+    "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::(anonymous namespace)::masked_fill_kernel(at::TensorIterator&, c10::Scalar const&)::{lambda()#1}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16, bool)#1}>(at::TensorIteratorBase&, at::native::(anonymous namespace)::masked_fill_kernel(at::TensorIterator&, c10::Scalar const&)::{lambda()#1}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16, bool)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::(anonymous namespace)::masked_fill_kernel(at::TensorIterator&, c10::Scalar const&)::{lambda()#1}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16, bool)#1}>(at::TensorIteratorBase&, at::native::(anonymous namespace)::masked_fill_kernel(at::TensorIterator&, c10::Scalar const&)::{lambda()#1}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16, bool)#1} const&)::{lambda(int)#1})",
+    "void vllm::reshape_and_cache_flash_kernel<__nv_bfloat16, __nv_bfloat16, (vllm::Fp8KVCacheDataType)0>(__nv_bfloat16 const*, __nv_bfloat16 const*, __nv_bfloat16*, __nv_bfloat16*, long const*, long, long, long, long, long, int, int, int, float const*, float const*, int)",
+    "void at::native::reduce_kernel<128, 4, at::native::ReduceOp<c10::BFloat16, at::native::MeanOps<c10::BFloat16, float, float, c10::BFloat16>, unsigned int, c10::BFloat16, 4, 8> >(at::native::ReduceOp<c10::BFloat16, at::native::MeanOps<c10::BFloat16, float, float, c10::BFloat16>, unsigned int, c10::BFloat16, 4, 8>)",
+    "void at::native::vectorized_gather_kernel<16, long>(char*, char*, long*, int, long, long, long, long, bool)",
+    "void vllm::topKPerRowDecode<512, true, true, false>(float const*, int const*, int*, int, int, int, int, int, float*, int, int const*)",
+    "void at::native::unrolled_elementwise_kernel<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul>, 4, TrivialOffsetCalculator<1, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<1>, at::native::memory::StoreWithCast<1> >(int, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul>, TrivialOffsetCalculator<1, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<1>, at::native::memory::StoreWithCast<1>)",
+    "void at::native::unrolled_elementwise_kernel<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#3}::operator()() const::{lambda(int)#1}, std::array<char*, 2ul>, 4, TrivialOffsetCalculator<1, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<1>, at::native::memory::StoreWithCast<1> >(int, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#3}::operator()() const::{lambda(int)#1}, std::array<char*, 2ul>, TrivialOffsetCalculator<1, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<1>, at::native::memory::StoreWithCast<1>)",
+    "_convert_req_index_to_global_index_kernel",
+    "void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<int>, std::array<char*, 1ul> >(int, at::native::FillFunctor<int>, std::array<char*, 1ul>)",
+    "triton_red_fused__to_copy_native_layer_norm_0",
+    "void vllm::rms_norm_kernel<c10::BFloat16, 8, 3, true>(c10::BFloat16*, c10::BFloat16 const*, long, long, long, long, long, c10::BFloat16 const*, long, float, int, int)",
+    "void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctorOnSelf_add<int>, std::array<char*, 2ul> >(int, at::native::CUDAFunctorOnSelf_add<int>, std::array<char*, 2ul>)",
+    "_fused_q_kv_rmsnorm_kernel",
+    "void at::native::vectorized_elementwise_kernel<2, at::native::AUnaryFunctor<long, long, long, at::native::BitwiseAndFunctor<long> >, std::array<char*, 2ul> >(int, at::native::AUnaryFunctor<long, long, long, at::native::BitwiseAndFunctor<long> >, std::array<char*, 2ul>)",
+    "_zero_kv_blocks_kernel",
+    "void at::native::vectorized_elementwise_kernel<4, at::native::(anonymous namespace)::launch_clamp_scalar(at::TensorIteratorBase&, c10::Scalar, c10::Scalar, at::native::detail::ClampLimits)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(int)#1}, std::array<char*, 2ul> >(int, at::native::(anonymous namespace)::launch_clamp_scalar(at::TensorIteratorBase&, c10::Scalar, c10::Scalar, at::native::detail::ClampLimits)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(int)#1}, std::array<char*, 2ul>)",
+    "void vllm::rotary_embedding_kernel<c10::BFloat16, c10::BFloat16, true>(long const*, c10::BFloat16*, c10::BFloat16*, c10::BFloat16 const*, int, long, long, long, int, int, int, long, bool)",
+    "void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native::index_kernel_impl<at::native::OpaqueType<4> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1}>(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>, at::native::index_kernel_impl<at::native::OpaqueType<4> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1} const&, bool)::{lambda(int)#1}>(long, at::native::gpu_index_kernel<at::native::index_kernel_impl<at::native::OpaqueType<4> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1}>(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>, at::native::index_kernel_impl<at::native::OpaqueType<4> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1} const&, bool)::{lambda(int)#1})",
+    "void at::native::vectorized_elementwise_kernel<4, at::native::(anonymous namespace)::masked_fill_kernel(at::TensorIterator&, c10::Scalar const&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(int, bool)#1}, std::array<char*, 3ul> >(int, at::native::(anonymous namespace)::masked_fill_kernel(at::TensorIterator&, c10::Scalar const&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(int, bool)#1}, std::array<char*, 3ul>)",
+    "_expand_pools_and_append_tail_kernel",
+    "void at::native::vectorized_elementwise_kernel<4, at::native::AUnaryFunctor<int, int, bool, at::native::(anonymous namespace)::CompareEqFunctor<int> >, std::array<char*, 2ul> >(int, at::native::AUnaryFunctor<int, int, bool, at::native::(anonymous namespace)::CompareEqFunctor<int> >, std::array<char*, 2ul>)",
+    "_compute_local_logits_stats_kernel",
+    "void vllm::act_and_mul_kernel<c10::BFloat16, __nv_bfloat162, &(c10::BFloat16 vllm::silu_kernel<c10::BFloat16>(c10::BFloat16 const&, float)), &(__nv_bfloat162 vllm::packed_silu_kernel<__nv_bfloat162>(__nv_bfloat162 const&, float)), true, true, false, false>(c10::BFloat16*, c10::BFloat16 const*, int, float, float, float)",
+    "_cache_draft_logits_kernel",
+    "triton_poi_fused_mul_unsqueeze_0",
+    "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::BUnaryFunctor<int, int, int, at::native::binary_internal::div_floor_kernel_cuda(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(int, int)#1}> >(at::TensorIteratorBase&, at::native::BUnaryFunctor<int, int, int, at::native::binary_internal::div_floor_kernel_cuda(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(int, int)#1}> const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::BUnaryFunctor<int, int, int, at::native::binary_internal::div_floor_kernel_cuda(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(int, int)#1}> >(at::TensorIteratorBase&, at::native::BUnaryFunctor<int, int, int, at::native::binary_internal::div_floor_kernel_cuda(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(int, int)#1}> const&)::{lambda(int)#1})",
+    "_prepare_uniform_decode_kernel",
+    "void at::native::vectorized_elementwise_kernel<4, at::native::BUnaryFunctor<int, int, int, at::native::binary_internal::div_floor_kernel_cuda(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(int, int)#1}>, std::array<char*, 2ul> >(int, at::native::BUnaryFunctor<int, int, int, at::native::binary_internal::div_floor_kernel_cuda(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(int, int)#1}>, std::array<char*, 2ul>)",
+    "void (anonymous namespace)::elementwise_kernel_with_index<int, at::native::arange_cuda_out(c10::Scalar const&, c10::Scalar const&, c10::Scalar const&, at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(long)#1}>(int, at::native::arange_cuda_out(c10::Scalar const&, c10::Scalar const&, c10::Scalar const&, at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(long)#1}, function_traits<at::native::arange_cuda_out(c10::Scalar const&, c10::Scalar const&, c10::Scalar const&, at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(long)#1}>::result_type*)",
+    "void vllm::rms_norm_kernel<c10::BFloat16, 8, 2, true>(c10::BFloat16*, c10::BFloat16 const*, long, long, long, long, long, c10::BFloat16 const*, long, float, int, int)",
+    "_gather_block_tables_kernel",
+    "void at::native::_scatter_gather_elementwise_kernel<128, 8, at::native::_cuda_scatter_gather_internal_kernel<false, at::native::OpaqueType<4>, long>::operator()<at::native::TensorAssign>(at::TensorIterator&, long, long, long, at::native::TensorAssign const&)::{lambda(int)#1}>(int, at::native::_cuda_scatter_gather_internal_kernel<false, at::native::OpaqueType<4>, long>::operator()<at::native::TensorAssign>(at::TensorIterator&, long, long, long, at::native::TensorAssign const&)::{lambda(int)#1})",
+    "_post_update_kernel",
+    "void at_cuda_detail::cub::detail::scan_by_key::DeviceScanByKeyKernel<at_cuda_detail::cub::detail::scan_by_key::policy_hub<thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::transform_iterator<at::native::mbtopk::BlockIdxToKey, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::counting_iterator<unsigned int, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default>, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default>, unsigned int, unsigned int, cuda::std::__4::plus<void> >::Policy1000, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::transform_iterator<at::native::mbtopk::BlockIdxToKey, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::counting_iterator<unsigned int, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default>, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default>, unsigned int*, unsigned int*, at_cuda_detail::cub::ReduceByKeyScanTileState<unsigned int, int, true>, cuda::std::__4::equal_to<void>, cuda::std::__4::plus<void>, at_cuda_detail::cub::NullType, unsigned long long, unsigned int, unsigned int>(thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::transform_iterator<at::native::mbtopk::BlockIdxToKey, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::counting_iterator<unsigned int, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default>, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default>, unsigned int*, unsigned int*, unsigned int*, at_cuda_detail::cub::ReduceByKeyScanTileState<unsigned int, int, true>, int, cuda::std::__4::equal_to<void>, cuda::std::__4::plus<void>, at_cuda_detail::cub::NullType, unsigned long long)",
+    "void at::native::mbtopk::computeBlockwiseWithinKCounts<unsigned int, c10::BFloat16>(unsigned int*, short*, unsigned int*, unsigned int*, unsigned int, int, bool, unsigned int*, c10::BFloat16*, unsigned int*, unsigned int*, unsigned int)",
+    "_prepare_dflash_inputs_kernel",
+    "void at::native::(anonymous namespace)::CatArrayBatchedCopy_vectorized<at::native::(anonymous namespace)::OpaqueType<2u>, unsigned int, 2, 128, 1, 16, 8>(char*, at::native::(anonymous namespace)::CatArrInputTensorMetadata<at::native::(anonymous namespace)::OpaqueType<2u>, unsigned int, 128, 1>, at::native::(anonymous namespace)::TensorSizeStride<unsigned int, 4u>, int, unsigned int)",
+    "void at::native::unrolled_elementwise_kernel<at::native::CUDAFunctor_add<int>, std::array<char*, 3ul>, 4, TrivialOffsetCalculator<2, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithoutCast, at::native::memory::StoreWithoutCast>(int, at::native::CUDAFunctor_add<int>, std::array<char*, 3ul>, TrivialOffsetCalculator<2, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithoutCast, at::native::memory::StoreWithoutCast)",
+    "triton_poi_fused_add_bitwise_and_bitwise_not_bitwise_or_ge_lt_mul_sub_0",
+    "_insert_resampled_kernel",
+    "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::CUDAFunctor_add<int> >(at::TensorIteratorBase&, at::native::CUDAFunctor_add<int> const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::CUDAFunctor_add<int> >(at::TensorIteratorBase&, at::native::CUDAFunctor_add<int> const&)::{lambda(int)#1})",
+    "precopy_mamba_align_fused_kernel",
+    "postprocess_mamba_fused_kernel",
+    "at::native::mbtopk::computeDigitCumSum(short*, unsigned int*, unsigned int)",
+    "void at::native::bitonicSortKVInPlace<2, -1, 16, 16, c10::BFloat16, long, at::native::GTOp<c10::BFloat16, true>, unsigned int>(at::cuda::detail::TensorInfo<c10::BFloat16, unsigned int>, unsigned int, unsigned int, unsigned int, at::cuda::detail::TensorInfo<long, unsigned int>, unsigned int, at::native::GTOp<c10::BFloat16, true>)",
+    "_selector_walk_kernel",
+    "_resample_kernel",
+    "preprocess_mamba_align_fused_kernel",
+    "void at::native::(anonymous namespace)::indexSelectSmallIndex<c10::BFloat16, long, unsigned int, 2, 2, -2>(at::cuda::detail::TensorInfo<c10::BFloat16, unsigned int>, at::cuda::detail::TensorInfo<c10::BFloat16 const, unsigned int>, at::cuda::detail::TensorInfo<long const, unsigned int>, int, int, unsigned int, long)",
+    "_rejection_kernel",
+    "_scatter_num_accepted_kernel",
+    "void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native::index_put_kernel_impl<at::native::OpaqueType<8> >(at::TensorIterator&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1}>(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>, at::native::index_put_kernel_impl<at::native::OpaqueType<8> >(at::TensorIterator&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1} const&, bool)::{lambda(int)#1}>(long, at::native::gpu_index_kernel<at::native::index_put_kernel_impl<at::native::OpaqueType<8> >(at::TensorIterator&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1}>(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>, at::native::index_put_kernel_impl<at::native::OpaqueType<8> >(at::TensorIterator&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1} const&, bool)::{lambda(int)#1})",
+    "_compute_slot_mappings_kernel",
+    "_get_num_sampled_and_rejected_kernel",
+    "void vllm::rms_norm_kernel<c10::BFloat16, 8, 4, true>(c10::BFloat16*, c10::BFloat16 const*, long, long, long, long, long, c10::BFloat16 const*, long, float, int, int)",
+    "_combine_sampled_and_draft_tokens_kernel",
+    "void at::native::mbtopk::computeBlockwiseKthCounts<unsigned int>(unsigned int*, short*, unsigned int, unsigned int, unsigned int*)",
+    "_prepare_pos_seq_lens_kernel",
+    "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1} const&)::{lambda(int)#1})",
+    "_compressed_slot_mapping_kernel",
+    "memset32",
+    "_expand_idx_mapping_kernel",
+    "void at_cuda_detail::cub::detail::scan_by_key::DeviceScanByKeyInitKernel<at_cuda_detail::cub::ReduceByKeyScanTileState<unsigned int, int, true>, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::transform_iterator<at::native::mbtopk::BlockIdxToKey, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::counting_iterator<unsigned int, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default>, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default>, unsigned long long>(at_cuda_detail::cub::ReduceByKeyScanTileState<unsigned int, int, true>, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::transform_iterator<at::native::mbtopk::BlockIdxToKey, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::counting_iterator<unsigned int, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default>, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default>, cuda::std::__4::iterator_traits<thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::transform_iterator<at::native::mbtopk::BlockIdxToKey, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::counting_iterator<unsigned int, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default>, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default> >::value_type*, unsigned long long, int)",
+    "void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<bool>, std::array<char*, 1ul> >(int, at::native::FillFunctor<bool>, std::array<char*, 1ul>)",
+    "void at::native::vectorized_elementwise_kernel<4, at::native::AUnaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> >, std::array<char*, 2ul> >(int, at::native::AUnaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> >, std::array<char*, 2ul>)",
+    "void at::native::mbtopk::fill<unsigned int, unsigned int>(unsigned int*, unsigned int, unsigned int)",
+    "_apply_write_kernel",
+    "void at::native::unrolled_elementwise_kernel<at::native::FillFunctor<int>, std::array<char*, 1ul>, 4, TrivialOffsetCalculator<0, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithoutCast, at::native::memory::StoreWithoutCast>(int, at::native::FillFunctor<int>, std::array<char*, 1ul>, TrivialOffsetCalculator<0, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithoutCast, at::native::memory::StoreWithoutCast)",
+    "void at::native::vectorized_elementwise_kernel<2, at::native::FillFunctor<int>, std::array<char*, 1ul> >(int, at::native::FillFunctor<int>, std::array<char*, 1ul>)"
+   ],
+   "share": 0.044357
+  },
+  "attention": {
+   "total_us": 272239.157,
+   "count": 1825,
+   "kernels": [
+    "void flash::flash_fwd_splitkv_kernel<Flash_fwd_kernel_traits<128, 64, 128, 4, false, false, cutlass::bfloat16_t, Flash_kernel_traits<128, 64, 128, 4, cutlass::bfloat16_t> >, false, true, false, false, true, false, false, false>(flash::Flash_fwd_params)"
+   ],
+   "share": 0.004416
+  }
+ },
+ "kernels": [
+  {
+   "name": "void exl3_moe_kernel<4, 256, 1>(__half const*, __half*, __half*, __half*, __half*, float*, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, long const*, long const*, __half const*, int, int, int, int, int, int, float, int, int, int, int, int*)",
+   "family": "fused_moe",
+   "count": 15330,
+   "total_us": 31008650.976,
+   "mean_us": 2022.7431,
+   "share": 0.503003,
+   "regs": [
+    128
+   ],
+   "smem": [
+    92160
+   ],
+   "grid_volume": [
+    48
+   ],
+   "block": [
+    [
+     512,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    33.33
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x1_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x1_tn_align8::Params)",
+   "family": "gemm",
+   "count": 53471,
+   "total_us": 8514623.268,
+   "mean_us": 159.2382,
+   "share": 0.138119,
+   "regs": [
+    96
+   ],
+   "smem": [
+    8704
+   ],
+   "grid_volume": [
+    256,
+    320,
+    768,
+    792
+   ],
+   "block": [
+    [
+     32,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    11,
+    14,
+    21
+   ],
+   "derived_occupancy_pct": [
+    11.11,
+    13.89,
+    33.33,
+    34.38
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:0",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "ncclDevKernel_AllReduce_Sum_bf16_RING_LL(ncclDevKernelArgsStorage<4096ul>)",
+   "family": "collective",
+   "count": 37230,
+   "total_us": 4270127.941,
+   "mean_us": 114.6959,
+   "share": 0.069267,
+   "regs": [
+    96
+   ],
+   "smem": [
+    98560
+   ],
+   "grid_volume": [
+    8,
+    9,
+    10,
+    12,
+    16
+   ],
+   "block": [
+    [
+     512,
+     1,
+     1
+    ],
+    [
+     640,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    6.25,
+    6.94,
+    8.33,
+    10.42,
+    12.5,
+    16.67
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:0",
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588",
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align8::Params)",
+   "family": "gemm",
+   "count": 7112,
+   "total_us": 3407932.749,
+   "mean_us": 479.1806,
+   "share": 0.055281,
+   "regs": [
+    72
+   ],
+   "smem": [
+    17408
+   ],
+   "grid_volume": [
+    384,
+    400,
+    896
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    42
+   ],
+   "derived_occupancy_pct": [
+    66.67,
+    69.44,
+    155.56
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:0",
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2603",
+    "rank1:2606"
+   ]
+  },
+  {
+   "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x2_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x2_tn_align8::Params)",
+   "family": "gemm",
+   "count": 22376,
+   "total_us": 2262364.164,
+   "mean_us": 101.1067,
+   "share": 0.036699,
+   "regs": [
+    124
+   ],
+   "smem": [
+    16896
+   ],
+   "grid_volume": [
+    64,
+    128,
+    192,
+    512,
+    4840
+   ],
+   "block": [
+    [
+     32,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    3,
+    6,
+    8,
+    10
+   ],
+   "derived_occupancy_pct": [
+    2.78,
+    5.56,
+    8.33,
+    22.22,
+    210.07
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:0",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align2>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align2::Params)",
+   "family": "gemm",
+   "count": 15288,
+   "total_us": 2058667.289,
+   "mean_us": 134.659,
+   "share": 0.033394,
+   "regs": [
+    72
+   ],
+   "smem": [
+    17408
+   ],
+   "grid_volume": [
+    768,
+    1024,
+    1280
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    42
+   ],
+   "derived_occupancy_pct": [
+    133.33,
+    177.78,
+    222.22
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:0",
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2603",
+    "rank1:2606"
+   ]
+  },
+  {
+   "name": "fused_recurrent_gated_delta_rule_fwd_kernel",
+   "family": "kda",
+   "count": 12410,
+   "total_us": 1835990.813,
+   "mean_us": 147.9445,
+   "share": 0.029782,
+   "regs": [
+    80
+   ],
+   "smem": [
+    16
+   ],
+   "grid_volume": [
+    1024,
+    1536,
+    2048
+   ],
+   "block": [
+    [
+     32,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    44,
+    50
+   ],
+   "derived_occupancy_pct": [
+    44.44,
+    66.67,
+    88.89
+   ],
+   "occupancy_limiter": [
+    "REGS|BLOCKS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "nvjet_sm121_tst_mma_128x144x64_2_32x72x64_tmaAB_bz_TNNN",
+   "family": "gemm",
+   "count": 472,
+   "total_us": 1662132.21,
+   "mean_us": 3521.4665,
+   "share": 0.026962,
+   "regs": [
+    255
+   ],
+   "smem": [
+    70656
+   ],
+   "grid_volume": [
+    4840
+   ],
+   "block": [
+    [
+     64,
+     4,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    6722.22
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:0",
+    "rank1:2603",
+    "rank1:2606"
+   ]
+  },
+  {
+   "name": "void flashinfer::sparse_mla_sm120::sparse_mla_decode_dsv3_2_kernel<(ModelType)2, 32, 2048, 64>(__nv_bfloat16 const*, unsigned char const*, int const*, __nv_bfloat16*, float*, int const*, int, int, int, float, unsigned long)",
+   "family": "sparse_mla",
+   "count": 4015,
+   "total_us": 623342.671,
+   "mean_us": 155.2535,
+   "share": 0.010111,
+   "regs": [
+    96
+   ],
+   "smem": [
+    98608
+   ],
+   "grid_volume": [
+    576,
+    640,
+    768,
+    960,
+    1280,
+    2048
+   ],
+   "block": [
+    [
+     288,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    240.0,
+    266.67,
+    320.0,
+    400.0,
+    533.33,
+    853.33
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "nvjet_sm121_tst_mma_64x32x64_8_16x32x64_tmaAB_bz_TNNN",
+   "family": "gemm",
+   "count": 5724,
+   "total_us": 537274.611,
+   "mean_us": 93.8635,
+   "share": 0.008715,
+   "regs": [
+    255
+   ],
+   "smem": [
+    99328
+   ],
+   "grid_volume": [
+    32
+   ],
+   "block": [
+    [
+     32,
+     4,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    22.22
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573"
+   ]
+  },
+  {
+   "name": "mhc_fused_tilelang_kernel",
+   "family": "other",
+   "count": 22873,
+   "total_us": 446876.348,
+   "mean_us": 19.5373,
+   "share": 0.007249,
+   "regs": [
+    60
+   ],
+   "smem": [
+    128
+   ],
+   "grid_volume": [
+    288,
+    320,
+    384,
+    480
+   ],
+   "block": [
+    [
+     256,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    67
+   ],
+   "derived_occupancy_pct": [
+    100.0,
+    111.11,
+    133.33,
+    166.67
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "ncclDevKernel_AllGather_RING_LL(ncclDevKernelArgsStorage<4096ul>)",
+   "family": "collective",
+   "count": 730,
+   "total_us": 436434.208,
+   "mean_us": 597.8551,
+   "share": 0.00708,
+   "regs": [
+    96
+   ],
+   "smem": [
+    98560
+   ],
+   "grid_volume": [
+    43,
+    45,
+    48,
+    50,
+    53,
+    57,
+    61,
+    64
+   ],
+   "block": [
+    [
+     288,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    17.92,
+    18.75,
+    20.0,
+    20.83,
+    22.08,
+    23.75,
+    25.42,
+    26.67
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:0",
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_s161616gemm_bf16_16x16_128x2_tn_align8>(cutlass_80_wmma_tensorop_s161616gemm_bf16_16x16_128x2_tn_align8::Params)",
+   "family": "gemm",
+   "count": 21588,
+   "total_us": 296442.193,
+   "mean_us": 13.7318,
+   "share": 0.004809,
+   "regs": [
+    124
+   ],
+   "smem": [
+    16896
+   ],
+   "grid_volume": [
+    192
+   ],
+   "block": [
+    [
+     32,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    8
+   ],
+   "derived_occupancy_pct": [
+    8.33
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void flash::flash_fwd_splitkv_kernel<Flash_fwd_kernel_traits<128, 64, 128, 4, false, false, cutlass::bfloat16_t, Flash_kernel_traits<128, 64, 128, 4, cutlass::bfloat16_t> >, false, true, false, false, true, false, false, false>(flash::Flash_fwd_params)",
+   "family": "attention",
+   "count": 1825,
+   "total_us": 272239.157,
+   "mean_us": 149.1721,
+   "share": 0.004416,
+   "regs": [
+    255
+   ],
+   "smem": [
+    81920
+   ],
+   "grid_volume": [
+    32,
+    48,
+    64
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    5.56,
+    8.33,
+    11.11
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void cublasLt::splitKreduce_kernel<32, 16, int, float, float, float, float, false, float, float, float, true, false, false, false>(cublasLt::cublasSplitKParams<float>, float const*, float const*, float*, float*, float const*, float const*, float const*, float const*, float*, void*, long, float*, int*, float*, float*, float const*, float const*, float const*, float const*, float const*)",
+   "family": "gemm",
+   "count": 31848,
+   "total_us": 210170.75,
+   "mean_us": 6.5992,
+   "share": 0.003409,
+   "regs": [
+    46
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    2,
+    9,
+    18
+   ],
+   "block": [
+    [
+     32,
+     16,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    1,
+    6,
+    13
+   ],
+   "derived_occupancy_pct": [
+    22.22,
+    100.0,
+    200.0
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void gemmSN_NN_kernel<float, 256, 4, 2, 8, 6, 4, false, cublasGemvTensorStridedBatched<float const>, cublasGemvTensorStridedBatched<float const>, cublasGemvTensorStridedBatched<float> >(cublasGemmSmallNParams<cublasGemvTensorStridedBatched<float const>, cublasGemvTensorStridedBatched<float const>, cublasGemvTensorStridedBatched<float>, float>)",
+   "family": "gemm",
+   "count": 2750,
+   "total_us": 201811.932,
+   "mean_us": 73.3862,
+   "share": 0.003274,
+   "regs": [
+    64
+   ],
+   "smem": [
+    18432
+   ],
+   "grid_volume": [
+    2
+   ],
+   "block": [
+    [
+     256,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    1
+   ],
+   "derived_occupancy_pct": [
+    0.69
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:2582"
+   ]
+  },
+  {
+   "name": "nvjet_sm121_tss_mma_192x16x64_3_32x16x64_tmaAB_splitK_TNNN",
+   "family": "gemm",
+   "count": 9072,
+   "total_us": 195121.965,
+   "mean_us": 21.5082,
+   "share": 0.003165,
+   "regs": [
+    255
+   ],
+   "smem": [
+    80896
+   ],
+   "grid_volume": [
+    192
+   ],
+   "block": [
+    [
+     32,
+     6,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    300.0
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573"
+   ]
+  },
+  {
+   "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_64x2_nn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_64x2_nn_align8::Params)",
+   "family": "gemm",
+   "count": 4015,
+   "total_us": 186126.203,
+   "mean_us": 46.3577,
+   "share": 0.003019,
+   "regs": [
+    68
+   ],
+   "smem": [
+    18944
+   ],
+   "grid_volume": [
+    512
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    42
+   ],
+   "derived_occupancy_pct": [
+    88.89
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_64x2_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_64x2_tn_align8::Params)",
+   "family": "gemm",
+   "count": 3982,
+   "total_us": 181705.391,
+   "mean_us": 45.6317,
+   "share": 0.002948,
+   "regs": [
+    64
+   ],
+   "smem": [
+    17408
+   ],
+   "grid_volume": [
+    256
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    42
+   ],
+   "derived_occupancy_pct": [
+    44.44
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582"
+   ]
+  },
+  {
+   "name": "mhc_pre_big_fuse_with_norm_tilelang_kernel",
+   "family": "other",
+   "count": 32850,
+   "total_us": 178273.395,
+   "mean_us": 5.4269,
+   "share": 0.002892,
+   "regs": [
+    115
+   ],
+   "smem": [
+    29040
+   ],
+   "grid_volume": [
+    9,
+    10,
+    12,
+    15,
+    20,
+    32
+   ],
+   "block": [
+    [
+     96,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    1,
+    2,
+    3,
+    4
+   ],
+   "derived_occupancy_pct": [
+    1.17,
+    1.3,
+    1.56,
+    1.95,
+    2.6,
+    4.17
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "nvjet_sm121_tst_mma_32x32x64_12_32x8x64_tmaAB_bz_TNNN",
+   "family": "gemm",
+   "count": 3640,
+   "total_us": 168769.756,
+   "mean_us": 46.3653,
+   "share": 0.002738,
+   "regs": [
+    255
+   ],
+   "smem": [
+    99328
+   ],
+   "grid_volume": [
+    32
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    5.56
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:2603",
+    "rank1:2606"
+   ]
+  },
+  {
+   "name": "nvjet_sm121_tst_mma_96x64x64_4_16x64x64_tmaAB_bz_TNNN",
+   "family": "gemm",
+   "count": 1188,
+   "total_us": 161016.646,
+   "mean_us": 135.5359,
+   "share": 0.002612,
+   "regs": [
+    255
+   ],
+   "smem": [
+    82944
+   ],
+   "grid_volume": [
+    88
+   ],
+   "block": [
+    [
+     32,
+     6,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    137.5
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573"
+   ]
+  },
+  {
+   "name": "void vllm::moe::single_group_topk::detail::single_group_topk_block_kernel<float, float, int, (vllm::moe::ScoringFunc)1, 384, 8>(float const*, float*, int*, float const*, long, long, bool, float, bool)",
+   "family": "other",
+   "count": 15330,
+   "total_us": 154553.569,
+   "mean_us": 10.0818,
+   "share": 0.002507,
+   "regs": [
+    37
+   ],
+   "smem": [
+    3072
+   ],
+   "grid_volume": [
+    9,
+    10,
+    12,
+    15,
+    20,
+    32
+   ],
+   "block": [
+    [
+     256,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    3,
+    4,
+    5,
+    7,
+    11
+   ],
+   "derived_occupancy_pct": [
+    3.12,
+    3.47,
+    4.17,
+    5.21,
+    6.94,
+    11.11
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void deep_gemm::sm120_tf32_hc_prenorm_gemm_impl<24u, 16384u, 128u, 32u, 64u, 48u, 4u, 256u, 128u>(unsigned int, CUtensorMap_st, CUtensorMap_st, float*, float*)",
+   "family": "gemm",
+   "count": 9977,
+   "total_us": 143226.284,
+   "mean_us": 14.3556,
+   "share": 0.002323,
+   "regs": [
+    168
+   ],
+   "smem": [
+    98368
+   ],
+   "grid_volume": [
+    48
+   ],
+   "block": [
+    [
+     384,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    25.0
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16)#1} const&)::{lambda(int)#1})",
+   "family": "other",
+   "count": 55115,
+   "total_us": 122534.968,
+   "mean_us": 2.2233,
+   "share": 0.001988,
+   "regs": [
+    18
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1,
+    2,
+    72,
+    80,
+    90,
+    96,
+    100,
+    120,
+    150,
+    160,
+    200,
+    256,
+    288,
+    320,
+    384,
+    480,
+    640,
+    1024,
+    2723,
+    3025,
+    3630,
+    4235,
+    4538,
+    6050,
+    6353,
+    8470,
+    9680
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0,
+    13,
+    14,
+    16,
+    17,
+    21,
+    26,
+    28,
+    35,
+    44,
+    50,
+    56,
+    67,
+    83,
+    100
+   ],
+   "derived_occupancy_pct": [
+    0.17,
+    0.35,
+    12.5,
+    13.89,
+    15.62,
+    16.67,
+    17.36,
+    20.83,
+    26.04,
+    27.78,
+    34.72,
+    44.44,
+    50.0,
+    55.56,
+    66.67,
+    83.33,
+    111.11,
+    177.78,
+    472.74,
+    525.17,
+    630.21,
+    735.24,
+    787.85,
+    1050.35,
+    1102.95,
+    1470.49,
+    1680.56
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:0",
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588",
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void at::native::vectorized_elementwise_kernel<2, at::native::FillFunctor<long>, std::array<char*, 1ul> >(int, at::native::FillFunctor<long>, std::array<char*, 1ul>)",
+   "family": "other",
+   "count": 46355,
+   "total_us": 112470.081,
+   "mean_us": 2.4263,
+   "share": 0.001824,
+   "regs": [
+    22
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1,
+    4
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0,
+    1
+   ],
+   "derived_occupancy_pct": [
+    0.17,
+    0.69
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:0",
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "_causal_conv1d_update_kernel",
+   "family": "kda",
+   "count": 12410,
+   "total_us": 111993.761,
+   "mean_us": 9.0245,
+   "share": 0.001817,
+   "regs": [
+    40
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    96,
+    144,
+    192
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    17,
+    25,
+    33
+   ],
+   "derived_occupancy_pct": [
+    16.67,
+    25.0,
+    33.33
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void at::native::radixSortKVInPlace<-2, -1, 32, 32, long, long, unsigned int>(at::cuda::detail::TensorInfo<long, unsigned int>, unsigned int, unsigned int, unsigned int, at::cuda::detail::TensorInfo<long, unsigned int>, unsigned int, bool)",
+   "family": "other",
+   "count": 4536,
+   "total_us": 96094.307,
+   "mean_us": 21.1848,
+   "share": 0.001559,
+   "regs": [
+    254
+   ],
+   "smem": [
+    8464
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     32,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.04
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573"
+   ]
+  },
+  {
+   "name": "void at::native::vectorized_elementwise_kernel<4, at::native::compare_scalar_kernel<long>(at::TensorIteratorBase&, at::native::(anonymous namespace)::OpType, long)::{lambda(long)#1}, std::array<char*, 2ul> >(int, at::native::compare_scalar_kernel<long>(at::TensorIteratorBase&, at::native::(anonymous namespace)::OpType, long)::{lambda(long)#1}, std::array<char*, 2ul>)",
+   "family": "other",
+   "count": 37960,
+   "total_us": 92043.802,
+   "mean_us": 2.4248,
+   "share": 0.001493,
+   "regs": [
+    40
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.17
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588",
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void at::native::unrolled_elementwise_kernel<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}, std::array<char*, 2ul>, 4, TrivialOffsetCalculator<1, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<1>, at::native::memory::StoreWithCast<1> >(int, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}, std::array<char*, 2ul>, TrivialOffsetCalculator<1, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<1>, at::native::memory::StoreWithCast<1>)",
+   "family": "other",
+   "count": 20805,
+   "total_us": 91146.297,
+   "mean_us": 4.381,
+   "share": 0.001479,
+   "regs": [
+    33
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1,
+    9,
+    10,
+    12,
+    15,
+    20,
+    32
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0,
+    2,
+    3,
+    6
+   ],
+   "derived_occupancy_pct": [
+    0.17,
+    1.56,
+    1.74,
+    2.08,
+    2.6,
+    3.47,
+    5.56
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:0",
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void at::native::_scatter_gather_elementwise_kernel<128, 8, at::native::_cuda_scatter_gather_internal_kernel<true, long, long>::operator()<at::native::ReduceAdd>(at::TensorIterator&, long, long, long, at::native::ReduceAdd const&)::{lambda(int)#1}>(int, at::native::_cuda_scatter_gather_internal_kernel<true, long, long>::operator()<at::native::ReduceAdd>(at::TensorIterator&, long, long, long, at::native::ReduceAdd const&)::{lambda(int)#1})",
+   "family": "other",
+   "count": 15330,
+   "total_us": 88647.373,
+   "mean_us": 5.7826,
+   "share": 0.001438,
+   "regs": [
+    32
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.17
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void at::native::unrolled_elementwise_kernel<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#10}::operator()() const::{lambda(c10::Half)#1}, std::array<char*, 2ul>, 4, TrivialOffsetCalculator<1, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<1>, at::native::memory::StoreWithCast<1> >(int, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#10}::operator()() const::{lambda(c10::Half)#1}, std::array<char*, 2ul>, TrivialOffsetCalculator<1, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<1>, at::native::memory::StoreWithCast<1>)",
+   "family": "other",
+   "count": 15330,
+   "total_us": 80395.988,
+   "mean_us": 5.2444,
+   "share": 0.001304,
+   "regs": [
+    32
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    72,
+    80,
+    96,
+    120,
+    160,
+    256
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    13,
+    14,
+    17,
+    21,
+    28,
+    44
+   ],
+   "derived_occupancy_pct": [
+    12.5,
+    13.89,
+    16.67,
+    20.83,
+    27.78,
+    44.44
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "memcpy32_post",
+   "family": "other",
+   "count": 55480,
+   "total_us": 80300.483,
+   "mean_us": 1.4474,
+   "share": 0.001303,
+   "regs": [
+    16
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1,
+    2,
+    72,
+    80,
+    96,
+    120,
+    160,
+    184,
+    248,
+    256
+   ],
+   "block": [
+    [
+     256,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0,
+    1,
+    25,
+    28,
+    33,
+    42,
+    56,
+    64,
+    86,
+    89
+   ],
+   "derived_occupancy_pct": [
+    0.35,
+    0.69,
+    25.0,
+    27.78,
+    33.33,
+    41.67,
+    55.56,
+    63.89,
+    86.11,
+    88.89
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588",
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void vllm::topKPerRowDecode<1024, true, false, true>(float const*, int const*, int*, int, int, int, int, int, float*, int, int const*)",
+   "family": "other",
+   "count": 4015,
+   "total_us": 79184.069,
+   "mean_us": 19.7221,
+   "share": 0.001284,
+   "regs": [
+    52
+   ],
+   "smem": [
+    39120
+   ],
+   "grid_volume": [
+    9,
+    10,
+    12,
+    15,
+    20,
+    32
+   ],
+   "block": [
+    [
+     1024,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    13,
+    14,
+    17,
+    21,
+    28,
+    44
+   ],
+   "derived_occupancy_pct": [
+    18.75,
+    20.83,
+    25.0,
+    31.25,
+    41.67,
+    66.67
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<float>, std::array<char*, 1ul> >(int, at::native::FillFunctor<float>, std::array<char*, 1ul>)",
+   "family": "other",
+   "count": 15330,
+   "total_us": 65468.212,
+   "mean_us": 4.2706,
+   "share": 0.001062,
+   "regs": [
+    16
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    36,
+    40,
+    48,
+    60,
+    80,
+    128
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    6,
+    7,
+    8,
+    10,
+    14,
+    22
+   ],
+   "derived_occupancy_pct": [
+    6.25,
+    6.94,
+    8.33,
+    10.42,
+    13.89,
+    22.22
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "nvjet_sm121_tst_mma_192x24x32_7_64x24x32_tmaAB_bz_TNNN",
+   "family": "gemm",
+   "count": 7344,
+   "total_us": 60959.104,
+   "mean_us": 8.3005,
+   "share": 0.000989,
+   "regs": [
+    255
+   ],
+   "smem": [
+    56320
+   ],
+   "grid_volume": [
+    24,
+    48
+   ],
+   "block": [
+    [
+     32,
+     3,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    9.38,
+    18.75
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573"
+   ]
+  },
+  {
+   "name": "mhc_post_tilelang_kernel",
+   "family": "other",
+   "count": 11802,
+   "total_us": 60241.477,
+   "mean_us": 5.1043,
+   "share": 0.000977,
+   "regs": [
+    96
+   ],
+   "smem": [
+    10240
+   ],
+   "grid_volume": [
+    9,
+    10,
+    12,
+    15,
+    20,
+    32
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    2,
+    3,
+    6
+   ],
+   "derived_occupancy_pct": [
+    1.56,
+    1.74,
+    2.08,
+    2.6,
+    3.47,
+    5.56
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native::index_kernel_impl<at::native::OpaqueType<2> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1}>(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>, at::native::index_kernel_impl<at::native::OpaqueType<2> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1} const&, bool)::{lambda(int)#1}>(long, at::native::gpu_index_kernel<at::native::index_kernel_impl<at::native::OpaqueType<2> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1}>(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>, at::native::index_kernel_impl<at::native::OpaqueType<2> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1} const&, bool)::{lambda(int)#1})",
+   "family": "other",
+   "count": 15330,
+   "total_us": 56909.694,
+   "mean_us": 3.7123,
+   "share": 0.000923,
+   "regs": [
+    48
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.17
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native::index_kernel_impl<at::native::OpaqueType<8> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1}>(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>, at::native::index_kernel_impl<at::native::OpaqueType<8> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1} const&, bool)::{lambda(int)#1}>(long, at::native::gpu_index_kernel<at::native::index_kernel_impl<at::native::OpaqueType<8> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1}>(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>, at::native::index_kernel_impl<at::native::OpaqueType<8> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1} const&, bool)::{lambda(int)#1})",
+   "family": "other",
+   "count": 16060,
+   "total_us": 54784.134,
+   "mean_us": 3.4112,
+   "share": 0.000889,
+   "regs": [
+    48
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.17
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:0",
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void (anonymous namespace)::elementwise_kernel_with_index<int, at::native::arange_cuda_out(c10::Scalar const&, c10::Scalar const&, c10::Scalar const&, at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}>(int, at::native::arange_cuda_out(c10::Scalar const&, c10::Scalar const&, c10::Scalar const&, at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}, function_traits<at::native::arange_cuda_out(c10::Scalar const&, c10::Scalar const&, c10::Scalar const&, at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}>::result_type*)",
+   "family": "other",
+   "count": 37960,
+   "total_us": 50339.303,
+   "mean_us": 1.3261,
+   "share": 0.000817,
+   "regs": [
+    16
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1,
+    2,
+    3,
+    4
+   ],
+   "block": [
+    [
+     64,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.09,
+    0.17,
+    0.26,
+    0.35
+   ],
+   "occupancy_limiter": [
+    "WARPS|BLOCKS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588",
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void at::native::warpMergeSortKVInPlace<-2, -1, 128, 16, long, long, at::native::LTOp<long, true>, unsigned int, 32>(at::cuda::detail::TensorInfo<long, unsigned int>, unsigned int, unsigned int, unsigned int, at::cuda::detail::TensorInfo<long, unsigned int>, unsigned int, at::native::LTOp<long, true>, long)",
+   "family": "other",
+   "count": 10794,
+   "total_us": 47638.323,
+   "mean_us": 4.4134,
+   "share": 0.000773,
+   "regs": [
+    46
+   ],
+   "smem": [
+    16512
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     32,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.04
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "layer_norm_gated_fwd_kernel",
+   "family": "other",
+   "count": 12410,
+   "total_us": 46985.658,
+   "mean_us": 3.7861,
+   "share": 0.000762,
+   "regs": [
+    64
+   ],
+   "smem": [
+    256
+   ],
+   "grid_volume": [
+    9,
+    10,
+    12,
+    15,
+    20,
+    32
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    2,
+    3,
+    6
+   ],
+   "derived_occupancy_pct": [
+    1.56,
+    1.74,
+    2.08,
+    2.6,
+    3.47,
+    5.56
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void vllm::act_and_mul_kernel<c10::BFloat16, __nv_bfloat162, &(c10::BFloat16 vllm::silu_kernel<c10::BFloat16>(c10::BFloat16 const&, float)), &(__nv_bfloat162 vllm::packed_silu_kernel<__nv_bfloat162>(__nv_bfloat162 const&, float)), true, true, true, false>(c10::BFloat16*, c10::BFloat16 const*, int, float, float, float)",
+   "family": "other",
+   "count": 16425,
+   "total_us": 43346.43,
+   "mean_us": 2.6391,
+   "share": 0.000703,
+   "regs": [
+    27
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    9,
+    10,
+    12,
+    15,
+    20,
+    32
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ],
+    [
+     768,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    2,
+    3,
+    6,
+    9,
+    10,
+    13,
+    16,
+    21,
+    33
+   ],
+   "derived_occupancy_pct": [
+    1.56,
+    1.74,
+    2.08,
+    2.6,
+    3.47,
+    5.56,
+    9.38,
+    10.42,
+    12.5,
+    15.62,
+    20.83,
+    33.33
+   ],
+   "occupancy_limiter": [
+    "WARPS",
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void at::native::vectorized_elementwise_kernel<4, at::native::BinaryFunctor<bool, bool, bool, at::native::BitwiseOrFunctor<bool> >, std::array<char*, 3ul> >(int, at::native::BinaryFunctor<bool, bool, bool, at::native::BitwiseOrFunctor<bool> >, std::array<char*, 3ul>)",
+   "family": "other",
+   "count": 15330,
+   "total_us": 38659.308,
+   "mean_us": 2.5218,
+   "share": 0.000627,
+   "regs": [
+    38
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.17
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctor_add<c10::BFloat16>, std::array<char*, 3ul> >(int, at::native::CUDAFunctor_add<c10::BFloat16>, std::array<char*, 3ul>)",
+   "family": "other",
+   "count": 22630,
+   "total_us": 38002.002,
+   "mean_us": 1.6793,
+   "share": 0.000616,
+   "regs": [
+    40
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    36,
+    40,
+    48,
+    60,
+    64,
+    80,
+    96,
+    128
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    6,
+    7,
+    8,
+    10,
+    11,
+    14,
+    17,
+    22
+   ],
+   "derived_occupancy_pct": [
+    6.25,
+    6.94,
+    8.33,
+    10.42,
+    11.11,
+    13.89,
+    16.67,
+    22.22
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588",
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void at::native::vectorized_elementwise_kernel<2, at::native::(anonymous namespace)::where_kernel_impl(at::TensorIterator&)::{lambda()#1}::operator()() const::{lambda()#4}::operator()() const::{lambda(bool, unsigned long, unsigned long)#1}, std::array<char*, 4ul> >(int, at::native::(anonymous namespace)::where_kernel_impl(at::TensorIterator&)::{lambda()#1}::operator()() const::{lambda()#4}::operator()() const::{lambda(bool, unsigned long, unsigned long)#1}, std::array<char*, 4ul>)",
+   "family": "other",
+   "count": 15330,
+   "total_us": 34170.585,
+   "mean_us": 2.229,
+   "share": 0.000554,
+   "regs": [
+    40
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.17
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1} const&)::{lambda(int)#1})",
+   "family": "other",
+   "count": 16060,
+   "total_us": 33071.127,
+   "mean_us": 2.0592,
+   "share": 0.000536,
+   "regs": [
+    18
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1,
+    2
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.17,
+    0.35
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:0",
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588",
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void deep_gemm::sm120_fp8_paged_mqa_logits<1u, 32u, 128u, 64u, true, false, 2u, 3u, 128u, 128u, 256u, float>(unsigned int, unsigned int, unsigned int, unsigned int const*, float*, unsigned int const*, unsigned int const*, unsigned int const*, CUtensorMap_st, CUtensorMap_st, CUtensorMap_st, CUtensorMap_st)",
+   "family": "gemm",
+   "count": 4015,
+   "total_us": 31345.578,
+   "mean_us": 7.8071,
+   "share": 0.000508,
+   "regs": [
+    168
+   ],
+   "smem": [
+    68612
+   ],
+   "grid_volume": [
+    48
+   ],
+   "block": [
+    [
+     384,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    25.0
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1})",
+   "family": "other",
+   "count": 14965,
+   "total_us": 30203.547,
+   "mean_us": 2.0183,
+   "share": 0.00049,
+   "regs": [
+    21
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    112,
+    128,
+    168,
+    192,
+    224,
+    256
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    19,
+    22,
+    29,
+    33,
+    39,
+    44
+   ],
+   "derived_occupancy_pct": [
+    19.44,
+    22.22,
+    29.17,
+    33.33,
+    38.89,
+    44.44
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void at::native::vectorized_elementwise_kernel<4, at::native::float16_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda(float)#1}, std::array<char*, 2ul> >(int, at::native::float16_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda(float)#1}, std::array<char*, 2ul>)",
+   "family": "other",
+   "count": 15330,
+   "total_us": 30166.205,
+   "mean_us": 1.9678,
+   "share": 0.000489,
+   "regs": [
+    40
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.17
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "_kpool_decode_update_batched_kernel",
+   "family": "other",
+   "count": 4015,
+   "total_us": 27344.929,
+   "mean_us": 6.8107,
+   "share": 0.000444,
+   "regs": [
+    46
+   ],
+   "smem": [
+    512
+   ],
+   "grid_volume": [
+    2,
+    3,
+    4
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0,
+    1
+   ],
+   "derived_occupancy_pct": [
+    0.35,
+    0.52,
+    0.69
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl<at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl<at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1})",
+   "family": "other",
+   "count": 7300,
+   "total_us": 26659.525,
+   "mean_us": 3.652,
+   "share": 0.000432,
+   "regs": [
+    32
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    128,
+    192,
+    256
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    22,
+    33,
+    44
+   ],
+   "derived_occupancy_pct": [
+    22.22,
+    33.33,
+    44.44
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "nvjet_sm121_tst_mma_192x16x64_3_32x16x64_tmaAB_splitK_TNNN",
+   "family": "gemm",
+   "count": 2740,
+   "total_us": 25839.44,
+   "mean_us": 9.4305,
+   "share": 0.000419,
+   "regs": [
+    255
+   ],
+   "smem": [
+    80896
+   ],
+   "grid_volume": [
+    96,
+    192
+   ],
+   "block": [
+    [
+     32,
+     6,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    150.0,
+    300.0
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2603",
+    "rank1:2606"
+   ]
+  },
+  {
+   "name": "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::CUDAFunctor_add<c10::BFloat16> >(at::TensorIteratorBase&, at::native::CUDAFunctor_add<c10::BFloat16> const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::CUDAFunctor_add<c10::BFloat16> >(at::TensorIteratorBase&, at::native::CUDAFunctor_add<c10::BFloat16> const&)::{lambda(int)#1})",
+   "family": "other",
+   "count": 7665,
+   "total_us": 24583.241,
+   "mean_us": 3.2072,
+   "share": 0.000399,
+   "regs": [
+    21
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    7,
+    11,
+    14,
+    256,
+    384,
+    512
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    1,
+    2,
+    44,
+    67,
+    89
+   ],
+   "derived_occupancy_pct": [
+    1.22,
+    1.91,
+    2.43,
+    44.44,
+    66.67,
+    88.89
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void at::native::vectorized_elementwise_kernel<4, at::native::bfloat16_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda(float)#1}, std::array<char*, 2ul> >(int, at::native::bfloat16_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda(float)#1}, std::array<char*, 2ul>)",
+   "family": "other",
+   "count": 15330,
+   "total_us": 22950.281,
+   "mean_us": 1.4971,
+   "share": 0.000372,
+   "regs": [
+    40
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    36,
+    40,
+    48,
+    60,
+    80,
+    128
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    6,
+    7,
+    8,
+    10,
+    14,
+    22
+   ],
+   "derived_occupancy_pct": [
+    6.25,
+    6.94,
+    8.33,
+    10.42,
+    13.89,
+    22.22
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<c10::BFloat16>, std::array<char*, 1ul> >(int, at::native::FillFunctor<c10::BFloat16>, std::array<char*, 1ul>)",
+   "family": "other",
+   "count": 15330,
+   "total_us": 19370.624,
+   "mean_us": 1.2636,
+   "share": 0.000314,
+   "regs": [
+    16
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1,
+    2,
+    64,
+    96,
+    128,
+    162,
+    180,
+    216,
+    270,
+    360,
+    576
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0,
+    11,
+    17,
+    22,
+    28,
+    31,
+    38,
+    47,
+    63,
+    100
+   ],
+   "derived_occupancy_pct": [
+    0.17,
+    0.35,
+    11.11,
+    16.67,
+    22.22,
+    28.12,
+    31.25,
+    37.5,
+    46.88,
+    62.5,
+    100.0
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588",
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void flashinfer::sparse_mla_sm120::sparse_mla_decode_dsv4_merge_kernel<32, 512, 64, 8>(__nv_bfloat16 const*, float const*, __nv_bfloat16*, float*, float const*, int, int)",
+   "family": "sparse_mla",
+   "count": 4015,
+   "total_us": 18555.104,
+   "mean_us": 4.6214,
+   "share": 0.000301,
+   "regs": [
+    48
+   ],
+   "smem": [
+    144
+   ],
+   "grid_volume": [
+    288,
+    320,
+    384,
+    480,
+    640,
+    1024
+   ],
+   "block": [
+    [
+     64,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    25,
+    28,
+    33,
+    42,
+    56,
+    83
+   ],
+   "derived_occupancy_pct": [
+    25.0,
+    27.78,
+    33.33,
+    41.67,
+    55.56,
+    88.89
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void vllm::concat_and_cache_ds_mla_kernel<__nv_bfloat16, unsigned char, (vllm::Fp8KVCacheDataType)1>(__nv_bfloat16 const*, __nv_bfloat16 const*, unsigned char*, long const*, int, int, int, int, int, int, int, float const*)",
+   "family": "other",
+   "count": 4015,
+   "total_us": 16583.893,
+   "mean_us": 4.1305,
+   "share": 0.000269,
+   "regs": [
+    27
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    9,
+    10,
+    12,
+    15,
+    20,
+    32
+   ],
+   "block": [
+    [
+     96,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    1,
+    2,
+    3,
+    4
+   ],
+   "derived_occupancy_pct": [
+    1.17,
+    1.3,
+    1.56,
+    1.95,
+    2.6,
+    4.17
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void at::native::mbtopk::computeBlockDigitCounts<c10::BFloat16, unsigned int, unsigned int, 2>(at::cuda::detail::TensorInfo<c10::BFloat16 const, unsigned int>, unsigned int, unsigned int*, unsigned int, unsigned int, int, int, unsigned int, unsigned int, unsigned int*, short*)",
+   "family": "other",
+   "count": 730,
+   "total_us": 16562.837,
+   "mean_us": 22.6888,
+   "share": 0.000269,
+   "regs": [
+    22
+   ],
+   "smem": [
+    1024
+   ],
+   "grid_volume": [
+    294,
+    308
+   ],
+   "block": [
+    [
+     256,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    100
+   ],
+   "derived_occupancy_pct": [
+    102.08,
+    106.94
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void at::native::(anonymous namespace)::CatArrayBatchedCopy<at::native::(anonymous namespace)::OpaqueType<2u>, unsigned int, 3, 64, 64>(at::native::(anonymous namespace)::OpaqueType<2u>*, at::native::(anonymous namespace)::CatArrInputTensorMetadata<at::native::(anonymous namespace)::OpaqueType<2u>, unsigned int, 64, 64>, at::native::(anonymous namespace)::TensorSizeStride<unsigned int, 4u>, int, unsigned int)",
+   "family": "other",
+   "count": 4015,
+   "total_us": 15769.618,
+   "mean_us": 3.9277,
+   "share": 0.000256,
+   "regs": [
+    30
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    192
+   ],
+   "block": [
+    [
+     512,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    100
+   ],
+   "derived_occupancy_pct": [
+    133.33
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void at::native::mbtopk::gatherTopK<c10::BFloat16, unsigned int, 2>(at::cuda::detail::TensorInfo<c10::BFloat16 const, unsigned int>, unsigned int, unsigned int, bool, unsigned int, unsigned int, at::cuda::detail::TensorInfo<c10::BFloat16, unsigned int>, unsigned int, at::cuda::detail::TensorInfo<long, unsigned int>, unsigned int, unsigned int, unsigned int, c10::BFloat16*, unsigned int*, unsigned int*, unsigned int)",
+   "family": "other",
+   "count": 365,
+   "total_us": 15121.923,
+   "mean_us": 41.4299,
+   "share": 0.000245,
+   "regs": [
+    39
+   ],
+   "smem": [
+    1184
+   ],
+   "grid_volume": [
+    294,
+    308
+   ],
+   "block": [
+    [
+     256,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    100
+   ],
+   "derived_occupancy_pct": [
+    102.08,
+    106.94
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "_fwht_quant_kernel",
+   "family": "other",
+   "count": 4015,
+   "total_us": 15098.081,
+   "mean_us": 3.7604,
+   "share": 0.000245,
+   "regs": [
+    125
+   ],
+   "smem": [
+    4096
+   ],
+   "grid_volume": [
+    9,
+    10,
+    12,
+    15,
+    20,
+    32
+   ],
+   "block": [
+    [
+     64,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    1,
+    2,
+    3
+   ],
+   "derived_occupancy_pct": [
+    0.78,
+    0.87,
+    1.04,
+    1.3,
+    1.74,
+    2.78
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#3}::operator()() const::{lambda(int)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#3}::operator()() const::{lambda(int)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#3}::operator()() const::{lambda(int)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#3}::operator()() const::{lambda(int)#1} const&)::{lambda(int)#1})",
+   "family": "other",
+   "count": 12045,
+   "total_us": 14275.461,
+   "mean_us": 1.1852,
+   "share": 0.000232,
+   "regs": [
+    18
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1,
+    72,
+    80,
+    96,
+    120,
+    160,
+    256
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0,
+    13,
+    14,
+    17,
+    21,
+    28,
+    44
+   ],
+   "derived_occupancy_pct": [
+    0.17,
+    12.5,
+    13.89,
+    16.67,
+    20.83,
+    27.78,
+    44.44
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "std::enable_if<(((8)>(0)))&&vllm::_typeConvert<c10::BFloat16>::exists, void>::type vllm::fused_add_rms_norm_kernel<c10::BFloat16, 8, true>(c10::BFloat16*, long, c10::BFloat16*, c10::BFloat16 const*, float, int, int, long)",
+   "family": "other",
+   "count": 3650,
+   "total_us": 13377.899,
+   "mean_us": 3.6652,
+   "share": 0.000217,
+   "regs": [
+    38
+   ],
+   "smem": [
+    168
+   ],
+   "grid_volume": [
+    16,
+    24,
+    32
+   ],
+   "block": [
+    [
+     1024,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    22,
+    33,
+    44
+   ],
+   "derived_occupancy_pct": [
+    33.33,
+    50.0,
+    66.67
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::(anonymous namespace)::masked_fill_kernel(at::TensorIterator&, c10::Scalar const&)::{lambda()#1}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16, bool)#1}>(at::TensorIteratorBase&, at::native::(anonymous namespace)::masked_fill_kernel(at::TensorIterator&, c10::Scalar const&)::{lambda()#1}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16, bool)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::(anonymous namespace)::masked_fill_kernel(at::TensorIterator&, c10::Scalar const&)::{lambda()#1}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16, bool)#1}>(at::TensorIteratorBase&, at::native::(anonymous namespace)::masked_fill_kernel(at::TensorIterator&, c10::Scalar const&)::{lambda()#1}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16, bool)#1} const&)::{lambda(int)#1})",
+   "family": "other",
+   "count": 4745,
+   "total_us": 12116.75,
+   "mean_us": 2.5536,
+   "share": 0.000197,
+   "regs": [
+    22
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    72,
+    80,
+    96,
+    120,
+    128,
+    160,
+    192,
+    256,
+    288,
+    320,
+    384,
+    480,
+    640,
+    1024
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    13,
+    14,
+    17,
+    21,
+    22,
+    28,
+    33,
+    44,
+    50,
+    56,
+    67,
+    83,
+    100
+   ],
+   "derived_occupancy_pct": [
+    12.5,
+    13.89,
+    16.67,
+    20.83,
+    22.22,
+    27.78,
+    33.33,
+    44.44,
+    50.0,
+    55.56,
+    66.67,
+    83.33,
+    111.11,
+    177.78
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:0",
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588",
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void vllm::reshape_and_cache_flash_kernel<__nv_bfloat16, __nv_bfloat16, (vllm::Fp8KVCacheDataType)0>(__nv_bfloat16 const*, __nv_bfloat16 const*, __nv_bfloat16*, __nv_bfloat16*, long const*, long, long, long, long, long, int, int, int, float const*, float const*, int)",
+   "family": "other",
+   "count": 3650,
+   "total_us": 11691.976,
+   "mean_us": 3.2033,
+   "share": 0.00019,
+   "regs": [
+    48
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    9,
+    10,
+    12,
+    15,
+    16,
+    20,
+    24,
+    32
+   ],
+   "block": [
+    [
+     512,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    6,
+    7,
+    8,
+    10,
+    11,
+    14,
+    17,
+    22
+   ],
+   "derived_occupancy_pct": [
+    6.25,
+    6.94,
+    8.33,
+    10.42,
+    11.11,
+    13.89,
+    16.67,
+    22.22
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:0",
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void at::native::reduce_kernel<128, 4, at::native::ReduceOp<c10::BFloat16, at::native::MeanOps<c10::BFloat16, float, float, c10::BFloat16>, unsigned int, c10::BFloat16, 4, 8> >(at::native::ReduceOp<c10::BFloat16, at::native::MeanOps<c10::BFloat16, float, float, c10::BFloat16>, unsigned int, c10::BFloat16, 4, 8>)",
+   "family": "other",
+   "count": 2190,
+   "total_us": 11300.352,
+   "mean_us": 5.16,
+   "share": 0.000183,
+   "regs": [
+    60
+   ],
+   "smem": [
+    16
+   ],
+   "grid_volume": [
+    72,
+    80,
+    96,
+    120,
+    160,
+    256
+   ],
+   "block": [
+    [
+     32,
+     4,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    13,
+    14,
+    17,
+    21,
+    28,
+    44
+   ],
+   "derived_occupancy_pct": [
+    50.0,
+    55.56,
+    66.67,
+    83.33,
+    111.11,
+    177.78
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void at::native::vectorized_gather_kernel<16, long>(char*, char*, long*, int, long, long, long, long, bool)",
+   "family": "other",
+   "count": 3392,
+   "total_us": 10953.686,
+   "mean_us": 3.2293,
+   "share": 0.000178,
+   "regs": [
+    32
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    2,
+    3,
+    4,
+    18,
+    20,
+    24,
+    28,
+    30,
+    40,
+    42,
+    48,
+    56,
+    64,
+    224,
+    336,
+    448
+   ],
+   "block": [
+    [
+     32,
+     1,
+     1
+    ],
+    [
+     256,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0,
+    6,
+    7,
+    8,
+    10,
+    14,
+    15,
+    17,
+    19,
+    22
+   ],
+   "derived_occupancy_pct": [
+    0.09,
+    0.13,
+    0.17,
+    6.25,
+    6.94,
+    8.33,
+    9.72,
+    10.42,
+    13.89,
+    14.58,
+    16.67,
+    19.44,
+    22.22
+   ],
+   "occupancy_limiter": [
+    "BLOCKS",
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:0",
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void vllm::topKPerRowDecode<512, true, true, false>(float const*, int const*, int*, int, int, int, int, int, float*, int, int const*)",
+   "family": "other",
+   "count": 4015,
+   "total_us": 10696.867,
+   "mean_us": 2.6642,
+   "share": 0.000174,
+   "regs": [
+    40
+   ],
+   "smem": [
+    22640
+   ],
+   "grid_volume": [
+    90,
+    100,
+    120,
+    150,
+    200,
+    320
+   ],
+   "block": [
+    [
+     512,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    63,
+    69,
+    83,
+    100
+   ],
+   "derived_occupancy_pct": [
+    62.5,
+    69.44,
+    83.33,
+    104.17,
+    138.89,
+    222.22
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void at::native::unrolled_elementwise_kernel<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul>, 4, TrivialOffsetCalculator<1, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<1>, at::native::memory::StoreWithCast<1> >(int, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul>, TrivialOffsetCalculator<1, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<1>, at::native::memory::StoreWithCast<1>)",
+   "family": "other",
+   "count": 4015,
+   "total_us": 10629.976,
+   "mean_us": 2.6476,
+   "share": 0.000172,
+   "regs": [
+    32
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    72,
+    80,
+    96,
+    120,
+    160,
+    256
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    13,
+    14,
+    17,
+    21,
+    28,
+    44
+   ],
+   "derived_occupancy_pct": [
+    12.5,
+    13.89,
+    16.67,
+    20.83,
+    27.78,
+    44.44
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void at::native::unrolled_elementwise_kernel<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#3}::operator()() const::{lambda(int)#1}, std::array<char*, 2ul>, 4, TrivialOffsetCalculator<1, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<1>, at::native::memory::StoreWithCast<1> >(int, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#3}::operator()() const::{lambda(int)#1}, std::array<char*, 2ul>, TrivialOffsetCalculator<1, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithCast<1>, at::native::memory::StoreWithCast<1>)",
+   "family": "other",
+   "count": 8030,
+   "total_us": 10596.153,
+   "mean_us": 1.3196,
+   "share": 0.000172,
+   "regs": [
+    34
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.17
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "_convert_req_index_to_global_index_kernel",
+   "family": "other",
+   "count": 4015,
+   "total_us": 10079.831,
+   "mean_us": 2.5105,
+   "share": 0.000164,
+   "regs": [
+    48
+   ],
+   "smem": [
+    16384
+   ],
+   "grid_volume": [
+    9,
+    10,
+    12,
+    15,
+    20,
+    32
+   ],
+   "block": [
+    [
+     256,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    3,
+    4,
+    5,
+    7,
+    11
+   ],
+   "derived_occupancy_pct": [
+    3.12,
+    3.47,
+    4.17,
+    5.21,
+    6.94,
+    11.11
+   ],
+   "occupancy_limiter": [
+    "REGS|SMEM"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<int>, std::array<char*, 1ul> >(int, at::native::FillFunctor<int>, std::array<char*, 1ul>)",
+   "family": "other",
+   "count": 9118,
+   "total_us": 9885.927,
+   "mean_us": 1.0842,
+   "share": 0.00016,
+   "regs": [
+    16
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1,
+    4,
+    18,
+    20,
+    24,
+    30,
+    40,
+    64
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0,
+    1,
+    3,
+    4,
+    5,
+    7,
+    11
+   ],
+   "derived_occupancy_pct": [
+    0.17,
+    0.69,
+    3.12,
+    3.47,
+    4.17,
+    5.21,
+    6.94,
+    11.11
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:0",
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "triton_red_fused__to_copy_native_layer_norm_0",
+   "family": "other",
+   "count": 4015,
+   "total_us": 9426.957,
+   "mean_us": 2.3479,
+   "share": 0.000153,
+   "regs": [
+    34
+   ],
+   "smem": [
+    1024
+   ],
+   "grid_volume": [
+    5,
+    6,
+    8,
+    10,
+    16
+   ],
+   "block": [
+    [
+     64,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0,
+    1
+   ],
+   "derived_occupancy_pct": [
+    0.43,
+    0.52,
+    0.69,
+    0.87,
+    1.39
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS|BLOCKS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void vllm::rms_norm_kernel<c10::BFloat16, 8, 3, true>(c10::BFloat16*, c10::BFloat16 const*, long, long, long, long, long, c10::BFloat16 const*, long, float, int, int)",
+   "family": "other",
+   "count": 3650,
+   "total_us": 8900.087,
+   "mean_us": 2.4384,
+   "share": 0.000144,
+   "regs": [
+    40
+   ],
+   "smem": [
+    168
+   ],
+   "grid_volume": [
+    64,
+    96,
+    128,
+    256,
+    384,
+    512
+   ],
+   "block": [
+    [
+     16,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    1,
+    2,
+    3,
+    6,
+    8,
+    11
+   ],
+   "derived_occupancy_pct": [
+    1.39,
+    2.08,
+    2.78,
+    5.56,
+    8.33,
+    11.11
+   ],
+   "occupancy_limiter": [
+    "BLOCKS"
+   ],
+   "graph_ids": [
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void cutlass::Kernel2<cutlass_80_simt_sgemm_64x64_8x5_nn_align1>(cutlass_80_simt_sgemm_64x64_8x5_nn_align1::Params)",
+   "family": "gemm",
+   "count": 1166,
+   "total_us": 8139.497,
+   "mean_us": 6.9807,
+   "share": 0.000132,
+   "regs": [
+    78
+   ],
+   "smem": [
+    20480
+   ],
+   "grid_volume": [
+    43
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    7
+   ],
+   "derived_occupancy_pct": [
+    7.47
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:2573"
+   ]
+  },
+  {
+   "name": "void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctorOnSelf_add<int>, std::array<char*, 2ul> >(int, at::native::CUDAFunctorOnSelf_add<int>, std::array<char*, 2ul>)",
+   "family": "other",
+   "count": 5840,
+   "total_us": 7568.173,
+   "mean_us": 1.2959,
+   "share": 0.000123,
+   "regs": [
+    36
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.17
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:0",
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void cublasLt::splitKreduce_kernel<32, 16, int, __nv_bfloat16, __nv_bfloat16, float, __nv_bfloat16, false, __nv_bfloat16, __nv_bfloat16, __nv_bfloat16, true, false, false, false>(cublasLt::cublasSplitKParams<float>, __nv_bfloat16 const*, __nv_bfloat16 const*, __nv_bfloat16*, __nv_bfloat16*, float const*, float const*, __nv_bfloat16 const*, __nv_bfloat16 const*, __nv_bfloat16*, void*, long, float*, int*, float*, float*, float const*, float const*, float const*, float const*, float const*)",
+   "family": "gemm",
+   "count": 5655,
+   "total_us": 7444.432,
+   "mean_us": 1.3164,
+   "share": 0.000121,
+   "regs": [
+    42
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    4,
+    5,
+    8
+   ],
+   "block": [
+    [
+     32,
+     16,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    3,
+    6
+   ],
+   "derived_occupancy_pct": [
+    44.44,
+    55.56,
+    88.89
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "_fused_q_kv_rmsnorm_kernel",
+   "family": "other",
+   "count": 4015,
+   "total_us": 7077.293,
+   "mean_us": 1.7627,
+   "share": 0.000115,
+   "regs": [
+    36
+   ],
+   "smem": [
+    16
+   ],
+   "grid_volume": [
+    18,
+    20,
+    24,
+    30,
+    40,
+    64
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    3,
+    4,
+    5,
+    7,
+    11
+   ],
+   "derived_occupancy_pct": [
+    3.12,
+    3.47,
+    4.17,
+    5.21,
+    6.94,
+    11.11
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void at::native::vectorized_elementwise_kernel<2, at::native::AUnaryFunctor<long, long, long, at::native::BitwiseAndFunctor<long> >, std::array<char*, 2ul> >(int, at::native::AUnaryFunctor<long, long, long, at::native::BitwiseAndFunctor<long> >, std::array<char*, 2ul>)",
+   "family": "other",
+   "count": 7300,
+   "total_us": 7064.102,
+   "mean_us": 0.9677,
+   "share": 0.000115,
+   "regs": [
+    40
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.17
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "_zero_kv_blocks_kernel",
+   "family": "other",
+   "count": 40,
+   "total_us": 6545.451,
+   "mean_us": 163.6363,
+   "share": 0.000106,
+   "regs": [
+    22
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    8470,
+    16940,
+    25410
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    100
+   ],
+   "derived_occupancy_pct": [
+    1470.49,
+    2940.97,
+    4411.46
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "void at::native::vectorized_elementwise_kernel<4, at::native::(anonymous namespace)::launch_clamp_scalar(at::TensorIteratorBase&, c10::Scalar, c10::Scalar, at::native::detail::ClampLimits)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(int)#1}, std::array<char*, 2ul> >(int, at::native::(anonymous namespace)::launch_clamp_scalar(at::TensorIteratorBase&, c10::Scalar, c10::Scalar, at::native::detail::ClampLimits)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(int)#1}, std::array<char*, 2ul>)",
+   "family": "other",
+   "count": 5475,
+   "total_us": 6098.659,
+   "mean_us": 1.1139,
+   "share": 9.9e-05,
+   "regs": [
+    36
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.17
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:0",
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void vllm::rotary_embedding_kernel<c10::BFloat16, c10::BFloat16, true>(long const*, c10::BFloat16*, c10::BFloat16*, c10::BFloat16 const*, int, long, long, long, int, int, int, long, bool)",
+   "family": "other",
+   "count": 2190,
+   "total_us": 5939.889,
+   "mean_us": 2.7123,
+   "share": 9.6e-05,
+   "regs": [
+    31
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    16,
+    24,
+    32,
+    45,
+    50,
+    60,
+    75,
+    100,
+    160
+   ],
+   "block": [
+    [
+     256,
+     1,
+     1
+    ],
+    [
+     512,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    11,
+    16,
+    17,
+    21,
+    22,
+    26,
+    35,
+    56
+   ],
+   "derived_occupancy_pct": [
+    11.11,
+    15.62,
+    16.67,
+    17.36,
+    20.83,
+    22.22,
+    26.04,
+    34.72,
+    55.56
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:0",
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native::index_kernel_impl<at::native::OpaqueType<4> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1}>(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>, at::native::index_kernel_impl<at::native::OpaqueType<4> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1} const&, bool)::{lambda(int)#1}>(long, at::native::gpu_index_kernel<at::native::index_kernel_impl<at::native::OpaqueType<4> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1}>(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>, at::native::index_kernel_impl<at::native::OpaqueType<4> >(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1} const&, bool)::{lambda(int)#1})",
+   "family": "other",
+   "count": 2555,
+   "total_us": 5788.948,
+   "mean_us": 2.2657,
+   "share": 9.4e-05,
+   "regs": [
+    48
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.17
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:0",
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void cublasLt::splitKreduce_kernel<32, 16, int, float, __nv_bfloat16, float, __nv_bfloat16, false, float, __nv_bfloat16, __nv_bfloat16, true, false, false, false>(cublasLt::cublasSplitKParams<float>, float const*, __nv_bfloat16 const*, float*, __nv_bfloat16*, float const*, float const*, __nv_bfloat16 const*, float const*, __nv_bfloat16*, void*, long, float*, int*, float*, float*, float const*, float const*, float const*, float const*, float const*)",
+   "family": "gemm",
+   "count": 2740,
+   "total_us": 5155.127,
+   "mean_us": 1.8814,
+   "share": 8.4e-05,
+   "regs": [
+    46
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    8,
+    10,
+    16
+   ],
+   "block": [
+    [
+     32,
+     16,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    6,
+    7,
+    11
+   ],
+   "derived_occupancy_pct": [
+    88.89,
+    111.11,
+    177.78
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2603",
+    "rank1:2606"
+   ]
+  },
+  {
+   "name": "void at::native::vectorized_elementwise_kernel<4, at::native::(anonymous namespace)::masked_fill_kernel(at::TensorIterator&, c10::Scalar const&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(int, bool)#1}, std::array<char*, 3ul> >(int, at::native::(anonymous namespace)::masked_fill_kernel(at::TensorIterator&, c10::Scalar const&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(int, bool)#1}, std::array<char*, 3ul>)",
+   "family": "other",
+   "count": 4015,
+   "total_us": 5019.709,
+   "mean_us": 1.2502,
+   "share": 8.1e-05,
+   "regs": [
+    36
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.17
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "_expand_pools_and_append_tail_kernel",
+   "family": "other",
+   "count": 4015,
+   "total_us": 4654.43,
+   "mean_us": 1.1593,
+   "share": 7.6e-05,
+   "regs": [
+    16
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    144,
+    160,
+    192,
+    240,
+    320,
+    512
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    25,
+    28,
+    33,
+    42,
+    56,
+    89
+   ],
+   "derived_occupancy_pct": [
+    25.0,
+    27.78,
+    33.33,
+    41.67,
+    55.56,
+    88.89
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void at::native::vectorized_elementwise_kernel<4, at::native::AUnaryFunctor<int, int, bool, at::native::(anonymous namespace)::CompareEqFunctor<int> >, std::array<char*, 2ul> >(int, at::native::AUnaryFunctor<int, int, bool, at::native::(anonymous namespace)::CompareEqFunctor<int> >, std::array<char*, 2ul>)",
+   "family": "other",
+   "count": 4015,
+   "total_us": 4517.815,
+   "mean_us": 1.1252,
+   "share": 7.3e-05,
+   "regs": [
+    38
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.17
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "_compute_local_logits_stats_kernel",
+   "family": "other",
+   "count": 365,
+   "total_us": 4388.921,
+   "mean_us": 12.0244,
+   "share": 7.1e-05,
+   "regs": [
+    85
+   ],
+   "smem": [
+    32
+   ],
+   "grid_volume": [
+    171,
+    190,
+    228,
+    285,
+    380,
+    608
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    30,
+    33,
+    40,
+    42
+   ],
+   "derived_occupancy_pct": [
+    29.69,
+    32.99,
+    39.58,
+    49.48,
+    65.97,
+    105.56
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "void vllm::act_and_mul_kernel<c10::BFloat16, __nv_bfloat162, &(c10::BFloat16 vllm::silu_kernel<c10::BFloat16>(c10::BFloat16 const&, float)), &(__nv_bfloat162 vllm::packed_silu_kernel<__nv_bfloat162>(__nv_bfloat162 const&, float)), true, true, false, false>(c10::BFloat16*, c10::BFloat16 const*, int, float, float, float)",
+   "family": "other",
+   "count": 1825,
+   "total_us": 4344.508,
+   "mean_us": 2.3806,
+   "share": 7e-05,
+   "regs": [
+    27
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    16,
+    24,
+    32
+   ],
+   "block": [
+    [
+     768,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    17,
+    25,
+    33
+   ],
+   "derived_occupancy_pct": [
+    16.67,
+    25.0,
+    33.33
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "_cache_draft_logits_kernel",
+   "family": "other",
+   "count": 365,
+   "total_us": 3399.209,
+   "mean_us": 9.3129,
+   "share": 5.5e-05,
+   "regs": [
+    22
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    14,
+    21,
+    28
+   ],
+   "block": [
+    [
+     32,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    1
+   ],
+   "derived_occupancy_pct": [
+    0.61,
+    0.91,
+    1.22
+   ],
+   "occupancy_limiter": [
+    "BLOCKS"
+   ],
+   "graph_ids": [
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "triton_poi_fused_mul_unsqueeze_0",
+   "family": "other",
+   "count": 4015,
+   "total_us": 3398.472,
+   "mean_us": 0.8464,
+   "share": 5.5e-05,
+   "regs": [
+    18
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1,
+    2
+   ],
+   "block": [
+    [
+     256,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0,
+    1
+   ],
+   "derived_occupancy_pct": [
+    0.35,
+    0.69
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::BUnaryFunctor<int, int, int, at::native::binary_internal::div_floor_kernel_cuda(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(int, int)#1}> >(at::TensorIteratorBase&, at::native::BUnaryFunctor<int, int, int, at::native::binary_internal::div_floor_kernel_cuda(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(int, int)#1}> const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::BUnaryFunctor<int, int, int, at::native::binary_internal::div_floor_kernel_cuda(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(int, int)#1}> >(at::TensorIteratorBase&, at::native::BUnaryFunctor<int, int, int, at::native::binary_internal::div_floor_kernel_cuda(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(int, int)#1}> const&)::{lambda(int)#1})",
+   "family": "other",
+   "count": 730,
+   "total_us": 3257.599,
+   "mean_us": 4.4625,
+   "share": 5.3e-05,
+   "regs": [
+    20
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    31,
+    46,
+    62,
+    138,
+    154,
+    184,
+    230,
+    307,
+    490
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    5,
+    8,
+    11,
+    24,
+    27,
+    32,
+    40,
+    53,
+    85
+   ],
+   "derived_occupancy_pct": [
+    5.38,
+    7.99,
+    10.76,
+    23.96,
+    26.74,
+    31.94,
+    39.93,
+    53.3,
+    85.07
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "_prepare_uniform_decode_kernel",
+   "family": "other",
+   "count": 365,
+   "total_us": 3233.921,
+   "mean_us": 8.8601,
+   "share": 5.2e-05,
+   "regs": [
+    40
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    9,
+    10,
+    12,
+    15,
+    20,
+    32
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    2,
+    3,
+    6
+   ],
+   "derived_occupancy_pct": [
+    1.56,
+    1.74,
+    2.08,
+    2.6,
+    3.47,
+    5.56
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "void gemmSN_NN_kernel<float, 256, 4, 2, 8, 4, 4, false, cublasGemvTensorStridedBatched<float const>, cublasGemvTensorStridedBatched<float const>, cublasGemvTensorStridedBatched<float> >(cublasGemmSmallNParams<cublasGemvTensorStridedBatched<float const>, cublasGemvTensorStridedBatched<float const>, cublasGemvTensorStridedBatched<float>, float>)",
+   "family": "gemm",
+   "count": 44,
+   "total_us": 3128.331,
+   "mean_us": 71.0984,
+   "share": 5.1e-05,
+   "regs": [
+    64
+   ],
+   "smem": [
+    12288
+   ],
+   "grid_volume": [
+    4
+   ],
+   "block": [
+    [
+     256,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    1
+   ],
+   "derived_occupancy_pct": [
+    1.39
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:2579"
+   ]
+  },
+  {
+   "name": "void at::native::vectorized_elementwise_kernel<4, at::native::BUnaryFunctor<int, int, int, at::native::binary_internal::div_floor_kernel_cuda(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(int, int)#1}>, std::array<char*, 2ul> >(int, at::native::BUnaryFunctor<int, int, int, at::native::binary_internal::div_floor_kernel_cuda(at::TensorIteratorBase&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(int, int)#1}>, std::array<char*, 2ul>)",
+   "family": "other",
+   "count": 2190,
+   "total_us": 3081.156,
+   "mean_us": 1.4069,
+   "share": 5e-05,
+   "regs": [
+    36
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.17
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "void (anonymous namespace)::elementwise_kernel_with_index<int, at::native::arange_cuda_out(c10::Scalar const&, c10::Scalar const&, c10::Scalar const&, at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(long)#1}>(int, at::native::arange_cuda_out(c10::Scalar const&, c10::Scalar const&, c10::Scalar const&, at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(long)#1}, function_traits<at::native::arange_cuda_out(c10::Scalar const&, c10::Scalar const&, c10::Scalar const&, at::Tensor&)::{lambda()#1}::operator()() const::{lambda()#3}::operator()() const::{lambda(long)#1}>::result_type*)",
+   "family": "other",
+   "count": 2920,
+   "total_us": 2831.661,
+   "mean_us": 0.9697,
+   "share": 4.6e-05,
+   "regs": [
+    16
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     64,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.09
+   ],
+   "occupancy_limiter": [
+    "WARPS|BLOCKS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "void vllm::rms_norm_kernel<c10::BFloat16, 8, 2, true>(c10::BFloat16*, c10::BFloat16 const*, long, long, long, long, long, c10::BFloat16 const*, long, float, int, int)",
+   "family": "other",
+   "count": 1095,
+   "total_us": 2754.281,
+   "mean_us": 2.5153,
+   "share": 4.5e-05,
+   "regs": [
+    40
+   ],
+   "smem": [
+    168
+   ],
+   "grid_volume": [
+    9,
+    10,
+    12,
+    15,
+    16,
+    20,
+    24,
+    32
+   ],
+   "block": [
+    [
+     512,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    6,
+    7,
+    8,
+    10,
+    11,
+    14,
+    17,
+    22
+   ],
+   "derived_occupancy_pct": [
+    6.25,
+    6.94,
+    8.33,
+    10.42,
+    11.11,
+    13.89,
+    16.67,
+    22.22
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:0",
+    "rank1:2567",
+    "rank1:2573",
+    "rank1:2579",
+    "rank1:2582",
+    "rank1:2585",
+    "rank1:2588",
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "_gather_block_tables_kernel",
+   "family": "other",
+   "count": 365,
+   "total_us": 2734.34,
+   "mean_us": 7.4913,
+   "share": 4.4e-05,
+   "regs": [
+    36
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    14,
+    21,
+    28
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    2,
+    4,
+    5
+   ],
+   "derived_occupancy_pct": [
+    2.43,
+    3.65,
+    4.86
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "void at::native::_scatter_gather_elementwise_kernel<128, 8, at::native::_cuda_scatter_gather_internal_kernel<false, at::native::OpaqueType<4>, long>::operator()<at::native::TensorAssign>(at::TensorIterator&, long, long, long, at::native::TensorAssign const&)::{lambda(int)#1}>(int, at::native::_cuda_scatter_gather_internal_kernel<false, at::native::OpaqueType<4>, long>::operator()<at::native::TensorAssign>(at::TensorIterator&, long, long, long, at::native::TensorAssign const&)::{lambda(int)#1})",
+   "family": "other",
+   "count": 1460,
+   "total_us": 2716.651,
+   "mean_us": 1.8607,
+   "share": 4.4e-05,
+   "regs": [
+    32
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.17
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "_post_update_kernel",
+   "family": "other",
+   "count": 365,
+   "total_us": 2338.095,
+   "mean_us": 6.4057,
+   "share": 3.8e-05,
+   "regs": [
+    30
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    2,
+    3,
+    4
+   ],
+   "block": [
+    [
+     32,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.09,
+    0.13,
+    0.17
+   ],
+   "occupancy_limiter": [
+    "BLOCKS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "void gemmSN_NN_kernel<float, 256, 4, 2, 8, 5, 4, false, cublasGemvTensorStridedBatched<float const>, cublasGemvTensorStridedBatched<float const>, cublasGemvTensorStridedBatched<float> >(cublasGemmSmallNParams<cublasGemvTensorStridedBatched<float const>, cublasGemvTensorStridedBatched<float const>, cublasGemvTensorStridedBatched<float>, float>)",
+   "family": "gemm",
+   "count": 33,
+   "total_us": 2306.96,
+   "mean_us": 69.9079,
+   "share": 3.7e-05,
+   "regs": [
+    64
+   ],
+   "smem": [
+    15360
+   ],
+   "grid_volume": [
+    2
+   ],
+   "block": [
+    [
+     256,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    1
+   ],
+   "derived_occupancy_pct": [
+    0.69
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "void at_cuda_detail::cub::detail::scan_by_key::DeviceScanByKeyKernel<at_cuda_detail::cub::detail::scan_by_key::policy_hub<thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::transform_iterator<at::native::mbtopk::BlockIdxToKey, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::counting_iterator<unsigned int, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default>, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default>, unsigned int, unsigned int, cuda::std::__4::plus<void> >::Policy1000, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::transform_iterator<at::native::mbtopk::BlockIdxToKey, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::counting_iterator<unsigned int, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default>, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default>, unsigned int*, unsigned int*, at_cuda_detail::cub::ReduceByKeyScanTileState<unsigned int, int, true>, cuda::std::__4::equal_to<void>, cuda::std::__4::plus<void>, at_cuda_detail::cub::NullType, unsigned long long, unsigned int, unsigned int>(thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::transform_iterator<at::native::mbtopk::BlockIdxToKey, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::counting_iterator<unsigned int, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default>, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default>, unsigned int*, unsigned int*, unsigned int*, at_cuda_detail::cub::ReduceByKeyScanTileState<unsigned int, int, true>, int, cuda::std::__4::equal_to<void>, cuda::std::__4::plus<void>, at_cuda_detail::cub::NullType, unsigned long long)",
+   "family": "other",
+   "count": 730,
+   "total_us": 2213.713,
+   "mean_us": 3.0325,
+   "share": 3.6e-05,
+   "regs": [
+    72
+   ],
+   "smem": [
+    17936
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     224,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.35
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void at::native::mbtopk::computeBlockwiseWithinKCounts<unsigned int, c10::BFloat16>(unsigned int*, short*, unsigned int*, unsigned int*, unsigned int, int, bool, unsigned int*, c10::BFloat16*, unsigned int*, unsigned int*, unsigned int)",
+   "family": "other",
+   "count": 730,
+   "total_us": 2152.238,
+   "mean_us": 2.9483,
+   "share": 3.5e-05,
+   "regs": [
+    16
+   ],
+   "smem": [
+    36
+   ],
+   "grid_volume": [
+    294,
+    308
+   ],
+   "block": [
+    [
+     256,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    100
+   ],
+   "derived_occupancy_pct": [
+    102.08,
+    106.94
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "_prepare_dflash_inputs_kernel",
+   "family": "other",
+   "count": 365,
+   "total_us": 2073.998,
+   "mean_us": 5.6822,
+   "share": 3.4e-05,
+   "regs": [
+    40
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    2,
+    3,
+    4
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0,
+    1
+   ],
+   "derived_occupancy_pct": [
+    0.35,
+    0.52,
+    0.69
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "void at::native::(anonymous namespace)::CatArrayBatchedCopy_vectorized<at::native::(anonymous namespace)::OpaqueType<2u>, unsigned int, 2, 128, 1, 16, 8>(char*, at::native::(anonymous namespace)::CatArrInputTensorMetadata<at::native::(anonymous namespace)::OpaqueType<2u>, unsigned int, 128, 1>, at::native::(anonymous namespace)::TensorSizeStride<unsigned int, 4u>, int, unsigned int)",
+   "family": "other",
+   "count": 365,
+   "total_us": 1996.108,
+   "mean_us": 5.4688,
+   "share": 3.2e-05,
+   "regs": [
+    19
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    180,
+    200,
+    240,
+    300,
+    400,
+    640
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    31,
+    35,
+    42,
+    52,
+    69,
+    100
+   ],
+   "derived_occupancy_pct": [
+    31.25,
+    34.72,
+    41.67,
+    52.08,
+    69.44,
+    111.11
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "void at::native::unrolled_elementwise_kernel<at::native::CUDAFunctor_add<int>, std::array<char*, 3ul>, 4, TrivialOffsetCalculator<2, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithoutCast, at::native::memory::StoreWithoutCast>(int, at::native::CUDAFunctor_add<int>, std::array<char*, 3ul>, TrivialOffsetCalculator<2, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithoutCast, at::native::memory::StoreWithoutCast)",
+   "family": "other",
+   "count": 1825,
+   "total_us": 1908.523,
+   "mean_us": 1.0458,
+   "share": 3.1e-05,
+   "regs": [
+    30
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.17
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "triton_poi_fused_add_bitwise_and_bitwise_not_bitwise_or_ge_lt_mul_sub_0",
+   "family": "other",
+   "count": 730,
+   "total_us": 1792.756,
+   "mean_us": 2.4558,
+   "share": 2.9e-05,
+   "regs": [
+    16
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     32,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.04
+   ],
+   "occupancy_limiter": [
+    "BLOCKS"
+   ],
+   "graph_ids": [
+    "rank1:0",
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "_insert_resampled_kernel",
+   "family": "other",
+   "count": 365,
+   "total_us": 1742.961,
+   "mean_us": 4.7752,
+   "share": 2.8e-05,
+   "regs": [
+    17
+   ],
+   "smem": [
+    32
+   ],
+   "grid_volume": [
+    2,
+    3,
+    4
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0,
+    1
+   ],
+   "derived_occupancy_pct": [
+    0.35,
+    0.52,
+    0.69
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::CUDAFunctor_add<int> >(at::TensorIteratorBase&, at::native::CUDAFunctor_add<int> const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::CUDAFunctor_add<int> >(at::TensorIteratorBase&, at::native::CUDAFunctor_add<int> const&)::{lambda(int)#1})",
+   "family": "other",
+   "count": 1460,
+   "total_us": 1679.344,
+   "mean_us": 1.1502,
+   "share": 2.7e-05,
+   "regs": [
+    21
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.17
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "precopy_mamba_align_fused_kernel",
+   "family": "other",
+   "count": 365,
+   "total_us": 1596.372,
+   "mean_us": 4.3736,
+   "share": 2.6e-05,
+   "regs": [
+    46
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    2176,
+    3264,
+    4352
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    83
+   ],
+   "derived_occupancy_pct": [
+    377.78,
+    566.67,
+    755.56
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "postprocess_mamba_fused_kernel",
+   "family": "other",
+   "count": 365,
+   "total_us": 1562.36,
+   "mean_us": 4.2804,
+   "share": 2.5e-05,
+   "regs": [
+    46
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    2176,
+    3264,
+    4352
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    83
+   ],
+   "derived_occupancy_pct": [
+    377.78,
+    566.67,
+    755.56
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "at::native::mbtopk::computeDigitCumSum(short*, unsigned int*, unsigned int)",
+   "family": "other",
+   "count": 730,
+   "total_us": 1420.661,
+   "mean_us": 1.9461,
+   "share": 2.3e-05,
+   "regs": [
+    40
+   ],
+   "smem": [
+    1184
+   ],
+   "grid_volume": [
+    14,
+    21,
+    28
+   ],
+   "block": [
+    [
+     256,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    5,
+    7,
+    10
+   ],
+   "derived_occupancy_pct": [
+    4.86,
+    7.29,
+    9.72
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void at::native::bitonicSortKVInPlace<2, -1, 16, 16, c10::BFloat16, long, at::native::GTOp<c10::BFloat16, true>, unsigned int>(at::cuda::detail::TensorInfo<c10::BFloat16, unsigned int>, unsigned int, unsigned int, unsigned int, at::cuda::detail::TensorInfo<long, unsigned int>, unsigned int, at::native::GTOp<c10::BFloat16, true>)",
+   "family": "other",
+   "count": 365,
+   "total_us": 1413.939,
+   "mean_us": 3.8738,
+   "share": 2.3e-05,
+   "regs": [
+    40
+   ],
+   "smem": [
+    5632
+   ],
+   "grid_volume": [
+    14,
+    21,
+    28
+   ],
+   "block": [
+    [
+     16,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0,
+    1
+   ],
+   "derived_occupancy_pct": [
+    0.3,
+    0.46,
+    0.61
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x2_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x2_tn_align8::Params)",
+   "family": "gemm",
+   "count": 33,
+   "total_us": 1389.841,
+   "mean_us": 42.1164,
+   "share": 2.3e-05,
+   "regs": [
+    84
+   ],
+   "smem": [
+    33792
+   ],
+   "grid_volume": [
+    256
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    17
+   ],
+   "derived_occupancy_pct": [
+    44.44
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:2585",
+    "rank1:2588"
+   ]
+  },
+  {
+   "name": "_selector_walk_kernel",
+   "family": "other",
+   "count": 365,
+   "total_us": 1312.925,
+   "mean_us": 3.5971,
+   "share": 2.1e-05,
+   "regs": [
+    47
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    2,
+    3,
+    4
+   ],
+   "block": [
+    [
+     32,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.09,
+    0.13,
+    0.17
+   ],
+   "occupancy_limiter": [
+    "BLOCKS"
+   ],
+   "graph_ids": [
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_32x1_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_32x1_tn_align8::Params)",
+   "family": "gemm",
+   "count": 365,
+   "total_us": 1296.732,
+   "mean_us": 3.5527,
+   "share": 2.1e-05,
+   "regs": [
+    48
+   ],
+   "smem": [
+    2560
+   ],
+   "grid_volume": [
+    14,
+    21,
+    28
+   ],
+   "block": [
+    [
+     32,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    1
+   ],
+   "derived_occupancy_pct": [
+    0.61,
+    0.91,
+    1.22
+   ],
+   "occupancy_limiter": [
+    "BLOCKS"
+   ],
+   "graph_ids": [
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "_resample_kernel",
+   "family": "other",
+   "count": 365,
+   "total_us": 1294.965,
+   "mean_us": 3.5478,
+   "share": 2.1e-05,
+   "regs": [
+    51
+   ],
+   "smem": [
+    32
+   ],
+   "grid_volume": [
+    304,
+    456,
+    608
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    53,
+    75
+   ],
+   "derived_occupancy_pct": [
+    52.78,
+    79.17,
+    105.56
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "preprocess_mamba_align_fused_kernel",
+   "family": "other",
+   "count": 365,
+   "total_us": 1290.551,
+   "mean_us": 3.5358,
+   "share": 2.1e-05,
+   "regs": [
+    40
+   ],
+   "smem": [
+    2048
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.17
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "void at::native::(anonymous namespace)::indexSelectSmallIndex<c10::BFloat16, long, unsigned int, 2, 2, -2>(at::cuda::detail::TensorInfo<c10::BFloat16, unsigned int>, at::cuda::detail::TensorInfo<c10::BFloat16 const, unsigned int>, at::cuda::detail::TensorInfo<long const, unsigned int>, int, int, unsigned int, long)",
+   "family": "other",
+   "count": 258,
+   "total_us": 1260.475,
+   "mean_us": 4.8856,
+   "share": 2e-05,
+   "regs": [
+    32
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    32
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    6
+   ],
+   "derived_occupancy_pct": [
+    5.56
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:0",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "_rejection_kernel",
+   "family": "other",
+   "count": 365,
+   "total_us": 1203.537,
+   "mean_us": 3.2974,
+   "share": 2e-05,
+   "regs": [
+    74
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    2,
+    3,
+    4
+   ],
+   "block": [
+    [
+     32,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.09,
+    0.13,
+    0.17
+   ],
+   "occupancy_limiter": [
+    "REGS|BLOCKS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "_scatter_num_accepted_kernel",
+   "family": "other",
+   "count": 365,
+   "total_us": 1121.845,
+   "mean_us": 3.0735,
+   "share": 1.8e-05,
+   "regs": [
+    16
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    2,
+    3,
+    4
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0,
+    1
+   ],
+   "derived_occupancy_pct": [
+    0.35,
+    0.52,
+    0.69
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native::index_put_kernel_impl<at::native::OpaqueType<8> >(at::TensorIterator&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1}>(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>, at::native::index_put_kernel_impl<at::native::OpaqueType<8> >(at::TensorIterator&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1} const&, bool)::{lambda(int)#1}>(long, at::native::gpu_index_kernel<at::native::index_put_kernel_impl<at::native::OpaqueType<8> >(at::TensorIterator&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1}>(at::TensorIteratorBase&, c10::ArrayRef<long>, c10::ArrayRef<long>, at::native::index_put_kernel_impl<at::native::OpaqueType<8> >(at::TensorIterator&, c10::ArrayRef<long>, c10::ArrayRef<long>)::{lambda(char*, char const*, long)#1} const&, bool)::{lambda(int)#1})",
+   "family": "other",
+   "count": 365,
+   "total_us": 1088.697,
+   "mean_us": 2.9827,
+   "share": 1.8e-05,
+   "regs": [
+    48
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.17
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "_compute_slot_mappings_kernel",
+   "family": "other",
+   "count": 365,
+   "total_us": 1058.036,
+   "mean_us": 2.8987,
+   "share": 1.7e-05,
+   "regs": [
+    54
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    21,
+    28,
+    35
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    4,
+    5,
+    6
+   ],
+   "derived_occupancy_pct": [
+    3.65,
+    4.86,
+    6.08
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "_get_num_sampled_and_rejected_kernel",
+   "family": "other",
+   "count": 365,
+   "total_us": 949.272,
+   "mean_us": 2.6007,
+   "share": 1.5e-05,
+   "regs": [
+    16
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    2,
+    3,
+    4
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0,
+    1
+   ],
+   "derived_occupancy_pct": [
+    0.35,
+    0.52,
+    0.69
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "void vllm::rms_norm_kernel<c10::BFloat16, 8, 4, true>(c10::BFloat16*, c10::BFloat16 const*, long, long, long, long, long, c10::BFloat16 const*, long, float, int, int)",
+   "family": "other",
+   "count": 365,
+   "total_us": 818.555,
+   "mean_us": 2.2426,
+   "share": 1.3e-05,
+   "regs": [
+    40
+   ],
+   "smem": [
+    168
+   ],
+   "grid_volume": [
+    180,
+    200,
+    240,
+    300,
+    400,
+    640
+   ],
+   "block": [
+    [
+     16,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    4,
+    5,
+    7,
+    9,
+    14
+   ],
+   "derived_occupancy_pct": [
+    3.91,
+    4.34,
+    5.21,
+    6.51,
+    8.68,
+    13.89
+   ],
+   "occupancy_limiter": [
+    "BLOCKS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "_combine_sampled_and_draft_tokens_kernel",
+   "family": "other",
+   "count": 365,
+   "total_us": 807.259,
+   "mean_us": 2.2117,
+   "share": 1.3e-05,
+   "regs": [
+    24
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    2,
+    3,
+    4
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0,
+    1
+   ],
+   "derived_occupancy_pct": [
+    0.35,
+    0.52,
+    0.69
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "void deep_gemm::sched::sm120_paged_mqa_logits_metadata<32u, 128u, 48u, false>(unsigned int, unsigned int, bool, unsigned int, unsigned int const*, unsigned int const*, unsigned int*)",
+   "family": "gemm",
+   "count": 365,
+   "total_us": 683.577,
+   "mean_us": 1.8728,
+   "share": 1.1e-05,
+   "regs": [
+    20
+   ],
+   "smem": [
+    128
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     32,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.04
+   ],
+   "occupancy_limiter": [
+    "BLOCKS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "void at::native::mbtopk::computeBlockwiseKthCounts<unsigned int>(unsigned int*, short*, unsigned int, unsigned int, unsigned int*)",
+   "family": "other",
+   "count": 365,
+   "total_us": 656.34,
+   "mean_us": 1.7982,
+   "share": 1.1e-05,
+   "regs": [
+    32
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     256,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.35
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "_prepare_pos_seq_lens_kernel",
+   "family": "other",
+   "count": 365,
+   "total_us": 646.234,
+   "mean_us": 1.7705,
+   "share": 1e-05,
+   "regs": [
+    29
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    3,
+    4,
+    5
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    1
+   ],
+   "derived_occupancy_pct": [
+    0.52,
+    0.69,
+    0.87
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#4}::operator()() const::{lambda(long)#1} const&)::{lambda(int)#1})",
+   "family": "other",
+   "count": 365,
+   "total_us": 563.128,
+   "mean_us": 1.5428,
+   "share": 9e-06,
+   "regs": [
+    32
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.17
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "_compressed_slot_mapping_kernel",
+   "family": "other",
+   "count": 365,
+   "total_us": 558.076,
+   "mean_us": 1.529,
+   "share": 9e-06,
+   "regs": [
+    43
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    2,
+    3,
+    4
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0,
+    1
+   ],
+   "derived_occupancy_pct": [
+    0.35,
+    0.52,
+    0.69
+   ],
+   "occupancy_limiter": [
+    "REGS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "memset32",
+   "family": "other",
+   "count": 365,
+   "total_us": 542.75,
+   "mean_us": 1.487,
+   "share": 9e-06,
+   "regs": [
+    16
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1,
+    2,
+    3
+   ],
+   "block": [
+    [
+     512,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    1,
+    2
+   ],
+   "derived_occupancy_pct": [
+    0.69,
+    1.39,
+    2.08
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "_expand_idx_mapping_kernel",
+   "family": "other",
+   "count": 365,
+   "total_us": 542.009,
+   "mean_us": 1.485,
+   "share": 9e-06,
+   "regs": [
+    16
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    2,
+    3,
+    4
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0,
+    1
+   ],
+   "derived_occupancy_pct": [
+    0.35,
+    0.52,
+    0.69
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "void at_cuda_detail::cub::detail::scan_by_key::DeviceScanByKeyInitKernel<at_cuda_detail::cub::ReduceByKeyScanTileState<unsigned int, int, true>, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::transform_iterator<at::native::mbtopk::BlockIdxToKey, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::counting_iterator<unsigned int, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default>, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default>, unsigned long long>(at_cuda_detail::cub::ReduceByKeyScanTileState<unsigned int, int, true>, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::transform_iterator<at::native::mbtopk::BlockIdxToKey, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::counting_iterator<unsigned int, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default>, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default>, cuda::std::__4::iterator_traits<thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::transform_iterator<at::native::mbtopk::BlockIdxToKey, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::counting_iterator<unsigned int, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default>, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default, thrust::THRUST_300001_SM_800_900_1000_1100_1200_NS::use_default> >::value_type*, unsigned long long, int)",
+   "family": "other",
+   "count": 730,
+   "total_us": 538.202,
+   "mean_us": 0.7373,
+   "share": 9e-06,
+   "regs": [
+    16
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.17
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void at::native::vectorized_elementwise_kernel<4, at::native::FillFunctor<bool>, std::array<char*, 1ul> >(int, at::native::FillFunctor<bool>, std::array<char*, 1ul>)",
+   "family": "other",
+   "count": 365,
+   "total_us": 523.453,
+   "mean_us": 1.4341,
+   "share": 8e-06,
+   "regs": [
+    16
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0
+   ],
+   "derived_occupancy_pct": [
+    0.17
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "void at::native::vectorized_elementwise_kernel<4, at::native::AUnaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> >, std::array<char*, 2ul> >(int, at::native::AUnaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> >, std::array<char*, 2ul>)",
+   "family": "other",
+   "count": 365,
+   "total_us": 464.669,
+   "mean_us": 1.2731,
+   "share": 8e-06,
+   "regs": [
+    40
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    64,
+    96,
+    128
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    11,
+    17,
+    22
+   ],
+   "derived_occupancy_pct": [
+    11.11,
+    16.67,
+    22.22
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void at::native::mbtopk::fill<unsigned int, unsigned int>(unsigned int*, unsigned int, unsigned int)",
+   "family": "other",
+   "count": 365,
+   "total_us": 302.076,
+   "mean_us": 0.8276,
+   "share": 5e-06,
+   "regs": [
+    16
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1
+   ],
+   "block": [
+    [
+     512,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    1
+   ],
+   "derived_occupancy_pct": [
+    0.69
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:2603",
+    "rank1:2606",
+    "rank1:2612"
+   ]
+  },
+  {
+   "name": "void cutlass::Kernel2<cutlass_80_simt_sgemm_32x128_8x5_nn_align1>(cutlass_80_simt_sgemm_32x128_8x5_nn_align1::Params)",
+   "family": "gemm",
+   "count": 22,
+   "total_us": 166.11,
+   "mean_us": 7.5505,
+   "share": 3e-06,
+   "regs": [
+    92
+   ],
+   "smem": [
+    25600
+   ],
+   "grid_volume": [
+    43
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    7
+   ],
+   "derived_occupancy_pct": [
+    7.47
+   ],
+   "occupancy_limiter": [
+    "SMEM"
+   ],
+   "graph_ids": [
+    "rank1:2567"
+   ]
+  },
+  {
+   "name": "_apply_write_kernel",
+   "family": "other",
+   "count": 40,
+   "total_us": 152.704,
+   "mean_us": 3.8176,
+   "share": 2e-06,
+   "regs": [
+    34
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    1,
+    2,
+    3
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    0,
+    1
+   ],
+   "derived_occupancy_pct": [
+    0.17,
+    0.35,
+    0.52
+   ],
+   "occupancy_limiter": [
+    "WARPS|REGS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "void at::native::unrolled_elementwise_kernel<at::native::FillFunctor<int>, std::array<char*, 1ul>, 4, TrivialOffsetCalculator<0, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithoutCast, at::native::memory::StoreWithoutCast>(int, at::native::FillFunctor<int>, std::array<char*, 1ul>, TrivialOffsetCalculator<0, unsigned int>, TrivialOffsetCalculator<1, unsigned int>, at::native::memory::LoadWithoutCast, at::native::memory::StoreWithoutCast)",
+   "family": "other",
+   "count": 6,
+   "total_us": 5.952,
+   "mean_us": 0.992,
+   "share": 0.0,
+   "regs": [
+    16
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    7
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    1
+   ],
+   "derived_occupancy_pct": [
+    1.22
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  },
+  {
+   "name": "void at::native::vectorized_elementwise_kernel<2, at::native::FillFunctor<int>, std::array<char*, 1ul> >(int, at::native::FillFunctor<int>, std::array<char*, 1ul>)",
+   "family": "other",
+   "count": 1,
+   "total_us": 1.024,
+   "mean_us": 1.024,
+   "share": 0.0,
+   "regs": [
+    16
+   ],
+   "smem": [
+    0
+   ],
+   "grid_volume": [
+    4
+   ],
+   "block": [
+    [
+     128,
+     1,
+     1
+    ]
+   ],
+   "est_occupancy_pct": [
+    1
+   ],
+   "derived_occupancy_pct": [
+    0.69
+   ],
+   "occupancy_limiter": [
+    "WARPS"
+   ],
+   "graph_ids": [
+    "rank1:0"
+   ]
+  }
+ ],
+ "graphs": [
+  {
+   "graph_key": "rank1:2582",
+   "graph_id": "2582",
+   "rank": "rank1",
+   "kernel_count": 619750,
+   "total_us": 34955450.116,
+   "top": [
+    {
+     "name": "void exl3_moe_kernel<4, 256, 1>(__half const*, __half*, __half*, __half*, __half*, float*, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, long const*, long const*, __half const*, int, int, int, int, int, int, float, int, int, int, int, int*)",
+     "total_us": 19416670.883
+    },
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x1_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x1_tn_align8::Params)",
+     "total_us": 8025245.834
+    },
+    {
+     "name": "ncclDevKernel_AllReduce_Sum_bf16_RING_LL(ncclDevKernelArgsStorage<4096ul>)",
+     "total_us": 1950054.487
+    },
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x2_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x2_tn_align8::Params)",
+     "total_us": 1497923.104
+    },
+    {
+     "name": "fused_recurrent_gated_delta_rule_fwd_kernel",
+     "total_us": 1025070.954
+    },
+    {
+     "name": "mhc_fused_tilelang_kernel",
+     "total_us": 434595.863
+    },
+    {
+     "name": "void flashinfer::sparse_mla_sm120::sparse_mla_decode_dsv3_2_kernel<(ModelType)2, 32, 2048, 64>(__nv_bfloat16 const*, unsigned char const*, int const*, __nv_bfloat16*, float*, int const*, int, int, int, float, unsigned long)",
+     "total_us": 424506.905
+    },
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_s161616gemm_bf16_16x16_128x2_tn_align8>(cutlass_80_wmma_tensorop_s161616gemm_bf16_16x16_128x2_tn_align8::Params)",
+     "total_us": 288223.26
+    }
+   ]
+  },
+  {
+   "graph_key": "rank1:2573",
+   "graph_id": "2573",
+   "rank": "rank1",
+   "kernel_count": 273374,
+   "total_us": 18359032.097,
+   "top": [
+    {
+     "name": "void exl3_moe_kernel<4, 256, 1>(__half const*, __half*, __half*, __half*, __half*, float*, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, long const*, long const*, __half const*, int, int, int, int, int, int, float, int, int, int, int, int*)",
+     "total_us": 10853338.25
+    },
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align8::Params)",
+     "total_us": 2356021.295
+    },
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align2>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align2::Params)",
+     "total_us": 1174267.676
+    },
+    {
+     "name": "ncclDevKernel_AllReduce_Sum_bf16_RING_LL(ncclDevKernelArgsStorage<4096ul>)",
+     "total_us": 981642.102
+    },
+    {
+     "name": "fused_recurrent_gated_delta_rule_fwd_kernel",
+     "total_us": 759639.01
+    },
+    {
+     "name": "nvjet_sm121_tst_mma_64x32x64_8_16x32x64_tmaAB_bz_TNNN",
+     "total_us": 526272.557
+    },
+    {
+     "name": "nvjet_sm121_tss_mma_192x16x64_3_32x16x64_tmaAB_splitK_TNNN",
+     "total_us": 191371.121
+    },
+    {
+     "name": "void flashinfer::sparse_mla_sm120::sparse_mla_decode_dsv3_2_kernel<(ModelType)2, 32, 2048, 64>(__nv_bfloat16 const*, unsigned char const*, int const*, __nv_bfloat16*, float*, int const*, int, int, int, float, unsigned long)",
+     "total_us": 183407.257
+    }
+   ]
+  },
+  {
+   "graph_key": "rank1:2603",
+   "graph_id": "2603",
+   "rank": "rank1",
+   "kernel_count": 113486,
+   "total_us": 4528674.025,
+   "top": [
+    {
+     "name": "nvjet_sm121_tst_mma_128x144x64_2_32x72x64_tmaAB_bz_TNNN",
+     "total_us": 1271486.52
+    },
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align8::Params)",
+     "total_us": 895159.664
+    },
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align2>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align2::Params)",
+     "total_us": 827608.93
+    },
+    {
+     "name": "ncclDevKernel_AllReduce_Sum_bf16_RING_LL(ncclDevKernelArgsStorage<4096ul>)",
+     "total_us": 541995.484
+    },
+    {
+     "name": "ncclDevKernel_AllGather_RING_LL(ncclDevKernelArgsStorage<4096ul>)",
+     "total_us": 313386.439
+    },
+    {
+     "name": "void flash::flash_fwd_splitkv_kernel<Flash_fwd_kernel_traits<128, 64, 128, 4, false, false, cutlass::bfloat16_t, Flash_kernel_traits<128, 64, 128, 4, cutlass::bfloat16_t> >, false, true, false, false, true, false, false, false>(flash::Flash_fwd_params)",
+     "total_us": 268655.73
+    },
+    {
+     "name": "nvjet_sm121_tst_mma_32x32x64_12_32x8x64_tmaAB_bz_TNNN",
+     "total_us": 166043.544
+    },
+    {
+     "name": "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1})",
+     "total_us": 29678.972
+    }
+   ]
+  },
+  {
+   "graph_key": "rank1:0",
+   "graph_id": "0",
+   "rank": "rank1",
+   "kernel_count": 36580,
+   "total_us": 2390010.49,
+   "top": [
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x2_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x2_tn_align8::Params)",
+     "total_us": 716693.958
+    },
+    {
+     "name": "ncclDevKernel_AllReduce_Sum_bf16_RING_LL(ncclDevKernelArgsStorage<4096ul>)",
+     "total_us": 714487.814
+    },
+    {
+     "name": "nvjet_sm121_tst_mma_128x144x64_2_32x72x64_tmaAB_bz_TNNN",
+     "total_us": 369323.343
+    },
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x1_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x1_tn_align8::Params)",
+     "total_us": 257800.458
+    },
+    {
+     "name": "ncclDevKernel_AllGather_RING_LL(ncclDevKernelArgsStorage<4096ul>)",
+     "total_us": 118728.254
+    },
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align8::Params)",
+     "total_us": 96751.884
+    },
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align2>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align2::Params)",
+     "total_us": 21162.219
+    },
+    {
+     "name": "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16)#1} const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16)#1}>(at::TensorIteratorBase&, at::native::direct_copy_kernel_cuda(at::TensorIteratorBase&)::{lambda()#3}::operator()() const::{lambda()#12}::operator()() const::{lambda(c10::BFloat16)#1} const&)::{lambda(int)#1})",
+     "total_us": 8978.102
+    }
+   ]
+  },
+  {
+   "graph_key": "rank1:2579",
+   "graph_id": "2579",
+   "rank": "rank1",
+   "kernel_count": 9916,
+   "total_us": 625276.396,
+   "top": [
+    {
+     "name": "void exl3_moe_kernel<4, 256, 1>(__half const*, __half*, __half*, __half*, __half*, float*, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, long const*, long const*, __half const*, int, int, int, int, int, int, float, int, int, int, int, int*)",
+     "total_us": 367434.464
+    },
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x1_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x1_tn_align8::Params)",
+     "total_us": 131797.263
+    },
+    {
+     "name": "ncclDevKernel_AllReduce_Sum_bf16_RING_LL(ncclDevKernelArgsStorage<4096ul>)",
+     "total_us": 30417.944
+    },
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x2_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x2_tn_align8::Params)",
+     "total_us": 25712.326
+    },
+    {
+     "name": "fused_recurrent_gated_delta_rule_fwd_kernel",
+     "total_us": 19693.009
+    },
+    {
+     "name": "mhc_fused_tilelang_kernel",
+     "total_us": 7806.188
+    },
+    {
+     "name": "void flashinfer::sparse_mla_sm120::sparse_mla_decode_dsv3_2_kernel<(ModelType)2, 32, 2048, 64>(__nv_bfloat16 const*, unsigned char const*, int const*, __nv_bfloat16*, float*, int const*, int, int, int, float, unsigned long)",
+     "total_us": 6377.48
+    },
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_s161616gemm_bf16_16x16_128x2_tn_align8>(cutlass_80_wmma_tensorop_s161616gemm_bf16_16x16_128x2_tn_align8::Params)",
+     "total_us": 4690.037
+    }
+   ]
+  },
+  {
+   "graph_key": "rank1:2567",
+   "graph_id": "2567",
+   "rank": "rank1",
+   "kernel_count": 5158,
+   "total_us": 332757.737,
+   "top": [
+    {
+     "name": "void exl3_moe_kernel<4, 256, 1>(__half const*, __half*, __half*, __half*, __half*, float*, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, long const*, long const*, __half const*, int, int, int, int, int, int, float, int, int, int, int, int*)",
+     "total_us": 173465.966
+    },
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align8::Params)",
+     "total_us": 45369.502
+    },
+    {
+     "name": "fused_recurrent_gated_delta_rule_fwd_kernel",
+     "total_us": 23197.888
+    },
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align2>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align2::Params)",
+     "total_us": 21996.838
+    },
+    {
+     "name": "ncclDevKernel_AllReduce_Sum_bf16_RING_LL(ncclDevKernelArgsStorage<4096ul>)",
+     "total_us": 20667.673
+    },
+    {
+     "name": "nvjet_sm121_tst_mma_64x32x64_8_16x32x64_tmaAB_bz_TNNN",
+     "total_us": 11002.054
+    },
+    {
+     "name": "void flashinfer::sparse_mla_sm120::sparse_mla_decode_dsv3_2_kernel<(ModelType)2, 32, 2048, 64>(__nv_bfloat16 const*, unsigned char const*, int const*, __nv_bfloat16*, float*, int const*, int, int, int, float, unsigned long)",
+     "total_us": 6260.332
+    },
+    {
+     "name": "nvjet_sm121_tss_mma_192x16x64_3_32x16x64_tmaAB_splitK_TNNN",
+     "total_us": 3750.844
+    }
+   ]
+  },
+  {
+   "graph_key": "rank1:2588",
+   "graph_id": "2588",
+   "rank": "rank1",
+   "kernel_count": 4958,
+   "total_us": 246739.457,
+   "top": [
+    {
+     "name": "void exl3_moe_kernel<4, 256, 1>(__half const*, __half*, __half*, __half*, __half*, float*, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, long const*, long const*, __half const*, int, int, int, int, int, int, float, int, int, int, int, int*)",
+     "total_us": 131791.089
+    },
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x1_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x1_tn_align8::Params)",
+     "total_us": 63689.909
+    },
+    {
+     "name": "ncclDevKernel_AllReduce_Sum_bf16_RING_LL(ncclDevKernelArgsStorage<4096ul>)",
+     "total_us": 12481.474
+    },
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x2_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x2_tn_align8::Params)",
+     "total_us": 11805.135
+    },
+    {
+     "name": "fused_recurrent_gated_delta_rule_fwd_kernel",
+     "total_us": 5537.265
+    },
+    {
+     "name": "mhc_fused_tilelang_kernel",
+     "total_us": 2879.143
+    },
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_s161616gemm_bf16_16x16_128x2_tn_align8>(cutlass_80_wmma_tensorop_s161616gemm_bf16_16x16_128x2_tn_align8::Params)",
+     "total_us": 2291.465
+    },
+    {
+     "name": "void flashinfer::sparse_mla_sm120::sparse_mla_decode_dsv3_2_kernel<(ModelType)2, 32, 2048, 64>(__nv_bfloat16 const*, unsigned char const*, int const*, __nv_bfloat16*, float*, int const*, int, int, int, float, unsigned long)",
+     "total_us": 1812.303
+    }
+   ]
+  },
+  {
+   "graph_key": "rank1:2585",
+   "graph_id": "2585",
+   "rank": "rank1",
+   "kernel_count": 2479,
+   "total_us": 126240.6,
+   "top": [
+    {
+     "name": "void exl3_moe_kernel<4, 256, 1>(__half const*, __half*, __half*, __half*, __half*, float*, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, long const*, long const*, __half const*, int, int, int, int, int, int, float, int, int, int, int, int*)",
+     "total_us": 65950.324
+    },
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x1_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x1_tn_align8::Params)",
+     "total_us": 32158.222
+    },
+    {
+     "name": "ncclDevKernel_AllReduce_Sum_bf16_RING_LL(ncclDevKernelArgsStorage<4096ul>)",
+     "total_us": 8089.244
+    },
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x2_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x2_tn_align8::Params)",
+     "total_us": 6003.661
+    },
+    {
+     "name": "fused_recurrent_gated_delta_rule_fwd_kernel",
+     "total_us": 2852.687
+    },
+    {
+     "name": "mhc_fused_tilelang_kernel",
+     "total_us": 1595.154
+    },
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_s161616gemm_bf16_16x16_128x2_tn_align8>(cutlass_80_wmma_tensorop_s161616gemm_bf16_16x16_128x2_tn_align8::Params)",
+     "total_us": 1237.431
+    },
+    {
+     "name": "void flashinfer::sparse_mla_sm120::sparse_mla_decode_dsv3_2_kernel<(ModelType)2, 32, 2048, 64>(__nv_bfloat16 const*, unsigned char const*, int const*, __nv_bfloat16*, float*, int const*, int, int, int, float, unsigned long)",
+     "total_us": 978.394
+    }
+   ]
+  },
+  {
+   "graph_key": "rank1:2606",
+   "graph_id": "2606",
+   "rank": "rank1",
+   "kernel_count": 1902,
+   "total_us": 72678.872,
+   "top": [
+    {
+     "name": "nvjet_sm121_tst_mma_128x144x64_2_32x72x64_tmaAB_bz_TNNN",
+     "total_us": 21322.347
+    },
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align8::Params)",
+     "total_us": 14630.404
+    },
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align2>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_32x32_128x1_tn_align2::Params)",
+     "total_us": 13631.626
+    },
+    {
+     "name": "ncclDevKernel_AllReduce_Sum_bf16_RING_LL(ncclDevKernelArgsStorage<4096ul>)",
+     "total_us": 9503.95
+    },
+    {
+     "name": "ncclDevKernel_AllGather_RING_LL(ncclDevKernelArgsStorage<4096ul>)",
+     "total_us": 4187.708
+    },
+    {
+     "name": "void flash::flash_fwd_splitkv_kernel<Flash_fwd_kernel_traits<128, 64, 128, 4, false, false, cutlass::bfloat16_t, Flash_kernel_traits<128, 64, 128, 4, cutlass::bfloat16_t> >, false, true, false, false, true, false, false, false>(flash::Flash_fwd_params)",
+     "total_us": 3084.678
+    },
+    {
+     "name": "nvjet_sm121_tst_mma_32x32x64_12_32x8x64_tmaAB_bz_TNNN",
+     "total_us": 2726.212
+    },
+    {
+     "name": "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1})",
+     "total_us": 452.383
+    }
+   ]
+  },
+  {
+   "graph_key": "rank1:2612",
+   "graph_id": "2612",
+   "rank": "rank1",
+   "kernel_count": 317,
+   "total_us": 10207.53,
+   "top": [
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x2_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x2_tn_align8::Params)",
+     "total_us": 4225.98
+    },
+    {
+     "name": "void cutlass::Kernel2<cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x1_tn_align8>(cutlass_80_wmma_tensorop_bf16_s161616gemm_bf16_16x16_128x1_tn_align8::Params)",
+     "total_us": 3931.582
+    },
+    {
+     "name": "ncclDevKernel_AllReduce_Sum_bf16_RING_LL(ncclDevKernelArgsStorage<4096ul>)",
+     "total_us": 787.769
+    },
+    {
+     "name": "void flash::flash_fwd_splitkv_kernel<Flash_fwd_kernel_traits<128, 64, 128, 4, false, false, cutlass::bfloat16_t, Flash_kernel_traits<128, 64, 128, 4, cutlass::bfloat16_t> >, false, true, false, false, true, false, false, false>(flash::Flash_fwd_params)",
+     "total_us": 498.749
+    },
+    {
+     "name": "ncclDevKernel_AllGather_RING_LL(ncclDevKernelArgsStorage<4096ul>)",
+     "total_us": 131.807
+    },
+    {
+     "name": "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1})",
+     "total_us": 72.192
+    },
+    {
+     "name": "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl<at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl<at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<c10::BFloat16, c10::BFloat16, c10::BFloat16, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1})",
+     "total_us": 66.752
+    },
+    {
+     "name": "void at::native::elementwise_kernel<128, 4, at::native::gpu_kernel_impl_nocast<at::native::CUDAFunctor_add<c10::BFloat16> >(at::TensorIteratorBase&, at::native::CUDAFunctor_add<c10::BFloat16> const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::CUDAFunctor_add<c10::BFloat16> >(at::TensorIteratorBase&, at::native::CUDAFunctor_add<c10::BFloat16> const&)::{lambda(int)#1})",
+     "total_us": 60.638
+    }
+   ]
+  }
+ ],
+ "generations": {
+  "execute_context_0(0)_generation_2(10)": {
+   "pieces": 91,
+   "kernel_count": 2548,
+   "kernel_us": 126388.152,
+   "tokens": 10,
+   "seqs": 2,
+   "families_us": {
+    "other": 6615.616,
+    "gemm": 41551.396,
+    "collective": 8126.588,
+    "kda": 3116.266,
+    "sparse_mla": 1027.962,
+    "fused_moe": 65950.324
+   },
+   "fused_moe_us": 65950.324,
+   "fused_moe_calls": 42,
+   "fused_moe_share": 0.521808,
+   "decode_steps": 1.0,
+   "fused_moe_us_per_step": 65950.324,
+   "expert_slots": 80,
+   "experts_uniform_estimate": 70.71,
+   "implied_gbs_uniform": 284.68,
+   "experts_at_roofline": 54.14
+  },
+  "execute_context_0(0)_generation_3(15)": {
+   "pieces": 364,
+   "kernel_count": 10192,
+   "kernel_us": 631508.982,
+   "tokens": 15,
+   "seqs": 3,
+   "families_us": {
+    "other": 29388.574,
+    "gemm": 171020.011,
+    "collective": 36204.519,
+    "kda": 20881.185,
+    "sparse_mla": 6580.229,
+    "fused_moe": 367434.464
+   },
+   "fused_moe_us": 367434.464,
+   "fused_moe_calls": 168,
+   "fused_moe_share": 0.581836,
+   "decode_steps": 4.0,
+   "fused_moe_us_per_step": 91858.616,
+   "expert_slots": 120,
+   "experts_uniform_estimate": 99.25,
+   "implied_gbs_uniform": 286.91,
+   "experts_at_roofline": 75.42
+  },
+  "execute_context_0(0)_generation_3(9)": {
+   "pieces": 182,
+   "kernel_count": 5096,
+   "kernel_us": 249412.747,
+   "tokens": 9,
+   "seqs": 3,
+   "families_us": {
+    "other": 12744.646,
+    "gemm": 81935.051,
+    "collective": 14939.534,
+    "kda": 6097.357,
+    "sparse_mla": 1905.07,
+    "fused_moe": 131791.089
+   },
+   "fused_moe_us": 131791.089,
+   "fused_moe_calls": 84,
+   "fused_moe_share": 0.528406,
+   "decode_steps": 2.0,
+   "fused_moe_us_per_step": 65895.545,
+   "expert_slots": 72,
+   "experts_uniform_estimate": 64.5,
+   "implied_gbs_uniform": 259.9,
+   "experts_at_roofline": 54.1
+  },
+  "execute_context_0(0)_generation_4(12)": {
+   "pieces": 22750,
+   "kernel_count": 637032,
+   "kernel_us": 35423532.518,
+   "tokens": 12,
+   "seqs": 4,
+   "families_us": {
+    "other": 1714248.595,
+    "gemm": 10370063.549,
+    "collective": 2385867.699,
+    "kda": 1100566.179,
+    "sparse_mla": 436115.613,
+    "fused_moe": 19416670.883
+   },
+   "fused_moe_us": 19416670.883,
+   "fused_moe_calls": 10500,
+   "fused_moe_share": 0.548129,
+   "decode_steps": 250.0,
+   "fused_moe_us_per_step": 77666.684,
+   "expert_slots": 96,
+   "experts_uniform_estimate": 82.61,
+   "implied_gbs_uniform": 282.43,
+   "experts_at_roofline": 63.76
+  },
+  "execute_context_0(0)_generation_4(20)": {
+   "pieces": 9646,
+   "kernel_count": 280736,
+   "kernel_us": 18596806.332,
+   "tokens": 20,
+   "seqs": 4,
+   "families_us": {
+    "other": 672383.445,
+    "gemm": 4885649.62,
+    "collective": 1202102.6,
+    "kda": 793479.942,
+    "sparse_mla": 189852.475,
+    "fused_moe": 10853338.25
+   },
+   "fused_moe_us": 10853338.25,
+   "fused_moe_calls": 4452,
+   "fused_moe_share": 0.583613,
+   "decode_steps": 106.0,
+   "fused_moe_us_per_step": 102389.983,
+   "expert_slots": 160,
+   "experts_uniform_estimate": 124.05,
+   "implied_gbs_uniform": 321.71,
+   "experts_at_roofline": 84.06
+  },
+  "execute_context_0(0)_generation_4(32)": {
+   "pieces": 182,
+   "kernel_count": 5296,
+   "kernel_us": 383095.777,
+   "tokens": 32,
+   "seqs": 4,
+   "families_us": {
+    "other": 14116.004,
+    "gemm": 94653.938,
+    "collective": 70599.798,
+    "kda": 23843.645,
+    "sparse_mla": 6416.426,
+    "fused_moe": 173465.966
+   },
+   "fused_moe_us": 173465.966,
+   "fused_moe_calls": 84,
+   "fused_moe_share": 0.452801,
+   "decode_steps": 2.0,
+   "fused_moe_us_per_step": 86732.983,
+   "expert_slots": 256,
+   "experts_uniform_estimate": 171.08,
+   "implied_gbs_uniform": 523.76,
+   "experts_at_roofline": 71.21
+  }
+ },
+ "roofline": {
+  "gbs": 218.0,
+  "tolerance": 0.85,
+  "expert_bytes_per_rank": 6322188,
+  "moe_layers": 42,
+  "n_experts": 288,
+  "topk": 8,
+  "target_t": [
+   12,
+   20,
+   32
+  ],
+  "by_t": {
+   "12": {
+    "measured": true,
+    "fused_moe_calls": 10500,
+    "decode_steps": 250.0,
+    "fused_moe_us_per_step": 77666.684,
+    "expert_slots": 96,
+    "experts_uniform_estimate": 82.61,
+    "experts_at_roofline": 63.76,
+    "implied_gbs_uniform": 282.43
+   },
+   "20": {
+    "measured": true,
+    "fused_moe_calls": 4452,
+    "decode_steps": 106.0,
+    "fused_moe_us_per_step": 102389.983,
+    "expert_slots": 160,
+    "experts_uniform_estimate": 124.05,
+    "experts_at_roofline": 84.06,
+    "implied_gbs_uniform": 321.71
+   },
+   "32": {
+    "measured": true,
+    "fused_moe_calls": 84,
+    "decode_steps": 2.0,
+    "fused_moe_us_per_step": 86732.983,
+    "expert_slots": 256,
+    "experts_uniform_estimate": 171.08,
+    "experts_at_roofline": 71.21,
+    "implied_gbs_uniform": 523.76
+   }
+  },
+  "all_target_t_measured": true,
+  "roofline_explanation_viable": true,
+  "advisory": true,
+  "note": "weight-streaming model over safetensors headers plus an achievable-bandwidth figure with an ASSUMED (uniform) routing distribution. It bounds the traffic the kernel could be moving and can therefore rule the streaming explanation out; it cannot establish the achieved bandwidth, so it never yields a stop verdict on its own."
+ },
+ "decision": {
+  "task29": {
+   "verdict": "GAP_CANDIDATE_UNMEASURED",
+   "reason": "fused share 0.5030 >= floor 0.0500 and derived occupancy 33.33% < 50.0%; a measured counter is still required before any kernel change",
+   "fused_moe_us": 31008650.976,
+   "fused_moe_share": 0.503003,
+   "fused_kernels": [
+    "void exl3_moe_kernel<4, 256, 1>(__half const*, __half*, __half*, __half*, __half*, float*, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, long const*, long const*, __half const*, int, int, int, int, int, int, float, int, int, int, int, int*)"
+   ],
+   "est_occupancy_pct_min": 0,
+   "derived_occupancy_pct_min": 33.33,
+   "moe_share_floor": 0.05,
+   "occ_floor": 50.0,
+   "measured_counter_available": false,
+   "roofline_advisory": "the streaming model is consistent with the measured time, but it assumes a routing distribution and cannot measure achieved bandwidth; it does not change this verdict"
+  },
+  "task31": {
+   "sparse_mla_kernels": [
+    {
+     "name": "void flashinfer::sparse_mla_sm120::sparse_mla_decode_dsv3_2_kernel<(ModelType)2, 32, 2048, 64>(__nv_bfloat16 const*, unsigned char const*, int const*, __nv_bfloat16*, float*, int const*, int, int, int, float, unsigned long)",
+     "count": 4015,
+     "total_us": 623342.671,
+     "mean_us": 155.2535,
+     "share": 0.010111,
+     "block": [
+      [
+       288,
+       1,
+       1
+      ]
+     ],
+     "grid_volume": [
+      576,
+      640,
+      768,
+      960,
+      1280,
+      2048
+     ],
+     "graph_ids": [
+      "rank1:2567",
+      "rank1:2573",
+      "rank1:2579",
+      "rank1:2582",
+      "rank1:2585",
+      "rank1:2588"
+     ]
+    },
+    {
+     "name": "void flashinfer::sparse_mla_sm120::sparse_mla_decode_dsv4_merge_kernel<32, 512, 64, 8>(__nv_bfloat16 const*, float const*, __nv_bfloat16*, float*, float const*, int, int)",
+     "count": 4015,
+     "total_us": 18555.104,
+     "mean_us": 4.6214,
+     "share": 0.000301,
+     "block": [
+      [
+       64,
+       1,
+       1
+      ]
+     ],
+     "grid_volume": [
+      288,
+      320,
+      384,
+      480,
+      640,
+      1024
+     ],
+     "graph_ids": [
+      "rank1:2567",
+      "rank1:2573",
+      "rank1:2579",
+      "rank1:2582",
+      "rank1:2585",
+      "rank1:2588"
+     ]
+    }
+   ],
+   "sparse_mla_share": 0.010412,
+   "mla_share_floor": 0.02,
+   "distinct_names": 2,
+   "distinct_decode_names": 1,
+   "decode_kernel_names": [
+    "void flashinfer::sparse_mla_sm120::sparse_mla_decode_dsv3_2_kernel<(ModelType)2, 32, 2048, 64>(__nv_bfloat16 const*, unsigned char const*, int const*, __nv_bfloat16*, float*, int const*, int, int, int, float, unsigned long)"
+   ],
+   "verdict": "STOP_SHARE_BELOW_FLOOR",
+   "reason": "sparse-MLA share 0.0104 < floor 0.0200; an offline tactic cache can only pay out this family's share",
+   "advisory": true,
+   "note": "the kernel name does not encode the runtime tile config, so a single name is not proof of a single runtime tactic; the family's share of decode-step kernel time bounds the end-to-end payoff either way"
+  }
+ }
+}

@@ -1,0 +1,41 @@
+{
+ "schema": 2,
+ "dry_run": false,
+ "seqs": 4,
+ "prompt_repeats": 110,
+ "max_tokens": 800,
+ "streams": {
+  "0": {
+   "ok": true,
+   "tokens": 373,
+   "first_ts": 207673.504509793
+  },
+  "1": {
+   "ok": true,
+   "tokens": 368,
+   "first_ts": 207673.50472397
+  },
+  "2": {
+   "ok": true,
+   "tokens": 387,
+   "first_ts": 207673.504284928
+  },
+  "3": {
+   "ok": true,
+   "tokens": 373,
+   "first_ts": 207673.181401334
+  }
+ },
+ "concurrency_samples": [
+  4.0
+ ],
+ "counter_scope": "vLLM counters sampled immediately before /start_profile and right after /stop_profile; they bracket the capture but still include any in-flight step at each edge, so they are an upper bound",
+ "drafts_delta_per_request_sum": 1492.0,
+ "engine_decode_steps_estimate": 373.0,
+ "accepted_tokens_delta": 1700.0,
+ "draft_tokens_delta": 3732.0,
+ "acceptance": 0.4555198285101822,
+ "stop_profile_error": null,
+ "max_iters_failsafe": "2000",
+ "profile_dir": "/root/.cache/vllm/profiler"
+}
