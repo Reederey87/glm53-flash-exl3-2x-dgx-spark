@@ -180,6 +180,17 @@ cache is invisible to it). 0.87 demands 105.87 GiB free against boots measured a
   (6.00/5.74 → 4.90/4.57 GiB), still above the 2.5 GiB abort. Rollback
   both knobs to `off`/`0` through the guarded unit (stock
   `1 2 4 8 16 24 32`, no image rebuild).
+- `GLM53_ADAPTIVE_K_SATURATE` — leftover Task 25 policy knob.
+  **REVERTED 2026-09-09 at `n`.** Production last-wins stay unset
+  (launcher default `max`). `max` treats a fully-accepted prefix as
+  k=7 so the EMA can climb; `n` records the accepted count and never
+  climbs after a low-accept stretch. Policy-only: not in the JIT
+  shape hash, no cubin, no extra graphs. Isolated A vs B on
+  `e3-w3-zfill` / TRF=32 / ema / extra graphs / k=7: hashmap
+  29.09 → 28.90 (−0.7%), essay 24.95 → 25.21 (+1.1%), structured
+  70.51 → 70.23 @ 7.0/1.000 (−0.4%). Wash vs the ≥5% prose/agentic
+  bar. Do not chain ALPHA/MARGIN/MIN_STEPS. Rollback: unset through
+  the guarded unit (oneshot restart; `start` is a no-op).
 
 - `GLM53_PROFILE_TORCH_DIR` / `GLM53_PROFILE_MAX_ITERS` — Task 29/31
   decode-step profiler, **oracle only, not production**. Empty dir = off.

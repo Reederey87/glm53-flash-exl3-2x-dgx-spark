@@ -28,6 +28,13 @@ BENCH_PROMPT = (
 STRUCTURED_PROMPT = (
     "Count from 1 to 200. Output only the numbers, separated by spaces. No other text."
 )
+# Low-accept technical essay used by Task 25 / Task 28 (label: hard-essay).
+ESSAY_PROMPT = (
+    "Write a detailed technical essay titled \"Speculative Decoding and the Hidden "
+    "Cost of Failed Drafts: A Technical Analysis\". Cover draft generation, "
+    "verification cost, rejection sampling, and when longer drafts stop paying. "
+    "Use numbered sections. Be thorough."
+)
 NAN_RE = re.compile(r"\bnan\b|locklock", re.I)
 SPEC_RE = re.compile(
     r"^(vllm:spec_decode_[a-zA-Z0-9_]+)\{([^}]*)\}\s+(\S+)$"
@@ -260,7 +267,14 @@ def main() -> int:
         action="store_true",
         help="Warmed count-1-to-200 decode (temp 0, thinking off). Reports median tok/s + DFlash2 accept.",
     )
+    ap.add_argument(
+        "--essay",
+        action="store_true",
+        help="Low-accept technical essay (temp 0, thinking off). Same payload as Task 25/28 hard-essay.",
+    )
     args = ap.parse_args()
+    if args.structured and args.essay:
+        ap.error("--structured and --essay are mutually exclusive")
     h_code, h_body = health()
     rec: dict = {
         "phase": args.phase,
@@ -273,8 +287,15 @@ def main() -> int:
         Path(args.out).write_text(json.dumps(rec, indent=2))
         print(json.dumps(rec, indent=2))
         return 2
-    prompt = STRUCTURED_PROMPT if args.structured else BENCH_PROMPT
-    rec["prompt"] = "structured-count-1-200" if args.structured else "hashmap-prose"
+    if args.structured:
+        prompt = STRUCTURED_PROMPT
+        rec["prompt"] = "structured-count-1-200"
+    elif args.essay:
+        prompt = ESSAY_PROMPT
+        rec["prompt"] = "hard-essay"
+    else:
+        prompt = BENCH_PROMPT
+        rec["prompt"] = "hashmap-prose"
     rec["thinking"] = False
     rec["temperature"] = 0
     if args.structured:

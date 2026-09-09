@@ -84,8 +84,9 @@ def test_prod_start_hashes_extra_args_not_policy_knobs() -> None:
     assert "EXTRA_ARGS" in hash_line
     assert "DFLASH_TOKENS" in hash_line
     assert "GLM53_ADAPTIVE_K_CAPTURE" in hash_line
-    # Policy-only EMA must not itself force a JIT wipe.
+    # Policy-only EMA / SATURATE must not themselves force a JIT wipe.
     assert "GLM53_ADAPTIVE_K=" not in hash_line or "GLM53_ADAPTIVE_K_CAPTURE" in hash_line
+    assert "GLM53_ADAPTIVE_K_SATURATE" not in hash_line
     assert "printf 'GLM53_ADAPTIVE_K_CAPTURE=%s" in PROD_START
 
 
@@ -94,8 +95,11 @@ def test_docs_and_env_example_name_the_knobs() -> None:
     assert "GLM53_ADAPTIVE_K_CAPTURE=1" in ENV_EXAMPLE
     assert "verification-only" in ENV_EXAMPLE
     assert "Rollback: GLM53_ADAPTIVE_K=off" in ENV_EXAMPLE
+    assert "Task 32 REVERTED n" in ENV_EXAMPLE
     assert "GLM53_ADAPTIVE_K" in DOCS_02
     assert "B0" in DOCS_02
+    assert "GLM53_ADAPTIVE_K_SATURATE" in DOCS_02
+    assert "REVERTED 2026-09-09 at `n`" in DOCS_02
 
 
 if __name__ == "__main__":
