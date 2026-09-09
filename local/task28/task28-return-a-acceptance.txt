@@ -1,0 +1,33 @@
+
+== 1. served model id ==
+  PASS  /v1/models advertises GLM-5.3-Flash-EXL3
+
+== 2. basic completion, thinking OFF, temp 0 ==
+  PASS  basic completion
+
+== 3. thinking ON (reasoning parser glm45) ==
+    reasoning field: reasoning
+    reasoning chars: 179 | content chars: 397
+    finish_reason: stop
+  PASS  thinking returns reasoning + content
+
+== 4. tool call (parser glm47, auto tool choice) ==
+    finish_reason: tool_calls | tool_calls: 1
+    name: get_weather | args: {"city": "Oslo"}
+  PASS  tool call emitted and parsed
+
+== 5. production sampling: temp 1.0, thinking ON ==
+    finish_reason: stop | content chars: 417
+  PASS  temp 1.0 + thinking (the real production path)
+
+== 6. vision (LANGUAGE_MODEL_ONLY=0, limit-mm image:4) ==
+    content: Colorful
+  PASS  vision tower accepts an image
+
+== 7. long-context needle (~32k tokens) ==
+    prompt_tokens: 36040 | answer: CORMORANT-8815
+  PASS  needle retrieved at ~32k
+
+== RESULT ==
+  passed: 7   failed: 0
+  ACCEPTANCE PASSED

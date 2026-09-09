@@ -1,0 +1,6 @@
+c=1 stream temp0 x3                          n= 3 bad_args=0 short=0 errors=0 wall=   5.2s
+c=1 non-stream temp0 x2                      n= 2 bad_args=0 short=0 errors=0 wall=   3.3s
+c=1 stream temp1 (prod sampling) x3          n= 3 bad_args=0 short=0 errors=0 wall=   4.8s
+c=4 homogeneous stream temp1 x8              n= 8 bad_args=0 short=0 errors=0 wall=  10.9s
+
+TOTAL tool turns: 16, blank-required-arg turns: 0

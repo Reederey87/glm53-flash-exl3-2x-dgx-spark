@@ -1,0 +1,89 @@
+{
+  "phase": "b-candidate",
+  "drafter": "cfontes/45f7e139",
+  "ts": 1788965554.186202,
+  "cases": [
+    {
+      "tokens": 60000,
+      "runs": [
+        {
+          "prompt_tokens": 79823,
+          "ttft_s": 60.52,
+          "prefill_tok_s": 1319.1,
+          "total_s": 60.94,
+          "i": 1,
+          "metrics_before": {
+            "running": 0.0,
+            "waiting": 0.0
+          }
+        },
+        {
+          "prompt_tokens": 79776,
+          "ttft_s": 54.83,
+          "prefill_tok_s": 1455.1,
+          "total_s": 55.34,
+          "i": 2,
+          "metrics_before": {
+            "running": 0.0,
+            "waiting": 0.0
+          }
+        },
+        {
+          "prompt_tokens": 79686,
+          "ttft_s": 54.77,
+          "prefill_tok_s": 1455.0,
+          "total_s": 55.18,
+          "i": 3,
+          "metrics_before": {
+            "running": 0.0,
+            "waiting": 0.0
+          }
+        }
+      ],
+      "median_tok_s": 1455.0,
+      "min_tok_s": 1319.1,
+      "max_tok_s": 1455.1
+    },
+    {
+      "tokens": 240000,
+      "runs": [
+        {
+          "prompt_tokens": 319521,
+          "ttft_s": 233.79,
+          "prefill_tok_s": 1366.7,
+          "total_s": 234.07,
+          "i": 1,
+          "metrics_before": {
+            "running": 0.0,
+            "waiting": 0.0
+          }
+        },
+        {
+          "prompt_tokens": 319391,
+          "ttft_s": 233.15,
+          "prefill_tok_s": 1369.9,
+          "total_s": 233.42,
+          "i": 2,
+          "metrics_before": {
+            "running": 0.0,
+            "waiting": 0.0
+          }
+        },
+        {
+          "prompt_tokens": 319288,
+          "ttft_s": 228.03,
+          "prefill_tok_s": 1400.2,
+          "total_s": 228.31,
+          "i": 3,
+          "metrics_before": {
+            "running": 0.0,
+            "waiting": 0.0
+          }
+        }
+      ],
+      "median_tok_s": 1369.9,
+      "min_tok_s": 1366.7,
+      "max_tok_s": 1400.2
+    }
+  ]
+}

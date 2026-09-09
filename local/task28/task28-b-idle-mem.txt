@@ -1,0 +1,2 @@
+head_MemFree_GiB=3.75
+worker_MemFree_GiB=3.90

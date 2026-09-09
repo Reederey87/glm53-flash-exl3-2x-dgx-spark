@@ -95,7 +95,11 @@ cache is invisible to it). 0.87 demands 105.87 GiB free against boots measured a
 - `DFLASH_REVISION=7d74cdd…` — the drafter checkpoint, pinned. The Hub repo mutates
   under a fixed name; without the pin, a re-download quietly swaps drafter weights,
   which is the same stale-kernel hazard as changing `DFLASH_TOKENS` (it is in the JIT
-  shape hash for that reason). The newer checkpoints were benched and rejected.
+  shape hash for that reason). Newer official checkpoints (`dc77ff1`, `bf582e4`)
+  were benched and rejected (W19). The compatible on-policy
+  `cfontes/GLM-5.3-Flash-DFlash2-TR3-v3` `45f7e139` was A/B'd 2026-09-09
+  (task 28) at k=7 / adaptive-k ema / TRF=32 and **REVERTED** as a wash
+  (hashmap −2.2%, essay −3.5%). Keep `7d74cdd`. Do not chain k=2.
 - `DEFAULT_MAX_NEW_TOKENS=65536` — server-side ceiling for requests that omit
   `max_tokens`. Without it, one forgetful client can decode toward a million tokens
   and starve everyone. Passed as its own `--override-generation-config` argument so

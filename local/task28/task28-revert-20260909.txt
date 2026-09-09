@@ -1,0 +1,59 @@
+TASK28 DFLASH TR3-v3 REVERT 2026-09-09
+independent_variable=DFLASH_MODEL/DFLASH_REVISION
+control=incoai/GLM-5.3-Flash-DFlash2 DFLASH_REVISION=7d74cdd881ed7e32c31175984a67823127b66cfe
+         LFS 8931dc522be0aa31760a7463f8d2f8044fa3e6d40be2e87aa08e9fd17bfd6683  2342169800 B
+candidate=cfontes/GLM-5.3-Flash-DFlash2-TR3-v3 DFLASH_REVISION=45f7e139584e299f9850c9f92df2c4563a470432
+          LFS cfe8c06967c511b5cd45352551326b3901963de17e08dc9c56aca88a73c4c64d  2342169800 B
+config.json oid=083085aaf95d59bad59c58f1160865683460254e  BYTE-IDENTICAL both checkpoints
+frozen=IMAGE=glm53-selfbuild:e3-w3-zfill EXL3_FAT_GROUPED=1 EXL3_TEMP_ROWS_FUSED=32
+       GLM53_ADAPTIVE_K=ema GLM53_ADAPTIVE_K_CAPTURE=1 DFLASH_TOKENS=7 DFLASH_DRAFT_TP=1
+       MAX_NUM_SEQS=4 MNBT=3584 LPTT=1792 KV pin 15414698763
+hub_verify=HEAD_VERIFY_OK WORKER_VERIFY_OK both nodes before B boot
+sequence=A (incumbent live boot) -> B (TR3-v3, JIT wipe) -> return-A restoration smoke (7d74cdd, JIT wipe)
+         B2 skipped: B already missed the +5% prose/agentic adopt bar; wash contract forbids a k=2 chain.
+         return-A is pin restore + structured n=3 + acceptance 7/7 + serving 6/6; hashmap/essay/prefill/toolcall not re-run.
+         A acceptance/serving/toolcall were the standing healthy production boot (W2+Task 25); new-drafter gates ran on B.
+         B toolcall is local/toolcall-probe.py --quick 16/16, not the full 23/23 battery.
+rollback=.env.bak-pre-task28-dflash-20260909-143216 + last-wins 7d74cdd (applied)
+
+pool=1,396,551 tokens / 1.40x  both B and return-A
+bind=127.0.0.1:8000
+health=200
+unit=active
+watchdog.timer=active (re-armed after watchdog.service inactive)
+
+A control (7d74cdd, same production boot as W2/Task 25 stack)
+  structured n=9  median=68.44  accept=1.000/7.0  (two contended 25.15/25.25; rest 67.76-69.50)
+  hashmap n=9     median=30.37  accept_ratio=0.519  accepted_per_step=2.159
+  essay n=9       median=24.27  accept_ratio=0.416  accepted_per_step=1.434
+  prefill 60k n=3 median=1447.5  (1408.5 / 1447.5 / 1450.2)
+          labels=kit unique-prompt ladder --tokens 60000; actual prompt_tokens 79755/80112/80073 (~80k)
+  prefill 240k n=3 median=1368.3 (1366.0 / 1368.3 / 1411.2)
+          labels=--tokens 240000; actual prompt_tokens 319798/319675/318915 (~320k); same oversize as W2/E3
+
+B candidate (cfontes TR3-v3 45f7e139)
+  structured n=9  median=69.12  accept=1.000/7.0  (two contended 25.48/25.53; rest 68.44-71.05)
+  hashmap n=9     median=29.71  (-2.2% vs A)  accept_ratio=0.509  accepted_per_step=2.092
+  essay n=9       median=23.42  (-3.5% vs A)  accept_ratio=0.398  accepted_per_step=1.341
+  prefill 60k n=3 median=1455.0  (+0.5%)  (1319.1 first-after-boot / 1455.1 / 1455.0)
+          actual prompt_tokens 79823/79776/79686 (~80k)
+  prefill 240k n=3 median=1369.9  (+0.1%) (1366.7 / 1369.9 / 1400.2)
+          actual prompt_tokens 319521/319391/319288 (~320k)
+  acceptance=7/7  serving=6/6  toolcall --quick 16/16 blank-required-arg=0
+  idle MemFree B post-gates head/worker GiB=3.75 / 3.90  (abort floor 2.5)
+  MemFree B boot head dipped 2.10 during load then recovered 2.89 / 4.46 idle; abort is idle/post not in-flight load.
+
+return-A (7d74cdd restored)
+  structured n=3  median=70.15  accept=1.000/7.0
+  acceptance=7/7  serving=6/6
+  pool identical  DFLASH_MODEL_DIR=.../7d74cdd881ed7e32c31175984a67823127b66cfe
+  idle MemFree head/worker GiB=5.52 / 4.09
+
+Verdict: REVERT / KEEP 7d74cdd.
+  Prose/agentic did not clear >=5% (hashmap -2.2%, essay -3.5%). Wash, not a miss on
+  structured (>= -3% at 7.0/1.000) or prefill (>= -3%). Publisher TP4/K=2 table
+  (31.7 vs 18.9 tok/s) does not transfer to this TP2 / k=7 / adaptive-k stack.
+  Do not chain k=2. Do not publish or redistribute the derived weights (card license
+  other, base CC BY-NC-ND). Candidate bytes may stay on disk.
+no_cuda_xid_ima=1
+geometry_unchanged=MAX_MODEL_LEN=1000000 MNBT=3584 MAX_NUM_SEQS=4 DFLASH_TOKENS=7 IMAGE=e3-w3-zfill
