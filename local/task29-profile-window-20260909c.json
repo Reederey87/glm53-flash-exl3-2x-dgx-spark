@@ -1,0 +1,153 @@
+{
+ "schema": 2,
+ "started": "2026-09-09T16:52:44-0400",
+ "phases": [
+  {
+   "phase": "preflight",
+   "ok": true
+  },
+  {
+   "phase": "disarm",
+   "ok": true
+  },
+  {
+   "phase": "arm",
+   "ok": true
+  },
+  {
+   "phase": "profile",
+   "ok": true
+  },
+  {
+   "phase": "restore",
+   "ok": true
+  },
+  {
+   "phase": "gates",
+   "ok": true
+  },
+  {
+   "phase": "rearm",
+   "ok": true
+  }
+ ],
+ "phase_in_progress": null,
+ "backup": "/home/nvidia/GLM-5.3-Flash-EXL3-2x-DGX-Sparks/.env.bak-pre-task29-profile-20260909-165244",
+ "env_sha256": "46331ceef13612696a8def94bb9f0269a85655d7f4e4593a49b0c34169f21624",
+ "start_sha256": "560a7ed5b8be524333155188f2a85cd3f110e534205589a784ef38733b1604cc",
+ "probe_sha256": "8daf58669dd29857cea2d4a19c188f51fcb0beb24627ff0143ebaf96ed5c80a0",
+ "auditor_sha256": "609e10eaa315f9e8107b438aeb3f7cfd7187fd0bfc8fb8a700c4aa9d8d2e5308",
+ "jit_stamp_before": "078835f1d75fc6398c0eca32400fc132",
+ "image_before": "sha256:d8144f028ec3c66cddece76bec708dda5e093a034598af1ffb871064e2e47eeb",
+ "env_effective": {
+  "MODEL": "brandonmusic/GLM-5.3-Flash-tr3-4bpw",
+  "IMAGE": "glm53-selfbuild:e3-w3-zfill",
+  "DFLASH_MODEL": "incoai/GLM-5.3-Flash-DFlash2",
+  "DFLASH_TOKENS": "7",
+  "MAX_NUM_SEQS": "4",
+  "MAX_MODEL_LEN": "1000000",
+  "MAX_NUM_BATCHED_TOKENS": "3584",
+  "LONG_PREFILL_TOKEN_THRESHOLD": "1792",
+  "DFLASH_REVISION": "7d74cdd881ed7e32c31175984a67823127b66cfe",
+  "GLM53_INDEXER_WORKSPACE": "rightsize",
+  "EXL3_FAT_GROUPED": "1",
+  "GLM53_ADAPTIVE_K": "ema",
+  "GLM53_ADAPTIVE_K_CAPTURE": "1",
+  "EXL3_TEMP_ROWS_FUSED": "32"
+ },
+ "disarm_attempted": true,
+ "timers_after_disarm": {
+  "vllm-glm53exl3-watchdog.timer": "inactive",
+  "glm53exl3-metrics-alert.timer": "inactive"
+ },
+ "armed_attempted": true,
+ "env_sha256_armed": "fc0e45922628fe6d557591cd6d7793c351f3c2d0c7f5d490c0010798342cfefa",
+ "armed_env": {
+  "MODEL": "brandonmusic/GLM-5.3-Flash-tr3-4bpw",
+  "IMAGE": "glm53-selfbuild:e3-w3-zfill",
+  "DFLASH_MODEL": "incoai/GLM-5.3-Flash-DFlash2",
+  "DFLASH_TOKENS": "7",
+  "MAX_NUM_SEQS": "4",
+  "MAX_MODEL_LEN": "1000000",
+  "MAX_NUM_BATCHED_TOKENS": "3584",
+  "LONG_PREFILL_TOKEN_THRESHOLD": "1792",
+  "DFLASH_REVISION": "7d74cdd881ed7e32c31175984a67823127b66cfe",
+  "GLM53_INDEXER_WORKSPACE": "rightsize",
+  "EXL3_FAT_GROUPED": "1",
+  "GLM53_ADAPTIVE_K": "ema",
+  "GLM53_ADAPTIVE_K_CAPTURE": "1",
+  "EXL3_TEMP_ROWS_FUSED": "32",
+  "GLM53_PROFILE_TORCH_DIR": "/root/.cache/vllm/profiler",
+  "GLM53_PROFILE_MAX_ITERS": "2000"
+ },
+ "armed_image": "sha256:d8144f028ec3c66cddece76bec708dda5e093a034598af1ffb871064e2e47eeb",
+ "probe_stdout_tail": [
+  "warmup complete",
+  "profiler started with 4 running requests",
+  "profiler stopped (200)",
+  "engine_decode_steps_estimate~364 (per-request draft sum 1456 over 4 streams) captured_steps=365.0 accepted=1740 acceptance=0.4521829521829522",
+  "wrote /home/nvidia/GLM-5.3-Flash-EXL3-2x-DGX-Sparks/local/task29-profile-probe-20260909-170140.json"
+ ],
+ "probe_stderr_tail": [],
+ "probe_receipt": "/home/nvidia/GLM-5.3-Flash-EXL3-2x-DGX-Sparks/local/task29-profile-probe-20260909-170140.json",
+ "trace_dir": "/home/nvidia/GLM-5.3-Flash-EXL3-2x-DGX-Sparks/local/task29-traces-20260909-170511",
+ "trace_collect_rc": {
+  "worker_reset": 0,
+  "rsync": 0
+ },
+ "head_traces": [
+  {
+   "name": "dp0_pp0_tp0_dcp0_ep0_rank0.1788987786159489316.pt.trace.json.gz",
+   "bytes": 88081549
+  },
+  {
+   "name": "profiler_out_0.txt",
+   "bytes": 20653
+  }
+ ],
+ "worker_traces": [
+  {
+   "name": "dp0_pp0_tp1_dcp0_ep1_rank1.1788987785842356491.pt.trace.json.gz",
+   "bytes": 88100779
+  },
+  {
+   "name": "profiler_out_0.txt",
+   "bytes": 20652
+  }
+ ],
+ "restored_env": {
+  "MODEL": "brandonmusic/GLM-5.3-Flash-tr3-4bpw",
+  "IMAGE": "glm53-selfbuild:e3-w3-zfill",
+  "DFLASH_MODEL": "incoai/GLM-5.3-Flash-DFlash2",
+  "DFLASH_TOKENS": "7",
+  "MAX_NUM_SEQS": "4",
+  "MAX_MODEL_LEN": "1000000",
+  "MAX_NUM_BATCHED_TOKENS": "3584",
+  "LONG_PREFILL_TOKEN_THRESHOLD": "1792",
+  "DFLASH_REVISION": "7d74cdd881ed7e32c31175984a67823127b66cfe",
+  "GLM53_INDEXER_WORKSPACE": "rightsize",
+  "EXL3_FAT_GROUPED": "1",
+  "GLM53_ADAPTIVE_K": "ema",
+  "GLM53_ADAPTIVE_K_CAPTURE": "1",
+  "EXL3_TEMP_ROWS_FUSED": "32"
+ },
+ "restored_image": "sha256:d8144f028ec3c66cddece76bec708dda5e093a034598af1ffb871064e2e47eeb",
+ "acceptance_tail": [
+  "    prompt_tokens: 36040 | answer: CORMORANT-8815",
+  "  PASS  needle retrieved at ~32k",
+  "",
+  "== RESULT ==",
+  "  passed: 7   failed: 0",
+  "  ACCEPTANCE PASSED"
+ ],
+ "acceptance_rc": 0,
+ "memfree_head_gib": 5.37,
+ "memfree_worker_gib": 4.47,
+ "pool_line": "[patch_glm5_drafter_group] /usr/local/lib/python3.12/dist-packages/vllm/v1/core/kv_cache_utils.py: already patched (DFLASH2-DRAFTER-GROUP + padded slot-share + padding-waste accounting); no-op.",
+ "jit_stamp_after": "078835f1d75fc6398c0eca32400fc132",
+ "timers_after_rearm": {
+  "vllm-glm53exl3-watchdog.timer": "active",
+  "glm53exl3-metrics-alert.timer": "active"
+ },
+ "finished": "2026-09-09T17:14:56-0400"
+}

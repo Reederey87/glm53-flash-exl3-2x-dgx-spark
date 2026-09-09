@@ -72,15 +72,19 @@ watchdog + metrics-alert, armed the knobs, booted the pair, then ran the C4
 decode probe (`scripts/probe_decode_profile.py`: 4 concurrent streaming
 requests, warmup, all-streams-past-prefill gate, concurrency gate). Probe
 receipt `local/task29-profile-probe-20260909-152958.json` (written by probe
-schema 1, whose fields are named `window_*`; the probe now emits schema 2 with
+schema 1, whose fields are named `window_*`; the probe now emits schema 3 with
 the precise names below): 4/4 streams OK (375/375/392/367 tokens),
-`window_drafts 1505` over 4 streams → **376** engine decode steps,
+`window_drafts 1505` over 4 streams → **376** counter-based engine decode steps,
 `window_draft_tokens 3875`, `window_accepted 1693`, acceptance **0.4369**. In
-the schema-2 probe these are `drafts_delta_per_request_sum`,
+the current probe these are `drafts_delta_per_request_sum`,
 `engine_decode_steps_estimate`, `draft_tokens_delta`, `accepted_tokens_delta`.
 The counters are sampled immediately before `/start_profile` and right after
-`/stop_profile` (`counter_scope`), so they bracket the capture and remain an
-upper bound. Traces `local/task29-traces-20260909-153306/{head,worker}/`
+`/stop_profile` (`counter_scope`), so they bracket the capture but keep
+counting if the profiler auto-stops on `max_iterations`; they are an upper
+bound. The authoritative count is the trace itself: the head trace holds
+**390** engine decode steps (16,380 fused `exl3_moe` launches ÷ 42 MoE layers),
+which the current probe reports as `captured.engine_steps` and gates on
+(`--min-steps`). Traces `local/task29-traces-20260909-153306/{head,worker}/`
 (93.5 / 93.8 MB gzip).
 
 **Shares** (`scripts/audit_decode_kernel_share.py`, streaming parser, both
@@ -100,10 +104,12 @@ executions; 12 distinct graphs; 143 distinct kernel names):
 The profiler's `execute_context_0(0)_generation_<seqs>(<tokens>)` ranges were
 interval-joined to the kernels *per rank* (two ranks have independent GPU clock
 domains, so they are never joined against each other, then aggregated), so the
-per-T split below is measured, not inferred. Rank0 is tabulated; rank1 matches
-within 0.1–0.6 pp at T=12/20 and at the low-T buckets, but **T=32 is 4.99 pp
-lower on rank1 (46.65% vs 51.63%) on a 3-step sample** — treat that row as
-noise, not a rank asymmetry:
+per-T split below is measured, not inferred. Rank0 is tabulated. Rank1 tracks
+rank0 within 0.6 pp in the two buckets that carry almost all of the decode time
+(T=12 +0.56 pp, T=20 +0.43 pp) but the low-T buckets scatter by up to 1.25 pp
+(T=3 −1.02, T=6 −1.25), and T=32 differs by **4.99 pp** on a 3-step sample;
+in the second capture the same T=32 pair differs by only 0.84 pp on 2 steps, so
+those samples cannot separate noise from a rank asymmetry:
 
 | Realized T | decode steps | fused share | fused ms/step | implied GB/s (uniform-E) |
 |---|---|---|---|---|
@@ -150,23 +156,34 @@ itself hit a runner bug (`acceptance.sh` output was read without
 7/7); the window auto-restored production, the bug is fixed, and the gates
 phase was re-run. Rollback remains `glm53-selfbuild:e3-w3-zfill` + TRF=32.
 
-**Re-validation (fixed tooling, second window).** After the review fixes the
-same window was run again on the cluster with the candidate bytes
-(`local/task29-profile-window-20260909b.json`, schema 2: all 7 phases ok,
-`probe_sha256 ce2e1f98…`, `auditor_sha256 609e10ea…`, timers verified inactive
-after disarm and active after re-arm, `trace_collect_rc` 0/0, acceptance 7/7,
-MemFree 4.25 / 4.63 GiB, JIT stamp unchanged). Probe receipt
+**Re-validation (fixed tooling, two further windows).** After each review round
+the same window was run again on the cluster with the candidate bytes.
+
+*Second window* (`local/task29-profile-window-20260909b.json`, schema 2: all 7
+phases ok, `probe_sha256 ce2e1f98…`, `auditor_sha256 609e10ea…`, timers
+verified inactive after disarm and active after re-arm, `trace_collect_rc` 0/0,
+acceptance 7/7, MemFree 4.25 / 4.63 GiB, JIT stamp unchanged). Probe receipt
 `local/task29-profile-probe-20260909-162457.json` (schema 2): 4/4 streams
 (373/368/387/373 tokens), `engine_decode_steps_estimate` 373,
 `draft_tokens_delta` 3732, `accepted_tokens_delta` 1700, acceptance 0.4555.
-The second capture
-(`local/task29-traces-20260909-162752/`, audited into
-`local/task29-decode-share-{head,worker}-20260909b.json`) reproduces every
-verdict: fused share 50.21% / 49.73% (first capture 49.70% / 49.32%), 13 graphs,
-144 distinct kernels, 1,120,466 kernel events per rank, derived occupancy
-33.3%, `GAP_CANDIDATE_UNMEASURED`; sparse MLA 1.05% on both ranks,
-`STOP_SHARE_BELOW_FLOOR`, one decode kernel name. Per-T fused ms/step is
-78.46 / 99.84 / 90.21 (head) vs 76.78 / 97.86 / 85.13 in the first capture.
+
+*Third window* (`local/task29-profile-window-20260909c.json`, schema 2: all 7
+phases ok, timers inactive/active, `trace_collect_rc` 0/0, acceptance 7/7,
+MemFree 5.37 / 4.47 GiB, JIT stamp unchanged, `.env` restored). Probe receipt
+`local/task29-profile-probe-20260909-170140.json` (schema 3): 4/4 streams
+(368/361/368/368 tokens), `engine_decode_steps_estimate` 364 and
+`captured.engine_steps` **365** (15,330 fused `exl3_moe` launches ÷ 42 MoE
+layers) — the captured-evidence gate runs in situ, not only in unit tests.
+
+Both captures reproduce every verdict. Fused share head/worker: **49.70 / 49.32
+(first), 50.21 / 49.73 (second), 50.69 / 50.30 (third)** — stable within
+0.5 pp across 12.6–13.7 s of kernel time per rank. Sparse MLA stays 1.04–1.05%
+with one decode kernel name, `STOP_SHARE_BELOW_FLOOR`; derived occupancy stays
+33.3%, `GAP_CANDIDATE_UNMEASURED`. Second capture: 13 graphs, 144 distinct
+kernels, 1,120,466 kernel events per rank; third capture: 10 graphs, 142
+distinct kernels, 1,067,920 kernel events. Per-T fused ms/step (head) is
+78.46 / 99.84 / 90.21 in the second capture and 76.78 / 97.86 / 85.13 in the
+first.
 
 **Caveats.** (1) The probe's realized mix (267/95/3 steps at T=12/20/32,
 acceptance 0.437) is *not* the production prose mix — task 25's histogram was
@@ -182,11 +199,11 @@ namespaces graph ids per rank. (4) New reusable assets: the launcher knobs, the
 trace auditor (streaming parser, per-family/per-T/per-graph shares, advisory
 roofline), the C4 probe, the guarded window runner, and 22 CPU-only tests.
 Receipts: `local/task29-decode-share-{head,worker}-20260909.json` (schema 3),
-`local/task29-decode-share-{head,worker}-20260909b.json` (schema 3,
-re-validation capture), `local/task29-profile-window-20260909.json`,
-`local/task29-profile-window-20260909b.json` (schema 2),
+`…-20260909b.json` and `…-20260909c.json` (schema 3, re-validation captures),
+`local/task29-profile-window-20260909.json`,
+`…-20260909b.json`, `…-20260909c.json` (schema 2),
 `local/task29-profile-probe-20260909-152958.json`,
-`local/task29-profile-probe-20260909-162457.json` (schema 2).
+`…-162457.json` (schema 2), `…-170140.json` (schema 3).
 
 ### 2026-09-09: task 32 adaptive-k SATURATE=n REVERTED
 

@@ -8,7 +8,10 @@ steps only: the profiler starts after all four streams have emitted their first
 token and stops when they finish (or ``max_iterations`` fires as a fail-safe).
 
 Writes a JSON receipt with the spec-decode step count observed inside the
-window, so the auditor's per-step denominators are traceable.
+window, so the auditor's per-step denominators are traceable. The receipt also
+carries the *captured* step count read back from the profiler trace: the vLLM
+counters bracket ``/start_profile``..``/stop_profile`` but keep counting if the
+profiler auto-stops early, so only the trace proves how much was captured.
 """
 from __future__ import annotations
 
@@ -21,6 +24,9 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import audit_decode_kernel_share as audit  # noqa: E402
 
 MODEL = os.environ.get("SERVED_MODEL_NAME", "GLM-5.3-Flash-EXL3")
 API_KEY = os.environ.get("VLLM_API_KEY", "")
@@ -126,6 +132,43 @@ def stream_worker(index: int, prompt: str, max_tokens: int, state: dict, barrier
             pass
 
 
+def captured_engine_steps(trace_dir: Path, moe_layers: int) -> dict:
+    """Count the decode steps that are actually present in the profiler trace.
+
+    Every decode step launches one fused ``exl3_moe`` kernel per MoE layer, so
+    ``fused_moe_calls / moe_layers`` is the step count the auditor will see.
+    Each trace is a full view of its own rank, so the maximum across traces is
+    the captured count (never the sum).
+    """
+    traces = sorted(
+        p for p in trace_dir.rglob("*") if p.is_file() and str(p).endswith(".pt.trace.json.gz")
+    )
+    if not traces:
+        raise RuntimeError(f"no *.pt.trace.json.gz under {trace_dir}")
+    if moe_layers <= 0:
+        raise ValueError("--moe-layers must be positive")
+    per_trace = []
+    best = 0.0
+    for path in traces:
+        calls = 0
+        for event in audit.iter_trace_events(path):
+            if event.get("cat") != "kernel":
+                continue
+            if audit.classify(str(event.get("name", ""))) == "fused_moe":
+                calls += 1
+        steps = calls / moe_layers
+        best = max(best, steps)
+        per_trace.append(
+            {"file": path.name, "fused_moe_calls": calls, "engine_steps": round(steps, 3)}
+        )
+    return {
+        "moe_layers": moe_layers,
+        "traces": per_trace,
+        "fused_moe_calls": max(int(t["fused_moe_calls"]) for t in per_trace),
+        "engine_steps": round(best, 3),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--base", default=os.environ.get("GLM53_BASE", "http://127.0.0.1:8000"))
@@ -136,8 +179,15 @@ def main(argv: list[str] | None = None) -> int:
         "--min-steps",
         type=int,
         default=60,
-        help="minimum engine decode steps (draft sum / seqs) required to keep the capture",
+        help="minimum decode steps that must be present in the captured trace",
     )
+    ap.add_argument(
+        "--trace-dir",
+        type=Path,
+        help="host directory holding the profiler trace(s); required unless --dry-run",
+    )
+    ap.add_argument("--moe-layers", type=int, default=42,
+                    help="MoE layers per decode step, to convert fused-kernel calls to steps")
     ap.add_argument("--warmup", action="store_true", help="one unprofiled C4 burst first")
     ap.add_argument("--dry-run", action="store_true",
                     help="run the workload only; no /start_profile or /stop_profile")
@@ -146,6 +196,22 @@ def main(argv: list[str] | None = None) -> int:
 
     global BASE
     BASE = args.base.rstrip("/")
+
+    if args.moe_layers <= 0:
+        print("probe FAILED: --moe-layers must be positive", file=sys.stderr)
+        return 2
+
+    if not args.dry_run:
+        if args.trace_dir is None:
+            print(
+                "probe FAILED: --trace-dir is required outside --dry-run; the captured "
+                "step count must come from the trace, not from the counters",
+                file=sys.stderr,
+            )
+            return 2
+        if not args.trace_dir.is_dir():
+            print(f"probe FAILED: trace dir {args.trace_dir} does not exist", file=sys.stderr)
+            return 2
 
     # Preflight: profiler routes mounted? GET is not defined by the router, so a
     # mounted route answers 405 and an unarmed boot answers 404.
@@ -257,8 +323,22 @@ def main(argv: list[str] | None = None) -> int:
     accepted = delta("vllm:spec_decode_num_accepted_tokens_total")
     draft_tokens = delta("vllm:spec_decode_num_draft_tokens_total")
     engine_steps = drafts / args.seqs if args.seqs else 0.0
+    captured = None
+    if not args.dry_run:
+        # Kineto flushes the trace when the profiler stops; poll until it parses
+        # so a still-growing file is never mistaken for a short capture.
+        deadline = time.monotonic() + 240.0
+        while True:
+            try:
+                captured = captured_engine_steps(args.trace_dir, args.moe_layers)
+                break
+            except (audit.TruncatedTrace, RuntimeError, ValueError, OSError) as exc:
+                if time.monotonic() >= deadline:
+                    captured = {"error": repr(exc)}
+                    break
+                time.sleep(10)
     receipt = {
-        "schema": 2,
+        "schema": 3,
         "dry_run": args.dry_run,
         "seqs": args.seqs,
         "prompt_repeats": args.prompt_repeats,
@@ -267,22 +347,25 @@ def main(argv: list[str] | None = None) -> int:
         "concurrency_samples": conc_samples,
         "counter_scope": (
             "vLLM counters sampled immediately before /start_profile and right "
-            "after /stop_profile; they bracket the capture but still include any "
-            "in-flight step at each edge, so they are an upper bound"
+            "after /stop_profile; they keep counting if the profiler auto-stops "
+            "on max_iterations, so they are an upper bound on captured work"
         ),
         "drafts_delta_per_request_sum": drafts,
         "engine_decode_steps_estimate": round(engine_steps, 3),
         "accepted_tokens_delta": accepted,
         "draft_tokens_delta": draft_tokens,
         "acceptance": (accepted / draft_tokens) if draft_tokens else None,
+        "captured": captured,
+        "min_steps": args.min_steps,
         "stop_profile_error": stop_error,
         "max_iters_failsafe": os.environ.get("GLM53_PROFILE_MAX_ITERS"),
         "profile_dir": os.environ.get("GLM53_PROFILE_TORCH_DIR"),
     }
     args.out.write_text(json.dumps(receipt, indent=1) + "\n")
     print(
-        f"engine_decode_steps~{engine_steps:.0f} "
+        f"engine_decode_steps_estimate~{engine_steps:.0f} "
         f"(per-request draft sum {drafts:.0f} over {args.seqs} streams) "
+        f"captured_steps={captured.get('engine_steps') if captured else 'n/a'} "
         f"accepted={accepted:.0f} acceptance={receipt['acceptance']}"
     )
     failed = sorted(k for k, v in state.items() if not v.get("ok"))
@@ -295,10 +378,17 @@ def main(argv: list[str] | None = None) -> int:
     if stop_error:
         print(f"probe FAILED: /stop_profile failed: {stop_error}", file=sys.stderr)
         return 4
-    if engine_steps < args.min_steps:
+    if args.dry_run:
+        print(f"wrote {args.out}")
+        return 0
+    if captured is None or "error" in captured:
+        print(f"probe FAILED: could not read the captured trace: {captured}", file=sys.stderr)
+        return 3
+    if captured["engine_steps"] < args.min_steps:
         print(
-            f"probe FAILED: only {engine_steps:.0f} engine decode steps observed, "
-            f"need >= {args.min_steps}",
+            f"probe FAILED: the trace holds only {captured['engine_steps']} engine decode "
+            f"steps, need >= {args.min_steps} (the profiler may have auto-stopped on "
+            f"max_iterations={os.environ.get('GLM53_PROFILE_MAX_ITERS')})",
             file=sys.stderr,
         )
         return 3

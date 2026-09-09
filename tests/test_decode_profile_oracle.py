@@ -308,7 +308,8 @@ def test_probe_refuses_unarmed_boot(tmp_path: Path) -> None:
 
     base, server = _serve(armed=False)
     try:
-        rc = probe.main(["--base", base, "--out", str(tmp_path / "r.json")])
+        rc = probe.main(["--base", base, "--out", str(tmp_path / "r.json"),
+                         "--trace-dir", str(tmp_path)])
         assert rc == 2
     finally:
         server.shutdown()
@@ -317,7 +318,8 @@ def test_probe_refuses_unarmed_boot(tmp_path: Path) -> None:
 def test_probe_unreachable_server(tmp_path: Path) -> None:
     import probe_decode_profile as probe
 
-    rc = probe.main(["--base", "http://127.0.0.1:1", "--out", str(tmp_path / "r.json")])
+    rc = probe.main(["--base", "http://127.0.0.1:1", "--out", str(tmp_path / "r.json"),
+                     "--trace-dir", str(tmp_path)])
     assert rc == 2
 
 
@@ -357,21 +359,29 @@ def test_window_interrupt_leaves_recoverable_state() -> None:
     # backup coordinates are persisted before any later step can fail
     assert preflight.index('state.update({"backup"') < preflight.index("code, _ = curl")
     assert "save(state)" in preflight
+    disarm = src[src.index("def phase_disarm"):]
+    disarm = disarm[: disarm.index("\ndef ", 1)]
+    # a partial disarm must still be recoverable, so intent is recorded first
+    assert disarm.index('state["disarm_attempted"] = True') < disarm.index("systemctl")
     arm = src[src.index("def phase_arm"):]
     arm = arm[: arm.index("\ndef ", 1)]
     assert arm.index('state["armed_attempted"] = True') < arm.index("arm_env()")
     assert "atexit.register(emergency_restore)" in src
     assert "signal.signal(sig, _on_signal)" in src
     assert "except (Exception, KeyboardInterrupt) as exc" in src
-    assert "if needs_restore(state):" in src
+    assert "if needs_env_restore(state):" in src
+    assert "if not needs_timer_restore(state):" in src
+    assert "recover_timers(state)" in src
 
 
 def test_window_recovery_helpers(tmp_path: Path) -> None:
     import run_decode_profile_window as win
 
-    assert win.needs_restore({}) is False
-    assert win.needs_restore({"backup": "/x"}) is False
-    assert win.needs_restore({"backup": "/x", "armed_attempted": True}) is True
+    assert win.needs_env_restore({}) is False
+    assert win.needs_env_restore({"backup": "/x"}) is False
+    assert win.needs_env_restore({"backup": "/x", "armed_attempted": True}) is True
+    assert win.needs_timer_restore({}) is False
+    assert win.needs_timer_restore({"disarm_attempted": True}) is True
 
     receipt = tmp_path / "state.json"
     win._RECEIPT = receipt
@@ -404,9 +414,101 @@ def test_window_recovery_helpers(tmp_path: Path) -> None:
     assert sizes == [{"name": "dp0_rank0.pt.trace.json.gz", "bytes": win.MIN_TRACE_BYTES}]
 
 
+def test_window_recovers_timers_after_partial_disarm(tmp_path: Path) -> None:
+    """Stopping one timer and failing the second must still re-enable monitoring,
+    even though the profiler was never armed."""
+    import run_decode_profile_window as win
+
+    original_run, original_states = win.run, win.timer_states
+    calls: list[list[str]] = []
+    states = {win.TIMERS[0]: "inactive", win.TIMERS[1]: "active"}
+
+    def fake_run(argv, timeout=600, check=True):  # noqa: ANN001
+        calls.append(list(argv))
+        if argv[:3] == ["systemctl", "--user", "stop"] and argv[3] == win.TIMERS[1]:
+            return subprocess.CompletedProcess(argv, 1, "", "unit not found")
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    win.run = fake_run
+    win.timer_states = lambda: dict(states)
+    win._RECEIPT = tmp_path / "state.json"
+    try:
+        state: dict = {}
+        try:
+            win.phase_disarm(state)
+        except RuntimeError as exc:
+            assert "systemctl stop" in str(exc)
+        else:
+            raise AssertionError("a partial disarm must fail the phase")
+        assert state["disarm_attempted"] is True
+        assert win.needs_timer_restore(state) is True
+        assert win.needs_env_restore(state) is False
+        assert json.loads((tmp_path / "state.json").read_text())["disarm_attempted"] is True
+
+        def ok_run(argv, timeout=600, check=True):  # noqa: ANN001
+            calls.append(list(argv))
+            if argv[:3] == ["systemctl", "--user", "start"]:
+                states[argv[3]] = "active"
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        win.run = ok_run
+        win.recover_timers(state)
+        assert state["timer_restore"] == "ok"
+        assert all(status == "active" for status in states.values())
+        assert any(argv[:3] == ["systemctl", "--user", "start"] for argv in calls)
+    finally:
+        win.run, win.timer_states, win._RECEIPT = original_run, original_states, None
+
+
+def test_probe_capture_gate_detects_autostop(tmp_path: Path) -> None:
+    """The step floor must come from the captured trace, not from counters that
+    keep counting after the profiler auto-stops on max_iterations."""
+    import probe_decode_profile as probe
+
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    try:
+        probe.captured_engine_steps(empty, 42)
+    except RuntimeError as exc:
+        assert "no *.pt.trace.json.gz" in str(exc)
+    else:
+        raise AssertionError("a trace dir without traces must fail closed")
+
+    short = tmp_path / "short"
+    short.mkdir()
+    write_trace(
+        short / "rank0.pt.trace.json",
+        [kernel("exl3_moe_kernel<k4>", 1.0) for _ in range(10)],
+        gz=True,
+    )
+    got = probe.captured_engine_steps(short, 42)
+    assert got["fused_moe_calls"] == 10
+    assert got["engine_steps"] == round(10 / 42, 3)
+    assert got["engine_steps"] < 60  # early auto-stop is visible here
+
+    full = tmp_path / "full"
+    full.mkdir()
+    write_trace(
+        full / "rank0.pt.trace.json",
+        [kernel("exl3_moe_kernel<k4>", 1.0) for _ in range(60 * 42)],
+        gz=True,
+    )
+    assert probe.captured_engine_steps(full, 42)["engine_steps"] == 60.0
+
+    corrupt = tmp_path / "corrupt"
+    corrupt.mkdir()
+    (corrupt / "rank0.pt.trace.json.gz").write_bytes(b"not gzip")
+    try:
+        probe.captured_engine_steps(corrupt, 42)
+    except Exception:  # noqa: BLE001
+        pass
+    else:
+        raise AssertionError("an unreadable trace must fail closed")
+
+
 def test_probe_gates_and_labels_are_truthful() -> None:
     """The probe must require every stream past prefill, bracket the counters
-    against /start_profile, and label engine steps apart from draft counters."""
+    against /start_profile, and gate the capture on the trace itself."""
     src = (ROOT / "scripts" / "probe_decode_profile.py").read_text()
     assert "len(state) == args.seqs and all(v.get(\"first_ts\")" in src
     assert src.index("before = metrics()") > src.index("live, conc_samples = wait_concurrency")
@@ -415,6 +517,10 @@ def test_probe_gates_and_labels_are_truthful() -> None:
     assert '"counter_scope"' in src
     assert "probe FAILED: streams" in src
     assert "probe FAILED: /stop_profile failed" in src
+    assert "--trace-dir is required outside --dry-run" in src
+    assert "the trace holds only" in src
+    runner = (ROOT / "scripts" / "run_decode_profile_window.py").read_text()
+    assert '"--trace-dir", str(TRACE_HOST_DIR)' in runner
 
 
 def test_launcher_argv_in_both_inner_scripts() -> None:
@@ -510,6 +616,8 @@ if __name__ == "__main__":
         test_probe_refuses_unarmed_boot,
         test_probe_unreachable_server,
         test_window_recovery_helpers,
+        test_window_recovers_timers_after_partial_disarm,
+        test_probe_capture_gate_detects_autostop,
     ):
         with tempfile.TemporaryDirectory() as tmp:
             fn(Path(tmp))

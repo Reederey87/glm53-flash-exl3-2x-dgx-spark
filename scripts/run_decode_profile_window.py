@@ -90,27 +90,55 @@ def armed_now() -> bool:
     return any(key in env for key in ARM_KEYS)
 
 
-def needs_restore(state: dict) -> bool:
+def needs_env_restore(state: dict) -> bool:
+    """True when production may be running the armed boot and needs a reboot."""
     if "backup" not in state:
         return False
     return bool(state.get("armed_attempted")) or armed_now()
+
+
+def needs_timer_restore(state: dict) -> bool:
+    """True when the disarm phase may have left a timer stopped."""
+    return bool(state.get("disarm_attempted"))
+
+
+def recover_timers(state: dict) -> None:
+    """Re-enable the watchdog timers after a failed or interrupted disarm.
+
+    Independent of the .env restore: a window can stop a timer and then die
+    before it ever arms the profiler, and that must not leave monitoring off.
+    """
+    if not needs_timer_restore(state):
+        return
+    try:
+        phase_rearm(state)
+        state["timer_restore"] = "ok"
+    except Exception as exc:  # noqa: BLE001
+        state["timer_restore"] = f"FAILED: {exc!r}"
+        log(f"TIMER RESTORE FAILED: {exc} — operator action required")
+    save(state)
 
 
 def emergency_restore() -> None:
     """Restore production when the window is interrupted outside its own flow."""
     global _RESTORE_DONE
     state = _ACTIVE
-    if _RESTORE_DONE or _KEEP_ARMED or not state or not needs_restore(state):
+    if _RESTORE_DONE or _KEEP_ARMED or not state:
+        return
+    if not (needs_env_restore(state) or needs_timer_restore(state)):
         return
     _RESTORE_DONE = True
-    log("interrupted — restoring the pre-window .env and rebooting production")
-    try:
-        phase_restore(state)
-        phase_rearm(state)
-        state["auto_restore"] = "ok (interrupt)"
-    except Exception as exc:  # noqa: BLE001
-        state["auto_restore"] = f"FAILED: {exc!r}"
-        log(f"EMERGENCY RESTORE FAILED: {exc} — operator action required")
+    if needs_env_restore(state):
+        log("interrupted — restoring the pre-window .env and rebooting production")
+        try:
+            phase_restore(state)
+            state["auto_restore"] = "ok (interrupt)"
+        except Exception as exc:  # noqa: BLE001
+            state["auto_restore"] = f"FAILED: {exc!r}"
+            log(f"EMERGENCY RESTORE FAILED: {exc} — operator action required")
+    else:
+        state["auto_restore"] = "not needed (production was never armed)"
+    recover_timers(state)
     save(state)
 
 
@@ -258,6 +286,10 @@ def timer_states() -> dict[str, str]:
 
 
 def phase_disarm(state: dict) -> None:
+    # Record the intent before the first stop: a partial disarm (or an interrupt
+    # mid-phase) must still re-enable monitoring on the way out.
+    state["disarm_attempted"] = True
+    save(state)
     for unit in TIMERS:
         proc = run(["systemctl", "--user", "stop", unit], timeout=60, check=False)
         if proc.returncode != 0:
@@ -301,7 +333,8 @@ def phase_profile(state: dict) -> None:
         raise RuntimeError(f"worker trace-dir reset failed: {proc.stderr.strip()}")
     receipt = ROOT / "local" / f"task29-profile-probe-{time.strftime('%Y%m%d-%H%M%S')}.json"
     proc = subprocess.run(
-        [sys.executable, str(PROBE), "--warmup", "--out", str(receipt)],
+        [sys.executable, str(PROBE), "--warmup", "--out", str(receipt),
+         "--trace-dir", str(TRACE_HOST_DIR)],
         check=False, capture_output=True, text=True, timeout=3600,
         env={**os.environ, "GLM53_PROFILE_MAX_ITERS": "2000",
              "GLM53_PROFILE_TORCH_DIR": "/root/.cache/vllm/profiler"},
@@ -465,17 +498,17 @@ def main(argv: list[str] | None = None) -> int:
         save(state)
 
     if failure is not None and not args.keep_armed:
-        if needs_restore(state):
+        if needs_env_restore(state):
             log("failure — restoring the pre-window .env and rebooting production")
             try:
                 phase_restore(state)
-                phase_rearm(state)
                 state["auto_restore"] = "ok"
             except Exception as exc:  # noqa: BLE001
                 state["auto_restore"] = f"FAILED: {exc!r}"
                 log(f"AUTO-RESTORE FAILED: {exc} — operator action required")
         else:
             state["auto_restore"] = "not needed (production was never armed)"
+        recover_timers(state)
 
     _RESTORE_DONE = True
     state["finished"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
