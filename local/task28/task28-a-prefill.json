@@ -1,0 +1,95 @@
+{
+  "phase": "a-control",
+  "drafter": "incoai/7d74cdd",
+  "ts": 1788963412.1542048,
+  "cases": [
+    {
+      "tokens": 60000,
+      "runs": [
+        {
+          "prompt_tokens": 79755,
+          "ttft_s": 56.62,
+          "prefill_tok_s": 1408.5,
+          "total_s": 56.63,
+          "i": 1,
+          "metrics_before": {
+            "running": 0.0,
+            "waiting": 0.0,
+            "kv_usage": 0.0
+          }
+        },
+        {
+          "prompt_tokens": 80112,
+          "ttft_s": 55.34,
+          "prefill_tok_s": 1447.5,
+          "total_s": 55.87,
+          "i": 2,
+          "metrics_before": {
+            "running": 0.0,
+            "waiting": 0.0,
+            "kv_usage": 0.0
+          }
+        },
+        {
+          "prompt_tokens": 80073,
+          "ttft_s": 55.21,
+          "prefill_tok_s": 1450.2,
+          "total_s": 55.57,
+          "i": 3,
+          "metrics_before": {
+            "running": 0.0,
+            "waiting": 0.0,
+            "kv_usage": 0.0
+          }
+        }
+      ],
+      "median_tok_s": 1447.5,
+      "min_tok_s": 1408.5,
+      "max_tok_s": 1450.2
+    },
+    {
+      "tokens": 240000,
+      "runs": [
+        {
+          "prompt_tokens": 319798,
+          "ttft_s": 234.11,
+          "prefill_tok_s": 1366.0,
+          "total_s": 234.12,
+          "i": 1,
+          "metrics_before": {
+            "running": 0.0,
+            "waiting": 0.0,
+            "kv_usage": 0.0
+          }
+        },
+        {
+          "prompt_tokens": 319675,
+          "ttft_s": 233.62,
+          "prefill_tok_s": 1368.3,
+          "total_s": 233.63,
+          "i": 2,
+          "metrics_before": {
+            "running": 0.0,
+            "waiting": 0.0,
+            "kv_usage": 0.0
+          }
+        },
+        {
+          "prompt_tokens": 318915,
+          "ttft_s": 225.99,
+          "prefill_tok_s": 1411.2,
+          "total_s": 226.06,
+          "i": 3,
+          "metrics_before": {
+            "running": 0.0,
+            "waiting": 0.0,
+            "kv_usage": 0.0
+          }
+        }
+      ],
+      "median_tok_s": 1368.3,
+      "min_tok_s": 1366.0,
+      "max_tok_s": 1411.2
+    }
+  ]
+}

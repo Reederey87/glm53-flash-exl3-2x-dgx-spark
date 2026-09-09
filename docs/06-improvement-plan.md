@@ -38,6 +38,59 @@ Mainline GLM support (#53906) has merged, so model resolution is no longer the
 mainline blocker described in the historical section above; EXL3 integration
 and overlay compatibility still block a stock-image replacement.
 
+### 2026-09-09: task 28 cfontes DFlash2 TR3-v3 REVERTED
+
+Independent variable `DFLASH_MODEL` / `DFLASH_REVISION` only.
+Control: `incoai/GLM-5.3-Flash-DFlash2` `7d74cdd881ed7e32c31175984a67823127b66cfe`
+(LFS `8931dc52…`, 2,342,169,800 B). Candidate:
+`cfontes/GLM-5.3-Flash-DFlash2-TR3-v3` `45f7e139584e299f9850c9f92df2c4563a470432`
+(LFS `cfe8c069…`, same size). `config.json` oid `083085aa` byte-identical
+(hidden 4096, 5 layers, taps `[5,14,24,33,42]`, block 8). Frozen:
+`IMAGE=e3-w3-zfill`, `EXL3_FAT_GROUPED=1`, last-wins TRF=32,
+`GLM53_ADAPTIVE_K=ema`, k=7, draft TP=1, C4, pin, MNBT 3584, LPTT 1792.
+Hub identity verified on both nodes before B. Shape-cache wipe both
+directions (drafter swap is hashed). Publisher TP4/K=2 table is not
+this stack's expected delta; k stayed 7.
+
+**Cluster verdict: REVERT.** A (incumbent live boot) vs B (TR3-v3).
+B2 skipped: B already missed the ≥5% prose/agentic bar, so a second
+B boot would not change the keep/`7d74cdd` contract. Return-A restored
+the pin and ran a restoration smoke (structured n=3 + acceptance 7/7 +
+serving 6/6); hashmap / essay / prefill / toolcall were not re-run on
+return-A because the adopt decision was already closed on B. A was the
+standing healthy production boot (W2 + Task 25 already 7/7, 6/6); the
+new-drafter correctness gates ran on B. Toolcall on B was
+`local/toolcall-probe.py --quick` 16/16, not the full 23/23 battery.
+
+Prefill labels **60k / 240k** are the kit's standing unique-prompt
+ladder (`local/prefill-probe.py --tokens 60000/240000`). The probe
+over-generates short-word salad, so usage reports ~80k / ~320k actual
+`prompt_tokens` (same as prior W2 / E3 receipts). Throughput uses those
+actual counts. A 60k median 1447.5 vs B 1455.0 used ~80k prompts
+(A 79755/80112/80073, B 79823/79776/79686); A 240k median 1368.3 vs
+B 1369.9 used ~320k (A 319798/319675/318915, B 319521/319391/319288).
+
+| Gate | A `7d74cdd` | B TR3-v3 | Return-A restoration |
+|---|---|---|---|
+| Acceptance | standing healthy (not re-run) | **7/7** | **7/7** |
+| Serving (:18000) | standing healthy (not re-run) | **6/6** | **6/6** |
+| Toolcall | standing (not re-run) | **16/16 `--quick`** | skipped (B already failed adopt) |
+| Pool | 1,396,551 / 1.40× | identical | identical |
+| Structured | n=9 68.44 @ 7.0/1.000 | n=9 69.12 @ 7.0/1.000 | n=3 70.15 @ 7.0/1.000 |
+| Hashmap n=9 | 30.37 | **29.71 (−2.2%)** | skipped (B already failed adopt) |
+| Essay n=9 | 24.27 | **23.42 (−3.5%)** | skipped (B already failed adopt) |
+| 60k nominal (~80k actual) | 1447.5 | 1455.0 (+0.5%) | skipped (B already failed adopt) |
+| 240k nominal (~320k actual) | 1368.3 | 1369.9 (+0.1%) | skipped (B already failed adopt) |
+| Health / bind | 200 / loopback | 200 / loopback | 200 / loopback |
+| Idle MemFree head/worker GiB | (A boot) | 3.75 / 3.90 post-gates | 5.52 / 4.09 |
+
+Watchdog re-armed. Rollback last-wins:
+`DFLASH_MODEL=incoai/GLM-5.3-Flash-DFlash2`
+`DFLASH_REVISION=7d74cdd881ed7e32c31175984a67823127b66cfe`
+(`.env.bak-pre-task28-dflash-20260909-143216`). Candidate bytes remain
+on disk; do not publish or redistribute (card `other`, base CC BY-NC-ND).
+Do not chain k=2. Do not re-run this checkpoint.
+
 ### 2026-09-09: task 24 W2 isolated TRF=32 ADOPTED
 
 Independent variable `EXL3_TEMP_ROWS_FUSED=32` vs production E3@128.

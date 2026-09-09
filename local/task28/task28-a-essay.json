@@ -1,0 +1,323 @@
+{
+  "phase": "a-essay",
+  "prompt": "hard-essay",
+  "thinking": false,
+  "temperature": 0,
+  "health_code": 200,
+  "runs": [
+    {
+      "http": 200,
+      "ttft_s": 0.470619459,
+      "wall_s": 8.230730249999999,
+      "decode_s": 7.760110790999999,
+      "tok_s": 25.643963773145572,
+      "completion_tokens": 200,
+      "prompt_tokens": 57,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## Introduction\n\nSpeculative decoding has emerged as one of the most consequential inference-time optimizations for autoregressive large language models. The core insight is elegant: rather than generating one token per expensive forward pass through a large target model, a cheaper draft model proposes a sequence of",
+      "text_len": 1077,
+      "usage": {
+        "prompt_tokens": 57,
+        "total_tokens": 257,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 77,
+        "draft_tokens": 283,
+        "accepted": 124,
+        "accept_ratio": 0.4382,
+        "accepted_per_step": 1.61,
+        "pos": [
+          0.7143,
+          0.4545,
+          0.1948,
+          0.1429,
+          0.039,
+          0.039,
+          0.026
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.4483179580000005,
+      "wall_s": 8.647777166000001,
+      "decode_s": 8.199459208,
+      "tok_s": 24.26989328830868,
+      "completion_tokens": 200,
+      "prompt_tokens": 57,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## 1. Introduction\n\nAutoregressive large language model (LLM) inference is memory-bandwidth bound. For a model with parameters $W$ resident in HBM, generating a single token requires streaming the full weight matrix from memory to compute units, executing one forward pass, and producing one logit vector. The arithme",
+      "text_len": 903,
+      "usage": {
+        "prompt_tokens": 57,
+        "total_tokens": 257,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 83,
+        "draft_tokens": 286,
+        "accepted": 119,
+        "accept_ratio": 0.4161,
+        "accepted_per_step": 1.434,
+        "pos": [
+          0.6747,
+          0.4217,
+          0.1687,
+          0.0964,
+          0.0241,
+          0.0241,
+          0.0241
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.45226091700000026,
+      "wall_s": 8.696417832999998,
+      "decode_s": 8.244156915999998,
+      "tok_s": 24.138308140858786,
+      "completion_tokens": 200,
+      "prompt_tokens": 57,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## 1. Introduction\n\nAutoregressive large language model (LLM) inference is dominated by a fundamental asymmetry: generating a single token requires streaming the full set of model weights from high-bandwidth memory (HBM) through the accelerator's compute units, yet the arithmetic itself is trivially parallel-izable ",
+      "text_len": 904,
+      "usage": {
+        "prompt_tokens": 57,
+        "total_tokens": 257,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 84,
+        "draft_tokens": 276,
+        "accepted": 115,
+        "accept_ratio": 0.4167,
+        "accepted_per_step": 1.369,
+        "pos": [
+          0.6905,
+          0.3571,
+          0.1429,
+          0.1071,
+          0.0238,
+          0.0238,
+          0.0238
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.44795029199999803,
+      "wall_s": 8.468985416999995,
+      "decode_s": 8.021035124999997,
+      "tok_s": 24.809765435355835,
+      "completion_tokens": 200,
+      "prompt_tokens": 57,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## 1. Introduction\n\nAutoregressive large language model (LLM) inference is memory-bandwidth bound. For a model with parameters $W$ resident in HBM, generating a single token requires streaming the full weight matrix from memory to compute units, executing roughly $2|W|$ floating-point operations per token, and then ",
+      "text_len": 882,
+      "usage": {
+        "prompt_tokens": 57,
+        "total_tokens": 257,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 81,
+        "draft_tokens": 279,
+        "accepted": 119,
+        "accept_ratio": 0.4265,
+        "accepted_per_step": 1.469,
+        "pos": [
+          0.679,
+          0.4444,
+          0.1728,
+          0.0988,
+          0.0247,
+          0.0247,
+          0.0247
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.4314878329999985,
+      "wall_s": 8.766763583,
+      "decode_s": 8.335275750000001,
+      "tok_s": 23.874435107920693,
+      "completion_tokens": 200,
+      "prompt_tokens": 57,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## Introduction\n\nSpeculative decoding has emerged as one of the most consequential inference-time optimizations for autoregressive large language models. The core insight is elegant: rather than generating one token per expensive forward pass through a large target model, a cheap draft model proposes a sequence of c",
+      "text_len": 1133,
+      "usage": {
+        "prompt_tokens": 57,
+        "total_tokens": 257,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 84,
+        "draft_tokens": 288,
+        "accepted": 115,
+        "accept_ratio": 0.3993,
+        "accepted_per_step": 1.369,
+        "pos": [
+          0.6071,
+          0.4048,
+          0.1667,
+          0.0952,
+          0.0357,
+          0.0357,
+          0.0238
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.4370927089999981,
+      "wall_s": 7.968818708999997,
+      "decode_s": 7.531725999999999,
+      "tok_s": 26.421566583808282,
+      "completion_tokens": 200,
+      "prompt_tokens": 57,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## Introduction\n\nSpeculative decoding has emerged as one of the most consequential inference-time optimizations for autoregressive large language models. The core insight is elegant: rather than generating one token per expensive forward pass through a large target model, a cheaper draft model proposes a sequence of",
+      "text_len": 1041,
+      "usage": {
+        "prompt_tokens": 57,
+        "total_tokens": 257,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 74,
+        "draft_tokens": 280,
+        "accepted": 126,
+        "accept_ratio": 0.45,
+        "accepted_per_step": 1.703,
+        "pos": [
+          0.7432,
+          0.473,
+          0.2027,
+          0.1757,
+          0.0405,
+          0.0405,
+          0.027
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.4362938330000006,
+      "wall_s": 8.517114917,
+      "decode_s": 8.080821084,
+      "tok_s": 24.626210372856708,
+      "completion_tokens": 200,
+      "prompt_tokens": 57,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## Introduction\n\nSpeculative decoding has emerged as one of the most consequential inference-time optimizations for autoregressive large language models. The core insight is elegant: rather than generating one token per expensive forward pass of a large target model, a cheaper draft model proposes a sequence of cand",
+      "text_len": 1116,
+      "usage": {
+        "prompt_tokens": 57,
+        "total_tokens": 257,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 80,
+        "draft_tokens": 282,
+        "accepted": 119,
+        "accept_ratio": 0.422,
+        "accepted_per_step": 1.488,
+        "pos": [
+          0.6625,
+          0.45,
+          0.1625,
+          0.1125,
+          0.0375,
+          0.0375,
+          0.025
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.4360219160000014,
+      "wall_s": 8.807500832999999,
+      "decode_s": 8.371478916999997,
+      "tok_s": 23.77118809866317,
+      "completion_tokens": 200,
+      "prompt_tokens": 57,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## Introduction\n\nSpeculative decoding has emerged as one of the most consequential inference-time optimizations for autoregressive large language models. The core insight is elegant: rather than generating one token per expensive forward pass of a large target model, a cheaper draft model proposes a sequence of cand",
+      "text_len": 1081,
+      "usage": {
+        "prompt_tokens": 57,
+        "total_tokens": 257,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 84,
+        "draft_tokens": 284,
+        "accepted": 116,
+        "accept_ratio": 0.4085,
+        "accepted_per_step": 1.381,
+        "pos": [
+          0.6429,
+          0.381,
+          0.1429,
+          0.119,
+          0.0357,
+          0.0357,
+          0.0238
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.4443457920000071,
+      "wall_s": 8.832639584000006,
+      "decode_s": 8.388293791999999,
+      "tok_s": 23.723537221572798,
+      "completion_tokens": 200,
+      "prompt_tokens": 57,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## Introduction\n\nSpeculative decoding has emerged as one of the most consequential inference-time optimizations for autoregressive large language models. The core insight is elegant: since verification of a token is cheaper than generation of a token\u2014particularly under memory-bandwidth-bound batch-size-one decoding\u2014",
+      "text_len": 1039,
+      "usage": {
+        "prompt_tokens": 57,
+        "total_tokens": 257,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 85,
+        "draft_tokens": 280,
+        "accepted": 114,
+        "accept_ratio": 0.4071,
+        "accepted_per_step": 1.341,
+        "pos": [
+          0.6588,
+          0.3529,
+          0.1294,
+          0.1059,
+          0.0353,
+          0.0353,
+          0.0235
+        ]
+      }
+    }
+  ],
+  "warmup": {
+    "tok_s": 82.15699207350666,
+    "ttft_s": 0.49189754199999997,
+    "completion_tokens": 32
+  },
+  "tok_s_median": 24.26989328830868,
+  "accept_ratio_median": 0.4167,
+  "accepted_per_step_median": 1.434
+}

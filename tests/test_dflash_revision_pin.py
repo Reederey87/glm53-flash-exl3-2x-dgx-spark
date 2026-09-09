@@ -96,8 +96,24 @@ resolve_dflash_dir
         assert result.stdout.strip().endswith(f"/snapshots/{PIN}")
 
 
+def test_env_example_keeps_incumbent_after_task28_revert():
+    """Task 28 A/B'd cfontes TR3-v3 and reverted; the kit pin stays 7d74cdd."""
+    text = (ROOT / "env.example").read_text(encoding="utf-8")
+    assert "DFLASH_MODEL=incoai/GLM-5.3-Flash-DFlash2" in text
+    assert f"DFLASH_REVISION={PIN}" in text
+    assert "Task 28" in text and "REVERTED" in text
+    assert "45f7e139" in text
+    assert "DFLASH_MODEL=cfontes/" not in text.split("DFLASH_REVISION=")[0][-400:]
+    # last assignment in env.example remains the incumbent pin
+    last_model = [ln for ln in text.splitlines() if ln.startswith("DFLASH_MODEL=")][-1]
+    last_rev = [ln for ln in text.splitlines() if ln.startswith("DFLASH_REVISION=")][-1]
+    assert last_model == "DFLASH_MODEL=incoai/GLM-5.3-Flash-DFlash2"
+    assert last_rev == f"DFLASH_REVISION={PIN}"
+
+
 if __name__ == "__main__":
     test_pin_is_declared_and_threaded_through()
     test_download_and_resolution_use_the_pin()
     test_pinned_snapshot_wins_over_stale_refs_main()
+    test_env_example_keeps_incumbent_after_task28_revert()
     print("dflash revision-pin guard OK")
