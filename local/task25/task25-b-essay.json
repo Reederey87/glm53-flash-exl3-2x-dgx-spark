@@ -1,0 +1,324 @@
+{
+  "phase": "b-essay",
+  "prompt": "hard-essay",
+  "temperature": 0,
+  "thinking": false,
+  "runs": [
+    {
+      "http": 200,
+      "ttft_s": 0.44638004200000014,
+      "wall_s": 9.08421875,
+      "decode_s": 8.637838708,
+      "tok_s": 23.03817039506591,
+      "completion_tokens": 200,
+      "prompt_tokens": 56,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## 1. Introduction\n\nSpeculative decoding accelerates autoregressive LLM inference by having a small \"draft\" model propose a sequence of tokens that a large \"target\" model then verifies in parallel. When drafts are accepted, the target model emits multiple tokens per forward pass, amortizing its per-token latency. Th",
+      "text_len": 1024,
+      "usage": {
+        "prompt_tokens": 56,
+        "total_tokens": 256,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 87,
+        "draft_tokens": 292,
+        "accepted": 114,
+        "accept_ratio": 0.3904,
+        "accepted_per_step": 1.31,
+        "pos": [
+          0.6667,
+          0.3678,
+          0.1609,
+          0.1149,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.41910979100000034,
+      "wall_s": 8.005713499999999,
+      "decode_s": 7.5866037089999985,
+      "tok_s": 26.23044614336795,
+      "completion_tokens": 200,
+      "prompt_tokens": 56,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Wasted Target FLOPs\n\n## 1. Introduction\n\nSpeculative decoding accelerates autoregressive LLM inference by using a small \"draft\" model to propose multiple tokens, which a large \"target\" model then verifies in parallel. The promise is attractive: the target model's forward pass is largely memory-bandwidth-bound at batch sizes typical of single-user servi",
+      "text_len": 1031,
+      "usage": {
+        "prompt_tokens": 56,
+        "total_tokens": 256,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 75,
+        "draft_tokens": 278,
+        "accepted": 126,
+        "accept_ratio": 0.4532,
+        "accepted_per_step": 1.68,
+        "pos": [
+          0.7733,
+          0.48,
+          0.2533,
+          0.1733,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.42004458299999925,
+      "wall_s": 8.679745083,
+      "decode_s": 8.259700500000001,
+      "tok_s": 24.092883271009644,
+      "completion_tokens": 200,
+      "prompt_tokens": 56,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## 1. Introduction\n\nSpeculative decoding accelerates autoregressive LLM inference by having a small \"draft\" model propose a sequence of tokens that a large \"target\" model then verifies in parallel. When drafts are accepted, the target produces multiple tokens per forward pass, amortizing its per-token cost. The tech",
+      "text_len": 1077,
+      "usage": {
+        "prompt_tokens": 56,
+        "total_tokens": 256,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 83,
+        "draft_tokens": 290,
+        "accepted": 116,
+        "accept_ratio": 0.4,
+        "accepted_per_step": 1.398,
+        "pos": [
+          0.6988,
+          0.4337,
+          0.1566,
+          0.1084,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.42021025000000023,
+      "wall_s": 8.341941000000002,
+      "decode_s": 7.921730750000002,
+      "tok_s": 25.12077300784301,
+      "completion_tokens": 200,
+      "prompt_tokens": 56,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## 1. Introduction\n\nSpeculative decoding accelerates autoregressive LLM inference by having a small \"draft\" model propose a sequence of tokens that a large \"target\" model then verifies in parallel. When drafts are accepted, the target produces multiple tokens per forward pass, amortizing its per-token latency. The t",
+      "text_len": 1040,
+      "usage": {
+        "prompt_tokens": 56,
+        "total_tokens": 256,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 78,
+        "draft_tokens": 288,
+        "accepted": 124,
+        "accept_ratio": 0.4306,
+        "accepted_per_step": 1.59,
+        "pos": [
+          0.6923,
+          0.4615,
+          0.2436,
+          0.1795,
+          0.0128,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.4191272500000025,
+      "wall_s": 8.342600083,
+      "decode_s": 7.923472832999998,
+      "tok_s": 25.115249865084007,
+      "completion_tokens": 200,
+      "prompt_tokens": 56,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## 1. Introduction\n\nSpeculative decoding (Leviathan et al., 2023; Chen et al., 2023) accelerates autoregressive LLM inference by having a small *draft* model propose a block of \u03b3 tokens, which the large *target* model then verifies in a single forward pass. The promise is attractive: verify \u03b3+1 positions for roughly",
+      "text_len": 908,
+      "usage": {
+        "prompt_tokens": 56,
+        "total_tokens": 256,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 78,
+        "draft_tokens": 290,
+        "accepted": 121,
+        "accept_ratio": 0.4172,
+        "accepted_per_step": 1.551,
+        "pos": [
+          0.7436,
+          0.4615,
+          0.2051,
+          0.141,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.4174219580000056,
+      "wall_s": 8.436370457999999,
+      "decode_s": 8.018948499999993,
+      "tok_s": 24.816221229005293,
+      "completion_tokens": 200,
+      "prompt_tokens": 56,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## 1. Introduction\n\nSpeculative decoding accelerates autoregressive LLM inference by having a small \"draft\" model propose a sequence of tokens that a large \"target\" model then verifies in parallel. When drafts are accepted, the target model produces multiple tokens per forward pass, amortizing its per-token cost. Th",
+      "text_len": 1025,
+      "usage": {
+        "prompt_tokens": 56,
+        "total_tokens": 256,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 79,
+        "draft_tokens": 296,
+        "accepted": 122,
+        "accept_ratio": 0.4122,
+        "accepted_per_step": 1.544,
+        "pos": [
+          0.6962,
+          0.443,
+          0.2278,
+          0.1646,
+          0.0127,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.4313622499999994,
+      "wall_s": 8.814907249999997,
+      "decode_s": 8.383544999999998,
+      "tok_s": 23.73697522945246,
+      "completion_tokens": 200,
+      "prompt_tokens": 56,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## 1. Introduction\n\nSpeculative decoding accelerates autoregressive LLM inference by having a small \"draft\" model propose a sequence of tokens that a large \"target\" model then verifies in parallel. When drafts are accepted, the target produces multiple tokens per forward pass, amortizing its per-token latency. The t",
+      "text_len": 1063,
+      "usage": {
+        "prompt_tokens": 56,
+        "total_tokens": 256,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 84,
+        "draft_tokens": 292,
+        "accepted": 118,
+        "accept_ratio": 0.4041,
+        "accepted_per_step": 1.405,
+        "pos": [
+          0.6905,
+          0.4167,
+          0.1786,
+          0.119,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.4229014169999985,
+      "wall_s": 8.909592666999998,
+      "decode_s": 8.48669125,
+      "tok_s": 23.448478816759124,
+      "completion_tokens": 200,
+      "prompt_tokens": 56,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## 1. Introduction\n\nSpeculative decoding accelerates autoregressive LLM inference by having a small \"draft\" model propose a sequence of tokens that a large \"target\" model then verifies in parallel. When drafts are accepted, the target model produces multiple tokens per forward pass, amortizing its per-token latency.",
+      "text_len": 1097,
+      "usage": {
+        "prompt_tokens": 56,
+        "total_tokens": 256,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 84,
+        "draft_tokens": 298,
+        "accepted": 117,
+        "accept_ratio": 0.3926,
+        "accepted_per_step": 1.393,
+        "pos": [
+          0.7024,
+          0.4048,
+          0.1786,
+          0.1071,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.42127566599999966,
+      "wall_s": 9.052645124999998,
+      "decode_s": 8.631369458999998,
+      "tok_s": 23.055437604110562,
+      "completion_tokens": 200,
+      "prompt_tokens": 56,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## 1. Introduction\n\nSpeculative decoding accelerates autoregressive LLM inference by having a small \"draft\" model propose multiple tokens that a large \"target\" model verifies in parallel. The promise is attractive: the target model's sequential per-token latency is replaced by a single parallel verification pass, an",
+      "text_len": 1056,
+      "usage": {
+        "prompt_tokens": 56,
+        "total_tokens": 256,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 87,
+        "draft_tokens": 290,
+        "accepted": 113,
+        "accept_ratio": 0.3897,
+        "accepted_per_step": 1.299,
+        "pos": [
+          0.7011,
+          0.3793,
+          0.1264,
+          0.092,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    }
+  ],
+  "ts": 1788948899.863928,
+  "warmup": {
+    "tok_s": 24.79807400302679,
+    "ttft_s": 0.447608458,
+    "completion_tokens": 32
+  },
+  "tok_s_median": 24.092883271009644,
+  "accept_ratio_median": 0.4041,
+  "accepted_per_step_median": 1.405,
+  "verify_tokens_per_step_median": 3.5476190476190474
+}

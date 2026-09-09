@@ -1,0 +1,349 @@
+{
+  "phase": "b0",
+  "health_code": 200,
+  "health_body": "",
+  "runs": [
+    {
+      "http": 200,
+      "ttft_s": 0.3586828329999999,
+      "wall_s": 8.191077792,
+      "decode_s": 7.832394959,
+      "tok_s": 25.4072989221942,
+      "completion_tokens": 200,
+      "prompt_tokens": 34,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 ",
+      "text_len": 292,
+      "usage": {
+        "prompt_tokens": 34,
+        "total_tokens": 234,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 25,
+        "draft_tokens": 175,
+        "accepted": 175,
+        "accept_ratio": 1.0,
+        "accepted_per_step": 7.0,
+        "pos": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.35963145800000085,
+      "wall_s": 3.2524162499999996,
+      "decode_s": 2.8927847919999987,
+      "tok_s": 68.79184395269736,
+      "completion_tokens": 200,
+      "prompt_tokens": 34,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 ",
+      "text_len": 292,
+      "usage": {
+        "prompt_tokens": 34,
+        "total_tokens": 234,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 25,
+        "draft_tokens": 175,
+        "accepted": 175,
+        "accept_ratio": 1.0,
+        "accepted_per_step": 7.0,
+        "pos": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.36758562500000025,
+      "wall_s": 3.190311916999999,
+      "decode_s": 2.8227262919999987,
+      "tok_s": 70.4992193412425,
+      "completion_tokens": 200,
+      "prompt_tokens": 34,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 ",
+      "text_len": 292,
+      "usage": {
+        "prompt_tokens": 34,
+        "total_tokens": 234,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 25,
+        "draft_tokens": 175,
+        "accepted": 175,
+        "accept_ratio": 1.0,
+        "accepted_per_step": 7.0,
+        "pos": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.44028820799999835,
+      "wall_s": 3.197448999999999,
+      "decode_s": 2.7571607920000005,
+      "tok_s": 72.17569630955349,
+      "completion_tokens": 200,
+      "prompt_tokens": 34,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 ",
+      "text_len": 292,
+      "usage": {
+        "prompt_tokens": 34,
+        "total_tokens": 234,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 25,
+        "draft_tokens": 175,
+        "accepted": 175,
+        "accept_ratio": 1.0,
+        "accepted_per_step": 7.0,
+        "pos": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.36464550000000173,
+      "wall_s": 3.2091558750000004,
+      "decode_s": 2.8445103749999987,
+      "tok_s": 69.95931593323863,
+      "completion_tokens": 200,
+      "prompt_tokens": 34,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 ",
+      "text_len": 292,
+      "usage": {
+        "prompt_tokens": 34,
+        "total_tokens": 234,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 25,
+        "draft_tokens": 175,
+        "accepted": 175,
+        "accept_ratio": 1.0,
+        "accepted_per_step": 7.0,
+        "pos": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.36382008300000024,
+      "wall_s": 3.231407000000001,
+      "decode_s": 2.8675869170000006,
+      "tok_s": 69.39632721165744,
+      "completion_tokens": 200,
+      "prompt_tokens": 34,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 ",
+      "text_len": 292,
+      "usage": {
+        "prompt_tokens": 34,
+        "total_tokens": 234,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 25,
+        "draft_tokens": 175,
+        "accepted": 175,
+        "accept_ratio": 1.0,
+        "accepted_per_step": 7.0,
+        "pos": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.35432179200000036,
+      "wall_s": 3.1980267500000004,
+      "decode_s": 2.843704958,
+      "tok_s": 69.97913037362297,
+      "completion_tokens": 200,
+      "prompt_tokens": 34,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 ",
+      "text_len": 292,
+      "usage": {
+        "prompt_tokens": 34,
+        "total_tokens": 234,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 25,
+        "draft_tokens": 175,
+        "accepted": 175,
+        "accept_ratio": 1.0,
+        "accepted_per_step": 7.0,
+        "pos": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.3832397500000013,
+      "wall_s": 3.2024953750000016,
+      "decode_s": 2.8192556250000003,
+      "tok_s": 70.586007964425,
+      "completion_tokens": 200,
+      "prompt_tokens": 34,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 ",
+      "text_len": 292,
+      "usage": {
+        "prompt_tokens": 34,
+        "total_tokens": 234,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 25,
+        "draft_tokens": 175,
+        "accepted": 175,
+        "accept_ratio": 1.0,
+        "accepted_per_step": 7.0,
+        "pos": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.36530600000000035,
+      "wall_s": 3.2106446670000004,
+      "decode_s": 2.845338667,
+      "tok_s": 69.93895043426126,
+      "completion_tokens": 200,
+      "prompt_tokens": 34,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 ",
+      "text_len": 292,
+      "usage": {
+        "prompt_tokens": 34,
+        "total_tokens": 234,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 25,
+        "draft_tokens": 175,
+        "accepted": 175,
+        "accept_ratio": 1.0,
+        "accepted_per_step": 7.0,
+        "pos": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      }
+    }
+  ],
+  "ts": 1788947950.842459,
+  "prompt": "structured-count-1-200",
+  "thinking": false,
+  "temperature": 0,
+  "warmup": {
+    "tok_s": 87.32156580964316,
+    "ttft_s": 0.37919366600000004,
+    "completion_tokens": 32
+  },
+  "tok_s_median": 69.95931593323863,
+  "tok_s_min": 25.4072989221942,
+  "tok_s_max": 72.17569630955349,
+  "ttft_median_s": 0.36464550000000173,
+  "completion_tokens_median": 200.0,
+  "accept_ratio_median": 1.0,
+  "accepted_per_step_median": 7.0,
+  "any_nan": false,
+  "health_code_after": 200,
+  "short_after": {
+    "http": 200,
+    "ttft_s": 0.389774457999998,
+    "wall_s": 0.507048417,
+    "decode_s": 0.11727395900000204,
+    "tok_s": 59.689295557932674,
+    "completion_tokens": 8,
+    "prompt_tokens": 40,
+    "finish_reason": "length",
+    "nan": false,
+    "text_head": "# How a Hash Map Works: A",
+    "text_len": 25,
+    "usage": {
+      "prompt_tokens": 40,
+      "total_tokens": 48,
+      "completion_tokens": 8
+    }
+  }
+}

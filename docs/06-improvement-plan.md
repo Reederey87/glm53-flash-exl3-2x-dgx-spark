@@ -38,6 +38,44 @@ Mainline GLM support (#53906) has merged, so model resolution is no longer the
 mainline blocker described in the historical section above; EXL3 integration
 and overlay compatibility still block a stock-image replacement.
 
+### 2026-09-09: Task 25 verification-only adaptive-k ADOPTED
+
+Kit [#139](https://github.com/MiaAI-Lab/GLM-5.3-Flash-EXL3-2x-DGX-Sparks/pull/139)
+is the inspiration, **not** a drop-in. Exact-image proof on
+`glm53-selfbuild:e3-w3-zfill` / `--no-async-scheduling` / V2 runner:
+target verify query length follows `len(scheduled_spec_decode_tokens)` /
+`len(spec_token_ids)`; V2 DFlash `propose()` does not take a runtime k;
+drafter query/mask/selector/cache stay native 8. Therefore the overlay
+(`overlay/patch_adaptive_k.py`) trims only `request.spec_token_ids` and
+captures extra **target** FULL graphs for query 3 and 5. It **refuses**
+to write `batch_k()` into `num_spec_tokens_to_schedule` (that field sizes
+the trained eight-row draft — the parked Task 4 contract).
+
+**Cluster verdict: ADOPT** `GLM53_ADAPTIVE_K=ema` +
+`GLM53_ADAPTIVE_K_CAPTURE=1` on `e3-w3-zfill` / pin / C4 / k=7.
+Predeclared cells were **A** stock graphs + off, **B0** extra graphs
++ off, **B** extra graphs + `ema`. Adopt from **B vs B0** only.
+
+| Gate | A stock | B0 extra/off | B extra/ema |
+|---|---|---|---|
+| Capture | `1 2 4 8 16 24 32` | extra 3/5 | extra 3/5 |
+| Pool | 1,396,551 / 1.40× | identical | identical |
+| Idle MemFree head/worker GiB | 6.00 / 5.74 | 4.90 / 4.57 | 4.91 / 4.14 |
+| Structured n=9 tok/s | 68.78 @ 7.0/1.000 | 69.96 @ 7.0/1.000 | 69.54 @ 7.0/1.000 |
+| Hashmap prose n=9 tok/s | 28.29 | 27.72 | **29.70 (+7.1% vs B0)** |
+| Hard essay n=9 tok/s | — | 21.77 | **24.09 (+10.7% vs B0)** |
+| Temp-1 hashmap n=9 | — | — | 29.64 (verify ~4.05) |
+| Verify tokens/step (prose) | 7.0 | 7.0 | ~4.0 |
+| Chosen-length hist (800) | — | — | 2:80 4:419 7:301 |
+| Acceptance / serving / toolcall | (stock healthy) | — | 7/7, 6/6, 23/23 |
+
+Both ranks installed the overlay and printed target query lenses
+`[3, 5, 8]`. Drafter `DFLASH_TOKENS=7` / eight-row query stayed native.
+No CUDA/Xid/IMA. No W1-like 28,672-row capture growth. Structured never
+trimmed. FP8/Marlin from #139 was not imported. Rollback:
+`GLM53_ADAPTIVE_K=off` and `GLM53_ADAPTIVE_K_CAPTURE=0` through the
+guarded unit.
+
 ### 2026-09-07: task 23 E3 grouped fat-expert MoE ADOPTED
 
 Additive overlay + layered cubin for the grouping step in docs/11 §5.

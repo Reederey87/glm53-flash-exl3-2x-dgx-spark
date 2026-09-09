@@ -1,0 +1,29 @@
+Task 25 verification-only adaptive-k ADOPTED 2026-09-09
+IMAGE=glm53-selfbuild:e3-w3-zfill  EXL3_FAT_GROUPED=1  DFLASH_TOKENS=7
+KV pin 15414698763  pool 1,396,551 / 1.40x  async-OFF
+
+A  stock capture 1 2 4 8 16 24 32  adaptive-k off
+   structured n=9  68.78 tok/s @ 7.0/1.000
+   hashmap n=9     28.29 tok/s  accept 0.361 / 2.526  verify 7.0
+   MemFree 6.00 / 5.74 GiB
+
+B0 extra capture 1 2 3 4 5 6 8 9 10 12 15 16 20 24 32  policy off
+   both ranks: capture-only graphs set=[2,4,7]  query lenses [3,5,8]
+   structured n=9  69.96 tok/s @ 7.0/1.000 (run1 25.4 dip; rest 68.8-72.2)
+   hashmap n=9     27.72 tok/s  accept 0.328 / 2.295  verify 7.0
+   essay n=9       21.77 tok/s  accept 0.241 / 1.689  verify 7.0
+   MemFree 4.90 / 4.57 GiB
+
+B  extra capture + GLM53_ADAPTIVE_K=ema
+   structured n=9  69.54 tok/s @ 7.0/1.000 never trimmed (175/25)
+   hashmap n=9     29.70 tok/s  +7.1% vs B0  verify ~4.0  accept 0.509 / 2.045
+   essay n=9       24.09 tok/s  +10.7% vs B0 verify ~3.55 accept 0.404 / 1.405
+   temp-1 hashmap  29.64 tok/s  verify ~4.05
+   hist step 800: 2:80 4:419 7:301
+   acceptance 7/7  serving 6/6  toolcall 23/23
+   MemFree 4.91 / 4.14 GiB  no Xid/IMA
+
+Verdict: ADOPT GLM53_ADAPTIVE_K=ema GLM53_ADAPTIVE_K_CAPTURE=1
+Rollback: both knobs off/0 through guarded unit; stock capture; no image rebuild
+Watchdog re-armed after adopt restart. Health 200. Native draft stayed 8-row.
+Do not copy kit #139 batch_k schedule hook or FP8/Marlin.
