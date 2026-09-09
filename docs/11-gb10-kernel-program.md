@@ -477,6 +477,12 @@ layer time; table-build share (persist tables only if ≥2% of layer time).
 - **C1** superseded (above). **C3** sub-16 fused GEMM stays parked until
   ncu decode-tail occupancy data. **S3** Trellis parked behind ≥ ~80
   TFLOP/s vs 73.5.
+- **Task 30 fused_recurrent_kda warps=2 REVERTED 2026-09-09.** Overlay
+  `patch_kda_recurrent.py` default-off. Hashmap 31.87 → 30.05 (−5.7%);
+  structured 69.56 → 69.19 @ 7.0/1.000. Occupancy share at T∈{3,5,8}
+  still unmeasured (nsys attach unsafe on this graph stack; ncu replay
+  fail-closed, PR #40). Do not chain STAGES/BV. Do not attach ncu to
+  the live process. Re-open only with a decode-step nsys/ncu share.
 - Still parked: merge down into gateup; replace `float4` atomics unless
   parity fails; dual-issue K16 / more stages / larger MB; cluster /
   DSMEM / multicast; CUDA-graphing prefill fat as a reason to change

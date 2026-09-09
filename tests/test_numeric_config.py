@@ -267,6 +267,48 @@ def test_adaptive_k_defaults_and_refusals() -> None:
     assert mtp_custom.returncode == 0, mtp_custom.stderr
 
 
+def test_kda_recurrent_defaults_and_refusals() -> None:
+    ok = validate("0.87", "1000000", "4", "1024")
+    assert ok.returncode == 0, ok.stderr
+    for extra in (
+        {"GLM53_KDA_REC_WARPS": "1"},
+        {"GLM53_KDA_REC_WARPS": "2"},
+        {"GLM53_KDA_REC_STAGES": "3"},
+        {"GLM53_KDA_REC_STAGES": "4"},
+        {"GLM53_KDA_REC_BV_CAP": "8"},
+        {"GLM53_KDA_REC_BV_CAP": "16"},
+        {"GLM53_KDA_REC_BV_CAP": "32"},
+    ):
+        result = validate("0.87", "1000000", "4", "1024", extra_env=extra)
+        assert result.returncode == 0, (extra, result.stderr)
+    refused_warps = validate(
+        "0.87",
+        "1000000",
+        "4",
+        "1024",
+        extra_env={"GLM53_KDA_REC_WARPS": "3"},
+    )
+    assert refused_warps.returncode == 2
+    assert "GLM53_KDA_REC_WARPS must be empty" in refused_warps.stderr
+    refused_stages = validate(
+        "0.87",
+        "1000000",
+        "4",
+        "1024",
+        extra_env={"GLM53_KDA_REC_STAGES": "6"},
+    )
+    assert refused_stages.returncode == 2
+    refused_bv = validate(
+        "0.87",
+        "1000000",
+        "4",
+        "1024",
+        extra_env={"GLM53_KDA_REC_BV_CAP": "64"},
+    )
+    assert refused_bv.returncode == 2
+    assert "GLM53_KDA_REC_BV_CAP must be empty" in refused_bv.stderr
+
+
 def test_trf_floor_allows_32_refuses_31() -> None:
     """W2: C4 dflash floor is 4×(7+1)=32. Isolated 32 is legal; 31 is not."""
     allowed_default = validate("0.87", "1000000", "4", "1024")
@@ -335,6 +377,7 @@ if __name__ == "__main__":
     test_matrix()
     test_decimal_normalization()
     test_adaptive_k_defaults_and_refusals()
+    test_kda_recurrent_defaults_and_refusals()
     test_trf_floor_allows_32_refuses_31()
     test_restart_validates_before_stop()
     print("numeric config tests: PASS")

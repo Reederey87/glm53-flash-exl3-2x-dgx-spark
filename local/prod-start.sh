@@ -95,7 +95,9 @@ log "starting pair"
 # start.sh still wipes even when .env carries no DFLASH_REVISION= line.
 # GLM53_ADAPTIVE_K (policy) is NOT hashed: it trims spec_token_ids only.
 # GLM53_ADAPTIVE_K_CAPTURE changes extra FULL graphs (task 25 B0/B).
-shape_hash="$( { grep -E '^(DFLASH_TOKENS|DFLASH_DRAFT_TP|DFLASH_MODEL|DFLASH_REVISION|MTP_TOKENS|SPEC_METHOD|MAX_NUM_BATCHED_TOKENS|MAX_NUM_SEQS|MAX_MODEL_LEN|IMAGE|EXTRA_ARGS|GLM53_ADAPTIVE_K_CAPTURE)=' .env 2>/dev/null; grep -E '^DFLASH_REVISION=' start.sh 2>/dev/null; printf 'GLM53_ADAPTIVE_K_CAPTURE=%s\n' "${GLM53_ADAPTIVE_K_CAPTURE:-}"; } | sort | md5sum | cut -d' ' -f1)"
+# GLM53_KDA_REC_* change the captured fused_recurrent_kda Triton specialization
+# (task 30). Unset = stock warps=1 / stages=3 / BV-cap=8.
+shape_hash="$( { grep -E '^(DFLASH_TOKENS|DFLASH_DRAFT_TP|DFLASH_MODEL|DFLASH_REVISION|MTP_TOKENS|SPEC_METHOD|MAX_NUM_BATCHED_TOKENS|MAX_NUM_SEQS|MAX_MODEL_LEN|IMAGE|EXTRA_ARGS|GLM53_ADAPTIVE_K_CAPTURE|GLM53_KDA_REC_WARPS|GLM53_KDA_REC_STAGES|GLM53_KDA_REC_BV_CAP)=' .env 2>/dev/null; grep -E '^DFLASH_REVISION=' start.sh 2>/dev/null; printf 'GLM53_ADAPTIVE_K_CAPTURE=%s\n' "${GLM53_ADAPTIVE_K_CAPTURE:-}"; printf 'GLM53_KDA_REC_WARPS=%s\n' "${GLM53_KDA_REC_WARPS:-}"; printf 'GLM53_KDA_REC_STAGES=%s\n' "${GLM53_KDA_REC_STAGES:-}"; printf 'GLM53_KDA_REC_BV_CAP=%s\n' "${GLM53_KDA_REC_BV_CAP:-}"; } | sort | md5sum | cut -d' ' -f1)"
 stamp="$HOME/.cache/vllm-glm53-flash/.config-shape"
 if [ -n "$shape_hash" ] && [ "$(cat "$stamp" 2>/dev/null)" != "$shape_hash" ]; then
     echo "[prod-start] config shape changed — wiping Triton/TileLang JIT caches on both nodes"

@@ -181,6 +181,23 @@ cache is invisible to it). 0.87 demands 105.87 GiB free against boots measured a
   both knobs to `off`/`0` through the guarded unit (stock
   `1 2 4 8 16 24 32`, no image rebuild).
 
+- `GLM53_KDA_REC_WARPS` / `GLM53_KDA_REC_STAGES` / `GLM53_KDA_REC_BV_CAP`
+  — Task 30 fused `fused_recurrent_kda` launch. **REVERTED 2026-09-09
+  at warps=2** (hashmap −5.7%; structured −0.5% at 7.0/1.000). Live
+  path on `e3-w3-zfill` is FLA `ops/kda.py` `fused_recurrent_kda_fwd`
+  (`num_warps=1`, `num_stages=3`, `BV=min(next_power_of_2(V), 8)`).
+  Overlay `overlay/patch_kda_recurrent.py` is default-off: empty knobs
+  leave the file byte-identical. Armed values: warps `1|2|4|8`, stages
+  `1..5`, BV cap `8|16|32`. Fail-closed on drifted anchors. **Does not**
+  drop in FlashInfer `fused_kda_decode` (hard-dispatches
+  H∈{12,24,48,96}; GLM TP2 is 32 local heads; no
+  `num_accepted_tokens` rollback). Draft T=8 shares this kernel;
+  query 3/5 already have FULL graphs from Task 25. These knobs **are**
+  in the JIT shape hash. Production leaves all three unset. Do not
+  chain STAGES or BV_CAP. Occupancy at T∈{3,5,8} remains unmeasured;
+  nsys/ncu still gates any later arm. Rollback: unset all three
+  through the guarded unit.
+
 ## Added 2026-09-02
 
 - `EXL3_FAT_SORTED=1` / `EXL3_FAT_BATCHED=1` / `EXL3_FAT_KERNEL=1` — the
