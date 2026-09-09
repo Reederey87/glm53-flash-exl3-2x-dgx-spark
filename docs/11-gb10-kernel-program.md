@@ -361,7 +361,7 @@ Live TP2 scratch is **~280 MiB/rank**, not the 336 MiB microbench figure:
 | Window | Path it can move | Rebuild | Expected sign |
 |---|---|---|---|
 | ~~**W1 lazy scratch**~~ **REVERTED** | CUDA-graph capture already requests MNBT×topk (28,672 rows / 280 MiB). Idle MemFree unchanged. | overlay Python | no MemFree win |
-| **W2 TRF=32 vs E3@128** (cheap 2nd, env) | Cold prefill (S1 trend: lose). Mixed TTFT / C4 co-batch (plausible win). **Decode leak.** | env only | unknown, leaning lose on cold |
+| ~~**W2 TRF=32 vs E3@128**~~ **ADOPTED** | Same-boot 60k **+16.1%**, 240k **+13.3%**. Structured 69.10 @ 7.0/1.000. Decode unique-topk safe. | env only | win (fat-path share) |
 | ~~**W3 zero-fill A-pad**~~ **ADOPTED** | Same-boot 240k −2.5% (wash). Structured 69.04 @ 7.0/1.000. | cubin | wash |
 | ~~**W4 fuse gather into gate/up A-tile**~~ **REVERTED** | 60k −10.7%, 240k −3.2%, structured −2.2%. No MemFree win. 8× A-tile gather. | cubin+Python | no MemFree win; speed lose |
 | **W5 occupancy sweep** | Cold prefill **only if ncu shows a gap**. | cubin | stop if regs > 96 or <3% |
@@ -382,10 +382,12 @@ Live TP2 scratch is **~280 MiB/rank**, not the 336 MiB microbench figure:
   Zipf-all-to-one unique-per-token. No-fallback skip needs non-unique
   top-k (hottest > T while T ≤ cap). Extra sequences are prefill
   (T > cap) and take the fat path. **Hard gate before any TRF=32 arm:**
-  `fused_moe_decode_skips_fat` on the live decode shape, plus a
-  skewed-routing logit probe vs TRF=128. If any no-fallback skip,
-  abort. Do not ship a decode-fat guard as a ride-along. Production
-  TRF stays 128.
+  `fused_moe_decode_skips_fat` / `w2_trf32_no_fallback_skip` on the
+  live decode shape, plus a unique-per-token router proof (CPU judge
+  `scripts/probe_w2_unique_topk.py`; no CUDA-graph D2H). If any
+  no-fallback skip or uniqueness is not proven, abort. Do not ship a
+  decode-fat guard as a ride-along. Production last-wins TRF=32
+  (2026-09-09). Launcher default stays 128.
 - **Mixed C4 / LPTT=1792:** W2 increases fat-path share during co-batched
   prefills (its actual upside hypothesis). W1 changes MemFree headroom
   for C4. W4's 224 MiB is the only reclaim that could later fund capacity
@@ -404,18 +406,20 @@ non-inferior; pool identical. Production stays `e3-grouped`. A later
 attempt must not grow from capture dummy shapes (or must size capture
 to LPTT, not MNBT). Do not re-run the same grow-from-this-call design.
 
-**W2 — isolated TRF=32. Probe 2026-09-07; not armed.** Independent
-variable would be `EXL3_TEMP_ROWS_FUSED=32`. Floor is
-`MAX_NUM_SEQS × (DFLASH_TOKENS+1) = 32`, so C4 capture still fits fused
-temps. Host probe: `fused_moe_decode_skips_fat(32, 32, 32) is False`
-(skip is `>`; Zipf-all-to-one C4 unique-per-token does not drop
-experts). Frozen: `ROW_TILE=0`, `EXL3_FAT_GROUPED=1`, scratch policy,
-geometry. S1 on E2 already lost at TRF=64 (−7.2% / −5.6%); E3's cheaper
-spill (isolated 1.87× at Zipf cap=32) is why this is not a re-open of
-S1. Abort: no-fallback skip (hottest > cap with T ≤ cap), prefill
-outside the pre-registered band, structured outside 68–70, prose
-outside 28–31. Rollback: env flip to 128. Do not arm until an owner
-window; do not combine with W1/W4.
+**W2 — isolated TRF=32. ADOPTED 2026-09-09.** Independent variable
+`EXL3_TEMP_ROWS_FUSED=32`. Floor is
+`MAX_NUM_SEQS × (DFLASH_TOKENS+1) = 32`; `start.sh validate` refuses
+TRF below that on dflash. Host helpers: `unique_per_token_topk_ids`,
+`fused_moe_decode_skips_unique_topk`, `w2_trf32_no_fallback_skip`.
+Live router is unique-per-token (`torch.topk` / `ops.grouped_topk`);
+CPU judge ARM-OK against the pinned production dump
+(`tests/fixtures/w2-grouped-topk-router.py`, AST fingerprint). Skip is
+`>`; Zipf-all-to-one C4 does **not** drop decode experts. Frozen:
+`ROW_TILE=0`, `EXL3_FAT_GROUPED=1`, scratch, geometry, `e3-w3-zfill`.
+Same-boot A vs B: 60k 1253 → **1454 (+16.1%)**, 240k 1242 → **1408
+(+13.3%)**, structured 66.60 → 69.10 @ 7.0/1.000, hashmap 27.54 →
+30.82. Acceptance 7/7, serving 6/6, pool 1,396,551 / 1.40×. Rollback:
+last-wins `EXL3_TEMP_ROWS_FUSED=128`. Do not combine with W1/W4.
 
 **W3 — zero-fill A-pad. ADOPTED 2026-09-08.** In `fm_mainloop::load_stage`,
 4-operand `cp.async.cg` of src-size 0 into unused A-tile rows instead of

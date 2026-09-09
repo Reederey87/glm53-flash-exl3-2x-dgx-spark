@@ -38,6 +38,35 @@ Mainline GLM support (#53906) has merged, so model resolution is no longer the
 mainline blocker described in the historical section above; EXL3 integration
 and overlay compatibility still block a stock-image replacement.
 
+### 2026-09-09: task 24 W2 isolated TRF=32 ADOPTED
+
+Independent variable `EXL3_TEMP_ROWS_FUSED=32` vs production E3@128.
+Env-only; no cubin. Frozen: `IMAGE=e3-w3-zfill`, `EXL3_FAT_GROUPED=1`,
+`EXL3_MOE_ROW_TILE=0`, pin / C4 / k=7 / adaptive-k ema. Unique-per-token
+top-k CPU judge `scripts/probe_w2_unique_topk.py` ARM-OK against the live
+`grouped_topk_router.py` dump (AST fingerprint). Kernel skip is `>`; C4
+T=32 does not drop decode experts.
+
+**Cluster verdict: ADOPT.** Same-boot A (TRF=128) vs B (TRF=32). Expected
+sign was cold-prefill lean-lose; measured was a fat-path-share win.
+
+| Gate | A TRF=128 | B TRF=32 | Adopt |
+|---|---|---|---|
+| Acceptance | (healthy) | 7/7 | 7/7 |
+| Serving (:18000) | — | 6/6 | 6/6 |
+| Pool | 1,396,551 / 1.40× | identical | identical |
+| 60k median tok/s | 1253.1 | **1454.3 (+16.1%)** | — |
+| 240k median tok/s | 1242.4 | **1407.8 (+13.3%)** | — |
+| Structured n=9 | 66.60 @ 7.0/1.000 (one 15.4 contended) | 69.10 @ 7.0/1.000 (15.7 / 25.7 contended; rest 68.7–70.3) | 69.10 |
+| Hashmap prose n=9 | 27.54 | **30.82** | 30.82 |
+| Health / bind | 200 / loopback | 200 / loopback | 200 / loopback |
+| MemFree head/worker GiB | 5.00 / 3.67 post-A | 4.46 / 4.56 idle; 3.77 / 4.04 post-B | ≥2.5 abort |
+
+Both ranks `EXL3_TEMP_ROWS_FUSED=32`, `grouped_ok`, overlay `temp_rows_fused()=32`.
+No CUDA/Xid/IMA. Watchdog re-armed. Rollback:
+`.env.bak-pre-task24-w2-20260909` last-wins `EXL3_TEMP_ROWS_FUSED=128`.
+W5 occupancy stays ncu-gated.
+
 ### 2026-09-09: Task 25 verification-only adaptive-k ADOPTED
 
 Kit [#139](https://github.com/MiaAI-Lab/GLM-5.3-Flash-EXL3-2x-DGX-Sparks/pull/139)
@@ -111,14 +140,13 @@ fail-closed before SUH downgrade). Watchdog re-armed after
 `EXL3_FAT_GROUPED=0`).
 
 E3 follow-ups are **not automatic-next**. Ranked TEST-NEXT queue (cuda-reviewer
-2026-09-07, `docs/11` §8): ~~W1 lazy scratch~~ **REVERTED** → W2 TRF=32
-(decode-skip probe 2026-09-07: C4 T=32 does **not** skip at TRF=32 because
-the kernel uses `>`; not armed) → ~~W3 zero-fill A-pad~~ **ADOPTED
-2026-09-08** (`e3-w3-zfill` `d8144f02`, 240k −2.5% wash, structured
-69.04 @ 7.0/1.000) → ~~W4 fused gather~~ **REVERTED 2026-09-08**
-→ W5 occupancy (ncu gate). Decode
-is fused `exl3_moe`; do not retune E3 for prose. Production TRF stays
-128. Do not re-arm W4 without a gather that does not 8×-reload.
+2026-09-07, `docs/11` §8): ~~W1 lazy scratch~~ **REVERTED** → ~~W2 TRF=32~~
+**ADOPTED 2026-09-09** (unique-topk proof; 60k +16.1%, 240k +13.3%) →
+~~W3 zero-fill A-pad~~ **ADOPTED 2026-09-08** (`e3-w3-zfill` `d8144f02`,
+240k −2.5% wash, structured 69.04 @ 7.0/1.000) → ~~W4 fused gather~~
+**REVERTED 2026-09-08** → W5 occupancy (ncu gate). Decode is fused
+`exl3_moe`; do not retune E3 for prose. Production last-wins TRF=32.
+Do not re-arm W4 without a gather that does not 8×-reload.
 
 **W3 zero-fill A-pad ADOPTED 2026-09-08.** Cubin-only
 `Dockerfile.e3-cubin-layer` on `e3-grouped` (`glm53-selfbuild:e3-w3-zfill`
