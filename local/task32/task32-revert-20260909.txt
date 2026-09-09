@@ -1,0 +1,62 @@
+TASK32 adaptive-k SATURATE=n REVERT 2026-09-09
+independent_variable=GLM53_ADAPTIVE_K_SATURATE
+control=max (launcher default; production last-wins unset)
+candidate=n (last-wins GLM53_ADAPTIVE_K_SATURATE=n)
+frozen=IMAGE=glm53-selfbuild:e3-w3-zfill EXL3_FAT_GROUPED=1 EXL3_TEMP_ROWS_FUSED=32
+       GLM53_ADAPTIVE_K=ema GLM53_ADAPTIVE_K_CAPTURE=1 DFLASH_TOKENS=7 DFLASH_DRAFT_TP=1
+       DFLASH_REVISION=7d74cdd881ed7e32c31175984a67823127b66cfe
+       MAX_NUM_SEQS=4 MNBT=3584 LPTT=1792 KV pin 15414698763
+policy_only=1  not in JIT shape hash  no cubin  no extra graphs
+sequence=A (incumbent live boot, saturate=max) -> B (SATURATE=n, guarded restart, no JIT wipe)
+         -> return-A restoration (.env.bak-pre-task32-saturate-n-20260909-140038, guarded restart)
+         B2 skipped: B already missed the >=5% prose/agentic adopt bar.
+rollback=.env.bak-pre-task32-saturate-n-20260909-140038 (SATURATE unset; applied)
+
+pool=1,396,551 tokens / 1.40x  A, B, return-A
+bind=127.0.0.1:8000
+health=200
+unit=active (oneshot Type=oneshot; restart required, start is a no-op)
+watchdog.timer=active (re-armed after restore-A smoke)
+
+A control (saturate=max, standing production boot after Task 30 return-A)
+  structured n=9  median=70.51  accept=1.000/7.0  (range 66.63-73.63)
+  hashmap n=9     median=29.09  accept_ratio=0.500  accepted_per_step=1.985
+                  range 27.11-33.63
+  essay n=9       median=24.95  accept_ratio=0.433  accepted_per_step=1.481
+                  range 22.52-26.10
+  idle MemFree head/worker GiB=4.50 / 3.76
+  running=0 waiting=0 preemptions=0
+
+B candidate (GLM53_ADAPTIVE_K_SATURATE=n)
+  both ranks: GLM53_ADAPTIVE_K_SATURATE=n
+  EngineCore: enabled set=[2, 4, 7] alpha=0.25 margin=1.0 min_steps=4 saturate=n graphs=True
+  query lenses [3,5,8]
+  structured n=9  median=70.23  (-0.40%) accept=1.000/7.0  (range 65.29-73.33)
+  hashmap n=9     median=28.90  (-0.65%) accept_ratio=0.634  accepted_per_step=1.689
+                  range 26.80-30.69
+  essay n=9       median=25.21  (+1.05%) accept_ratio=0.535  accepted_per_step=1.353
+                  range 23.72-25.79
+  idle MemFree head/worker GiB=5.20 / 4.54
+  running=0 waiting=0 preemptions=0
+  pool identical
+
+return-A (SATURATE unset, launcher default max)
+  EngineCore: saturate=max graphs=True
+  structured n=3  median=69.64  accept=1.000/7.0
+  acceptance=7/7  serving=6/6 (Mac tunnel :18000)
+  pool identical
+  idle MemFree head/worker GiB=4.74 / 4.07
+  running=0 waiting=0 preemptions=0
+  dmesg CUDA/Xid/IMA: not scraped this window (health 200, unit active;
+  metrics preemptions=0). no_cuda_xid_ima is unverified, not a receipt.
+
+Verdict: REVERT / KEEP saturate=max (unset last-wins).
+  Structured non-inferior (>= -3% at 7.0/1.000). Hashmap -0.65% and essay +1.05%
+  missed the >=5% prose/agentic adopt bar. Wash. saturate=n raised accept_ratio
+  (hashmap 0.500 -> 0.634, essay 0.433 -> 0.535) by verifying a shorter prefix,
+  but accepted_per_step fell (1.985 -> 1.689 hashmap; 1.481 -> 1.353 essay)
+  because the ratchet never climbs after a low-accept stretch. Throughput is
+  wash. Do not chain ALPHA/MARGIN/MIN_STEPS. Do not leave SATURATE=n last-wins.
+  Tasks 29/31 stay parked behind a decode-step nsys/ncu share.
+no_cuda_xid_ima=unverified (dmesg not scraped)
+geometry_unchanged=MAX_MODEL_LEN=1000000 MNBT=3584 MAX_NUM_SEQS=4 DFLASH_TOKENS=7 IMAGE=e3-w3-zfill

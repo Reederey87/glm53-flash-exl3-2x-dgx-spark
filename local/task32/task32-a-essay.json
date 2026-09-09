@@ -1,0 +1,344 @@
+{
+  "phase": "a-essay",
+  "health_code": 200,
+  "health_body": "",
+  "runs": [
+    {
+      "http": 200,
+      "ttft_s": 0.49625595799999994,
+      "wall_s": 8.288142416000001,
+      "decode_s": 7.7918864580000005,
+      "tok_s": 25.539386523745467,
+      "completion_tokens": 200,
+      "prompt_tokens": 61,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## 1. Introduction\n\nAutoregressive large language models generate text one token at a time, and each token requires a full forward pass through the network. For large models\u2014those with tens or hundreds of billions of parameters\u2014a single forward pass can take tens of milliseconds even on state-of-the-art accelerators",
+      "text_len": 963,
+      "usage": {
+        "prompt_tokens": 61,
+        "total_tokens": 261,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 79,
+        "draft_tokens": 281,
+        "accepted": 122,
+        "accept_ratio": 0.4342,
+        "accepted_per_step": 1.544,
+        "pos": [
+          0.7342,
+          0.443,
+          0.1772,
+          0.1139,
+          0.0253,
+          0.0253,
+          0.0253
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.5067565839999997,
+      "wall_s": 9.343780292,
+      "decode_s": 8.837023708,
+      "tok_s": 22.518893982353905,
+      "completion_tokens": 200,
+      "prompt_tokens": 61,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## 1. Introduction\n\nAutoregressive large language models generate text one token at a time, and each token requires a full forward pass through the network. For large models\u2014those with tens or hundreds of billions of parameters\u2014this sequential dependency is the dominant bottleneck in inference: memory bandwidth, not",
+      "text_len": 1031,
+      "usage": {
+        "prompt_tokens": 61,
+        "total_tokens": 261,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 90,
+        "draft_tokens": 285,
+        "accepted": 111,
+        "accept_ratio": 0.3895,
+        "accepted_per_step": 1.233,
+        "pos": [
+          0.6556,
+          0.3222,
+          0.1111,
+          0.0778,
+          0.0222,
+          0.0222,
+          0.0222
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.45456375000000193,
+      "wall_s": 8.431592375000001,
+      "decode_s": 7.977028624999999,
+      "tok_s": 24.9466323057102,
+      "completion_tokens": 200,
+      "prompt_tokens": 61,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## 1. Introduction\n\nAutoregressive large language models generate text one token at a time, and each token requires a full forward pass through the network. For large models\u2014those with tens or hundreds of billions of parameters\u2014this sequential dependency is the dominant bottleneck in inference: memory bandwidth, not",
+      "text_len": 1051,
+      "usage": {
+        "prompt_tokens": 61,
+        "total_tokens": 261,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 81,
+        "draft_tokens": 277,
+        "accepted": 120,
+        "accept_ratio": 0.4332,
+        "accepted_per_step": 1.481,
+        "pos": [
+          0.7037,
+          0.4198,
+          0.1728,
+          0.1111,
+          0.0247,
+          0.0247,
+          0.0247
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.4400556669999993,
+      "wall_s": 8.197637624999999,
+      "decode_s": 7.757581957999999,
+      "tok_s": 25.65232324677942,
+      "completion_tokens": 200,
+      "prompt_tokens": 61,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## 1. Introduction\n\nAutoregressive large language models generate text one token at a time, and each token requires a full forward pass through the network. For large models\u2014those with tens or hundreds of billions of parameters\u2014this sequential dependency is the dominant bottleneck in inference: memory bandwidth, not",
+      "text_len": 1052,
+      "usage": {
+        "prompt_tokens": 61,
+        "total_tokens": 261,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 79,
+        "draft_tokens": 271,
+        "accepted": 120,
+        "accept_ratio": 0.4428,
+        "accepted_per_step": 1.519,
+        "pos": [
+          0.6962,
+          0.4304,
+          0.1899,
+          0.1266,
+          0.0253,
+          0.0253,
+          0.0253
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.46397779200000144,
+      "wall_s": 8.110845625000003,
+      "decode_s": 7.646867833000002,
+      "tok_s": 26.023726883472076,
+      "completion_tokens": 200,
+      "prompt_tokens": 61,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## 1. Introduction\n\nAutoregressive large language models generate text one token at a time, and each token requires a full forward pass through the network. For large models\u2014those with tens or hundreds of billions of parameters\u2014this sequential dependency is the dominant bottleneck in inference: memory bandwidth, not",
+      "text_len": 985,
+      "usage": {
+        "prompt_tokens": 61,
+        "total_tokens": 261,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 77,
+        "draft_tokens": 266,
+        "accepted": 123,
+        "accept_ratio": 0.4624,
+        "accepted_per_step": 1.597,
+        "pos": [
+          0.7662,
+          0.4026,
+          0.1818,
+          0.1429,
+          0.039,
+          0.039,
+          0.026
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.7062099589999988,
+      "wall_s": 8.331676999999999,
+      "decode_s": 7.625467041,
+      "tok_s": 26.09676219568359,
+      "completion_tokens": 200,
+      "prompt_tokens": 61,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## 1. Introduction: The Latency Problem in Autoregressive Inference\n\nLarge language models generate text one token at a time. Each token requires a full forward pass through the network, and because the next token depends on all previously generated tokens, this process is inherently sequential. For a model with bil",
+      "text_len": 1048,
+      "usage": {
+        "prompt_tokens": 61,
+        "total_tokens": 261,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 77,
+        "draft_tokens": 281,
+        "accepted": 124,
+        "accept_ratio": 0.4413,
+        "accepted_per_step": 1.61,
+        "pos": [
+          0.7143,
+          0.5065,
+          0.2208,
+          0.0909,
+          0.026,
+          0.026,
+          0.026
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.43753195899999753,
+      "wall_s": 8.848795916999997,
+      "decode_s": 8.411263958,
+      "tok_s": 23.658751050218797,
+      "completion_tokens": 200,
+      "prompt_tokens": 61,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## 1. Introduction: The Latency Problem in Autoregressive Inference\n\nLarge language models generate text one token at a time. Each token requires a full forward pass through the network, and because the next token depends on all previously generated tokens, this process is inherently sequential. For a model with bil",
+      "text_len": 1073,
+      "usage": {
+        "prompt_tokens": 61,
+        "total_tokens": 261,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 85,
+        "draft_tokens": 287,
+        "accepted": 115,
+        "accept_ratio": 0.4007,
+        "accepted_per_step": 1.353,
+        "pos": [
+          0.6824,
+          0.4471,
+          0.1176,
+          0.0353,
+          0.0235,
+          0.0235,
+          0.0235
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.496951291000002,
+      "wall_s": 8.887715499999999,
+      "decode_s": 8.390764208999997,
+      "tok_s": 23.71655251455536,
+      "completion_tokens": 200,
+      "prompt_tokens": 61,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## 1. Introduction: The Latency Problem in Autoregressive Inference\n\nLarge language models generate text autoregressively: each token is produced conditioned on all previously generated tokens. This sequential dependency is the fundamental bottleneck of inference. Even though a single forward pass through a transfor",
+      "text_len": 1024,
+      "usage": {
+        "prompt_tokens": 61,
+        "total_tokens": 261,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 85,
+        "draft_tokens": 295,
+        "accepted": 114,
+        "accept_ratio": 0.3864,
+        "accepted_per_step": 1.341,
+        "pos": [
+          0.6706,
+          0.4,
+          0.1294,
+          0.0706,
+          0.0235,
+          0.0235,
+          0.0235
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.5236360840000032,
+      "wall_s": 8.991910208999997,
+      "decode_s": 8.468274124999994,
+      "tok_s": 23.499475461300108,
+      "completion_tokens": 200,
+      "prompt_tokens": 61,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## 1. Introduction: The Latency Problem in Autoregressive Inference\n\nLarge language models generate text autoregressively: each token is produced conditioned on all previously generated tokens. This sequential dependency is the fundamental bottleneck of inference. Even though a single forward pass through a transfor",
+      "text_len": 1066,
+      "usage": {
+        "prompt_tokens": 61,
+        "total_tokens": 261,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 87,
+        "draft_tokens": 289,
+        "accepted": 112,
+        "accept_ratio": 0.3875,
+        "accepted_per_step": 1.287,
+        "pos": [
+          0.7241,
+          0.3678,
+          0.092,
+          0.0345,
+          0.023,
+          0.023,
+          0.023
+        ]
+      }
+    }
+  ],
+  "ts": 1788976736.3345752,
+  "prompt": "hard-essay",
+  "thinking": false,
+  "temperature": 0,
+  "tok_s_median": 24.9466323057102,
+  "tok_s_min": 22.518893982353905,
+  "tok_s_max": 26.09676219568359,
+  "ttft_median_s": 0.49625595799999994,
+  "completion_tokens_median": 200.0,
+  "accept_ratio_median": 0.4332,
+  "accepted_per_step_median": 1.481,
+  "any_nan": false,
+  "health_code_after": 200,
+  "short_after": {
+    "http": 200,
+    "ttft_s": 0.38536570899999845,
+    "wall_s": 0.5045020000000022,
+    "decode_s": 0.11913629100000378,
+    "tok_s": 58.75623574683702,
+    "completion_tokens": 8,
+    "prompt_tokens": 40,
+    "finish_reason": "length",
+    "nan": false,
+    "text_head": "# How a Hash Map Works: A",
+    "text_len": 25,
+    "usage": {
+      "prompt_tokens": 40,
+      "total_tokens": 48,
+      "completion_tokens": 8
+    }
+  }
+}

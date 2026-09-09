@@ -41,3 +41,10 @@ def test_aggregate_any_nan_semantics(monkeypatch) -> None:
     bad_runs = clean_runs + [{"nan": module.contains_nan("value NaN")}]
     assert not any(run["nan"] for run in clean_runs)
     assert any(run["nan"] for run in bad_runs)
+
+
+def test_essay_prompt_is_distinct(monkeypatch) -> None:
+    module = _module(monkeypatch)
+    assert "Failed Drafts" in module.ESSAY_PROMPT
+    assert module.ESSAY_PROMPT != module.BENCH_PROMPT
+    assert module.ESSAY_PROMPT != module.STRUCTURED_PROMPT
