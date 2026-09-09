@@ -132,17 +132,27 @@ def stream_worker(index: int, prompt: str, max_tokens: int, state: dict, barrier
             pass
 
 
+def stale_traces(trace_dir: Path) -> list[Path]:
+    """Traces already present before this probe runs.
+
+    The capture floor must describe *this* profiling run, so a leftover trace
+    from an earlier run must never be able to satisfy it.
+    """
+    return sorted(
+        p for p in trace_dir.rglob("*") if p.is_file() and str(p).endswith(".pt.trace.json.gz")
+    )
+
+
 def captured_engine_steps(trace_dir: Path, moe_layers: int) -> dict:
     """Count the decode steps that are actually present in the profiler trace.
 
     Every decode step launches one fused ``exl3_moe`` kernel per MoE layer, so
     ``fused_moe_calls / moe_layers`` is the step count the auditor will see.
     Each trace is a full view of its own rank, so the maximum across traces is
-    the captured count (never the sum).
+    the captured count (never the sum). Callers must have verified the
+    directory held no traces before the run (``stale_traces``).
     """
-    traces = sorted(
-        p for p in trace_dir.rglob("*") if p.is_file() and str(p).endswith(".pt.trace.json.gz")
-    )
+    traces = stale_traces(trace_dir)
     if not traces:
         raise RuntimeError(f"no *.pt.trace.json.gz under {trace_dir}")
     if moe_layers <= 0:
@@ -211,6 +221,15 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         if not args.trace_dir.is_dir():
             print(f"probe FAILED: trace dir {args.trace_dir} does not exist", file=sys.stderr)
+            return 2
+        stale = stale_traces(args.trace_dir)
+        if stale:
+            print(
+                f"probe FAILED: trace dir {args.trace_dir} already holds "
+                f"{[p.name for p in stale]}; clear it first so the step floor "
+                "describes this capture only",
+                file=sys.stderr,
+            )
             return 2
 
     # Preflight: profiler routes mounted? GET is not defined by the router, so a

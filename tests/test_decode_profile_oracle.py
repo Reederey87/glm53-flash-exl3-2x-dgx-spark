@@ -506,6 +506,37 @@ def test_probe_capture_gate_detects_autostop(tmp_path: Path) -> None:
         raise AssertionError("an unreadable trace must fail closed")
 
 
+def test_probe_refuses_stale_traces(tmp_path: Path) -> None:
+    """A leftover trace from an earlier run must never satisfy this run's floor."""
+    import probe_decode_profile as probe
+
+    old = write_trace(
+        tmp_path / "old.pt.trace.json",
+        [kernel("exl3_moe_kernel<k4>", 1.0) for _ in range(60 * 42)],
+        gz=True,
+    )
+    assert [p.name for p in probe.stale_traces(tmp_path)] == [old.name]
+    # captured_engine_steps alone would happily report the stale 60 steps
+    assert probe.captured_engine_steps(tmp_path, 42)["engine_steps"] == 60.0
+
+    original_request = probe.request
+
+    def boom(*_args, **_kwargs):  # noqa: ANN002, ANN003
+        raise AssertionError("a dirty trace dir must be rejected before any HTTP call")
+
+    probe.request = boom
+    try:
+        rc = probe.main(["--base", "http://127.0.0.1:1", "--out", str(tmp_path / "r.json"),
+                         "--trace-dir", str(tmp_path)])
+    finally:
+        probe.request = original_request
+    assert rc == 2
+
+    clean = tmp_path / "clean"
+    clean.mkdir()
+    assert probe.stale_traces(clean) == []
+
+
 def test_probe_gates_and_labels_are_truthful() -> None:
     """The probe must require every stream past prefill, bracket the counters
     against /start_profile, and gate the capture on the trace itself."""
@@ -618,6 +649,7 @@ if __name__ == "__main__":
         test_window_recovery_helpers,
         test_window_recovers_timers_after_partial_disarm,
         test_probe_capture_gate_detects_autostop,
+        test_probe_refuses_stale_traces,
     ):
         with tempfile.TemporaryDirectory() as tmp:
             fn(Path(tmp))

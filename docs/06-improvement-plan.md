@@ -177,7 +177,8 @@ layers) — the captured-evidence gate runs in situ, not only in unit tests.
 
 Both captures reproduce every verdict. Fused share head/worker: **49.70 / 49.32
 (first), 50.21 / 49.73 (second), 50.69 / 50.30 (third)** — stable within
-0.5 pp across 12.6–13.7 s of kernel time per rank. Sparse MLA stays 1.04–1.05%
+0.5 pp across 61.14–62.88 s of kernel time per rank (first 62.74 / 62.88 s,
+second 62.24 / 62.41 s, third 61.14 / 61.65 s). Sparse MLA stays 1.04–1.05%
 with one decode kernel name, `STOP_SHARE_BELOW_FLOOR`; derived occupancy stays
 33.3%, `GAP_CANDIDATE_UNMEASURED`. Second capture: 13 graphs, 144 distinct
 kernels, 1,120,466 kernel events per rank; third capture: 10 graphs, 142
@@ -197,7 +198,7 @@ plus a measured bandwidth) can close it. (3) The auditor fails closed on a
 truncated trace (`TruncatedTrace`, CLI rc 2) instead of reporting a prefix, and
 namespaces graph ids per rank. (4) New reusable assets: the launcher knobs, the
 trace auditor (streaming parser, per-family/per-T/per-graph shares, advisory
-roofline), the C4 probe, the guarded window runner, and 22 CPU-only tests.
+roofline), the C4 probe, the guarded window runner, and 25 CPU-only tests.
 Receipts: `local/task29-decode-share-{head,worker}-20260909.json` (schema 3),
 `…-20260909b.json` and `…-20260909c.json` (schema 3, re-validation captures),
 `local/task29-profile-window-20260909.json`,
