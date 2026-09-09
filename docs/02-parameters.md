@@ -141,7 +141,8 @@ cache is invisible to it). 0.87 demands 105.87 GiB free against boots measured a
   Production already logs `Using V2 Model Runner`, GLM is in the default V2
   architecture set, and W28 patches `v1/worker/gpu/model_runner.py`. Unset
   or `1` is a no-op; `0` is refused by `start.sh validate` before any
-  stop/restart. Adaptive verification stays parked.
+  stop/restart. Upstream DSpark adaptive verification stays parked; the
+  overlay-only Task 25 arm below is the verification-prefix experiment.
 - `SPEC_METHOD=mtp` — MTP rollback is refused when `MAX_NUM_SEQS > 12`
   (capture-size guard). `dflash` remains production. Validation runs before
   stop, so a refused rollback cannot tear the pair down.
@@ -150,6 +151,31 @@ cache is invisible to it). 0.87 demands 105.87 GiB free against boots measured a
   fail-closed under `python -O`. The DSpark `non_causal_multi_token_decode`
   any-merge and 656 B/token `fp8_ds_mla` page are already on this image.
   Not in the JIT shape hash.
+
+## Added 2026-09-09
+
+- `GLM53_ADAPTIVE_K=ema` — verification-only adaptive-k (Task 25 / kit
+  #139 split), **adopted 2026-09-09**. `ema` trims only
+  `request.spec_token_ids` so the **target** verify uses a 2/4/7
+  prefix; the DFlash2 drafter query/mask/selector/cache stay eight-row
+  (`DFLASH_TOKENS` remains 7). Structured output and the first
+  `MIN_STEPS` (default 4) stay at full k. Batch-min keeps FULL graphs
+  uniform. Not a drop-in of kit #139: that PR writes `batch_k()` into
+  `num_spec_tokens_to_schedule`, which sizes the trained draft on this
+  image. `start.sh` still defaults to `off`; production `.env`
+  last-wins `ema`. Rollback is `GLM53_ADAPTIVE_K=off` (policy only;
+  extra graphs are the sibling knob). The policy knob is **not** in
+  the JIT shape hash.
+- `GLM53_ADAPTIVE_K_CAPTURE=1` — extra target FULL graphs for verify
+  query lengths 3 and 5
+  (`--cudagraph-capture-sizes 1 2 3 4 5 6 8 9 10 12 15 16 20 24 32`).
+  Independent of the EMA. Adopted with Task 25 because B needs those
+  graphs; A vs B0 was capture/padding cost, not the D2 win. Extra
+  capture **is** a config-shape change (`prod-start.sh` hashes
+  `EXTRA_ARGS` and this knob) and paid a ~1.1 GiB idle MemFree step
+  (6.00/5.74 → 4.90/4.57 GiB), still above the 2.5 GiB abort. Rollback
+  both knobs to `off`/`0` through the guarded unit (stock
+  `1 2 4 8 16 24 32`, no image rebuild).
 
 ## Added 2026-09-02
 

@@ -197,6 +197,64 @@ def test_mtp_above_12_seqs_is_refused() -> None:
     assert small.returncode == 0
 
 
+def test_adaptive_k_defaults_and_refusals() -> None:
+    ok = validate("0.87", "1000000", "4", "1024")
+    assert ok.returncode == 0, (ok.returncode, ok.stderr)
+    for extra in (
+        {"GLM53_ADAPTIVE_K": "ema"},
+        {"GLM53_ADAPTIVE_K": "off", "GLM53_ADAPTIVE_K_CAPTURE": "1"},
+        {"GLM53_ADAPTIVE_K_SET": "2,4,7"},
+        {"GLM53_ADAPTIVE_K_HIST": "0"},
+        {"GLM53_ADAPTIVE_K_SATURATE": "n"},
+    ):
+        result = validate("0.87", "1000000", "4", "1024", extra_env=extra)
+        assert result.returncode == 0, (extra, result.stderr)
+    refused = validate(
+        "0.87",
+        "1000000",
+        "4",
+        "1024",
+        extra_env={"GLM53_ADAPTIVE_K": "draft"},
+    )
+    assert refused.returncode == 2
+    assert "GLM53_ADAPTIVE_K must be one of: off ema" in refused.stderr
+    no_seven = validate(
+        "0.87",
+        "1000000",
+        "4",
+        "1024",
+        extra_env={"GLM53_ADAPTIVE_K_SET": "2,4"},
+    )
+    assert no_seven.returncode == 2
+    assert "must include native k=7" in no_seven.stderr
+    too_big = validate(
+        "0.87",
+        "1000000",
+        "4",
+        "1024",
+        extra_env={"GLM53_ADAPTIVE_K_SET": "2,4,8"},
+    )
+    assert too_big.returncode == 2
+    bad_graphs = validate(
+        "0.87",
+        "1000000",
+        "4",
+        "1024",
+        extra_env={"EXTRA_ARGS": "--cudagraph-capture-sizes 1 8 32"},
+    )
+    assert bad_graphs.returncode == 2
+    assert "capture list must be stock" in bad_graphs.stderr
+    mtp_custom = validate(
+        "0.87",
+        "1000000",
+        "4",
+        "1024",
+        spec_method="mtp",
+        extra_env={"EXTRA_ARGS": "--cudagraph-capture-sizes 1 2 3 4 6 8 12"},
+    )
+    assert mtp_custom.returncode == 0, mtp_custom.stderr
+
+
 def test_restart_validates_before_stop() -> None:
     source = START.read_text()
     main = source.index("main() {")
@@ -208,5 +266,6 @@ def test_restart_validates_before_stop() -> None:
 if __name__ == "__main__":
     test_matrix()
     test_decimal_normalization()
+    test_adaptive_k_defaults_and_refusals()
     test_restart_validates_before_stop()
     print("numeric config tests: PASS")

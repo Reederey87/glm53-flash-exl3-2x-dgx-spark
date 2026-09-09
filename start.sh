@@ -228,6 +228,8 @@ SPINWAIT_PATCH_HOST="${SPINWAIT_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_spinwait_g
 FGAPC_PATCH_HOST="${FGAPC_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_fine_grained_apc.py}"
 # LOCAL: align-floor -- stop the mamba align split zeroing a sub-block chunk when LPTT >= block_size
 ALIGN_FLOOR_PATCH_HOST="${ALIGN_FLOOR_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_align_floor.py}"
+# LOCAL: task 25 — verification-only adaptive-k (kit #139 split, default off)
+ADAPTIVE_K_PATCH_HOST="${ADAPTIVE_K_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_adaptive_k.py}"
 # LOCAL: W41 (kit PR #94) block-level KV capacity boot log, log-only; W42 (kit PR #95) per-request APC no-store
 KV_CAPACITY_LOG_PATCH_HOST="${KV_CAPACITY_LOG_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_kv_capacity_log.py}"
 APC_NO_STORE_PATCH_HOST="${APC_NO_STORE_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_apc_no_store.py}"
@@ -249,20 +251,9 @@ TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-12.1a}"
 FLASHINFER_CUDA_ARCH_LIST="${FLASHINFER_CUDA_ARCH_LIST:-12.1a}"
 # Graph-safe fused apply (device-side expert grouping). MTP k=2 decode is
 # 1..4 seqs × 3 tokens (must include 3). DFlash2 k=7 is 1..4 seqs × 8 tokens
-# (must include 8, 16, 24, 32).
+# (must include 8, 16, 24, 32). Extra 3/5 multiples (task 25 B0/B) are
+# filled in after the adaptive-k defaults below.
 ENFORCE_EAGER="${ENFORCE_EAGER:-0}"
-if [ "${ENFORCE_EAGER}" != "1" ]; then
-    case " ${EXTRA_ARGS:-} " in
-        *" --cudagraph-capture-sizes "*|*" cudagraph-capture-sizes "*) ;;
-        *)
-            if [ "$SPEC_METHOD" = "dflash" ]; then
-                EXTRA_ARGS="${EXTRA_ARGS:+$EXTRA_ARGS }--cudagraph-capture-sizes 1 2 4 8 16 24 32"
-            else
-                EXTRA_ARGS="${EXTRA_ARGS:+$EXTRA_ARGS }--cudagraph-capture-sizes 1 2 3 4 6 8 12"
-            fi
-            ;;
-    esac
-fi
 # 1 = fused exl3_moe (decode). 0 restores the unique-expert LinearEXL3 loop.
 EXL3_FUSED_MOE="${EXL3_FUSED_MOE:-1}"
 # 1 = GPU row tiles for fat experts (prefill). 0 = LinearEXL3 fallback.
@@ -319,6 +310,38 @@ GLM53_FINE_GRAINED_APC="${GLM53_FINE_GRAINED_APC:-0}"
 # LOCAL: 1 = floor a sub-block mixed-prefill chunk at the mixed cap instead of 0 when LPTT >= block_size
 # (scheduler livelock, dormant at LPTT=1792 — proven 0 mismatches over 608 combinations). Read once at import.
 GLM53_ALIGN_FLOOR="${GLM53_ALIGN_FLOOR:-1}"
+# LOCAL: task 25 verification-only adaptive-k. off = stock k=7 every step.
+# ema trims only request.spec_token_ids (target verify). Capture-only
+# (GLM53_ADAPTIVE_K_CAPTURE=1) adds extra FULL graphs without the EMA.
+GLM53_ADAPTIVE_K="${GLM53_ADAPTIVE_K:-off}"
+GLM53_ADAPTIVE_K_CAPTURE="${GLM53_ADAPTIVE_K_CAPTURE:-0}"
+GLM53_ADAPTIVE_K_SET="${GLM53_ADAPTIVE_K_SET:-2,4,7}"
+GLM53_ADAPTIVE_K_ALPHA="${GLM53_ADAPTIVE_K_ALPHA:-0.25}"
+GLM53_ADAPTIVE_K_MARGIN="${GLM53_ADAPTIVE_K_MARGIN:-1.0}"
+GLM53_ADAPTIVE_K_MIN_STEPS="${GLM53_ADAPTIVE_K_MIN_STEPS:-4}"
+GLM53_ADAPTIVE_K_SATURATE="${GLM53_ADAPTIVE_K_SATURATE:-max}"
+GLM53_ADAPTIVE_K_HIST="${GLM53_ADAPTIVE_K_HIST:-200}"
+if [ "${ENFORCE_EAGER}" != "1" ]; then
+    case " ${EXTRA_ARGS:-} " in
+        *" --cudagraph-capture-sizes "*|*" cudagraph-capture-sizes "*) ;;
+        *)
+            if [ "$SPEC_METHOD" = "dflash" ]; then
+                # LOCAL: task 25 B0/B extra FULL graphs (k+1 = 3 and 5) up to C4.
+                # Independent of the EMA policy. Stock list stays 1 2 4 8 16 24 32.
+                case "${GLM53_ADAPTIVE_K}" in ema|on|1) _ak_graphs=1 ;; *) _ak_graphs=0 ;; esac
+                case "${GLM53_ADAPTIVE_K_CAPTURE}" in 1|on|true|yes) _ak_graphs=1 ;; esac
+                if [ "$_ak_graphs" = 1 ]; then
+                    EXTRA_ARGS="${EXTRA_ARGS:+$EXTRA_ARGS }--cudagraph-capture-sizes 1 2 3 4 5 6 8 9 10 12 15 16 20 24 32"
+                else
+                    EXTRA_ARGS="${EXTRA_ARGS:+$EXTRA_ARGS }--cudagraph-capture-sizes 1 2 4 8 16 24 32"
+                fi
+                unset _ak_graphs
+            else
+                EXTRA_ARGS="${EXTRA_ARGS:+$EXTRA_ARGS }--cudagraph-capture-sizes 1 2 3 4 6 8 12"
+            fi
+            ;;
+    esac
+fi
 # LOCAL: W41/W42 knob defaults (begin) -- exactly 0 or 1; UNSET -> 1; "" is a
 # value and is rejected. Strict validation runs before start/restart and through
 # `validate`, so a bad value cannot block stop/status/logs on a running pair;
@@ -467,6 +490,78 @@ validate_numeric_config() {
         fi
     fi
     # LOCAL: W41/W42 strict-bool validation (end)
+    # LOCAL: task 25 — verification-only adaptive-k. DFLASH_TOKENS stays 7.
+    case "${GLM53_ADAPTIVE_K:-off}" in
+        off|ema|on|1) ;;
+        *) echo "GLM53_ADAPTIVE_K must be one of: off ema (got: '${GLM53_ADAPTIVE_K}')" >&2; return 2 ;;
+    esac
+    case "${GLM53_ADAPTIVE_K_CAPTURE:-0}" in
+        0|1) ;;
+        *) echo "GLM53_ADAPTIVE_K_CAPTURE must be exactly 0 or 1 (got: '${GLM53_ADAPTIVE_K_CAPTURE}')" >&2; return 2 ;;
+    esac
+    case "${GLM53_ADAPTIVE_K_SATURATE:-max}" in
+        max|n) ;;
+        *) echo "GLM53_ADAPTIVE_K_SATURATE must be one of: max n (got: '${GLM53_ADAPTIVE_K_SATURATE}')" >&2; return 2 ;;
+    esac
+    _ak_set="${GLM53_ADAPTIVE_K_SET:-2,4,7}"
+    if [ -z "$_ak_set" ] || ! [[ "$_ak_set" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
+        echo "GLM53_ADAPTIVE_K_SET must be comma-separated positive integers (got: '${GLM53_ADAPTIVE_K_SET}')" >&2
+        unset _ak_set
+        return 2
+    fi
+    _ak_rest="${_ak_set},"
+    _ak_has7=0
+    while [ -n "$_ak_rest" ]; do
+        _ak_k="${_ak_rest%%,*}"
+        _ak_rest="${_ak_rest#*,}"
+        if [ -z "$_ak_k" ] || [ "$_ak_k" -lt 1 ] || [ "$_ak_k" -gt 7 ]; then
+            echo "GLM53_ADAPTIVE_K_SET values must be 1..7 and include 7 (got: '${GLM53_ADAPTIVE_K_SET}')" >&2
+            unset _ak_set _ak_rest _ak_k _ak_has7
+            return 2
+        fi
+        [ "$_ak_k" = 7 ] && _ak_has7=1
+    done
+    if [ "$_ak_has7" != 1 ]; then
+        echo "GLM53_ADAPTIVE_K_SET must include native k=7 (got: '${GLM53_ADAPTIVE_K_SET}')" >&2
+        unset _ak_set _ak_rest _ak_k _ak_has7
+        return 2
+    fi
+    unset _ak_set _ak_rest _ak_k _ak_has7
+    _ak_alpha="${GLM53_ADAPTIVE_K_ALPHA:-0.25}"
+    if ! awk -v a="$_ak_alpha" 'BEGIN { exit !(a+0 == a && a > 0 && a <= 1) }'; then
+        echo "GLM53_ADAPTIVE_K_ALPHA must be >0 and <=1 (got: '${GLM53_ADAPTIVE_K_ALPHA}')" >&2
+        unset _ak_alpha
+        return 2
+    fi
+    unset _ak_alpha
+    _ak_margin="${GLM53_ADAPTIVE_K_MARGIN:-1.0}"
+    if ! awk -v m="$_ak_margin" 'BEGIN { exit !(m+0 == m && m >= 0 && m <= 8) }'; then
+        echo "GLM53_ADAPTIVE_K_MARGIN must be between 0 and 8 (got: '${GLM53_ADAPTIVE_K_MARGIN}')" >&2
+        unset _ak_margin
+        return 2
+    fi
+    unset _ak_margin
+    _glm53_canonical_positive_int GLM53_ADAPTIVE_K_MIN_STEPS "${GLM53_ADAPTIVE_K_MIN_STEPS:-4}" 64 || return
+    _ak_hist="${GLM53_ADAPTIVE_K_HIST:-200}"
+    if ! [[ "$_ak_hist" =~ ^[0-9]+$ ]] || [ "${#_ak_hist}" -gt 7 ] || [ "$((10#$_ak_hist))" -gt 1000000 ]; then
+        echo "GLM53_ADAPTIVE_K_HIST must be an integer between 0 and 1000000 (got: '${GLM53_ADAPTIVE_K_HIST}')" >&2
+        unset _ak_hist
+        return 2
+    fi
+    GLM53_ADAPTIVE_K_HIST="$((10#$_ak_hist))"
+    export GLM53_ADAPTIVE_K_HIST
+    unset _ak_hist
+    # Capture list is a configuration-shape change (prod-start hashes EXTRA_ARGS).
+    # Extra 3/5 multiples are the independent B0/B variable; stock stays 1 2 4 8 16 24 32.
+    if [ "$SPEC_METHOD" = dflash ]; then
+        case " ${EXTRA_ARGS:-} " in
+            *" --cudagraph-capture-sizes 1 2 3 4 5 6 8 9 10 12 15 16 20 24 32 "*|*" --cudagraph-capture-sizes 1 2 4 8 16 24 32 "*) ;;
+            *" --cudagraph-capture-sizes "*)
+                echo "GLM53 adaptive-k capture list must be stock 1 2 4 8 16 24 32 or extra 1 2 3 4 5 6 8 9 10 12 15 16 20 24 32 (got EXTRA_ARGS=${EXTRA_ARGS})" >&2
+                return 2
+                ;;
+        esac
+    fi
     # LOCAL: DEFAULT_MAX_NEW_TOKENS is spliced into generated shell + JSON; empty = off.
     if [ -n "${DEFAULT_MAX_NEW_TOKENS:-}" ]; then
         _glm53_canonical_positive_int DEFAULT_MAX_NEW_TOKENS "$DEFAULT_MAX_NEW_TOKENS" 1000000 || return
@@ -663,6 +758,7 @@ preflight() {
     [ -f "$SPINWAIT_PATCH_HOST" ] || die "$SPINWAIT_PATCH_HOST missing"  # LOCAL: W17
     [ -f "$FGAPC_PATCH_HOST" ] || die "$FGAPC_PATCH_HOST missing"  # LOCAL: W18
     [ -f "$ALIGN_FLOOR_PATCH_HOST" ] || die "$ALIGN_FLOOR_PATCH_HOST missing"  # LOCAL: align-floor
+    [ -f "$ADAPTIVE_K_PATCH_HOST" ] || die "$ADAPTIVE_K_PATCH_HOST missing"  # LOCAL: task 25
     [ -f "$KV_CAPACITY_LOG_PATCH_HOST" ] || die "$KV_CAPACITY_LOG_PATCH_HOST missing"  # LOCAL: W41
     [ -f "$APC_NO_STORE_PATCH_HOST" ] || die "$APC_NO_STORE_PATCH_HOST missing"  # LOCAL: W42
     [ -f "$INDEXER_WORKSPACE_PATCH_HOST" ] || die "$INDEXER_WORKSPACE_PATCH_HOST missing"  # LOCAL: W28
@@ -1189,6 +1285,9 @@ fi
 if [ -f /opt/glm53/patch_align_floor.py ]; then
     python3 -S /opt/glm53/patch_align_floor.py
 fi
+if [ -f /opt/glm53/patch_adaptive_k.py ]; then  # LOCAL: task 25 (after align-floor)
+    python3 -S /opt/glm53/patch_adaptive_k.py
+fi
 if [ -f /opt/glm53/patch_kv_capacity_log.py ]; then  # LOCAL: W41 (after patch_hybrid_prefix_hit.py)
     python3 -S /opt/glm53/patch_kv_capacity_log.py
 fi
@@ -1325,6 +1424,9 @@ fi
 if [ -f /opt/glm53/patch_align_floor.py ]; then
     python3 -S /opt/glm53/patch_align_floor.py
 fi
+if [ -f /opt/glm53/patch_adaptive_k.py ]; then  # LOCAL: task 25 (after align-floor)
+    python3 -S /opt/glm53/patch_adaptive_k.py
+fi
 if [ -f /opt/glm53/patch_kv_capacity_log.py ]; then  # LOCAL: W41 (after patch_hybrid_prefix_hit.py)
     python3 -S /opt/glm53/patch_kv_capacity_log.py
 fi
@@ -1385,6 +1487,8 @@ launch_cluster() {
     scp -q -o BatchMode=yes "$FGAPC_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_fine_grained_apc.py"
     [ -f "$ALIGN_FLOOR_PATCH_HOST" ] || die "missing $ALIGN_FLOOR_PATCH_HOST"
     scp -q -o BatchMode=yes "$ALIGN_FLOOR_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_align_floor.py"
+    [ -f "$ADAPTIVE_K_PATCH_HOST" ] || die "missing $ADAPTIVE_K_PATCH_HOST"
+    scp -q -o BatchMode=yes "$ADAPTIVE_K_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_adaptive_k.py"
     [ -f "$KV_CAPACITY_LOG_PATCH_HOST" ] || die "missing $KV_CAPACITY_LOG_PATCH_HOST"  # LOCAL: W41
     scp -q -o BatchMode=yes "$KV_CAPACITY_LOG_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_kv_capacity_log.py"
     [ -f "$APC_NO_STORE_PATCH_HOST" ] || die "missing $APC_NO_STORE_PATCH_HOST"  # LOCAL: W42
@@ -1430,6 +1534,14 @@ launch_cluster() {
         # dev routes when 1. Patched file is inert when 0/unset.
         -e "GLM53_EXPOSE_CACHE_RESET=$GLM53_EXPOSE_CACHE_RESET"
         -e "GLM53_ALIGN_FLOOR=$GLM53_ALIGN_FLOOR"
+        -e "GLM53_ADAPTIVE_K=$GLM53_ADAPTIVE_K"
+        -e "GLM53_ADAPTIVE_K_CAPTURE=$GLM53_ADAPTIVE_K_CAPTURE"
+        -e "GLM53_ADAPTIVE_K_SET=$GLM53_ADAPTIVE_K_SET"
+        -e "GLM53_ADAPTIVE_K_ALPHA=$GLM53_ADAPTIVE_K_ALPHA"
+        -e "GLM53_ADAPTIVE_K_MARGIN=$GLM53_ADAPTIVE_K_MARGIN"
+        -e "GLM53_ADAPTIVE_K_MIN_STEPS=$GLM53_ADAPTIVE_K_MIN_STEPS"
+        -e "GLM53_ADAPTIVE_K_SATURATE=$GLM53_ADAPTIVE_K_SATURATE"
+        -e "GLM53_ADAPTIVE_K_HIST=$GLM53_ADAPTIVE_K_HIST"
         -e "GLM53_KV_CAPACITY_LOG=$GLM53_KV_CAPACITY_LOG"  # LOCAL: W41
         -e "GLM53_APC_NO_STORE=$GLM53_APC_NO_STORE"  # LOCAL: W42
         -e "GLM53_INDEXER_WORKSPACE=$GLM53_INDEXER_WORKSPACE"  # LOCAL: W28
@@ -1537,6 +1649,7 @@ launch_cluster() {
         -v '/tmp/patch_spinwait_gb10.py:/opt/glm53/patch_spinwait_gb10.py:ro' \
         -v '/tmp/patch_fine_grained_apc.py:/opt/glm53/patch_fine_grained_apc.py:ro' \
         -v '/tmp/patch_align_floor.py:/opt/glm53/patch_align_floor.py:ro' \
+        -v '/tmp/patch_adaptive_k.py:/opt/glm53/patch_adaptive_k.py:ro' \
         -v '/tmp/patch_kv_capacity_log.py:/opt/glm53/patch_kv_capacity_log.py:ro' \
         -v '/tmp/patch_apc_no_store.py:/opt/glm53/patch_apc_no_store.py:ro' \
         -v '/tmp/patch_w28_correctness.py:/opt/glm53/patch_w28_correctness.py:ro' \
@@ -1577,6 +1690,7 @@ launch_cluster() {
         -v "$SPINWAIT_PATCH_HOST:/opt/glm53/patch_spinwait_gb10.py:ro" \
         -v "$FGAPC_PATCH_HOST:/opt/glm53/patch_fine_grained_apc.py:ro" \
         -v "$ALIGN_FLOOR_PATCH_HOST:/opt/glm53/patch_align_floor.py:ro" \
+        -v "$ADAPTIVE_K_PATCH_HOST:/opt/glm53/patch_adaptive_k.py:ro" \
         -v "$KV_CAPACITY_LOG_PATCH_HOST:/opt/glm53/patch_kv_capacity_log.py:ro" \
         -v "$APC_NO_STORE_PATCH_HOST:/opt/glm53/patch_apc_no_store.py:ro" \
         -v "$W28_CORRECTNESS_PATCH_HOST:/opt/glm53/patch_w28_correctness.py:ro" \
