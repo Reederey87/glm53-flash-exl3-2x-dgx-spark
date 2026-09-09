@@ -1,0 +1,59 @@
+TASK30 KDA fused_recurrent warps=2 REVERT 2026-09-09
+independent_variable=GLM53_KDA_REC_WARPS
+control=unset (stock FLA fused_recurrent_kda_fwd num_warps=1 num_stages=3 BV-cap=8)
+candidate=GLM53_KDA_REC_WARPS=2 (stages/BV remain stock / empty)
+frozen=IMAGE=glm53-selfbuild:e3-w3-zfill EXL3_FAT_GROUPED=1 EXL3_TEMP_ROWS_FUSED=32
+       GLM53_ADAPTIVE_K=ema GLM53_ADAPTIVE_K_CAPTURE=1 DFLASH_TOKENS=7 DFLASH_DRAFT_TP=1
+       DFLASH_REVISION=7d74cdd881ed7e32c31175984a67823127b66cfe
+       MAX_NUM_SEQS=4 MNBT=3584 LPTT=1792 KV pin 15414698763
+live_path=FLA vllm/third_party/flash_linear_attention/ops/kda.py fused_recurrent_kda_fwd
+          (GLM kernels.py absent on e3-w3-zfill)
+overlay=overlay/patch_kda_recurrent.py default-off; fail-closed unique launch rewrite
+        refuses FlashInfer fused_kda_decode drop-in
+sequence=A (incumbent live boot, knobs unset) -> B (warps=2, JIT wipe, health 200 @ 540s)
+         -> return-A restoration (.env.bak-pre-task30-kda-20260909-163715, JIT wipe)
+         stages/BV not chained: B already missed the prose bar
+rollback=.env.bak-pre-task30-kda-20260909-163715 (no GLM53_KDA_REC_* last-wins; applied)
+nsys_ncu=not attached. nsys 2025.3 cannot safely attach to the live CUDA-graph
+         server; ncu replay already fail-closed on this TP2 graph stack (PR #40).
+         e2e overlay A/B was the allowed overlay-only path.
+
+pool=1,396,551 tokens / 1.40x  A, B, return-A
+bind=127.0.0.1:8000
+health=200
+unit=active
+watchdog.timer=active (re-armed after restore-A smoke)
+
+A control (stock warps=1, standing production boot)
+  structured n=9  median=69.56  accept=1.000/7.0  (range 69.15-69.96)
+  hashmap n=9     median=31.87  accept_ratio=0.5455  accepted_per_step=2.262
+                  range 25.76-33.82
+  idle MemFree head/worker GiB=5.07 / 4.06
+  running=0 waiting=0 preemptions=0
+
+B candidate (GLM53_KDA_REC_WARPS=2)
+  both ranks: kda-recurrent kda.py:patched kernels.py:missing warps=2 stages= bv_cap=
+  adaptive-k graphs query lenses [3,5,8] policy ema on
+  structured n=9  median=69.19  (-0.53%) accept=1.000/7.0  (range 68.62-69.63)
+  hashmap n=9     median=30.05  (-5.71%) accept_ratio=0.5227  accepted_per_step=2.156
+                  range 17.77-33.66 (17.77 contended dip)
+  idle MemFree head/worker GiB=5.61 / 3.87 post-benches (abort floor 2.5)
+  running=0 waiting=0 preemptions=0
+
+return-A (knobs unset, stock launch)
+  both ranks: kda-recurrent knobs unset, leaving fused_recurrent_kda_fwd as-is
+  structured n=3  median=69.80  accept=1.000/7.0
+  acceptance=7/7  serving=6/6 (Mac tunnel :18000)
+  pool identical
+  idle MemFree head/worker GiB=4.21 / 4.17
+  running=0 waiting=0 preemptions=0
+  no CUDA/Xid/IMA in dmesg
+
+Verdict: REVERT / KEEP stock warps=1 stages=3 BV-cap=8.
+  Structured non-inferior (>= -3% at 7.0/1.000). Hashmap -5.7% missed the
+  >=5% prose/agentic adopt bar (sign was unknown; wash was the park rule).
+  Occupancy share at T in {3,5,8} remains unmeasured. Overlay stays in-tree
+  default-off. Do not chain STAGES or BV_CAP. Do not attach ncu to the live
+  graph process. Tasks 29/31 stay parked behind a decode-step nsys/ncu share.
+no_cuda_xid_ima=1
+geometry_unchanged=MAX_MODEL_LEN=1000000 MNBT=3584 MAX_NUM_SEQS=4 DFLASH_TOKENS=7 IMAGE=e3-w3-zfill

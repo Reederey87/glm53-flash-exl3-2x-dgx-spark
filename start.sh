@@ -230,6 +230,8 @@ FGAPC_PATCH_HOST="${FGAPC_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_fine_grained_apc
 ALIGN_FLOOR_PATCH_HOST="${ALIGN_FLOOR_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_align_floor.py}"
 # LOCAL: task 25 — verification-only adaptive-k (kit #139 split, default off)
 ADAPTIVE_K_PATCH_HOST="${ADAPTIVE_K_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_adaptive_k.py}"
+# LOCAL: task 30 — fused_recurrent_kda launch (warps/stages/BV cap), default off
+KDA_REC_PATCH_HOST="${KDA_REC_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_kda_recurrent.py}"
 # LOCAL: W41 (kit PR #94) block-level KV capacity boot log, log-only; W42 (kit PR #95) per-request APC no-store
 KV_CAPACITY_LOG_PATCH_HOST="${KV_CAPACITY_LOG_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_kv_capacity_log.py}"
 APC_NO_STORE_PATCH_HOST="${APC_NO_STORE_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_apc_no_store.py}"
@@ -321,6 +323,10 @@ GLM53_ADAPTIVE_K_MARGIN="${GLM53_ADAPTIVE_K_MARGIN:-1.0}"
 GLM53_ADAPTIVE_K_MIN_STEPS="${GLM53_ADAPTIVE_K_MIN_STEPS:-4}"
 GLM53_ADAPTIVE_K_SATURATE="${GLM53_ADAPTIVE_K_SATURATE:-max}"
 GLM53_ADAPTIVE_K_HIST="${GLM53_ADAPTIVE_K_HIST:-200}"
+# LOCAL: task 30 fused_recurrent_kda launch. Empty = stock warps=1 / stages=3 / BV-cap=8.
+GLM53_KDA_REC_WARPS="${GLM53_KDA_REC_WARPS:-}"
+GLM53_KDA_REC_STAGES="${GLM53_KDA_REC_STAGES:-}"
+GLM53_KDA_REC_BV_CAP="${GLM53_KDA_REC_BV_CAP:-}"
 if [ "${ENFORCE_EAGER}" != "1" ]; then
     case " ${EXTRA_ARGS:-} " in
         *" --cudagraph-capture-sizes "*|*" cudagraph-capture-sizes "*) ;;
@@ -574,6 +580,19 @@ validate_numeric_config() {
     GLM53_ADAPTIVE_K_HIST="$((10#$_ak_hist))"
     export GLM53_ADAPTIVE_K_HIST
     unset _ak_hist
+    # LOCAL: task 30 — fused_recurrent_kda launch. Empty = stock (1 / 3 / 8).
+    case "${GLM53_KDA_REC_WARPS:-}" in
+        ""|1|2|4|8) ;;
+        *) echo "GLM53_KDA_REC_WARPS must be empty (stock 1) or one of: 1 2 4 8 (got: '${GLM53_KDA_REC_WARPS}')" >&2; return 2 ;;
+    esac
+    case "${GLM53_KDA_REC_STAGES:-}" in
+        ""|1|2|3|4|5) ;;
+        *) echo "GLM53_KDA_REC_STAGES must be empty (stock 3) or one of: 1 2 3 4 5 (got: '${GLM53_KDA_REC_STAGES}')" >&2; return 2 ;;
+    esac
+    case "${GLM53_KDA_REC_BV_CAP:-}" in
+        ""|8|16|32) ;;
+        *) echo "GLM53_KDA_REC_BV_CAP must be empty (stock 8) or one of: 8 16 32 (got: '${GLM53_KDA_REC_BV_CAP}')" >&2; return 2 ;;
+    esac
     # Capture list is a configuration-shape change (prod-start hashes EXTRA_ARGS).
     # Extra 3/5 multiples are the independent B0/B variable; stock stays 1 2 4 8 16 24 32.
     if [ "$SPEC_METHOD" = dflash ]; then
@@ -782,6 +801,7 @@ preflight() {
     [ -f "$FGAPC_PATCH_HOST" ] || die "$FGAPC_PATCH_HOST missing"  # LOCAL: W18
     [ -f "$ALIGN_FLOOR_PATCH_HOST" ] || die "$ALIGN_FLOOR_PATCH_HOST missing"  # LOCAL: align-floor
     [ -f "$ADAPTIVE_K_PATCH_HOST" ] || die "$ADAPTIVE_K_PATCH_HOST missing"  # LOCAL: task 25
+    [ -f "$KDA_REC_PATCH_HOST" ] || die "$KDA_REC_PATCH_HOST missing"  # LOCAL: task 30
     [ -f "$KV_CAPACITY_LOG_PATCH_HOST" ] || die "$KV_CAPACITY_LOG_PATCH_HOST missing"  # LOCAL: W41
     [ -f "$APC_NO_STORE_PATCH_HOST" ] || die "$APC_NO_STORE_PATCH_HOST missing"  # LOCAL: W42
     [ -f "$INDEXER_WORKSPACE_PATCH_HOST" ] || die "$INDEXER_WORKSPACE_PATCH_HOST missing"  # LOCAL: W28
@@ -1311,6 +1331,9 @@ fi
 if [ -f /opt/glm53/patch_adaptive_k.py ]; then  # LOCAL: task 25 (after align-floor)
     python3 -S /opt/glm53/patch_adaptive_k.py
 fi
+if [ -f /opt/glm53/patch_kda_recurrent.py ]; then  # LOCAL: task 30 (after adaptive-k)
+    python3 -S /opt/glm53/patch_kda_recurrent.py
+fi
 if [ -f /opt/glm53/patch_kv_capacity_log.py ]; then  # LOCAL: W41 (after patch_hybrid_prefix_hit.py)
     python3 -S /opt/glm53/patch_kv_capacity_log.py
 fi
@@ -1450,6 +1473,9 @@ fi
 if [ -f /opt/glm53/patch_adaptive_k.py ]; then  # LOCAL: task 25 (after align-floor)
     python3 -S /opt/glm53/patch_adaptive_k.py
 fi
+if [ -f /opt/glm53/patch_kda_recurrent.py ]; then  # LOCAL: task 30 (after adaptive-k)
+    python3 -S /opt/glm53/patch_kda_recurrent.py
+fi
 if [ -f /opt/glm53/patch_kv_capacity_log.py ]; then  # LOCAL: W41 (after patch_hybrid_prefix_hit.py)
     python3 -S /opt/glm53/patch_kv_capacity_log.py
 fi
@@ -1512,6 +1538,8 @@ launch_cluster() {
     scp -q -o BatchMode=yes "$ALIGN_FLOOR_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_align_floor.py"
     [ -f "$ADAPTIVE_K_PATCH_HOST" ] || die "missing $ADAPTIVE_K_PATCH_HOST"
     scp -q -o BatchMode=yes "$ADAPTIVE_K_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_adaptive_k.py"
+    [ -f "$KDA_REC_PATCH_HOST" ] || die "missing $KDA_REC_PATCH_HOST"
+    scp -q -o BatchMode=yes "$KDA_REC_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_kda_recurrent.py"
     [ -f "$KV_CAPACITY_LOG_PATCH_HOST" ] || die "missing $KV_CAPACITY_LOG_PATCH_HOST"  # LOCAL: W41
     scp -q -o BatchMode=yes "$KV_CAPACITY_LOG_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_kv_capacity_log.py"
     [ -f "$APC_NO_STORE_PATCH_HOST" ] || die "missing $APC_NO_STORE_PATCH_HOST"  # LOCAL: W42
@@ -1565,6 +1593,9 @@ launch_cluster() {
         -e "GLM53_ADAPTIVE_K_MIN_STEPS=$GLM53_ADAPTIVE_K_MIN_STEPS"
         -e "GLM53_ADAPTIVE_K_SATURATE=$GLM53_ADAPTIVE_K_SATURATE"
         -e "GLM53_ADAPTIVE_K_HIST=$GLM53_ADAPTIVE_K_HIST"
+        -e "GLM53_KDA_REC_WARPS=$GLM53_KDA_REC_WARPS"
+        -e "GLM53_KDA_REC_STAGES=$GLM53_KDA_REC_STAGES"
+        -e "GLM53_KDA_REC_BV_CAP=$GLM53_KDA_REC_BV_CAP"
         -e "GLM53_KV_CAPACITY_LOG=$GLM53_KV_CAPACITY_LOG"  # LOCAL: W41
         -e "GLM53_APC_NO_STORE=$GLM53_APC_NO_STORE"  # LOCAL: W42
         -e "GLM53_INDEXER_WORKSPACE=$GLM53_INDEXER_WORKSPACE"  # LOCAL: W28
@@ -1673,6 +1704,7 @@ launch_cluster() {
         -v '/tmp/patch_fine_grained_apc.py:/opt/glm53/patch_fine_grained_apc.py:ro' \
         -v '/tmp/patch_align_floor.py:/opt/glm53/patch_align_floor.py:ro' \
         -v '/tmp/patch_adaptive_k.py:/opt/glm53/patch_adaptive_k.py:ro' \
+        -v '/tmp/patch_kda_recurrent.py:/opt/glm53/patch_kda_recurrent.py:ro' \
         -v '/tmp/patch_kv_capacity_log.py:/opt/glm53/patch_kv_capacity_log.py:ro' \
         -v '/tmp/patch_apc_no_store.py:/opt/glm53/patch_apc_no_store.py:ro' \
         -v '/tmp/patch_w28_correctness.py:/opt/glm53/patch_w28_correctness.py:ro' \
@@ -1714,6 +1746,7 @@ launch_cluster() {
         -v "$FGAPC_PATCH_HOST:/opt/glm53/patch_fine_grained_apc.py:ro" \
         -v "$ALIGN_FLOOR_PATCH_HOST:/opt/glm53/patch_align_floor.py:ro" \
         -v "$ADAPTIVE_K_PATCH_HOST:/opt/glm53/patch_adaptive_k.py:ro" \
+        -v "$KDA_REC_PATCH_HOST:/opt/glm53/patch_kda_recurrent.py:ro" \
         -v "$KV_CAPACITY_LOG_PATCH_HOST:/opt/glm53/patch_kv_capacity_log.py:ro" \
         -v "$APC_NO_STORE_PATCH_HOST:/opt/glm53/patch_apc_no_store.py:ro" \
         -v "$W28_CORRECTNESS_PATCH_HOST:/opt/glm53/patch_w28_correctness.py:ro" \

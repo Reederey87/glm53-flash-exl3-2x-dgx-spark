@@ -38,6 +38,46 @@ Mainline GLM support (#53906) has merged, so model resolution is no longer the
 mainline blocker described in the historical section above; EXL3 integration
 and overlay compatibility still block a stock-image replacement.
 
+### 2026-09-09: task 30 fused_recurrent_kda warps=2 REVERTED
+
+Independent variable `GLM53_KDA_REC_WARPS=2` vs stock FLA
+`fused_recurrent_kda_fwd` (`num_warps=1`, `num_stages=3`,
+`BV=min(next_power_of_2(V), 8)`). Stages and BV-cap stayed empty
+(stock). Frozen: `IMAGE=e3-w3-zfill`, `EXL3_FAT_GROUPED=1`, last-wins
+TRF=32, `GLM53_ADAPTIVE_K=ema`, k=7, C4, pin, MNBT 3584, LPTT 1792.
+Live path is FLA `ops/kda.py` (GLM `kernels.py` absent on this
+image). Overlay `overlay/patch_kda_recurrent.py` is default-off and
+fail-closed; it does **not** drop in FlashInfer `fused_kda_decode`.
+Knobs are in the JIT shape hash; caches wiped both directions.
+nsys/ncu occupancy at T∈{3,5,8} was **not** attached (nsys 2025.3
+cannot safely attach to this CUDA-graph server; ncu replay already
+fail-closed on the TP2 graph stack, PR #40). Overlay e2e A/B was the
+allowed overlay-only path.
+
+**Cluster verdict: REVERT.** A (incumbent live boot, knobs unset)
+vs B (`GLM53_KDA_REC_WARPS=2`). Stages/BV not chained: B already
+missed the ≥5% prose bar. Return-A restored unset knobs and ran a
+restoration smoke (structured n=3 + acceptance 7/7 + serving 6/6).
+Occupancy share at T∈{3,5,8} remains unmeasured. Overlay stays
+in-tree default-off. Do not re-arm STAGES or BV_CAP. Do not attach
+ncu to the live graph process.
+
+| Gate | A stock warps=1 | B warps=2 | Return-A restoration |
+|---|---|---|---|
+| Acceptance | standing healthy (not re-run) | skipped (B already failed adopt) | **7/7** |
+| Serving (:18000) | standing healthy (not re-run) | skipped (B already failed adopt) | **6/6** |
+| Pool | 1,396,551 / 1.40× | identical | identical |
+| Structured | n=9 69.56 @ 7.0/1.000 | n=9 69.19 (−0.53%) @ 7.0/1.000 | n=3 69.80 @ 7.0/1.000 |
+| Hashmap n=9 | 31.87 | **30.05 (−5.7%)** | skipped (B already failed adopt) |
+| Health / bind | 200 / loopback | 200 / loopback | 200 / loopback |
+| Idle MemFree head/worker GiB | 5.07 / 4.06 | 5.61 / 3.87 post-benches | 4.21 / 4.17 |
+
+Watchdog re-armed. Rollback last-wins:
+`.env.bak-pre-task30-kda-20260909-163715` (no `GLM53_KDA_REC_*`).
+B overlay line: `kda.py:patched kernels.py:missing warps=2`. Return-A
+both ranks: `knobs unset, leaving fused_recurrent_kda_fwd as-is`.
+Tasks 29/31 stay parked behind a decode-step nsys/ncu share.
+
 ### 2026-09-09: task 28 cfontes DFlash2 TR3-v3 REVERTED
 
 Independent variable `DFLASH_MODEL` / `DFLASH_REVISION` only.
