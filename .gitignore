@@ -13,3 +13,7 @@ spec/
 
 # Full live-image Python dump for local audits; never ship
 tests/fixtures/live-image-vllm/
+
+# Profiler traces are large (2.2 GB decompressed per rank); the derived JSON
+# receipts under local/ are the tracked evidence, the traces stay on disk
+local/task29-traces-*/

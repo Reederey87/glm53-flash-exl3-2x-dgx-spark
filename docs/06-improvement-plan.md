@@ -38,6 +38,112 @@ Mainline GLM support (#53906) has merged, so model resolution is no longer the
 mainline blocker described in the historical section above; EXL3 integration
 and overlay compatibility still block a stock-image replacement.
 
+### 2026-09-09: tasks 29 + 31 decode-step share oracle — 29 STOP, 31 STOP
+
+Tasks 29 and 31 were both parked behind the same missing receipt: a
+decode-step breakdown at the realized adaptive-k shapes. This cluster cannot
+produce it with the vendor tools — nsys 2025.3 cannot safely attach to the live
+CUDA-graph server, ncu replay fail-closes on the TP2 graph stack (PR #40), and
+both `ncu` and nsys `--gpu-metrics` counters are privilege-denied
+(`ERR_NVGPUCTRPERM`, no sudo). This window built the counter path instead of
+waiting for one.
+
+**Oracle (new, hash-neutral).** `GLM53_PROFILE_TORCH_DIR` +
+`GLM53_PROFILE_MAX_ITERS` (launcher, empty = off) mount vLLM's in-process
+torch profiler and pass `--profiler-config.profiler=torch`,
+`--profiler-config.torch_profiler_dir=…`,
+`--profiler-config.torch_profiler_with_stack=false`,
+`--profiler-config.ignore_frontend=true`,
+`--profiler-config.max_iterations=…` to both rank inner scripts.
+`ProfilerConfig.compute_hash()` is a constant
+(`d751713988987e9331980363e24189ce`), so the knobs are deliberately excluded
+from the `local/prod-start.sh` JIT shape hash; the window asserts the stamp is
+unchanged (`078835f1d75fc6398c0eca32400fc132` before and after). Kineto reports
+graph-captured kernels as normal `cat="kernel"` events carrying `graph id`,
+launch geometry and an *estimated* occupancy — the only counter surface
+available here.
+
+**Window.** Guarded 7-phase runner (`scripts/run_decode_profile_window.py`;
+resumable, auto-restore on any failure). Preflight backed up `.env`
+(`.env.bak-pre-task29-profile-20260909-145950`, sha256 `46331cee…`), disarmed
+watchdog + metrics-alert, armed the knobs, booted the pair, then ran the C4
+decode probe (`scripts/probe_decode_profile.py`: 4 concurrent streaming
+requests, warmup, barrier at first token, concurrency gate). Probe receipt
+`local/task29-profile-probe-20260909-152958.json`: 4/4 streams OK
+(375/375/392/367 tokens), `window_drafts 1505`, `window_draft_tokens 3875`,
+`window_accepted 1693`, acceptance **0.4369**. Traces
+`local/task29-traces-20260909-153306/{head,worker}/` (93.5 / 93.8 MB gzip).
+
+**Shares** (`scripts/audit_decode_kernel_share.py`, streaming parser, both
+ranks, 1,139,172 kernel events each; 62.73 / 62.88 s kernel time; 35,490 graph
+executions; 12 distinct graphs; 143 distinct kernel names):
+
+| Family | rank0 | rank1 |
+|---|---|---|
+| fused `exl3_moe_kernel<4,256,1>` | **49.70%** | **49.32%** |
+| GEMM (cutlass + nvjet + cublasLt) | 34.77% | 34.61% |
+| NCCL | 6.38% | 6.92% |
+| other | 4.54% | 4.54% |
+| KDA `fused_recurrent_gated_delta_rule_fwd` | 3.12% | 3.12% |
+| sparse MLA | 1.05% | 1.04% |
+| flash attention | 0.45% | 0.45% |
+
+The profiler's `execute_context_0(0)_generation_<seqs>(<tokens>)` ranges were
+interval-joined to the kernels, so the per-T split below is measured, not
+inferred (rank0; rank1 within 0.6 pp):
+
+| Realized T | decode steps | fused share | fused ms/step | implied GB/s (uniform-E) |
+|---|---|---|---|---|
+| 12 (k=2) | 267 | 55.24% | 76.78 | 286 |
+| 20 (k=4) | 95 | 58.08% | 97.86 | 337 |
+| 32 (k=7) | 3 | 51.63% | 85.13 | 534 |
+| 3 / 5 / 6 / 9 | 7 / 10 / 1 / 7 | 34.7 / 43.2 / 45.4 / 51.9% | 29.3 / 42.9 / 48.3 / 63.5 | 212 / 234 / 246 / 270 |
+
+**Task 29 — STOP (roofline-bound, not occupancy-bound).** The fused kernel
+launches 128 regs/thread, 92,160 B SMEM, block 512, grid `[8,1,6]` = 48 blocks
+→ **1 block/SM**, 16 warps/SM, derived occupancy **33.3%**. Kineto's
+`est. achieved occupancy %` is 0 for every kernel whose
+`occupancy.blockLimitSharedMem == 0`; that is a calculation artifact, not a
+measurement. The register file alone (128 × 512 = 65,536 regs, `blockLimitRegs`
+1) and SMEM (93,184 B allocated) each cap the kernel at one block per SM.
+Against the routed-expert weight-streaming model — safetensors headers give
+`target.routed_experts` 76,473,186,048 B/rank ÷ (288 experts × 42 MoE layers) =
+**6,322,188 B per expert per layer per rank**; achievable unified bandwidth
+218 GB/s (docs/11 hardware table) — the measured per-step MoE time implies
+286 / 337 / 534 GB/s at T=12/20/32. Saturating 218 GB/s needs only 63 / 80 / 70
+unique experts per layer out of 96 / 160 / 256 slots, i.e. less uniqueness than
+uniform top-8 routing produces (82.6 / 124.1 / 171.1). Time per step scales
+with T the way weight streaming predicts, not the way a latency-limited kernel
+would. **No occupancy/GEMV gap; no cubin or Python kernel change opened.**
+
+**Task 31 — STOP (one captured decode tactic, ~1% of decode).** Exactly one
+sparse-MLA *decode* kernel name appears in every graph:
+`flashinfer::sparse_mla_sm120::sparse_mla_decode_dsv3_2_kernel<(ModelType)2,32,2048,64>`
+(n=4,290, 1.01–1.02%). The only other sparse-MLA kernel is the stage-2
+`…_dsv4_merge_kernel<32,512,64,8>` (0.03%). All captured q∈{3,4,5,8} shapes
+dispatch to the same template, so there is no tactic diversity to exploit, and
+the whole family is ~1% of decode-step kernel time — an offline tactic cache
+cannot pay for itself.
+
+**Production restored.** `.env` byte-identical to the pre-window backup
+(sha256 match), `/start_profile` gone (404), acceptance **7/7**, serving 6/6,
+JIT stamp unchanged, watchdog + metrics-alert timers re-armed. The gates phase
+itself hit a runner bug (`acceptance.sh` output was read without
+`capture_output`, so the receipt crashed after acceptance had already passed
+7/7); the window auto-restored production, the bug is fixed, and the gates
+phase was re-run. Rollback remains `glm53-selfbuild:e3-w3-zfill` + TRF=32.
+
+**Caveats.** (1) The probe's realized mix (267/95/3 steps at T=12/20/32,
+acceptance 0.437) is *not* the production prose mix — task 25's histogram was
+k=7-dominant — so the per-T shares transfer, the T distribution does not.
+(2) No hardware counter was available: the roofline is a model over safetensors
+headers plus a documented achievable-bandwidth figure, and Kineto's occupancy
+estimate is unusable for this kernel. A future window with `ncu`/GPU-metric
+privileges could still overturn task 29; the gate as pre-registered says stop.
+(3) New reusable assets: the launcher knobs, the trace auditor (streaming
+parser, per-family/per-T/per-graph shares, roofline model), the C4 probe, the
+guarded window runner, and 16 CPU-only tests.
+
 ### 2026-09-09: task 30 fused_recurrent_kda warps=2 REVERTED
 
 Independent variable `GLM53_KDA_REC_WARPS=2` vs stock FLA

@@ -181,6 +181,29 @@ cache is invisible to it). 0.87 demands 105.87 GiB free against boots measured a
   both knobs to `off`/`0` through the guarded unit (stock
   `1 2 4 8 16 24 32`, no image rebuild).
 
+- `GLM53_PROFILE_TORCH_DIR` / `GLM53_PROFILE_MAX_ITERS` — Task 29/31
+  decode-step profiler, **oracle only, not production**. Empty dir = off.
+  When set, `start.sh` appends `--profiler-config.profiler=torch`,
+  `--profiler-config.torch_profiler_dir=…`,
+  `--profiler-config.torch_profiler_with_stack=false`,
+  `--profiler-config.ignore_frontend=true` and
+  `--profiler-config.max_iterations=<iters>` to **both** rank inner
+  scripts, which mounts `/start_profile` / `/stop_profile`. The dir must
+  be an absolute path under `/root/.cache/vllm/`; iters is a base-10
+  integer `0..99999999`.
+  `ProfilerConfig.compute_hash()` is a constant
+  (`d751713988987e9331980363e24189ce`), so the knobs are deliberately
+  **not** in the `local/prod-start.sh` JIT shape hash — the 2026-09-09
+  window proved the stamp unchanged
+  (`078835f1d75fc6398c0eca32400fc132` before and after). Kineto reports
+  graph-captured kernels (graph id, launch geometry, *estimated*
+  occupancy); external nsys attach is unsafe on this server and
+  ncu/GPU-metric counters are privilege-denied. Use
+  `scripts/run_decode_profile_window.py` (guarded, auto-restore) +
+  `scripts/probe_decode_profile.py` +
+  `scripts/audit_decode_kernel_share.py`. Rollback: unset both, guarded
+  unit restart.
+
 - `GLM53_KDA_REC_WARPS` / `GLM53_KDA_REC_STAGES` / `GLM53_KDA_REC_BV_CAP`
   — Task 30 fused `fused_recurrent_kda` launch. **REVERTED 2026-09-09
   at warps=2** (hashmap −5.7%; structured −0.5% at 7.0/1.000). Live

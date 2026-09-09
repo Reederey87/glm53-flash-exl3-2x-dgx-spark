@@ -358,6 +358,17 @@ GLM53_APC_NO_STORE="${GLM53_APC_NO_STORE-1}"
 # reclaim. Default stays stock until the guarded A/B produces live receipts.
 GLM53_INDEXER_WORKSPACE="${GLM53_INDEXER_WORKSPACE-stock}"
 # LOCAL: W41/W42 knob defaults (end)
+# LOCAL: task 29/31 decode-profile oracle (begin). Empty dir = profiler OFF
+# (production default). A non-empty value must be an absolute path under
+# /root/.cache/vllm (the only host-visible writable mount) and turns on the
+# in-process torch profiler, which exposes POST /start_profile and writes
+# per-rank chrome traces there. Deliberately NOT in the JIT shape hash:
+# ProfilerConfig.compute_hash() is a constant (measured d751713988987e9331980363e24189ce
+# with and without the profiler on this image), so the knob cannot change the
+# captured computation graph. GLM53_PROFILE_MAX_ITERS is the fail-safe
+# auto-stop (0 = no limit); the window runner stops explicitly.
+GLM53_PROFILE_TORCH_DIR="${GLM53_PROFILE_TORCH_DIR-}"
+GLM53_PROFILE_MAX_ITERS="${GLM53_PROFILE_MAX_ITERS-2000}"
 # EngineCore stock timeout is 300s; mid-serve Triton/TileLang JIT on TP=2 can
 # exceed that without being a true hang. NCCL watchdog is still 600s.
 VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS="${VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS:-1800}"
@@ -483,6 +494,26 @@ validate_numeric_config() {
         stock|rightsize) ;;
         *) echo "GLM53_INDEXER_WORKSPACE must be exactly one of: stock rightsize (got: '${GLM53_INDEXER_WORKSPACE-<unset>}')" >&2; return 2 ;;
     esac
+    # LOCAL: task 29/31 — the profiler dir is interpolated into argv and the
+    # docker -e transport, so restrict it to a conservative charset under the
+    # one host-visible writable mount. Empty is the production default (off).
+    if [ -n "${GLM53_PROFILE_TORCH_DIR:-}" ]; then
+        if ! [[ "$GLM53_PROFILE_TORCH_DIR" =~ ^/root/[.]cache/vllm(/[A-Za-z0-9._-]+)*$ ]] \
+           || [[ "$GLM53_PROFILE_TORCH_DIR" == *..* ]] \
+           || [ "${#GLM53_PROFILE_TORCH_DIR}" -gt 200 ]; then
+            echo "GLM53_PROFILE_TORCH_DIR must be empty or an absolute path under /root/.cache/vllm with [A-Za-z0-9._-] segments (got: '${GLM53_PROFILE_TORCH_DIR}')" >&2
+            return 2
+        fi
+    fi
+    # Unset -> the launcher default (2000); an explicitly empty value is a
+    # value and is rejected, matching the W41/W42 strictness.
+    _glm53_profile_iters="${GLM53_PROFILE_MAX_ITERS-2000}"
+    if ! [[ "$_glm53_profile_iters" =~ ^[0-9]+$ ]] \
+       || [ "${#_glm53_profile_iters}" -gt 8 ]; then
+        echo "GLM53_PROFILE_MAX_ITERS must be a base-10 integer 0..99999999 (got: '${GLM53_PROFILE_MAX_ITERS-<unset>}')" >&2
+        return 2
+    fi
+    unset _glm53_profile_iters
     case "${EXL3_FAT_GROUPED-0}" in
         0|1) ;;
         *) echo "EXL3_FAT_GROUPED must be exactly 0 or 1 (got: '${EXL3_FAT_GROUPED-<unset>}')" >&2; return 2 ;;
@@ -1274,6 +1305,20 @@ fi
 if [ -n "${CHAT_TEMPLATE:-}" ] && [ -f "${CHAT_TEMPLATE}" ]; then
     ARGS+=(--chat-template "${CHAT_TEMPLATE}")
 fi
+# LOCAL: task 29/31 decode-profile oracle. Empty dir = profiler OFF. Enabling
+# it only attaches the /start_profile + /stop_profile routes; the wrapper is
+# built lazily on the first /start_profile, so boot cost is unchanged. Traces
+# are graph-aware (Kineto reports graph-node kernels) and carry per-kernel
+# grid/block/regs/occupancy, which is the oracle input. Not in the JIT shape
+# hash: ProfilerConfig.compute_hash() is a constant.
+if [ -n "${GLM53_PROFILE_TORCH_DIR:-}" ]; then
+    ARGS+=(--profiler-config.profiler=torch)
+    ARGS+=("--profiler-config.torch_profiler_dir=${GLM53_PROFILE_TORCH_DIR}")
+    ARGS+=(--profiler-config.torch_profiler_with_stack=false)
+    ARGS+=(--profiler-config.ignore_frontend=true)
+    ARGS+=("--profiler-config.max_iterations=${GLM53_PROFILE_MAX_ITERS:-2000}")
+    say "torch profiler armed dir=${GLM53_PROFILE_TORCH_DIR} max_iters=${GLM53_PROFILE_MAX_ITERS:-2000}"
+fi
 if [ "${LANGUAGE_MODEL_ONLY:-0}" = "1" ]; then
     ARGS+=(--language-model-only)
     say "language-model-only: no vision tower"
@@ -1417,6 +1462,20 @@ elif [ "${MTP_TOKENS:-0}" != "0" ]; then
 fi
 if [ -n "${CHAT_TEMPLATE:-}" ] && [ -f "${CHAT_TEMPLATE}" ]; then
     ARGS+=(--chat-template "${CHAT_TEMPLATE}")
+fi
+# LOCAL: task 29/31 decode-profile oracle. Empty dir = profiler OFF. Enabling
+# it only attaches the /start_profile + /stop_profile routes; the wrapper is
+# built lazily on the first /start_profile, so boot cost is unchanged. Traces
+# are graph-aware (Kineto reports graph-node kernels) and carry per-kernel
+# grid/block/regs/occupancy, which is the oracle input. Not in the JIT shape
+# hash: ProfilerConfig.compute_hash() is a constant.
+if [ -n "${GLM53_PROFILE_TORCH_DIR:-}" ]; then
+    ARGS+=(--profiler-config.profiler=torch)
+    ARGS+=("--profiler-config.torch_profiler_dir=${GLM53_PROFILE_TORCH_DIR}")
+    ARGS+=(--profiler-config.torch_profiler_with_stack=false)
+    ARGS+=(--profiler-config.ignore_frontend=true)
+    ARGS+=("--profiler-config.max_iterations=${GLM53_PROFILE_MAX_ITERS:-2000}")
+    say "torch profiler armed dir=${GLM53_PROFILE_TORCH_DIR} max_iters=${GLM53_PROFILE_MAX_ITERS:-2000}"
 fi
 if [ "${LANGUAGE_MODEL_ONLY:-0}" = "1" ]; then
     ARGS+=(--language-model-only)
@@ -1668,7 +1727,8 @@ launch_cluster() {
              KV_CACHE_DTYPE MTP_TOKENS SPEC_METHOD DFLASH_TOKENS DFLASH_MODEL_DIR \
              DFLASH_DRAFT_TP \
              LANGUAGE_MODEL_ONLY SKIP_MM_PROFILING \
-             LIMIT_MM CHAT_TEMPLATE ENFORCE_EAGER EXL3_FUSED_MOE EXL3_MOE_ROW_TILE EXL3_TEMP_ROWS_FUSED EXL3_FAT_SORTED EXL3_FAT_BATCHED EXL3_FAT_KERNEL EXL3_FAT_GROUPED MODEL_DIR EXTRA_ARGS; do
+             LIMIT_MM CHAT_TEMPLATE ENFORCE_EAGER EXL3_FUSED_MOE EXL3_MOE_ROW_TILE EXL3_TEMP_ROWS_FUSED EXL3_FAT_SORTED EXL3_FAT_BATCHED EXL3_FAT_KERNEL EXL3_FAT_GROUPED MODEL_DIR EXTRA_ARGS \
+             GLM53_PROFILE_TORCH_DIR GLM53_PROFILE_MAX_ITERS; do
         serve_env+=" -e $v='${!v:-}'"
     done
     # Omit empty EXL3_FAT_SCRATCH_ROWS so IMAGE=e3-grouped keeps MNBT×topk
@@ -1788,6 +1848,8 @@ launch_cluster() {
         ${EXL3_FAT_SCRATCH_ROWS:+-e EXL3_FAT_SCRATCH_ROWS="$EXL3_FAT_SCRATCH_ROWS"} \
         -e MODEL_DIR="$MODEL_DIR" \
         -e VLLM_API_KEY="$VLLM_API_KEY" \
+        -e GLM53_PROFILE_TORCH_DIR="${GLM53_PROFILE_TORCH_DIR:-}" \
+        -e GLM53_PROFILE_MAX_ITERS="${GLM53_PROFILE_MAX_ITERS:-2000}" \
         -e EXTRA_ARGS="${EXTRA_ARGS:-}" \
         --entrypoint bash "$IMAGE" /start.sh >/dev/null
 

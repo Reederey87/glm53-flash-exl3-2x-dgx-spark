@@ -1,0 +1,366 @@
+#!/usr/bin/env python3
+"""Guarded decode-profile window for the task 29/31 oracle (runs on spark1).
+
+Adds ONLY the two profiler knobs to ``.env`` (hash-neutral: ProfilerConfig
+.compute_hash is a constant), restarts the pair through the validated
+``local/prod-start.sh``, captures one C4 decode window with the in-process
+torch profiler, copies the per-rank traces into ``local/``, then restores the
+exact pre-window ``.env`` and reboots production. Any failure on the arm side
+triggers the same restore unless ``--keep-armed`` is passed.
+
+Phases run in order and can be bounded with --from/--to for a stepwise window:
+
+  preflight  record hashes, back up .env, drain check, JIT stamp
+  disarm     stop watchdog + metrics-alert timers, reset-failed
+  arm        append the profiler knobs, boot the pair, wait for health
+  profile    mkdir trace dirs, run the C4 probe, collect both-rank traces
+  restore    restore .env, boot production, wait for health
+  gates      acceptance.sh, MemFree tripwire, pool/shape/MemFree receipt
+  rearm      re-enable the timers
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+ENV_FILE = ROOT / ".env"
+STAMP = Path.home() / ".cache" / "vllm-glm53-flash" / ".config-shape"
+TRACE_HOST_DIR = Path.home() / ".cache" / "vllm-glm53-flash" / "profiler"
+PROBE = ROOT / "scripts" / "probe_decode_profile.py"
+BASE = "http://127.0.0.1:8000"
+WORKER = os.environ.get("WORKER_SSH", "nvidia@192.168.177.11")
+ARM_KEYS = ("GLM53_PROFILE_TORCH_DIR", "GLM53_PROFILE_MAX_ITERS")
+SELECTED = (
+    "IMAGE",
+    "MODEL",
+    "DFLASH_MODEL",
+    "DFLASH_REVISION",
+    "DFLASH_TOKENS",
+    "MAX_NUM_SEQS",
+    "MAX_NUM_BATCHED_TOKENS",
+    "MAX_MODEL_LEN",
+    "LONG_PREFILL_TOKEN_THRESHOLD",
+    "EXL3_FAT_GROUPED",
+    "EXL3_TEMP_ROWS_FUSED",
+    "GLM53_ADAPTIVE_K",
+    "GLM53_ADAPTIVE_K_CAPTURE",
+    "GLM53_INDEXER_WORKSPACE",
+)
+PHASES = ("preflight", "disarm", "arm", "profile", "restore", "gates", "rearm")
+
+
+def log(message: str) -> None:
+    print(f"[decode-profile] {message}", flush=True)
+
+
+def run(argv: list[str], timeout: float = 600, check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(argv, check=check, capture_output=True, text=True, timeout=timeout)
+
+
+def curl(path: str, method: str = "GET", timeout: float = 15) -> tuple[int, str]:
+    proc = subprocess.run(
+        ["curl", "-s", "-o", "-", "-w", "\n%{http_code}", "--max-time", str(int(timeout)),
+         "-X", method, BASE + path],
+        check=False, capture_output=True, text=True, timeout=timeout + 10,
+    )
+    body, _, code = proc.stdout.rpartition("\n")
+    try:
+        return int(code), body
+    except ValueError:
+        return 0, proc.stdout
+
+
+def effective_env() -> dict[str, str]:
+    text = ENV_FILE.read_text()
+    out: dict[str, str] = {}
+    for line in text.splitlines():
+        if line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if key in SELECTED or key in ARM_KEYS:
+            out[key] = value.strip().strip("'\"")
+    return out
+
+
+def sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def memfree_gib(host: str | None = None) -> float:
+    cmd = ["awk", "/^MemFree:/ {printf \"%.2f\", $2/1048576}", "/proc/meminfo"]
+    if host:
+        text = run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host,
+                    "awk '/^MemFree:/ {printf \"%.2f\", $2/1048576}' /proc/meminfo"], timeout=20).stdout
+    else:
+        text = Path("/proc/meminfo").read_text()
+        text = f"{int([l for l in text.splitlines() if l.startswith('MemFree:')][0].split()[1])/1048576:.2f}"
+    return float(text.strip())
+
+
+def wait_health(timeout: float = 2400) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        code, _ = curl("/health", timeout=10)
+        if code == 200:
+            return True
+        time.sleep(15)
+    return False
+
+
+def drain(timeout: float = 300) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        code, body = curl("/metrics", timeout=10)
+        if code != 200:
+            return True  # nothing serving
+        running = sum(float(m) for m in re.findall(r"vllm:num_requests_(?:running|waiting)\{[^}]*\}\s+(\S+)", body))
+        if running == 0:
+            return True
+        log(f"drain: {running:.0f} in flight, waiting")
+        time.sleep(10)
+    return False
+
+
+def guarded_start() -> None:
+    log("starting pair through local/prod-start.sh (validates, waits for memory)")
+    proc = subprocess.run([str(ROOT / "local" / "prod-start.sh")], check=False, text=True, timeout=5400)
+    if proc.returncode != 0:
+        raise RuntimeError(f"prod-start.sh exited {proc.returncode}")
+
+
+def pool_line() -> str:
+    proc = run(["docker", "logs", "--tail", "4000", "glm53-exl3-head"], timeout=60, check=False)
+    for line in proc.stderr.splitlines() + proc.stdout.splitlines():
+        if "KV cache" in line or "kv_cache" in line.lower():
+            return line.strip()
+    return ""
+
+
+def image_id() -> str:
+    return run(["docker", "inspect", "-f", "{{.Image}}", "glm53-exl3-head"], timeout=30, check=False).stdout.strip()
+
+
+def arm_env() -> None:
+    text = ENV_FILE.read_text()
+    if not text.endswith("\n"):
+        text += "\n"
+    text += (
+        "\n# task 29/31 decode-profile oracle window (removed by restore)\n"
+        "GLM53_PROFILE_TORCH_DIR=/root/.cache/vllm/profiler\n"
+        "GLM53_PROFILE_MAX_ITERS=2000\n"
+    )
+    ENV_FILE.write_text(text)
+
+
+def restore_env(backup: Path) -> None:
+    shutil.copy2(backup, ENV_FILE)
+
+
+def phase_preflight(state: dict) -> None:
+    if not ENV_FILE.is_file():
+        raise RuntimeError(f"missing {ENV_FILE}")
+    if not PROBE.is_file():
+        raise RuntimeError(f"missing {PROBE}")
+    stamp_before = STAMP.read_text().strip() if STAMP.is_file() else ""
+    backup = ROOT / f".env.bak-pre-task29-profile-{time.strftime('%Y%m%d-%H%M%S')}"
+    shutil.copy2(ENV_FILE, backup)
+    env = effective_env()
+    if any(k in env for k in ARM_KEYS):
+        raise RuntimeError("profiler knobs already present in .env — window not clean")
+    code, _ = curl("/health", timeout=10)
+    if code == 200 and not drain():
+        raise RuntimeError("server did not drain; refusing to take it down")
+    state.update(
+        {
+            "backup": str(backup),
+            "env_sha256": sha256(ENV_FILE),
+            "start_sha256": sha256(ROOT / "start.sh"),
+            "probe_sha256": sha256(PROBE),
+            "auditor_sha256": sha256(ROOT / "scripts" / "audit_decode_kernel_share.py"),
+            "jit_stamp_before": stamp_before,
+            "image_before": image_id(),
+            "env_effective": env,
+        }
+    )
+    log(f"preflight OK backup={backup.name} stamp={stamp_before[:12]}")
+
+
+def phase_disarm(_state: dict) -> None:
+    for unit in ("vllm-glm53exl3-watchdog.timer", "glm53exl3-metrics-alert.timer"):
+        run(["systemctl", "--user", "stop", unit], timeout=60, check=False)
+    run(["systemctl", "--user", "reset-failed"], timeout=60, check=False)
+    log("watchdog + metrics-alert timers disarmed, failed units reset")
+
+
+def phase_arm(state: dict) -> None:
+    arm_env()
+    state["env_sha256_armed"] = sha256(ENV_FILE)
+    guarded_start()
+    if not wait_health():
+        raise RuntimeError("head did not become healthy on the armed boot")
+    code, _ = curl("/start_profile", method="GET", timeout=15)
+    if code != 405:
+        raise RuntimeError(f"armed boot did not mount /start_profile (GET -> {code})")
+    state["armed_env"] = effective_env()
+    state["armed_image"] = image_id()
+    log("armed boot healthy and /start_profile mounted (405 on GET)")
+
+
+def phase_profile(state: dict) -> None:
+    TRACE_HOST_DIR.mkdir(parents=True, exist_ok=True)
+    for old in TRACE_HOST_DIR.glob("*"):
+        old.unlink()
+    run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", WORKER,
+         f"mkdir -p ~/.cache/vllm-glm53-flash/profiler && rm -f ~/.cache/vllm-glm53-flash/profiler/*"],
+        timeout=60, check=False)
+    receipt = ROOT / "local" / f"task29-profile-probe-{time.strftime('%Y%m%d-%H%M%S')}.json"
+    proc = subprocess.run(
+        [sys.executable, str(PROBE), "--warmup", "--out", str(receipt)],
+        check=False, capture_output=True, text=True, timeout=3600,
+        env={**os.environ, "GLM53_PROFILE_MAX_ITERS": "2000",
+             "GLM53_PROFILE_TORCH_DIR": "/root/.cache/vllm/profiler"},
+    )
+    state["probe_stdout_tail"] = proc.stdout.strip().splitlines()[-12:]
+    state["probe_stderr_tail"] = proc.stderr.strip().splitlines()[-12:]
+    log("probe stdout:\n" + "\n".join(state["probe_stdout_tail"]))
+    if proc.returncode != 0:
+        log("probe stderr:\n" + "\n".join(state["probe_stderr_tail"]))
+        raise RuntimeError(f"probe exited {proc.returncode}")
+    outdir = ROOT / "local" / f"task29-traces-{time.strftime('%Y%m%d-%H%M%S')}"
+    (outdir / "head").mkdir(parents=True)
+    (outdir / "worker").mkdir(parents=True)
+    for trace in TRACE_HOST_DIR.glob("*"):
+        shutil.copy2(trace, outdir / "head" / trace.name)
+    run(["rsync", "-a", "-e", "ssh -o BatchMode=yes -o ConnectTimeout=10",
+         f"{WORKER}:~/.cache/vllm-glm53-flash/profiler/", str(outdir / "worker" / "")],
+        timeout=900, check=False)
+    state["probe_receipt"] = str(receipt)
+    state["trace_dir"] = str(outdir)
+    state["head_traces"] = sorted(p.name for p in (outdir / "head").glob("*"))
+    state["worker_traces"] = sorted(p.name for p in (outdir / "worker").glob("*"))
+    log(f"traces collected head={len(state['head_traces'])} worker={len(state['worker_traces'])}")
+
+
+def phase_restore(state: dict) -> None:
+    backup = Path(state["backup"])
+    restore_env(backup)
+    if sha256(ENV_FILE) != state["env_sha256"]:
+        raise RuntimeError("restored .env does not match the pre-window hash")
+    guarded_start()
+    if not wait_health():
+        raise RuntimeError("production did not become healthy after restore")
+    code, _ = curl("/start_profile", method="GET", timeout=15)
+    if code != 404:
+        raise RuntimeError(f"restored boot still mounts /start_profile (GET -> {code})")
+    state["restored_env"] = effective_env()
+    state["restored_image"] = image_id()
+    log("production restored: .env hash matches, /start_profile gone (404)")
+
+
+def phase_gates(state: dict) -> None:
+    acc = subprocess.run(["bash", str(ROOT / "local" / "acceptance.sh")],
+                         check=False, capture_output=True, text=True, timeout=3600)
+    tail = (acc.stdout or "").strip().splitlines()[-6:]
+    state["acceptance_tail"] = tail
+    state["acceptance_rc"] = acc.returncode
+    log("acceptance tail:\n" + "\n".join(tail))
+    state["memfree_head_gib"] = memfree_gib()
+    state["memfree_worker_gib"] = memfree_gib(WORKER)
+    state["pool_line"] = pool_line()
+    state["jit_stamp_after"] = STAMP.read_text().strip() if STAMP.is_file() else ""
+    log(f"acceptance rc={acc.returncode} memfree head={state['memfree_head_gib']:.2f} "
+        f"worker={state['memfree_worker_gib']:.2f} GiB")
+    if acc.returncode != 0:
+        raise RuntimeError("acceptance battery failed after restore")
+    if state["memfree_head_gib"] < 2.5 or state["memfree_worker_gib"] < 2.5:
+        raise RuntimeError("MemFree tripwire: below 2.5 GiB on a node")
+    if state["jit_stamp_after"] != state["jit_stamp_before"]:
+        raise RuntimeError("JIT shape stamp changed; profiler knob must be hash-neutral")
+
+
+def phase_rearm(_state: dict) -> None:
+    for unit in ("vllm-glm53exl3-watchdog.timer", "glm53exl3-metrics-alert.timer"):
+        run(["systemctl", "--user", "start", unit], timeout=60, check=False)
+    log("watchdog + metrics-alert timers re-armed")
+
+
+HANDLERS = {
+    "preflight": phase_preflight,
+    "disarm": phase_disarm,
+    "arm": phase_arm,
+    "profile": phase_profile,
+    "restore": phase_restore,
+    "gates": phase_gates,
+    "rearm": phase_rearm,
+}
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--from", dest="first", choices=PHASES, default=PHASES[0])
+    ap.add_argument("--to", dest="last", choices=PHASES, default=PHASES[-1])
+    ap.add_argument("--keep-armed", action="store_true",
+                    help="on failure leave the profiler boot running (debug only)")
+    ap.add_argument("--receipt", type=Path)
+    ap.add_argument("--state", type=Path,
+                    help="resume/checkpoint file (loaded if present, written at exit)")
+    args = ap.parse_args(argv)
+
+    lo, hi = PHASES.index(args.first), PHASES.index(args.last)
+    if lo > hi:
+        print("--from must not come after --to", file=sys.stderr)
+        return 2
+    receipt = args.receipt or args.state or (
+        ROOT / "local" / f"task29-profile-window-{time.strftime('%Y%m%d-%H%M%S')}.json"
+    )
+    state: dict = {}
+    if receipt.is_file():
+        try:
+            state = json.loads(receipt.read_text())
+        except json.JSONDecodeError:
+            state = {}
+    state.update({"schema": 1, "started": state.get("started") or time.strftime("%Y-%m-%dT%H:%M:%S%z")})
+    state.setdefault("phases", [])
+    if args.first != PHASES[0] and "backup" not in state:
+        print(f"--from {args.first} needs a prior preflight state (no backup in {receipt})", file=sys.stderr)
+        return 2
+    failure: Exception | None = None
+    for name in PHASES[lo:hi + 1]:
+        log(f"--- phase {name} ---")
+        try:
+            HANDLERS[name](state)
+            state["phases"].append({"phase": name, "ok": True})
+        except Exception as exc:  # noqa: BLE001
+            state["phases"].append({"phase": name, "ok": False, "error": repr(exc)})
+            failure = exc
+            log(f"phase {name} FAILED: {exc}")
+            break
+
+    if failure is not None and "backup" in state and not args.keep_armed:
+        log("failure — restoring the pre-window .env and rebooting production")
+        try:
+            phase_restore(state)
+            phase_rearm(state)
+            state["auto_restore"] = "ok"
+        except Exception as exc:  # noqa: BLE001
+            state["auto_restore"] = f"FAILED: {exc!r}"
+            log(f"AUTO-RESTORE FAILED: {exc} — operator action required")
+
+    state["finished"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    receipt.write_text(json.dumps(state, indent=1, default=str) + "\n")
+    log(f"receipt: {receipt}")
+    return 1 if failure is not None else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

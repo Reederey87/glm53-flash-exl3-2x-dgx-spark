@@ -1,0 +1,63 @@
+{
+ "schema": 1,
+ "dry_run": false,
+ "seqs": 4,
+ "prompt_repeats": 110,
+ "max_tokens": 800,
+ "streams": {
+  "0": {
+   "ok": true,
+   "tokens": 375,
+   "first_ts": 204374.04830757
+  },
+  "1": {
+   "ok": true,
+   "tokens": 375,
+   "first_ts": 204379.373215132
+  },
+  "2": {
+   "ok": true,
+   "tokens": 392,
+   "first_ts": 204379.37305766
+  },
+  "3": {
+   "ok": true,
+   "tokens": 367,
+   "first_ts": 204379.373439325
+  }
+ },
+ "concurrency_samples": [
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  4.0
+ ],
+ "window_drafts": 1505.0,
+ "window_accepted": 1693.0,
+ "window_draft_tokens": 3875.0,
+ "acceptance": 0.43690322580645163,
+ "max_iters_failsafe": "2000",
+ "profile_dir": "/root/.cache/vllm/profiler"
+}
