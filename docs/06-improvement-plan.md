@@ -38,6 +38,43 @@ Mainline GLM support (#53906) has merged, so model resolution is no longer the
 mainline blocker described in the historical section above; EXL3 integration
 and overlay compatibility still block a stock-image replacement.
 
+### 2026-09-09: task 32 adaptive-k SATURATE=n REVERTED
+
+Independent variable `GLM53_ADAPTIVE_K_SATURATE=n` vs production
+`max` (launcher default; last-wins unset). Frozen:
+`IMAGE=e3-w3-zfill`, `EXL3_FAT_GROUPED=1`, last-wins TRF=32,
+`GLM53_ADAPTIVE_K=ema`, extra graphs, k=7, C4, pin, MNBT 3584,
+LPTT 1792. Policy-only: not in the JIT shape hash, no cubin, no
+extra graphs. `max` treats a fully-accepted prefix as k=7 so the
+EMA can climb; `n` records the accepted count and never climbs
+after a low-accept stretch. Guarded oneshot restart required
+(`Type=oneshot` start is a no-op on an already-active unit).
+
+**Cluster verdict: REVERT.** A (incumbent live boot, saturate=max)
+vs B (`SATURATE=n`). B2 skipped: B already missed the ≥5%
+prose/agentic bar. Return-A restored unset last-wins and ran a
+restoration smoke (structured n=3 + acceptance 7/7 + serving 6/6).
+Keep `max`. Do not chain ALPHA/MARGIN/MIN_STEPS.
+
+| Gate | A saturate=max | B saturate=n | Return-A restoration |
+|---|---|---|---|
+| Acceptance | standing healthy (not re-run) | skipped (B already failed adopt) | **7/7** |
+| Serving (:18000) | standing healthy (not re-run) | skipped (B already failed adopt) | **6/6** |
+| Pool | 1,396,551 / 1.40× | identical | identical |
+| Structured | n=9 70.51 @ 7.0/1.000 | n=9 70.23 (−0.40%) @ 7.0/1.000 | n=3 69.64 @ 7.0/1.000 |
+| Hashmap n=9 | 29.09 | **28.90 (−0.65%)** | skipped (B already failed adopt) |
+| Essay n=9 | 24.95 | 25.21 (+1.05%) | skipped (B already failed adopt) |
+| Health / bind | 200 / loopback | 200 / loopback | 200 / loopback |
+| Idle MemFree head/worker GiB | 4.50 / 3.76 | 5.20 / 4.54 | 4.74 / 4.07 |
+
+Watchdog re-armed. Rollback last-wins:
+`.env.bak-pre-task32-saturate-n-20260909-140038` (no
+`GLM53_ADAPTIVE_K_SATURATE`). B overlay line:
+`saturate=n graphs=True`. Return-A both ranks: `saturate=max`.
+Hashmap accept_ratio rose 0.500 → 0.634 while accepted_per_step
+fell 1.985 → 1.689 (shorter verified prefix, no climb). Tasks
+29/31 stay parked behind a decode-step nsys/ncu share.
+
 ### 2026-09-09: task 30 fused_recurrent_kda warps=2 REVERTED
 
 Independent variable `GLM53_KDA_REC_WARPS=2` vs stock FLA

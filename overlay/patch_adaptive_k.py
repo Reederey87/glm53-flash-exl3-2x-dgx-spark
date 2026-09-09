@@ -22,6 +22,7 @@ Knobs (read at container runtime):
   GLM53_ADAPTIVE_K_MARGIN     n = largest set value <= ceil(ema + margin)
   GLM53_ADAPTIVE_K_MIN_STEPS  full-k steps before trimming, default 4
   GLM53_ADAPTIVE_K_SATURATE   "max" (default) or "n"
+                              Task 32 REVERTED n (hashmap −0.7%). Keep max.
   GLM53_ADAPTIVE_K_HIST       histogram every N steps, default 200
   GLM53_ADAPTIVE_K_FILE       optional JSON override; only when graphs existed
                               at boot
