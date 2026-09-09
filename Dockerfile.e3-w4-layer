@@ -1,0 +1,41 @@
+# W4 fused-gather layer on the adopted W3 image. OPT-IN / REVERTED.
+#
+# Cluster 2026-09-08: 60k −10.7%, 240k −3.2%, no MemFree win.
+# Production stays glm53-selfbuild:e3-w3-zfill. Do not bake these
+# sources into the default Dockerfile or the W1/W3 layer recipes.
+#
+# Consumes overlay-w4/ only. overlay/ stays the W3-matched tree
+# (gather host entry + h13 scratch) so Dockerfile.e3-cubin-layer
+# and Dockerfile.e3-py-layer keep version-matched interfaces.
+#
+# Build (repo root of the experiment worktree):
+#   docker build -f Dockerfile.e3-w4-layer \
+#     --build-arg BASE=glm53-selfbuild:e3-w3-zfill \
+#     --build-arg GLM53_RECIPE_STAMP=$(git rev-parse --short HEAD) \
+#     -t glm53-selfbuild:e3-w4-fgather .
+ARG BASE=glm53-selfbuild:e3-w3-zfill
+FROM ${BASE}
+
+COPY overlay-w4/exl3_fat_moe.cu /opt/glm53/exl3-fat-kernel/exl3_fat_moe.cu
+COPY overlay-w4/exl3_fat_moe.cuh /opt/glm53/exl3-fat-kernel/exl3_fat_moe.cuh
+COPY overlay-w4/build_exl3_fat_moe_ext.py /opt/glm53/build_exl3_fat_moe_ext.py
+COPY overlay-w4/patch_exl3_fat_kernel.py /opt/glm53/patch_exl3_fat_kernel.py
+
+ENV MAX_JOBS=2
+# Compile does not need a device. Prefix CUDA_VISIBLE_DEVICES= on this RUN
+# only so the layer can build while production holds GB10 UMA. Do not bake
+# it as ENV: start.sh GPU overlay self-check needs CUDA at runtime.
+RUN CUDA_VISIBLE_DEVICES= python3 /opt/glm53/build_exl3_fat_moe_ext.py \
+        --src /opt/glm53/exl3-fat-kernel --out /tmp/e3build \
+        --install /usr/local/lib/python3.12/dist-packages \
+        --verbose \
+    && python3 -c "import torch, exl3_fat_moe_ext as m; print('exl3_fat_moe_ext OK tile_gu', m.exl3_fat_moe_tile_rows_gateup(), 'tile_dn', m.exl3_fat_moe_tile_rows_down()); assert not hasattr(m, 'exl3_fat_moe_gather')" \
+    && rm -rf /tmp/e3build
+
+COPY overlay-w4/exl3.py /usr/local/lib/python3.12/dist-packages/vllm/model_executor/layers/quantization/exl3.py
+COPY tests/test_exl3_overlay.py /opt/glm53/test_exl3_overlay.py
+
+RUN EXL3_SELFCHECK_GPU=0 python3 /opt/glm53/test_exl3_overlay.py
+
+ARG GLM53_RECIPE_STAMP=unknown
+LABEL glm53.recipe.stamp=${GLM53_RECIPE_STAMP} glm53.e3.w4=1

@@ -1,0 +1,16 @@
+2026-09-08T20:18:56-04:00
+health 200
+reset 200
+run 1: {"prompt_tokens": 80021, "ttft_s": 67.39, "prefill_tok_s": 1187.3, "total_s": 67.4}
+run 2: {"prompt_tokens": 79762, "ttft_s": 59.99, "prefill_tok_s": 1329.6, "total_s": 60.27}
+run 3: {"prompt_tokens": 79736, "ttft_s": 59.77, "prefill_tok_s": 1333.9, "total_s": 60.19}
+median prefill tok/s: 1329.6
+reset 200
+run 1: {"prompt_tokens": 318403, "ttft_s": 268.17, "prefill_tok_s": 1187.3, "total_s": 268.49}
+run 2: {"prompt_tokens": 319630, "ttft_s": 307.14, "prefill_tok_s": 1040.7, "total_s": 307.14}
+run 3: {"prompt_tokens": 319313, "ttft_s": 250.36, "prefill_tok_s": 1275.4, "total_s": 250.36}
+median prefill tok/s: 1187.3
+usage: bench_decode.py [-h] --phase PHASE --out OUT [--runs RUNS]
+                       [--max-tokens MAX_TOKENS] [--skip-coherence]
+                       [--structured]
+bench_decode.py: error: the following arguments are required: --phase

@@ -355,15 +355,15 @@ Live TP2 scratch is **~280 MiB/rank**, not the 336 MiB microbench figure:
 `intermediate_size_per_partition` (1024) × 2 B = 56 MiB.
 
 **Queue:** ~~W1 lazy scratch~~ **REVERTED 2026-09-07** → W2 isolated TRF=32
-(gated) → ~~W3 zero-fill A-pad~~ **ADOPTED 2026-09-08** → W4 fused gather →
-W5 occupancy (gated). Not automatic-next.
+(gated) → ~~W3 zero-fill A-pad~~ **ADOPTED 2026-09-08** → ~~W4 fused gather~~
+**REVERTED 2026-09-08** → W5 occupancy (gated). Not automatic-next.
 
 | Window | Path it can move | Rebuild | Expected sign |
 |---|---|---|---|
 | ~~**W1 lazy scratch**~~ **REVERTED** | CUDA-graph capture already requests MNBT×topk (28,672 rows / 280 MiB). Idle MemFree unchanged. | overlay Python | no MemFree win |
 | **W2 TRF=32 vs E3@128** (cheap 2nd, env) | Cold prefill (S1 trend: lose). Mixed TTFT / C4 co-batch (plausible win). **Decode leak.** | env only | unknown, leaning lose on cold |
 | ~~**W3 zero-fill A-pad**~~ **ADOPTED** | Same-boot 240k −2.5% (wash). Structured 69.04 @ 7.0/1.000. | cubin | wash |
-| **W4 fuse gather into gate/up A-tile** | Reclaim 224 MiB `h13`. Prefill not obviously faster (8× redundant gather). | cubin | MemFree win; speed unknown |
+| ~~**W4 fuse gather into gate/up A-tile**~~ **REVERTED** | 60k −10.7%, 240k −3.2%, structured −2.2%. No MemFree win. 8× A-tile gather. | cubin+Python | no MemFree win; speed lose |
 | **W5 occupancy sweep** | Cold prefill **only if ncu shows a gap**. | cubin | stop if regs > 96 or <3% |
 
 ### Decode vs prefill vs concurrency
@@ -435,12 +435,26 @@ sign). Acceptance 7/7, serving 6/6, pool 1,396,551 / 1.40×,
 `grouped_ok` both ranks. Production stays `e3-w3-zfill`. Rollback:
 `IMAGE=glm53-selfbuild:e3-grouped`. Do not combine with W4.
 
-**W4 — fuse gather.** Drop `h13`; gate/up A-tile loads from `x` +
-`row_token`/`row_expert` + gate SUH. Input Hadamard is 128-wide while
-the pipeline stage is `FM_TILE_K=32`, so this is a 128-K slab redesign
-(fewer stages: 2 × ~32 KiB fits 101,376 B; 4-stage 128-K does not).
-Preserve fp16 `__hmul2` **before** the fp32 Hadamard. Abort: ptxas
-spill > 0, SMEM > 101,376 B, dequant-reuse break, microbench parity fail.
+**W4 — fuse gather. REVERTED 2026-09-08.** Dropped `h13`; gate/up A-tile
+loaded from `x` + `row_token` + gate SUH (Hadamard on a 128-K slab,
+`__hmul2` before the fp32 Hadamard). Vehicle
+`Dockerfile.e3-w4-layer` on `e3-w3-zfill`, consuming **`overlay-w4/`
+only** (cubin + `exl3.py`; gather host entry removed). Default
+`overlay/` stays W3-matched so `Dockerfile`,
+`Dockerfile.e3-cubin-layer`, and `Dockerfile.e3-py-layer` keep gather.
+`cuobjdump` LOCAL:0, gateup REG 125 / down 128,
+static SHARED:1024. Isolated microbench PARITY OK vs LinearEXL3/E2.
+Cluster same-boot A (`e3-w3-zfill`) vs B (`e3-w4-fgather`
+`sha256:946d4feeeb2a…`): 60k 1329.6 → 1187.0 (**−10.7%**), 240k
+1187.3 → 1149.8 (−3.2%), structured 70.36 → 68.79 @ 7.0/1.000.
+Acceptance 7/7, serving 6/6, pool 1,396,551 / 1.40×, `grouped_ok`.
+Idle MemFree did not rise (A post-ladder 10.6/10.4 vs B 5.6/4.0 GiB).
+The 8× redundant gather on a 16-row tile of a 128-K Hadamard is the
+speed cost; capture still holds `h2` at MNBT×topk (~56 MiB), and the
+224 MiB `h13` reclaim did not show at GiB granularity. Production
+restored `e3-w3-zfill`. Overlay stays in-tree. Do not re-run this
+gather-as-reload. A later attempt needs a persistent SUH-scaled
+A-cache across K, not per-stage `x[row_token]` re-Hadamard.
 
 **W5 — occupancy.** `__launch_bounds__(256, 2)` is already on gateup/down.
 SMEM 32,768 B is not the limiter. Open only on ncu at production shapes
@@ -453,8 +467,9 @@ layer time; table-build share (persist tables only if ≥2% of layer time).
 
 ### Do-not-bundle / parked
 
-- W1×W4, W2×W1, W2×W4, W5×anything. W3 before W4 (both rewrite `load_stage`).
-- Do not spend W4's 224 MiB in the same window it is earned.
+- W1×W4, W2×W1, W2×W4, W5×anything. W4 is **REVERTED**; do not re-arm
+  gather-as-reload. W3 remains production (`e3-w3-zfill`).
+- Do not spend a later `h13` reclaim in the same window it is earned.
 - **C1** superseded (above). **C3** sub-16 fused GEMM stays parked until
   ncu decode-tail occupancy data. **S3** Trellis parked behind ≥ ~80
   TFLOP/s vs 73.5.
