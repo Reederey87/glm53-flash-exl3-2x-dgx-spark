@@ -22,9 +22,9 @@ fusions, and all of EXL3 — zero EXL3 code exists in vLLM mainline). Consequenc
 
 ## Current queue (research refresh, 2026-09-05)
 
-The S1/S2 kernel program is closed. Production is `glm53-selfbuild:e3-grouped`
+The S1/S2 kernel program is closed. Production is `glm53-selfbuild:e3-w3-zfill`
 (ExLlamaV3 v1.4.7 native pin, E2 fat GEMM pipelined, E3 grouped fat-expert
-MoE on). Rollback remains `glm53-selfbuild:ca13bdd-v147` with
+MoE on, W3 zero-fill A-pad). Rollback remains `glm53-selfbuild:ca13bdd-v147` with
 `EXL3_FAT_GROUPED=0`. The initial contended **+0.3%**
 end-to-end result is superseded by PR #32's powered re-window:
 **+5.3–5.6% cold prefill**. Further kernel work needs a new current-stack
@@ -77,9 +77,10 @@ E3 follow-ups are **not automatic-next**. Ranked TEST-NEXT queue (cuda-reviewer
 (decode-skip probe 2026-09-07: C4 T=32 does **not** skip at TRF=32 because
 the kernel uses `>`; not armed) → ~~W3 zero-fill A-pad~~ **ADOPTED
 2026-09-08** (`e3-w3-zfill` `d8144f02`, 240k −2.5% wash, structured
-69.04 @ 7.0/1.000) → W4 fused gather → W5 occupancy (ncu gate). Decode
+69.04 @ 7.0/1.000) → ~~W4 fused gather~~ **REVERTED 2026-09-08**
+→ W5 occupancy (ncu gate). Decode
 is fused `exl3_moe`; do not retune E3 for prose. Production TRF stays
-128. Do not combine W3 with W4.
+128. Do not re-arm W4 without a gather that does not 8×-reload.
 
 **W3 zero-fill A-pad ADOPTED 2026-09-08.** Cubin-only
 `Dockerfile.e3-cubin-layer` on `e3-grouped` (`glm53-selfbuild:e3-w3-zfill`
@@ -102,6 +103,40 @@ only. Same-boot A vs B:
 `IMAGE=glm53-selfbuild:e3-w3-zfill`, `EXL3_FAT_GROUPED=1`. Rollback:
 `.env.bak-pre-task24-w3-20260908-052000` last-wins
 `IMAGE=glm53-selfbuild:e3-grouped`.
+
+**W4 fused gather REVERTED 2026-09-08.** Layered cubin+Python
+`Dockerfile.e3-w4-layer` on `e3-w3-zfill` (`glm53-selfbuild:e3-w4-fgather`
+`sha256:946d4feeeb2a…`). Gate/up A-tile loads from `x` + `row_token` +
+SUH; `h13` is not allocated. Gather host entry dropped. Down mainloop
+keeps the W3 zero-fill A-pad. Compile-time `CUDA_VISIBLE_DEVICES=` is a
+RUN prefix only. Cubin `exl3_fat_moe_ext.so` sha `76a077fbf081…` vs W3
+`0afdfca7806d…`. `cuobjdump`: gateup REG 125 / down 128, LOCAL:0,
+STACK:16, static SHARED:1024. Same-boot A (`e3-w3-zfill`) vs B:
+
+| Gate | A `e3-w3-zfill` | B `e3-w4-fgather` |
+|---|---|---|
+| Acceptance | — | 7/7 |
+| Serving (:18000) | — | 6/6 |
+| Pool | 1,396,551 / 1.40× | identical |
+| 60k median tok/s | 1329.6 | 1187.0 (**−10.7%**) |
+| 240k median tok/s | 1187.3 | 1149.8 (−3.2%) |
+| Structured median | 70.36 @ 7.0/1.000 | 68.79 @ 7.0/1.000 (−2.2%) |
+| Idle MemFree head/worker GiB | 10.6 / 10.4 after A-ladder | 7.0 / 3.8 idle; 5.6 / 4.0 after B-ladder |
+
+Unique-prompt oversize matches W3 (~80k for the 60k probe, ~319k for
+240k); same-boot comparison is the independent variable. 60k −10.7%
+is past the −5% abort. 240k −3.2% is caution. Idle MemFree did **not**
+rise: the expected 224 MiB `h13` reclaim is below GiB rounding and B
+is not higher than A. Capture still allocates `h2` at MNBT×topk
+(28,672 rows / ~56 MiB/rank). Scratch diag dumps once at boot
+(`grouped_scratch_bytes=0`); no later growth line. Both ranks
+`grouped_ok`. Watchdog re-armed. Production restored
+`IMAGE=glm53-selfbuild:e3-w3-zfill`, `EXL3_FAT_GROUPED=1`. W4 sources
+live in `overlay-w4/` + `Dockerfile.e3-w4-layer` only; default
+`overlay/` stays the W3-matched gather/h13 tree so `docker build .`
+and the W1/W3 layer recipes do not bake the revert. Do not re-run this
+8×-redundant A-tile gather as-is. Next E3 window is **W5 occupancy**
+(ncu gate), not W4 again.
 
 **W1 lazy scratch REVERTED 2026-09-07.** Overlay-only grow-only capacity
 `max(256, this-call rows)` on `glm53-selfbuild:e3-w1-scratch`

@@ -1,0 +1,26 @@
+
+== 1. tunnel reaches the API ==
+  PASS  tunnel -> GLM-5.3-Flash-EXL3
+
+== 2. non-streaming chat completion ==
+  PASS  non-streaming
+
+== 3. STREAMING (SSE) — the path most clients use ==
+    SSE chunks: 11 | [DONE]: 1 | text: 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30
+  PASS  streaming works (11 chunks, terminated)
+
+== 4. concurrency — 4 simultaneous (MAX_NUM_SEQS=4) ==
+    4/4 completed with pairwise-distinct content in 2s
+  PASS  4-way concurrency, no cross-talk
+
+== 5. tool call through the tunnel ==
+    finish: tool_calls | calls: 1 | get_weather {"city": "Bergen"}
+  PASS  tool call over tunnel
+
+== 6. sustained: 5 sequential requests, all must succeed ==
+    5/5 succeeded
+  PASS  sustained sequential
+
+== RESULT ==
+  passed: 6   failed: 0
+  SERVING TEST PASSED

@@ -1,0 +1,4 @@
+run 1: {"prompt_tokens": 79576, "ttft_s": 66.99, "prefill_tok_s": 1187.9, "total_s": 67.38}
+run 2: {"prompt_tokens": 79586, "ttft_s": 67.05, "prefill_tok_s": 1187.0, "total_s": 67.45}
+run 3: {"prompt_tokens": 79948, "ttft_s": 72.38, "prefill_tok_s": 1104.5, "total_s": 72.79}
+median prefill tok/s: 1187.0

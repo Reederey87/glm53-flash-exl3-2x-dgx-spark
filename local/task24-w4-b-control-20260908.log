@@ -1,0 +1,51 @@
+2026-09-08T21:00:11-04:00
+health 200
+reset 200
+run 1: {"prompt_tokens": 79576, "ttft_s": 66.99, "prefill_tok_s": 1187.9, "total_s": 67.38}
+run 2: {"prompt_tokens": 79586, "ttft_s": 67.05, "prefill_tok_s": 1187.0, "total_s": 67.45}
+run 3: {"prompt_tokens": 79948, "ttft_s": 72.38, "prefill_tok_s": 1104.5, "total_s": 72.79}
+median prefill tok/s: 1187.0
+=== after 60k scratch ===
+(Worker_TP0 pid=396) INFO 09-09 00:53:35 [exl3.py:542] exl3 fat diag schema=2 configured_tier=grouped effective_tier=grouped tier_reason=grouped_ok shared_suh=1 shared_suh_layers=1/1 sym_exl3_moe=1 sym_fat_gemm=1 sym_fat_gemm_scatter=1 sym_fat_moe=1 grouped_eligible=1 grouped_calls=0 grouped_scratch_bytes=0 cap=12.1 cap_ok=1 tp_rank=0 tp_size=2 prefill_layer_calls=0 thin_calls=0 row_tile_calls=0 fallback_calls=grouped=0,kernel=0,batched=0,sorted=0,legacy=0 fallback_reasons=none fat_layers=0 fat_expert_slots=0 max_rows=0
+reset 200
+run 1: {"prompt_tokens": 318939, "ttft_s": 277.75, "prefill_tok_s": 1148.3, "total_s": 278.05}
+run 2: {"prompt_tokens": 319057, "ttft_s": 277.42, "prefill_tok_s": 1150.1, "total_s": 277.69}
+run 3: {"prompt_tokens": 319228, "ttft_s": 277.63, "prefill_tok_s": 1149.8, "total_s": 277.91}
+median prefill tok/s: 1149.8
+[bench] warmup (32 tokens)
+{"tok_s": 82.32113369822595, "ttft_s": 0.36203264899086207, "completion_tokens": 32}
+[bench] run 1/5 phase=b
+{"tok_s": 68.82525999577192, "ttft_s": 0.35424229901400395, "completion_tokens": 200, "finish_reason": "length", "nan": false, "accept_ratio": 1.0, "accepted_per_step": 7.0, "pos": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]}
+[bench] run 2/5 phase=b
+{"tok_s": 68.82885905036856, "ttft_s": 0.34845144298742525, "completion_tokens": 200, "finish_reason": "length", "nan": false, "accept_ratio": 1.0, "accepted_per_step": 7.0, "pos": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]}
+[bench] run 3/5 phase=b
+{"tok_s": 68.79116550223446, "ttft_s": 0.35021338501246646, "completion_tokens": 200, "finish_reason": "length", "nan": false, "accept_ratio": 1.0, "accepted_per_step": 7.0, "pos": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]}
+[bench] run 4/5 phase=b
+{"tok_s": 68.06831006110734, "ttft_s": 0.35143134198733605, "completion_tokens": 200, "finish_reason": "length", "nan": false, "accept_ratio": 1.0, "accepted_per_step": 7.0, "pos": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]}
+[bench] run 5/5 phase=b
+{"tok_s": 68.46634844428984, "ttft_s": 0.3506879459891934, "completion_tokens": 200, "finish_reason": "length", "nan": false, "accept_ratio": 1.0, "accepted_per_step": 7.0, "pos": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]}
+{
+  "phase": "b",
+  "health_code": 200,
+  "health_body": "",
+  "ts": 1788916652.8448896,
+  "prompt": "structured-count-1-200",
+  "thinking": false,
+  "temperature": 0,
+  "warmup": {
+    "tok_s": 82.32113369822595,
+    "ttft_s": 0.36203264899086207,
+    "completion_tokens": 32
+  },
+  "tok_s_median": 68.79116550223446,
+  "tok_s_min": 68.06831006110734,
+  "tok_s_max": 68.82885905036856,
+  "ttft_median_s": 0.3506879459891934,
+  "completion_tokens_median": 200.0,
+  "accept_ratio_median": 1.0,
+  "accepted_per_step_median": 7.0,
+  "any_nan": false,
+  "health_code_after": 200
+}
+wrote /tmp/w4-ab/b-structured.json
+2026-09-08T21:17:50-04:00

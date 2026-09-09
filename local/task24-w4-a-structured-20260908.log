@@ -1,0 +1,36 @@
+[bench] warmup (32 tokens)
+{"tok_s": 84.99783753029303, "ttft_s": 0.3840007999970112, "completion_tokens": 32}
+[bench] run 1/5 phase=a
+{"tok_s": 70.55164021878754, "ttft_s": 0.3636775549966842, "completion_tokens": 200, "finish_reason": "length", "nan": false, "accept_ratio": 1.0, "accepted_per_step": 7.0, "pos": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]}
+[bench] run 2/5 phase=a
+{"tok_s": 70.3620843254556, "ttft_s": 0.3487423679907806, "completion_tokens": 200, "finish_reason": "length", "nan": false, "accept_ratio": 1.0, "accepted_per_step": 7.0, "pos": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]}
+[bench] run 3/5 phase=a
+{"tok_s": 70.27959996540477, "ttft_s": 0.3482954979990609, "completion_tokens": 200, "finish_reason": "length", "nan": false, "accept_ratio": 1.0, "accepted_per_step": 7.0, "pos": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]}
+[bench] run 4/5 phase=a
+{"tok_s": 70.53865432262202, "ttft_s": 0.3474581789923832, "completion_tokens": 200, "finish_reason": "length", "nan": false, "accept_ratio": 1.0, "accepted_per_step": 7.0, "pos": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]}
+[bench] run 5/5 phase=a
+{"tok_s": 70.36135225860147, "ttft_s": 0.34455902301124297, "completion_tokens": 200, "finish_reason": "length", "nan": false, "accept_ratio": 1.0, "accepted_per_step": 7.0, "pos": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]}
+{
+  "phase": "a",
+  "health_code": 200,
+  "health_body": "",
+  "ts": 1788914596.0849862,
+  "prompt": "structured-count-1-200",
+  "thinking": false,
+  "temperature": 0,
+  "warmup": {
+    "tok_s": 84.99783753029303,
+    "ttft_s": 0.3840007999970112,
+    "completion_tokens": 32
+  },
+  "tok_s_median": 70.3620843254556,
+  "tok_s_min": 70.27959996540477,
+  "tok_s_max": 70.55164021878754,
+  "ttft_median_s": 0.3482954979990609,
+  "completion_tokens_median": 200.0,
+  "accept_ratio_median": 1.0,
+  "accepted_per_step_median": 7.0,
+  "any_nan": false,
+  "health_code_after": 200
+}
+wrote /tmp/w4-ab/a-structured.json

@@ -1,0 +1,2 @@
+=== after 60k scratch ===
+(Worker_TP0 pid=396) INFO 09-09 00:53:35 [exl3.py:542] exl3 fat diag schema=2 configured_tier=grouped effective_tier=grouped tier_reason=grouped_ok shared_suh=1 shared_suh_layers=1/1 sym_exl3_moe=1 sym_fat_gemm=1 sym_fat_gemm_scatter=1 sym_fat_moe=1 grouped_eligible=1 grouped_calls=0 grouped_scratch_bytes=0 cap=12.1 cap_ok=1 tp_rank=0 tp_size=2 prefill_layer_calls=0 thin_calls=0 row_tile_calls=0 fallback_calls=grouped=0,kernel=0,batched=0,sorted=0,legacy=0 fallback_reasons=none fat_layers=0 fat_expert_slots=0 max_rows=0
