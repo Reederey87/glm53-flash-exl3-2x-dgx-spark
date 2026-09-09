@@ -1,0 +1,31 @@
+TASK24 W2 ADOPT 2026-09-09
+independent_variable=EXL3_TEMP_ROWS_FUSED=32
+image=glm53-selfbuild:e3-w3-zfill
+frozen=EXL3_FAT_GROUPED=1 EXL3_MOE_ROW_TILE=0 MAX_NUM_SEQS=4 DFLASH_TOKENS=7 GLM53_ADAPTIVE_K=ema
+unique_topk_judge=ARM-OK AST fingerprint tests/fixtures/w2-grouped-topk-router.py
+rollback=.env.bak-pre-task24-w2-20260909 last-wins EXL3_TEMP_ROWS_FUSED=128
+pool=1,396,551 tokens / 1.40x
+bind=127.0.0.1:8000
+health=200
+unit=active
+watchdog.timer=active (re-armed after watchdog.service inactive)
+acceptance=7/7
+serving=6/6 (tunnel :18000)
+fat_diag=schema=2 configured_tier=grouped effective_tier=grouped grouped_ok
+temp_rows_fused=32 both ranks
+prefill_60k_A_median=1253.1
+prefill_60k_B_median=1454.3  (+16.1%)
+prefill_240k_A_median=1242.4
+prefill_240k_B_median=1407.8  (+13.3%)
+structured_A_median=66.60  accept=1.0000/7.0  (one 15.4 contended)
+structured_B_median=69.10  accept=1.0000/7.0  (15.7/25.7 contended; rest 68.7-70.3)
+prose_A_median=27.54
+prose_B_median=30.82
+MemFree_A_post_head_GiB=5.00
+MemFree_A_post_worker_GiB=3.67
+MemFree_B_idle_head_GiB=4.46
+MemFree_B_idle_worker_GiB=4.56
+MemFree_B_post_head_GiB=3.77
+MemFree_B_post_worker_GiB=4.04
+geometry_unchanged=MAX_MODEL_LEN=1000000 MNBT=3584 MAX_NUM_SEQS=4 DFLASH_TOKENS=7 KV pin 15414698763 IMAGE=e3-w3-zfill
+no_cuda_xid_ima=1

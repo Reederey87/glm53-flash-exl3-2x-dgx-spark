@@ -49,7 +49,7 @@ The headline figures, same pair:
 | Context window | **1,000,000 tokens**, with speculation active — on two desk machines |
 | **Prose decode** | **~28–31 tok/s** at the 1M window — the most reliable real-workload figure we track (natural prose acceptance is ~0.3–0.4, so this is what unstructured generation actually costs; it is also the number least inflated by a high-acceptance prompt). E3 did not change this decode path. Task 25 (2026-09-09) adopted **verification-only** adaptive-k (`GLM53_ADAPTIVE_K=ema`): native DFlash2 draft stays eight-row / k=7, the target verify uses a 2/4/7 prefix. Same-day B vs B0: hashmap **+7.1%** (27.72 → 29.70), hard essay **+10.7%** (21.77 → 24.09); structured stayed 7.0/1.000 |
 | Structured decode | **~70 tok/s** at speculative acceptance **1.0000** (7/7 drafted tokens accepted, every uncontended pass) — treat this as the **acceptance/quality gate, not the headline throughput**: near-ceiling structured prompts are the most favorable regime, not the realistic workload. Same-day E3 adopt median **69.62 tok/s** (uncontended B-arm 69.0–69.8; one contended 25.6). Concurrency medians land wherever ambient traffic puts them; the durable invariant is the acceptance profile |
-| Cold prefill | **~1285 tok/s** solo at 240k, **~1330 tok/s** at 60k (grouped fat-expert MoE, 2026-09-07; +19.6% vs the same-day pipelined-E2 control of **1075 tok/s** at 240k) |
+| Cold prefill | **~1408 tok/s** solo at 240k, **~1454 tok/s** at 60k (W2 TRF=32, 2026-09-09; +13.3% / +16.1% vs same-boot E3@128). E3 grouped vs pipelined-E2 was **1075 → 1286 tok/s** at 240k (+19.6%, 2026-09-07) |
 | 500k prompt, drafter on | **854 tok/s** cold (2026-08-30 battery, pre-kernel-stack image — not a current-stack rate); same prompt replayed from cache **111× faster** (5.3 s) |
 | Short request behind a 240k read | **6.7–7.9 s** to first token (mixed-prefill gate v3 with the 512→1792 aging ladder; 256 s without this kit's fairness cap) |
 | Multi-agent concurrency | **4 in-flight generations**; a warm follow-up lands in **~2.6 s behind a running generation** (45.8 s before the mixed-prefill gate); decode keeps **+27% tokens per fixed window** during a co-batched cold read; cached-conversation capacity ≈ **50,176 tokens ≈ 14 sessions** under per-group retention — replays at 86% of the pool cost retention (4×200k: 49.9%), plan concurrency below that |
@@ -260,7 +260,10 @@ prose — the pin stays on `7d74cdd`); sharding the drafter across ranks
 wash here, and the head node's memory gets slightly worse); the row-tiling arms
 of the fat-expert path (`EXL3_MOE_ROW_TILE=1` and a `EXL3_TEMP_ROWS_FUSED`
 ladder — both directions lose prefill to the stock 128-row config, and the
-row-tile path costs −20.9% once it bypasses the tuned fat kernel). We also chased
+row-tile path costs −20.9% once it bypasses the tuned fat kernel). W2
+isolated TRF=32 vs E3@128 was **ADOPTED 2026-09-09** (60k +16.1%, 240k
++13.3%; unique-per-token top-k so decode does not drop experts; launcher
+default still 128, production last-wins 32). We also chased
 the reported long-context decode collapse (acceptance falling to 16% past 100k)
 and could not reproduce it on this stack — structured acceptance stays 0.93–0.98
 per position out to ~195k tokens. If a knob isn't set the way upstream defaults

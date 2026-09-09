@@ -208,3 +208,17 @@ cache is invisible to it). 0.87 demands 105.87 GiB free against boots measured a
   1286 tok/s), structured decode non-inferior, pool 1,396,551 / 1.40×.
   Rollback: `EXL3_FAT_GROUPED=0` and `IMAGE=glm53-selfbuild:ca13bdd-v147`.
   GHCR/old images must leave this 0.
+
+- `EXL3_TEMP_ROWS_FUSED=32` — fused `exl3_moe` temp rows per expert
+  (decode + thin prefill), **adopted 2026-09-09**. Launcher default
+  stays **128**; production `.env` last-wins 32. Not in the JIT
+  shape hash. `start.sh validate` requires a base-10 integer 1..8388608
+  and, on dflash, at least the C-decode floor
+  `MAX_NUM_SEQS × (DFLASH_TOKENS+1)` (C4 k=7 → 32). Unique-per-token
+  top-k (`grouped_topk` / `torch.topk`) keeps hottest ≤ T, so TRF=32
+  does not drop decode experts (kernel skip is `>`). CPU judge:
+  `scripts/probe_w2_unique_topk.py`. Same-boot A vs B: 60k **+16.1%**
+  (1253 → 1454), 240k **+13.3%** (1242 → 1408), structured 66.6 →
+  69.1 @ 7.0/1.000, hashmap prose 27.5 → 30.8. Frozen: `ROW_TILE=0`,
+  `EXL3_FAT_GROUPED=1`, scratch, geometry, `e3-w3-zfill`. Rollback:
+  last-wins `EXL3_TEMP_ROWS_FUSED=128`. Do not combine with W1 or W4.

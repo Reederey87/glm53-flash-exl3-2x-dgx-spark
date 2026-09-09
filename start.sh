@@ -489,6 +489,29 @@ validate_numeric_config() {
             return 2
         fi
     fi
+    # LOCAL: W2 TRF floor — C-decode T = MAX_NUM_SEQS × (DFLASH_TOKENS+1).
+    # Isolated 32 vs 128 is env-only; below the floor capture cannot fit.
+    # Default here as well as the launcher prologue so `validate` and the
+    # numeric-config tests still see production 128 when the env is empty.
+    EXL3_TEMP_ROWS_FUSED="${EXL3_TEMP_ROWS_FUSED:-128}"
+    if ! [[ "${EXL3_TEMP_ROWS_FUSED}" =~ ^[0-9]+$ ]] \
+       || [ "${#EXL3_TEMP_ROWS_FUSED}" -gt 7 ] \
+       || [ "$((10#$EXL3_TEMP_ROWS_FUSED))" -lt 1 ] \
+       || [ "$((10#$EXL3_TEMP_ROWS_FUSED))" -gt 8388608 ]; then
+        echo "EXL3_TEMP_ROWS_FUSED must be a base-10 integer 1..8388608 (got: '${EXL3_TEMP_ROWS_FUSED}')" >&2
+        return 2
+    fi
+    EXL3_TEMP_ROWS_FUSED="$((10#$EXL3_TEMP_ROWS_FUSED))"
+    export EXL3_TEMP_ROWS_FUSED
+    if [ "$SPEC_METHOD" = dflash ]; then
+        _trf_floor=$((MAX_NUM_SEQS * (DFLASH_TOKENS + 1)))
+        if [ "$EXL3_TEMP_ROWS_FUSED" -lt "$_trf_floor" ]; then
+            echo "EXL3_TEMP_ROWS_FUSED=$EXL3_TEMP_ROWS_FUSED is below the C-decode floor MAX_NUM_SEQS*(DFLASH_TOKENS+1)=$_trf_floor" >&2
+            unset _trf_floor
+            return 2
+        fi
+        unset _trf_floor
+    fi
     # LOCAL: W41/W42 strict-bool validation (end)
     # LOCAL: task 25 — verification-only adaptive-k. DFLASH_TOKENS stays 7.
     case "${GLM53_ADAPTIVE_K:-off}" in

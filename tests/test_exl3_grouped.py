@@ -41,6 +41,11 @@ def _exec_helpers():
         "grouped_scratch_bytes_for",
         "grouped_scratch_capacity",
         "fused_moe_decode_skips_fat",
+        "fused_moe_decode_skips_unique_topk",
+        "fused_temp_rows_decode_floor",
+        "unique_per_token_topk_ids",
+        "unique_topk_hottest_upper_bound",
+        "w2_trf32_no_fallback_skip",
         "temp_rows_fused",
     }
     wanted_assign = {
@@ -63,7 +68,7 @@ def _exec_helpers():
             if any(name in wanted_assign for name in names):
                 keep.append(ast.get_source_segment(src, node) or "")
     ns: dict = {"os": os}
-    exec("\n\n".join(keep), ns, ns)
+    exec("from __future__ import annotations\n" + "\n\n".join(keep), ns, ns)
     return ns
 
 
@@ -368,3 +373,35 @@ def test_w2_decode_skip_gate_c4_unique_topk() -> None:
     # Non-unique top-k (one expert appears twice in a token) can make
     # hottest > T; then decode T ≤ cap still skips with no fat fallback.
     assert skip(tokens=32, hottest_expert_count=33, cap=32) is True
+
+
+def test_w2_unique_topk_hottest_bound_and_trf32_gate() -> None:
+    """Unique-per-token top-k (torch.topk / grouped_topk) keeps hottest ≤ T.
+
+    C4 floor is 4 × (7+1) = 32. Zipf-all-to-one still unique-per-row, so
+    TRF=32 does not no-fallback-skip. Missing hottest on a non-unique
+    claim fail-closes.
+    """
+    unique = HELPERS["unique_per_token_topk_ids"]
+    bound = HELPERS["unique_topk_hottest_upper_bound"]
+    floor = HELPERS["fused_temp_rows_decode_floor"]
+    unique_skip = HELPERS["fused_moe_decode_skips_unique_topk"]
+    gate = HELPERS["w2_trf32_no_fallback_skip"]
+
+    assert floor(4, 7) == 32
+    assert bound(32) == 32
+    zipf_all_to_one = [[0] + [i + 1 for i in range(7)] for _ in range(32)]
+    assert unique(zipf_all_to_one) is True
+    assert unique([[0, 0, 1, 2, 3, 4, 5, 6]]) is False
+    assert unique([[0, 1, -1, 2]]) is True
+    assert unique_skip(32, 32) is False
+    assert unique_skip(32, 128) is False
+    assert gate(32, unique_topk=True, cap=32) is False
+    assert gate(32, unique_topk=False, hottest_expert_count=32, cap=32) is False
+    assert gate(32, unique_topk=False, hottest_expert_count=33, cap=32) is True
+    assert gate(32, unique_topk=False, hottest_expert_count=None, cap=32) is True
+    env = ENV_EXAMPLE.read_text()
+    assert "EXL3_TEMP_ROWS_FUSED=32" in env
+    start = LAUNCHER.read_text()
+    assert "below the C-decode floor" in start
+    assert "EXL3_TEMP_ROWS_FUSED:-128" in start

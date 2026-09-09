@@ -151,6 +151,39 @@ def temp_rows_fused() -> int:
     return max(1, int(raw))
 
 
+def fused_temp_rows_decode_floor(max_num_seqs: int, dflash_tokens: int) -> int:
+    """C-decode fused-temp floor: seqs × (k+1).
+
+    Capture sizes include that product (C4 k=7 → 32). TRF below the floor
+    cannot hold a full decode step in one fused launch.
+    """
+    return int(max_num_seqs) * (int(dflash_tokens) + 1)
+
+
+def unique_per_token_topk_ids(ids) -> bool:
+    """True when each token's top-k expert ids are unique (negative sentinels ignored).
+
+    Native ``torch.topk`` / grouped_topk never repeat an expert in one row.
+    Hottest expert count is then tokens that routed to it, so hottest ≤ T.
+    """
+    rows = ids.tolist() if hasattr(ids, "tolist") else ids
+    for row in rows:
+        seen: set[int] = set()
+        for expert in row:
+            expert_id = int(expert)
+            if expert_id < 0:
+                continue
+            if expert_id in seen:
+                return False
+            seen.add(expert_id)
+    return True
+
+
+def unique_topk_hottest_upper_bound(tokens: int) -> int:
+    """Hottest ≤ T when each token picks distinct experts."""
+    return max(0, int(tokens))
+
+
 def fused_moe_decode_skips_fat(
     tokens: int, hottest_expert_count: int, cap: int
 ) -> bool:
@@ -172,6 +205,35 @@ def fused_moe_decode_skips_fat(
     if int(tokens) > int(cap):
         return False
     return int(hottest_expert_count) > int(cap)
+
+
+def fused_moe_decode_skips_unique_topk(tokens: int, cap: int) -> bool:
+    """Decode-skip helper under unique-per-token top-k (hottest ≤ T)."""
+    return fused_moe_decode_skips_fat(
+        tokens, unique_topk_hottest_upper_bound(tokens), cap
+    )
+
+
+def w2_trf32_no_fallback_skip(
+    tokens: int,
+    *,
+    unique_topk: bool = True,
+    hottest_expert_count: int | None = None,
+    cap: int = 32,
+) -> bool:
+    """True when a TRF=32 decode arm would drop experts with no fat fallback.
+
+    Unique top-k (this image's grouped_topk / torch.topk) makes hottest ≤ T,
+    so C4 T=32 never skips at cap=32. Non-unique routing must pass the live
+    hottest count; missing it fail-closes to skip.
+    """
+    if unique_topk:
+        hottest = unique_topk_hottest_upper_bound(tokens)
+    elif hottest_expert_count is None:
+        return True
+    else:
+        hottest = int(hottest_expert_count)
+    return fused_moe_decode_skips_fat(tokens, hottest, cap)
 
 def sorted_fat_fallback_enabled() -> bool:
     """Use the existing expert-sorted buffers for oversized prefill experts."""
