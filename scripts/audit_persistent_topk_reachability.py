@@ -143,40 +143,87 @@ def live_persistent_topk(source: str, label: str) -> list[int]:
     return [line for line in _calls_named(tree, PERSISTENT_TOPK) if line not in dead_lines]
 
 
+KPOOL_MODULE_TAIL = KPOOL_REL.rsplit("/", 1)[-1].removesuffix(".py")
+PLAIN_MODULE_TAIL = PLAIN_INDEXER_REL.rsplit("/", 1)[-1].removesuffix(".py")
+
+
+def _import_bindings(tree: ast.Module) -> dict[str, tuple[str, str]]:
+    """Local name -> (originating module, original name) for every import."""
+    bindings: dict[str, tuple[str, str]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            for alias in node.names:
+                bindings[alias.asname or alias.name] = (module, alias.name)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                local = alias.asname or alias.name.split(".")[-1]
+                bindings[local] = (alias.name, alias.name.split(".")[-1])
+    return bindings
+
+
+def _resolve_indexer_class(local: str, bindings: dict[str, tuple[str, str]]) -> str | None:
+    """Which indexer class a *name* denotes, by import provenance.
+
+    Identity must come from where the name came from, not from how it is
+    spelled: ``from ...sparse_attn_indexer import SparseAttnIndexer as
+    SparseAttnIndexerKpool`` constructs the *plain* indexer, whose
+    ``persistent_topk`` is live, while reading exactly like the kpool class.
+
+    A name imported from a module that is neither indexer module resolves to
+    nothing, and the caller treats that as unresolved rather than guessing.
+    """
+    if local not in bindings:
+        # No import binding: a class defined in this module under that name.
+        return local if local in (KPOOL_CLASS, PLAIN_CLASS) else None
+    module, _original = bindings[local]
+    tail = module.rsplit(".", 1)[-1] if module else ""
+    if tail == KPOOL_MODULE_TAIL:
+        return KPOOL_CLASS
+    if tail == PLAIN_MODULE_TAIL:
+        return PLAIN_CLASS
+    return None
+
+
 def glm_uses_kpool(glm_source: str, label: str = "GLM attention module") -> dict:
     """Which indexer the GLM module *actually* constructs.
 
-    Parsed, not pattern-matched: a textual occurrence in a comment, docstring
-    or dead code must not stand in for a real construction, and the plain
-    ``SparseAttnIndexer`` (whose ``persistent_topk`` *is* live) is a prefix of
-    the kpool name, so substring tests misreport in both directions.
+    Parsed, not pattern-matched, and resolved through import provenance rather
+    than by spelling: a textual occurrence in a comment, docstring or dead code
+    must not stand in for a real construction, the plain ``SparseAttnIndexer``
+    (whose ``persistent_topk`` *is* live) is a prefix of the kpool name, and an
+    aliased import can make either name denote the other class.
     """
     tree = _parse(glm_source, label)
+    bindings = _import_bindings(tree)
 
-    imported: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            for alias in node.names:
-                imported.add(alias.asname or alias.name)
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                imported.add(alias.asname or alias.name.split(".")[-1])
+    imported: set[str] = set(bindings)
 
-    # Every name/attribute actually *used* in code — comments and strings are
-    # not AST nodes, so they cannot contribute here.
-    referenced: set[str] = set()
-    constructed: set[str] = set()
+    referenced_classes: set[str] = set()
+    constructed_classes: set[str] = set()
+    unresolved_references: set[str] = set()
+
     for node in ast.walk(tree):
-        if isinstance(node, ast.Name):
-            referenced.add(node.id)
-        elif isinstance(node, ast.Attribute):
-            referenced.add(node.attr)
-        elif isinstance(node, ast.Call):
+        if isinstance(node, ast.Call):
             func = node.func
             if isinstance(func, ast.Name):
-                constructed.add(func.id)
+                resolved = _resolve_indexer_class(func.id, bindings)
+                if resolved is None and func.id in (KPOOL_CLASS, PLAIN_CLASS):
+                    unresolved_references.add(func.id)
+                elif resolved:
+                    constructed_classes.add(resolved)
             elif isinstance(func, ast.Attribute):
-                constructed.add(func.attr)
+                if func.attr in (KPOOL_CLASS, PLAIN_CLASS):
+                    constructed_classes.add(func.attr)
+        elif isinstance(node, ast.Name):
+            resolved = _resolve_indexer_class(node.id, bindings)
+            if resolved:
+                referenced_classes.add(resolved)
+            elif node.id in (KPOOL_CLASS, PLAIN_CLASS):
+                unresolved_references.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            if node.attr in (KPOOL_CLASS, PLAIN_CLASS):
+                referenced_classes.add(node.attr)
 
     kpool_lines = sorted(
         {
@@ -189,11 +236,13 @@ def glm_uses_kpool(glm_source: str, label: str = "GLM attention module") -> dict
         }
     )
     return {
-        "imports_kpool_class": KPOOL_CLASS in imported or KPOOL_CLASS in referenced,
-        "instantiates_kpool_class": KPOOL_CLASS in constructed,
+        "imports_kpool_class": KPOOL_CLASS in imported or KPOOL_CLASS in referenced_classes,
+        "instantiates_kpool_class": KPOOL_CLASS in constructed_classes,
         "kpool_reference_lines": kpool_lines,
-        "uses_plain_indexer": PLAIN_CLASS in referenced or PLAIN_CLASS in constructed,
-        "plain_indexer_constructed": PLAIN_CLASS in constructed,
+        "uses_plain_indexer": PLAIN_CLASS in referenced_classes,
+        "plain_indexer_constructed": PLAIN_CLASS in constructed_classes,
+        "unresolved_indexer_names": sorted(unresolved_references),
+        "import_bindings": {k: list(v) for k, v in sorted(bindings.items())},
     }
 
 
@@ -256,6 +305,12 @@ def audit(site: Path, overlay_dir: Path | None, kernel_dir: Path | None) -> dict
             f"the GLM-5.3-Flash model path also references {PLAIN_CLASS}, whose "
             "persistent_topk is live; routing is unresolved, so the kpool "
             "verdict cannot be claimed"
+        )
+    if glm["unresolved_indexer_names"]:
+        raise Abort(
+            "the GLM-5.3-Flash model path uses indexer name(s) "
+            f"{glm['unresolved_indexer_names']} whose import provenance does not "
+            "resolve to a known indexer module; routing is unresolved"
         )
     dead = dead_persistent_topk_branches(kpool_src, "sparse_attn_indexer_kpool.py")
     live = live_persistent_topk(kpool_src, "sparse_attn_indexer_kpool.py")

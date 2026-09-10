@@ -3153,12 +3153,29 @@ re-armed (active/active), serving spot-check OK, 6/6 converge probes
 task 34 creates an arm that will need a window record and task 36 replaces a
 standing gate. Detail lives in `docs/15` (task 34) and `docs/11` §9 (task 36).
 
-**Review correction.** An independent review of the first revision found six
-fail-open defects, five of them in the two audits — the code whose entire job is
-to refuse to certify a tree it could not read. All six are fixed with regression
+**Review correction.** Two independent review passes of this change found ten
+fail-open defects, nine of them in the two audits — the code whose entire job is
+to refuse to certify a tree it could not read. All ten are fixed with regression
 tests; the net effect is that **task 37's verdict changed from `NOT_REACHABLE`
 to `ABORT`**, because the original verdict rested on evidence the audit could
 not actually establish. See the task 37 section below.
+
+Pass 1: the verdict ignored a `calls_exl3_mgemm` hit in the C++ bridge; closure
+modules holding call sites were reported as advisory and then certified anyway;
+a missing or unparseable serving module silently shrank the closure; the
+stub-namespace pruning was assumed; the task 39 dead-branch check walked the
+whole `ast.If` and so called a live `else` dead; the task 39 indexer check was a
+textual match; the overlay accepted any marker occurrence as a complete
+install; and it appended its method at EOF without checking class ownership.
+
+Pass 2: relative imports' aliases (`from . import helper`) were not followed, so
+a helper reached that way never entered the closure; the stub contract checked
+token presence rather than installation (it now runs the installer and inspects
+the mapping); the indexer check inferred constructor identity from spelling
+rather than import provenance, so `from ...sparse_attn_indexer import
+SparseAttnIndexer as SparseAttnIndexerKpool` read as the kpool class; and the
+overlay's completeness list omitted the required imports, so a file missing
+`current_workspace_manager` still counted as installed.
 
 ### Task 37 — `v_indices[128]` scratch: **ABORT (narrowed, NOT closed)**
 
@@ -3192,8 +3209,13 @@ reporting exactly these as "advisory context" and then certifying anyway.
 
 An earlier draft of this audit did precisely that, and also returned
 `NOT_REACHABLE` when the serving module was deleted or corrupted, and ignored a
-`calls_exl3_mgemm` hit in the C++ bridge. All four are now fail-closed with
-regression tests.
+`calls_exl3_mgemm` hit in the C++ bridge. All of them are now fail-closed with
+regression tests. A second review pass then closed four more holes of the same
+kind: relative-import aliases were not followed into the closure, the
+stub-namespace pruning was justified by token presence rather than by actually
+running the installer, indexer identity came from spelling rather than import
+provenance, and the overlay's completeness list omitted its own required
+imports.
 
 **Open question for the owner:** discharge the three modules with call-graph
 evidence (or prove they are never loaded), then the audit will report

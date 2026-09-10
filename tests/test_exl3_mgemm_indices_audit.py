@@ -120,6 +120,14 @@ def forward_indirect(x):
     return native(x)
 """
 
+SERVING_PY_RELATIVE_ALIAS = SERVING_PY + """\
+from . import helper
+
+
+def forward_relative(x):
+    return helper.run(x)
+"""
+
 SERVING_PY_BROKEN = "def broken(:\n"
 
 NATIVE_PY = """\
@@ -136,7 +144,8 @@ void bind(py::module& m)
 }
 """
 
-# Satisfies the stub contract the audit checks before pruning STUB_NAMESPACES.
+# Satisfies the stub contract the audit checks before pruning STUB_NAMESPACES:
+# the namespaces must actually be installed, not merely named.
 STUB_NAMESPACE_PY = '''\
 import sys
 import types
@@ -145,10 +154,26 @@ from pathlib import Path
 
 def inject_config_stub(package_root: Path, modules: dict | None = None) -> types.ModuleType:
     modules = sys.modules if modules is None else modules
-    for name in ("exllamav3", "exllamav3.modules", "exllamav3.model"):
-        modules[name] = types.ModuleType(name)
+    for name, path in (
+        ("exllamav3", package_root),
+        ("exllamav3.modules", package_root / "modules"),
+        ("exllamav3.model", package_root / "model"),
+    ):
+        if name in modules:
+            continue
+        module = types.ModuleType(name)
+        module.__file__ = str(path / "__init__.py")
+        module.__package__ = name
+        module.__path__ = [str(path)]
+        modules[name] = module
     return modules["exllamav3.model"]
 '''
+
+# Mentions every token the old presence check looked for while installing
+# nothing: `types.ModuleType` is constructed but never stored in the mapping.
+STUB_NAMESPACE_NOT_INSTALLING = STUB_NAMESPACE_PY.replace(
+    "        modules[name] = module\n", "        unused = types.ModuleType(name)\n"
+)
 
 # The overlay must name at least one extension symbol, or the audit refuses.
 OVERLAY_SYMBOLS = 'SYMBOL = "exllamav3_ext.exl3_moe"\n'
@@ -350,8 +375,17 @@ def test_stub_contract_aborts_when_a_namespace_is_not_installed(tmp_path):
     overlay = tmp_path / "overlay"
     overlay.mkdir()
     (overlay / "exl3_namespace.py").write_text(
-        STUB_NAMESPACE_PY.replace('"exllamav3.modules", ', "")
+        STUB_NAMESPACE_PY.replace('        ("exllamav3.modules", package_root / "modules"),\n', "")
     )
+    with pytest.raises(MODULE.Abort):
+        MODULE.stub_contract(overlay)
+
+
+def test_stub_contract_aborts_when_nothing_is_actually_installed(tmp_path):
+    """Constructing a ModuleType without storing it installs nothing."""
+    overlay = tmp_path / "overlay"
+    overlay.mkdir()
+    (overlay / "exl3_namespace.py").write_text(STUB_NAMESPACE_NOT_INSTALLING)
     with pytest.raises(MODULE.Abort):
         MODULE.stub_contract(overlay)
 
@@ -564,3 +598,38 @@ def test_cli_aborts_without_an_overlay_dir(tmp_path):
     )
     assert result.returncode == 1
     assert json.loads(result.stdout)["verdict"] == "ABORT"
+
+
+# --- finding 1 (second pass): relative import aliases ----------------------
+
+
+def test_relative_import_alias_module_is_not_certified_unreachable(tmp_path):
+    """`from . import helper` names a submodule whose call sites are reachable.
+
+    The relative branch previously queued only the base package, so a helper
+    reached that way never entered the closure and a reachable path was
+    certified NOT_REACHABLE.
+    """
+    root = build_tree(tmp_path, serving=SERVING_PY_RELATIVE_ALIAS)
+    (root / "exllamav3/modules/quant/helper.py").write_text(NATIVE_PY)
+    report = MODULE.audit(
+        root,
+        root / "exllamav3",
+        "exllamav3.modules.quant.exl3",
+        MODULE.worst_case_slots(8, 4, 7),
+        build_overlay(tmp_path),
+    )
+    assert report["verdict"] == "ABORT", report["reason"]
+    assert (
+        "exllamav3.modules.quant.helper"
+        in report["unresolved_closure_call_site_modules"]
+    )
+
+
+def test_relative_alias_resolves_to_the_submodule(tmp_path):
+    root = build_tree(tmp_path, serving=SERVING_PY_RELATIVE_ALIAS)
+    (root / "exllamav3/modules/quant/helper.py").write_text("run = None\n")
+    closure = MODULE.import_closure(
+        root / "exllamav3", ["exllamav3.modules.quant.exl3"]
+    )
+    assert "exllamav3.modules.quant.helper" in closure["modules"]

@@ -316,3 +316,32 @@ def _klass(tree):
         for node in tree.body
         if isinstance(node, ast.ClassDef) and node.name == "Glm5NextLinearAttention"
     )
+
+
+# --- finding 4 (second pass): required imports count as completeness -------
+
+
+@pytest.mark.parametrize(
+    "needle",
+    [
+        "from vllm.v1.worker.workspace import current_workspace_manager",
+        "import vllm._flashkda_C",
+        "torch.ops._flashkda_C.get_workspace_size(",
+        "current_workspace_manager().get_simultaneous(",
+    ],
+)
+def test_removing_a_required_import_is_incomplete(needle):
+    """The file would still compile but raise NameError at prefill time."""
+    complete = _complete()
+    assert needle in complete
+    without = complete.replace(needle, "", 1)
+    assert without != complete
+    assert MODULE.is_complete(without) is False
+    with pytest.raises(SystemExit):
+        MODULE.apply_to(without)
+
+
+def test_every_required_structure_is_present_in_a_complete_install():
+    complete = _complete()
+    missing = [name for name, needle in MODULE.REQUIRED_STRUCTURES if needle not in complete]
+    assert missing == []

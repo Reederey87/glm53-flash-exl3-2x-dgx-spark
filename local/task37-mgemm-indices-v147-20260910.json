@@ -14,7 +14,7 @@
     "per_matrix_widths_require_min_index_negative": true,
     "sliced_mode_requires_min_index_negative": true
   },
-  "import_closure_size": 282,
+  "import_closure_size": 626,
   "mgemm_entry_points": [
     "exl3_mgemm"
   ],
@@ -57,7 +57,8 @@
       "exllamav3.model",
       "exllamav3.modules"
     ],
-    "source": "/tmp/ovl/exl3_namespace.py"
+    "source": "/tmp/ovl/exl3_namespace.py",
+    "verified_by": "structural assignment check + executed installer"
   },
   "unresolved_closure_call_site_modules": [
     "exllamav3.modules.attn",

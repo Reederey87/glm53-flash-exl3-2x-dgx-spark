@@ -85,6 +85,24 @@ class Glm5NextAttention:
         self.indexer_op = SparseAttnIndexer()
 """
 
+GLM_ATTENTION_PLAIN_ALIASED = """\
+from vllm.model_executor.layers.sparse_attn_indexer import SparseAttnIndexer as SparseAttnIndexerKpool
+
+
+class Glm5NextAttention:
+    def __init__(self):
+        self.indexer_op = SparseAttnIndexerKpool()
+"""
+
+GLM_ATTENTION_KPOOL_ALIASED = """\
+from vllm.model_executor.layers.sparse_attn_indexer_kpool import SparseAttnIndexerKpool as Kpool
+
+
+class Glm5NextAttention:
+    def __init__(self):
+        self.indexer_op = Kpool()
+"""
+
 GLM_ATTENTION_COMMENT_ONLY = """\
 # This deployment deliberately avoids SparseAttnIndexerKpool.
 
@@ -175,10 +193,14 @@ def test_abort_when_no_persistent_topk_at_all(tmp_path):
     assert report["verdict"] == "ABORT"
 
 
-def test_abort_when_glm_no_longer_uses_the_kpool_indexer(tmp_path):
+def test_abort_when_glm_imports_the_indexer_from_an_unknown_module(tmp_path):
+    """Import provenance decides identity; an unknown source is unresolved."""
     site = build_site(tmp_path)
     (site / "models/glm5next/nvidia/attention.py").write_text(
-        GLM_ATTENTION.replace("SparseAttnIndexerKpool", "SomethingElse")
+        GLM_ATTENTION.replace(
+            "from vllm.model_executor.layers.sparse_attn_indexer_kpool import",
+            "from my.own.layers import",
+        )
     )
     with pytest.raises(MODULE.Abort):
         MODULE.audit(site, build_overlay(tmp_path), None)
@@ -355,3 +377,34 @@ def test_abort_when_glm_only_mentions_kpool_in_a_comment(tmp_path):
     (site / MODULE.GLM_ATTENTION_REL).write_text(GLM_ATTENTION_COMMENT_ONLY)
     with pytest.raises(MODULE.Abort):
         MODULE.audit(site, build_overlay(tmp_path), None)
+
+
+# --- finding 3 (second pass): constructor identity is import provenance ----
+
+
+def test_aliased_plain_import_is_not_given_the_kpool_verdict():
+    """The plain indexer imported under the kpool *name* is still the plain one."""
+    glm = MODULE.glm_uses_kpool(GLM_ATTENTION_PLAIN_ALIASED)
+    assert glm["instantiates_kpool_class"] is False
+    assert glm["plain_indexer_constructed"] is True
+    assert glm["uses_plain_indexer"] is True
+
+
+def test_abort_when_the_plain_indexer_is_aliased_to_the_kpool_name(tmp_path):
+    site = build_site(tmp_path)
+    (site / MODULE.GLM_ATTENTION_REL).write_text(GLM_ATTENTION_PLAIN_ALIASED)
+    with pytest.raises(MODULE.Abort):
+        MODULE.audit(site, build_overlay(tmp_path), None)
+
+
+def test_kpool_import_under_an_arbitrary_alias_still_resolves_to_kpool():
+    glm = MODULE.glm_uses_kpool(GLM_ATTENTION_KPOOL_ALIASED)
+    assert glm["instantiates_kpool_class"] is True
+    assert glm["uses_plain_indexer"] is False
+
+
+def test_import_provenance_beats_the_local_spelling():
+    """The same local name resolves differently depending on its source."""
+    plain = MODULE.glm_uses_kpool(GLM_ATTENTION_PLAIN_ALIASED)
+    kpool = MODULE.glm_uses_kpool(GLM_ATTENTION_KPOOL_ALIASED)
+    assert plain["instantiates_kpool_class"] is not kpool["instantiates_kpool_class"]

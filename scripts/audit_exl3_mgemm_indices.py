@@ -36,6 +36,7 @@ import argparse
 import ast
 import json
 import re
+import types
 from pathlib import Path
 
 PACKAGE_DIR = "exllamav3"
@@ -270,8 +271,17 @@ def import_closure(python_dir: Path, seeds: list[str]) -> dict:
                     base_parts = package_parts[: len(package_parts) - drop]
                     if node.module:
                         base_parts = base_parts + node.module.split(".")
-                    if base_parts:
-                        queue.append((".".join(base_parts), True))
+                    if not base_parts:
+                        continue
+                    base = ".".join(base_parts)
+                    queue.append((base, True))
+                    # `from . import helper` names a *submodule*, and its call
+                    # sites are as reachable as any other import's. Queue the
+                    # alias as a module candidate: it resolves when it really is
+                    # a submodule and is ignored when it is an attribute of
+                    # `base` (the same treatment the absolute branch gives).
+                    for alias in node.names:
+                        queue.append((f"{base}.{alias.name}", False))
                 elif node.module:
                     queue.append((node.module, True))
                     for alias in node.names:
@@ -369,14 +379,100 @@ def worst_case_slots(top_k: int, max_num_seqs: int, draft_tokens: int) -> dict:
     }
 
 
+def _installed_stub_names(source: str) -> set[str]:
+    """Namespaces a stub source actually *installs* into a module mapping.
+
+    Structural, not textual: `unused = types.ModuleType(name)` contains every
+    token a token-presence check looks for while installing nothing. What
+    matters is a subscript assignment whose key is a namespace string and whose
+    value is a ``ModuleType`` construction, possibly via a local alias
+    (``module = types.ModuleType(name)`` ... ``mapping[name] = module``).
+    """
+    tree = ast.parse(source)
+    module_typed: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+            func = node.value.func
+            callee = func.attr if isinstance(func, ast.Attribute) else (
+                func.id if isinstance(func, ast.Name) else None
+            )
+            if callee == "ModuleType":
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        module_typed.add(target.id)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.value, ast.Call):
+            func = node.value.func
+            callee = func.attr if isinstance(func, ast.Attribute) else (
+                func.id if isinstance(func, ast.Name) else None
+            )
+            if callee == "ModuleType" and isinstance(node.target, ast.Name):
+                module_typed.add(node.target.id)
+
+    # Loop variables bound to string literals, e.g.
+    # `for name, path in (("exllamav3", ...), ("exllamav3.modules", ...)):`.
+    # Each iterated element is itself a tuple matching the loop target, so zip
+    # the target names against that element's values.
+    literal_names: dict[str, set[str]] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.For, ast.AsyncFor)):
+            continue
+        if not isinstance(node.iter, (ast.Tuple, ast.List)):
+            continue
+        names = [t.id for t in ast.walk(node.target) if isinstance(t, ast.Name)]
+        for item in node.iter.elts:
+            if not isinstance(item, (ast.Tuple, ast.List)):
+                continue
+            for var, value in zip(names, item.elts):
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    literal_names.setdefault(var, set()).add(value.value)
+
+    def _keys(node: ast.Subscript) -> set[str]:
+        key = node.slice
+        if isinstance(key, ast.Constant) and isinstance(key.value, str):
+            return {key.value}
+        if isinstance(key, ast.Name):
+            return literal_names.get(key.id, set())
+        return set()
+
+    def _is_module_value(value: ast.expr) -> bool:
+        if isinstance(value, ast.Call):
+            func = value.func
+            callee = func.attr if isinstance(func, ast.Attribute) else (
+                func.id if isinstance(func, ast.Name) else None
+            )
+            return callee == "ModuleType"
+        if isinstance(value, ast.Name):
+            return value.id in module_typed
+        return False
+
+    installed: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        else:
+            continue
+        if not _is_module_value(node.value):
+            continue
+        for target in targets:
+            if isinstance(target, ast.Subscript):
+                installed |= _keys(target)
+    return installed
+
+
 def stub_contract(overlay_dir: Path | None) -> dict:
     """Justify pruning ``STUB_NAMESPACES`` from the closure.
 
     Treating ``exllamav3.modules``/``exllamav3.model`` as leaves is only sound
     if the deployment really installs them as synthetic module objects before
     anything imports them -- otherwise their ``__init__.py`` runs and pulls in
-    every native module that holds an ``exl3_mgemm`` call site. The assumption
-    is checked here rather than trusted.
+    every native module that holds an ``exl3_mgemm`` call site.
+
+    Checked structurally rather than by token presence, and then *behaviourally*:
+    the installer is actually run against a fresh mapping and the result is
+    inspected. A source that mentions ``types.ModuleType`` and the namespace
+    strings while installing nothing is rejected.
     """
     if overlay_dir is None:
         raise Abort(
@@ -385,24 +481,45 @@ def stub_contract(overlay_dir: Path | None) -> dict:
         )
     path = overlay_dir / "exl3_namespace.py"
     source = _read(path, "exllamav3 namespace stub")
-    if "types.ModuleType" not in source:
-        raise Abort(f"{path.name} does not build synthetic module objects")
-    if "def inject_config_stub(" not in source:
-        raise Abort(f"{path.name} has no inject_config_stub entry point")
-    missing = [
-        name
-        for name in sorted(STUB_NAMESPACES)
-        if f'"{name}"' not in source and f"'{name}'" not in source
-    ]
-    if missing:
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        raise Abort(f"cannot parse {path.name}: {exc}") from exc
+    if not any(
+        isinstance(node, ast.FunctionDef) and node.name == "inject_config_stub"
+        for node in tree.body
+    ):
+        raise Abort(f"{path.name} has no module-level inject_config_stub entry point")
+    declared = _installed_stub_names(source)
+    if STUB_NAMESPACES - declared:
         raise Abort(
-            f"{path.name} does not install {missing}; refusing to prune them "
-            "from the import closure"
+            f"{path.name} has no `mapping[name] = types.ModuleType(name)` "
+            f"assignment for {sorted(STUB_NAMESPACES - declared)}; refusing to "
+            "prune them from the import closure"
+        )
+
+    # Behavioural confirmation: run the installer and look at what it produced.
+    namespace: dict = {}
+    try:
+        exec(compile(source, str(path), "exec"), namespace)  # noqa: S102
+        installer = namespace["inject_config_stub"]
+        mapping: dict = {}
+        installer(Path("."), mapping)
+    except Exception as exc:  # pragma: no cover - defensive
+        raise Abort(f"{path.name} could not be executed to verify the stub: {exc}") from exc
+    not_installed = sorted(
+        name for name in STUB_NAMESPACES if not isinstance(mapping.get(name), types.ModuleType)
+    )
+    if not_installed:
+        raise Abort(
+            f"{path.name} declares but does not install {not_installed} as module "
+            "objects; refusing to prune them from the import closure"
         )
     return {
         "checked": True,
         "source": str(path),
         "installs": sorted(STUB_NAMESPACES),
+        "verified_by": "structural assignment check + executed installer",
     }
 
 

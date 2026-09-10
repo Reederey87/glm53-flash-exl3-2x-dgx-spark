@@ -193,10 +193,14 @@ CALL_NEW = (
 REQUIRED_STRUCTURES = (
     ("module helper", "def _glm53_flashkda_supported("),
     ("capability gate call", "if not _glm53_flashkda_supported("),
+    ("workspace-manager import", "from vllm.v1.worker.workspace import current_workspace_manager"),
+    ("extension import", "import vllm._flashkda_C"),
+    ("workspace sizing call", "torch.ops._flashkda_C.get_workspace_size("),
     ("workspace sizing", "self._flashkda_buffer_specs = ("),
     ("arm flag", "self._glm53_flashkda_prefill = True"),
     ("dispatch", "if self._glm53_flashkda_prefill:"),
     ("method definition", f"def {METHOD_NAME}("),
+    ("workspace acquisition", "current_workspace_manager().get_simultaneous("),
     ("fused kernel call", "torch.ops._flashkda_C.fwd("),
 )
 
