@@ -1,0 +1,91 @@
+{
+  "regs_stop": 96.0,
+  "achieved_ratio": 0.8,
+  "aggregation": "min across launches per kernel",
+  "kernels": {
+    "fm_gateup_kernel": {
+      "block_size": 256.0,
+      "grid_size": 2304.0,
+      "registers_per_thread": 128.0,
+      "smem_dynamic": 32768.0,
+      "smem_static": 0.0,
+      "waves_per_sm": 24.0,
+      "block_limit_sm": 24.0,
+      "block_limit_registers": 2.0,
+      "block_limit_shared_mem": 3.0,
+      "block_limit_warps": 6.0,
+      "theoretical_occupancy_pct": 33.33,
+      "achieved_occupancy_pct": 33.02,
+      "launch_count": 1,
+      "launches": {
+        "1": {
+          "block_size": 256.0,
+          "grid_size": 2304.0,
+          "registers_per_thread": 128.0,
+          "smem_dynamic": 32768.0,
+          "smem_static": 0.0,
+          "waves_per_sm": 24.0,
+          "block_limit_sm": 24.0,
+          "block_limit_registers": 2.0,
+          "block_limit_shared_mem": 3.0,
+          "block_limit_warps": 6.0,
+          "theoretical_occupancy_pct": 33.33,
+          "achieved_occupancy_pct": 33.02
+        }
+      },
+      "achieved_over_theoretical": 0.9907,
+      "verdict": "STOP_REGISTER_HEADROOM",
+      "why": "registers/thread 128 > 96: the register file binds at 2 block(s)/SM; a higher occupancy target would spill"
+    },
+    "fm_down_kernel": {
+      "block_size": 256.0,
+      "grid_size": 4608.0,
+      "registers_per_thread": 128.0,
+      "smem_dynamic": 32768.0,
+      "smem_static": 0.0,
+      "waves_per_sm": 48.0,
+      "block_limit_sm": 24.0,
+      "block_limit_registers": 2.0,
+      "block_limit_shared_mem": 3.0,
+      "block_limit_warps": 6.0,
+      "theoretical_occupancy_pct": 33.33,
+      "achieved_occupancy_pct": 33.17,
+      "launch_count": 2,
+      "launches": {
+        "0": {
+          "block_size": 256.0,
+          "grid_size": 4608.0,
+          "registers_per_thread": 128.0,
+          "smem_dynamic": 32768.0,
+          "smem_static": 0.0,
+          "waves_per_sm": 48.0,
+          "block_limit_sm": 24.0,
+          "block_limit_registers": 2.0,
+          "block_limit_shared_mem": 3.0,
+          "block_limit_warps": 6.0,
+          "theoretical_occupancy_pct": 33.33,
+          "achieved_occupancy_pct": 33.17
+        },
+        "2": {
+          "block_size": 256.0,
+          "grid_size": 4608.0,
+          "registers_per_thread": 128.0,
+          "smem_dynamic": 32768.0,
+          "smem_static": 0.0,
+          "waves_per_sm": 48.0,
+          "block_limit_sm": 24.0,
+          "block_limit_registers": 2.0,
+          "block_limit_shared_mem": 3.0,
+          "block_limit_warps": 6.0,
+          "theoretical_occupancy_pct": 33.33,
+          "achieved_occupancy_pct": 33.18
+        }
+      },
+      "achieved_over_theoretical": 0.9952,
+      "verdict": "STOP_REGISTER_HEADROOM",
+      "why": "registers/thread 128 > 96: the register file binds at 2 block(s)/SM; a higher occupancy target would spill"
+    }
+  },
+  "decision": "STOP_REGISTER_HEADROOM",
+  "reason": "registers/thread 128 > 96: the register file binds at 2 block(s)/SM; a higher occupancy target would spill; registers/thread 128 > 96: the register file binds at 2 block(s)/SM; a higher occupancy target would spill"
+}

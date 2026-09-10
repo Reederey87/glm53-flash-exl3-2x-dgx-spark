@@ -1,0 +1,9 @@
+usage: run_e3_occupancy_window.py [-h]
+                                  [--from {preflight,disarm,stop,capture,judge,start,gates,rearm}]
+                                  [--to {preflight,disarm,stop,capture,judge,start,gates,rearm}]
+                                  [--tag TAG] [--receipt RECEIPT]
+                                  [--state STATE] [--n-exp N_EXP]
+                                  [--iters ITERS] [--launches LAUNCHES]
+                                  [--need-gib NEED_GIB]
+                                  [--ncu-timeout NCU_TIMEOUT]
+run_e3_occupancy_window.py: error: --iters must be >= 1 (got 0)

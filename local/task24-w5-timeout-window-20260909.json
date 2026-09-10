@@ -1,0 +1,153 @@
+{
+ "tag": "task24-w5-timeout",
+ "n_exp": 64,
+ "iters": 3,
+ "launches": 3,
+ "need_gib": 90.0,
+ "ncu_timeout": 1.0,
+ "receipt": "local/task24-w5-timeout-window-20260909.json",
+ "started": "2026-09-09T21:32:32",
+ "phases_requested": [
+  "preflight",
+  "disarm",
+  "stop",
+  "capture",
+  "judge",
+  "start",
+  "gates",
+  "rearm"
+ ],
+ "runs": [
+  [
+   "preflight",
+   "disarm",
+   "stop",
+   "capture",
+   "judge",
+   "start",
+   "gates",
+   "rearm"
+  ]
+ ],
+ "phases": {
+  "preflight": "ok",
+  "disarm": "ok",
+  "stop": "ok",
+  "capture": "FAILED: RuntimeError('ncu exceeded 1s')"
+ },
+ "backup": "/home/nvidia/GLM-5.3-Flash-EXL3-2x-DGX-Sparks/.env.bak-pre-task24-w5-timeout-profile-20260909-213232",
+ "env_sha256": "46331ceef13612696a8def94bb9f0269a85655d7f4e4593a49b0c34169f21624",
+ "start_sha256": "560a7ed5b8be524333155188f2a85cd3f110e534205589a784ef38733b1604cc",
+ "probe_sha256": "5fceb5eebfa08eeea3586c79105000c676ee47f54920c465534473569da1e2bd",
+ "auditor_sha256": "d37edde09f142af0605713f1c2412ba364f8432cfaed9e5c107587bef728146c",
+ "jit_stamp_before": "078835f1d75fc6398c0eca32400fc132",
+ "image_before": "sha256:d8144f028ec3c66cddece76bec708dda5e093a034598af1ffb871064e2e47eeb",
+ "env_effective": {
+  "MODEL": "brandonmusic/GLM-5.3-Flash-tr3-4bpw",
+  "IMAGE": "glm53-selfbuild:e3-w3-zfill",
+  "DFLASH_MODEL": "incoai/GLM-5.3-Flash-DFlash2",
+  "DFLASH_TOKENS": "7",
+  "MAX_NUM_SEQS": "4",
+  "MAX_MODEL_LEN": "1000000",
+  "MAX_NUM_BATCHED_TOKENS": "3584",
+  "LONG_PREFILL_TOKEN_THRESHOLD": "1792",
+  "DFLASH_REVISION": "7d74cdd881ed7e32c31175984a67823127b66cfe",
+  "GLM53_INDEXER_WORKSPACE": "rightsize",
+  "EXL3_FAT_GROUPED": "1",
+  "GLM53_ADAPTIVE_K": "ema",
+  "GLM53_ADAPTIVE_K_CAPTURE": "1",
+  "EXL3_TEMP_ROWS_FUSED": "32"
+ },
+ "disarm_attempted": true,
+ "timers_after_disarm": {
+  "vllm-glm53exl3-watchdog.timer": "inactive",
+  "glm53exl3-metrics-alert.timer": "inactive"
+ },
+ "stop_rc": 0,
+ "stop_tail": [
+  "\u001b[1;36m\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\u001b[0m",
+  "  \u001b[1;36m\u2502\u001b[0m  \u001b[1mGLM-5.3 Flash EXL3\u001b[0m  \u001b[2m\u00b7  stop.sh    \u001b[0m        \u001b[1;36m\u2502\u001b[0m",
+  "  \u001b[1;36m\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\u001b[0m",
+  "",
+  "\u001b[1;36m[glm53-exl3]\u001b[0m stopping head container ...",
+  "\u001b[1;36m[glm53-exl3]\u001b[0m stopping worker container on nvidia@192.168.177.11 ...",
+  "\u001b[1;36m[glm53-exl3]\u001b[0m stopped."
+ ],
+ "memfree_before_capture": {
+  "head": 114.89,
+  "worker": 111.64
+ },
+ "container_name": "w5-occupancy-20260909-213240",
+ "ncu_argv": [
+  "docker",
+  "run",
+  "--rm",
+  "--name",
+  "w5-occupancy-20260909-213240",
+  "--gpus",
+  "all",
+  "--cap-add",
+  "SYS_ADMIN",
+  "-v",
+  "/opt/nvidia/nsight-compute:/opt/nvidia/nsight-compute:ro",
+  "-v",
+  "/home/nvidia/GLM-5.3-Flash-EXL3-2x-DGX-Sparks/scripts/probe_e3_occupancy.py:/probe.py:ro",
+  "-v",
+  "/home/nvidia/GLM-5.3-Flash-EXL3-2x-DGX-Sparks/local/task24-w5-occupancy-20260909-213240:/out",
+  "--entrypoint",
+  "/opt/nvidia/nsight-compute/2025.3.1/ncu",
+  "glm53-selfbuild:e3-w3-zfill",
+  "--csv",
+  "--log-file",
+  "/out/ncu.csv",
+  "--clock-control",
+  "none",
+  "--cache-control",
+  "none",
+  "--kernel-name",
+  "regex:fm_(gateup|down)_kernel",
+  "--launch-skip",
+  "1",
+  "--launch-count",
+  "3",
+  "--section",
+  "LaunchStats",
+  "--section",
+  "Occupancy",
+  "python3",
+  "/probe.py",
+  "--n-exp",
+  "64",
+  "--iters",
+  "3",
+  "--warm",
+  "1",
+  "--out",
+  "/out/probe.json"
+ ],
+ "outdir": "/home/nvidia/GLM-5.3-Flash-EXL3-2x-DGX-Sparks/local/task24-w5-occupancy-20260909-213240",
+ "container_cleanup": [
+  {
+   "name": "w5-occupancy-20260909-213240",
+   "rc": 0,
+   "tail": [
+    "w5-occupancy-20260909-213240"
+   ]
+  },
+  {
+   "name": "w5-occupancy-20260909-213240",
+   "rc": 0,
+   "tail": [
+    "Error response from daemon: No such container: w5-occupancy-20260909-213240"
+   ]
+  }
+ ],
+ "error": "RuntimeError('ncu exceeded 1s')",
+ "recovery_health": true,
+ "timers_after_rearm": {
+  "vllm-glm53exl3-watchdog.timer": "active",
+  "glm53exl3-metrics-alert.timer": "active"
+ },
+ "recovery": "ok",
+ "finished": "2026-09-09T21:41:53"
+}

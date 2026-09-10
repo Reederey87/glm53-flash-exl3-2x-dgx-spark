@@ -38,6 +38,137 @@ Mainline GLM support (#53906) has merged, so model resolution is no longer the
 mainline blocker described in the historical section above; EXL3 integration
 and overlay compatibility still block a stock-image replacement.
 
+### 2026-09-09: task 24 W5 occupancy — STOP by measurement; counter lane unblocked without a reboot
+
+W5 was the last open E3 follow-up and the only one gated on a hardware counter.
+Two things had to exist first: a way to read counters at all, and a way to run
+the kernel while production holds the box.
+
+**Counter path (new, no host change, no reboot).** `RmProfilingAdminOnly` is
+enforced as a `CAP_SYS_ADMIN` check, so `docker run --gpus all --cap-add
+SYS_ADMIN` clears `ERR_NVGPUCTRPERM` without touching
+`NVreg_RestrictProfilingToAdminUsers` and without rebooting: `nsys profile
+--gpu-metrics-devices=help` lists `0: Blackwell GB20B | NVIDIA GB10`, and ncu
+2025.3.1 profiles normally. docs/14 is corrected accordingly — ncu *is*
+installed (`/opt/nvidia/nsight-compute/2025.3.1/ncu`, just not on `PATH`), and
+the no-reboot container route is the one this window used. What the flag does
+**not** remove is the window: production holds essentially all unified memory, so
+a second CUDA process cannot even initialise — measured, `cudaMalloc(1 KiB)` and
+even `cudaMemGetInfo` fail with `out of memory` on the head (host and container
+alike) while `vllm-glm53exl3` serves.
+
+**Gate (pre-registered before the window, docs/11 §8).** The sweep opens only if
+the minimum-across-kernels achieved occupancy is < 0.8 × theoretical *and*
+registers/thread ≤ 96. Static accounting from the production cubin already said
+`fm_gateup_kernel` / `fm_down_kernel` = `REG:128 STACK:16 SHARED:1024 LOCAL:0`
+(`cuobjdump -res-usage`, `e3-w3-zfill`): 256 threads × 128 regs × 2 blocks =
+65,536 = the whole 64K register file, so the register file binds at 2 blocks/SM.
+
+**Capture.** `scripts/probe_e3_occupancy.py` builds the E3 grouped path at
+production per-rank geometry (hidden 4096, TP2 inter 1024, TRF cap 32) with 64
+routed experts for footprint only, and `scripts/run_e3_occupancy_window.py`
+drives disarm → stop → capture → judge → start → gates → rearm. Six independent
+captures ran (`ncu --section LaunchStats --section Occupancy`,
+`--launch-skip 1 --launch-count 3`, `--clock-control none --cache-control none`);
+the last (`local/task24-w5-window-20260909-r7.json`) and the failure window below
+ran the frozen final bytes. Each profile records three launches in total, not
+three per kernel: `fm_down_kernel` twice (IDs 0 and 2) and `fm_gateup_kernel` once
+(ID 1). The auditor keeps the launches separate and gates on the minimum across a
+kernel's launches:
+
+| kernel | regs | grid | waves/SM | theoretical | achieved, per launch (six captures) |
+|---|---|---|---|---|---|
+| `fm_gateup_kernel` | 128 | 2304 = (8, 288) | 24 | 33.33% | **33.01–33.02%** (one launch each) |
+| `fm_down_kernel` | 128 | 4608 = (16, 288) | 48 | 33.33% | **33.15–33.20%** (33.17/33.17, 33.17/33.18, 33.18/33.20, 33.20/33.18, 33.15/33.17, 33.20/33.20) |
+
+Block limits: registers 2, shared memory 3, warps 6 — registers bind. Achieved is
+99.0% / 99.6% of theoretical, so there is no occupancy gap to open, and the
+documented stop condition (registers/thread > 96) is already met by the
+incumbent: a third block/SM needs ≤ 85 regs/thread and would spill.
+**W5 STOP — task 24 is closed** (W1 revert, W2 adopt, W3 adopt, W4 revert, W4
+successor stop, W5 stop). E3 prefill stays `e3-w3-zfill` +
+`EXL3_FAT_GROUPED=1` + last-wins TRF 32; no cubin and no Python change was made.
+
+**Restoration.** Clean window receipts
+`local/task24-w5-window-20260909-r7.json` (frozen final bytes, run after the
+auditor's launch-count and identity checks and the runner's resume-metadata fix
+landed) and
+`…-r6.json`, `…-r5.json`, `…-r3.json`, `…-202752.json`: all eight phases ok,
+acceptance 7/7
+(rc 0),
+`GPU KV cache size: 1,396,551 tokens … 1.40x` unchanged, image
+`sha256:d8144f02…` identical before
+and after, JIT stamp `078835f1d75f` unchanged (no shape-hash knob was touched and
+`.env` was never edited), MemFree 4.27/4.55 GiB (r6: 6.67/4.53, r5: 6.40/4.66,
+r3: 4.55/3.61 GiB),
+watchdog + metrics-alert re-armed. Captures
+`local/task24-w5-occupancy-20260909-225704` (r7, final bytes),
+`…-221957`, `…-215941`, `…-211435`, `…-202800` and `…-201521`. The first window's
+capture
+succeeded
+(`ncu_rc=0`, grouped tier, 64/64 fat experts) but its auditor exited 1: the CSV
+parser choked
+on ncu's log preamble before the header. The parser was fixed and **both**
+captures were re-judged with the final bytes — identical verdicts. The auditor
+was then hardened to keep launches separate, to fail closed on an incomplete
+launch, an out-of-range occupancy, an unreadable value (`N/A`, `ERROR (…)`), a
+row that carries a metric but no kernel identity, a launch that drops a metric
+its sibling launches report, or an
+achieved value above the theoretical one, to require the launch geometry
+(`grid_size`) it cites as evidence, and to hold the capture to the launch count
+ncu was asked for (`--expected-launches`, wired to the window's `--launches`);
+all six captures were re-judged with those bytes (same verdicts, the
+`fm_down_kernel` gate value now explicitly the minimum of its two launches).
+The same pass gave the window runner signal handlers (SIGTERM/SIGHUP), a
+named profiling container whose removal is confirmed before production is
+(re)started (including on a resume straight into `start`), and a
+recovery path that restarts production and re-arms the timers independently, and
+that refuses to start production on top of a profiler whose removal could not be
+confirmed.
+The CLI now refuses a zero `--iters/--n-exp/--launches` before it stops
+production, and an unusable probe JSON fails closed instead of crashing on a
+`None` median (both found by the failure window below).
+
+**Failure windows (recovery validated on the cluster, 2026-09-09).** Four
+deliberately failing windows exercised the recovery path. The first used a bad
+`--iters 0` (`local/task24-w5-failpath-window-20260909.json`), failed in
+`capture` as intended, and recovered: `docker rm -f` on the named container,
+`guarded_start`, `wait_health`, timer re-arm, `"recovery": "ok"`,
+`recovery_health: true`, exit 1. The others used `--ncu-timeout 1`
+(`local/task24-w5-timeout2-window-20260909.json`,
+`…-timeout3-window-20260909.json` and `…-timeout4-window-20260909.json`, the last
+against the **frozen final
+bytes**): the Docker client was killed at the timeout, the hung profiling
+container was removed (the first `docker rm -f` returned 0 for a container that
+`--rm` alone had not cleaned; recovery's own cleanup then confirmed it was
+gone), `capture` failed with `RuntimeError('ncu exceeded 1s')`, and
+recovery restarted production and re-armed both timers (`"recovery": "ok"`,
+`recovery_health: true`, exit 1). After each, the head served again with
+`GPU KV cache size: 1,396,551 tokens … 1.40x` unchanged. The `--iters 0` run is
+also why the CLI now refuses a zero count before it stops production: re-running
+that command was rejected at argument parsing
+(`local/task24-w5-failpath2-guard-20260909.log`).
+
+The recovery contract the windows and the tests now enforce: the container is
+named and its removal is confirmed before production is (re)started, including
+when a window is resumed straight into `start`; if removal cannot be confirmed,
+production is **not** started on top of a possible orphan (it stays stopped with
+a clear receipt and the timers re-armed, so the watchdog can act), and a raise
+from the cleanup itself cannot skip either the restart attempt or the timer
+restore. A resumed window also keeps the capture knobs its receipt recorded
+(`--launches`, `--n-exp`, `--iters`, `--need-gib`, `--ncu-timeout`) instead of
+re-applying argparse defaults, and refuses a conflicting override with exit 2:
+re-judging a six-launch capture against the default count of three would have
+weakened the pre-registered per-launch gate.
+
+Also cluster-validated: `scripts/audit_e3_occupancy.py` and
+`scripts/run_e3_occupancy_window.py` (59 CPU tests across
+`tests/test_e3_occupancy_audit.py` and
+`tests/test_e3_occupancy_window_recovery.py`) and the
+exact sha256 of all three scripts on the node before each run: probe
+`5fceb5ee…`, auditor `698973f5…`, runner `4e516a33…` — identical locally and on
+the node for the final clean window (r7) and the final timeout window (timeout4).
+
 ### 2026-09-09: tasks 29 + 31 decode-step share oracle — 31 STOP, 29 parked behind a measured counter
 
 Tasks 29 and 31 were both parked behind the same missing receipt: a
