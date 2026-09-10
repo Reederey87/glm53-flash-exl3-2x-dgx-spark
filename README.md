@@ -47,70 +47,39 @@ The headline figures, same pair:
 | | |
 |---|---|
 | Context window | **1,000,000 tokens**, with speculation active — on two desk machines |
-| **Prose decode** | **~29–31 tok/s** at the 1M window — the most reliable real-workload figure we track (natural prose acceptance is ~0.3–0.4, so this is what unstructured generation actually costs; it is also the number least inflated by a high-acceptance prompt). Task 25 (2026-09-09, PR #58) adopted **verification-only** adaptive-k (`GLM53_ADAPTIVE_K=ema`): native DFlash2 draft stays eight-row / k=7; the target verify uses a 2/4/7 prefix. Isolated B vs extra-graphs-off: hashmap **27.72 → 29.70 (+7.1%)**, hard essay **21.77 → 24.09 (+10.7%)**; structured stayed 7.0/1.000 (never trimmed). That knob stays on. W2 TRF=32 (same day, PR #59) then moved hashmap **27.54 → 30.82** vs same-boot E3@128 with adaptive-k frozen on. E3 itself did not change the fused decode path |
-| Structured decode | **~70 tok/s** at speculative acceptance **1.0000** (7/7 drafted tokens accepted, every uncontended pass) — treat this as the **acceptance/quality gate, not the headline throughput**: near-ceiling structured prompts are the most favorable regime, not the realistic workload. Standing median **69.10 tok/s** (W2 TRF=32, 2026-09-09; uncontended 68.7–70.3; two contended 15.7 / 25.7). Same-day A at TRF=128 was 66.60 with one 15.4 contended. The durable invariant is the 7.0/1.000 acceptance profile, not the contended tail |
-| Cold prefill | **~1408 tok/s** solo at 240k, **~1454 tok/s** at 60k (W2 TRF=32, 2026-09-09; +13.3% / +16.1% vs same-boot E3@128 1242 / 1253). E3 grouped vs pipelined-E2 was **1075 → 1286 tok/s** at 240k (+19.6%, 2026-09-07) |
-| 500k prompt, drafter on | **854 tok/s** cold (2026-08-30 battery, pre-kernel-stack image — not a current-stack rate); same prompt replayed from cache **111× faster** (5.3 s) |
+| **Prose decode** | **~29–32 tok/s** at the 1M window — the most reliable real-workload figure here (natural prose acceptance is ~0.4–0.5, so this is what unstructured generation costs, and the number least inflated by a high-acceptance prompt). Four same-stack controls on 2026-09-09 measured **29.1–31.9** |
+| Structured decode | **~69–70 tok/s** at speculative acceptance **1.0000** (7/7 drafted tokens accepted, every uncontended pass; standing median **69.10**). Treat this as the **acceptance/quality gate, not the headline throughput** — near-ceiling structured prompts are the most favorable regime. Contended passes land wherever ambient traffic puts them; the durable invariant is the 7.0/1.000 profile |
+| Cold prefill | **~1408 tok/s** solo at 240k, **~1454 tok/s** at 60k (2026-09-09 stack; +13.3% / +16.1% vs the same-boot E3@128 control 1242 / 1253). Previous kernel stack, for reference: E3 grouped **1075 → 1286 tok/s** at 240k (+19.6%, 2026-09-07) |
+| Long-context decode | Structured acceptance holds **0.978** (6.85/step) through ~324k and steps down to **0.89–0.95** past ~415k (2026-09-04, confirmed by a second ladder); at ~519k, **31.3 tok/s** at intact 6.62/step. Compaction at 300k stands |
 | Short request behind a 240k read | **6.7–7.9 s** to first token (mixed-prefill gate v3 with the 512→1792 aging ladder; 256 s without this kit's fairness cap) |
-| Multi-agent concurrency | **4 in-flight generations**; a warm follow-up lands in **~2.6 s behind a running generation** (45.8 s before the mixed-prefill gate); decode keeps **+27% tokens per fixed window** during a co-batched cold read; cached-conversation capacity ≈ **50,176 tokens ≈ 14 sessions** under per-group retention — replays at 86% of the pool cost retention (4×200k: 49.9%), plan concurrency below that |
+| Multi-agent concurrency | **4 in-flight generations**, zero preemptions through 4×60k×3 (2026-09-05); warm aggregate **63.4–66.3 tok/s** at TTFT p95 **0.92–0.96 s**; a warm follow-up lands in **~2.6 s behind a running generation** (45.8 s before the mixed-prefill gate); decode keeps **+27% tokens per fixed window** during a co-batched cold read; cached-conversation capacity ≈ **50,176 tokens ≈ 14 sessions** under per-group retention — replays at 86% of the pool cost retention (4×200k: 49.9%), so plan concurrency below that |
 | Multi-session caching | 2×68k sessions retain **100%**; 4×60k concurrent retain **98.7%** |
 | Follow-up turns | reuse **96–99%** of the prompt at 64-token grain — even prompts under one 3,584-token page |
 
-Prefill and content type, honestly: the prefill figures come from natural-language
-(word-salad) probes. Prefill is compute-bound on this stack, so **tokens/second is
+Prefill and content type: the prefill rows are natural-language (word-salad)
+probes. Prefill is compute-bound on this stack, so **tokens/second is
 essentially content-independent** — but **tokens per document is not**: code and
-JSON tokenize denser (more tokens per kB), so the same document can cost 20–50%
-more prompt tokens and proportionally longer TTFT. Read the rows above as
-per-token rates, not per-document promises. The standing 240k receipt is the
-2026-09-09 W2 TRF=32 adopt: median **1407.8 tok/s** vs same-boot E3@128
-**1242.4** (+13.3%); 60k **1454.3** vs **1253.1** (+16.1%), with
-Task 25 adaptive-k already on (decode-lane, not a prefill variable).
-The 2026-09-07 E3 grouped adopt (240k **1075.0 → 1285.7 / 1284.2**,
-+19.6%) is the previous kernel stack, not production. The older
-pipelined-E2 240k set (906–1072, full-set median 1001; `docs/06`
-2026-09-02 S2b) is the pre-E3 control class.
+JSON tokenize denser, so the same document can cost 20–50% more prompt tokens and
+proportionally longer TTFT. Read the rows as per-token rates, not per-document
+promises.
 
 No other public recipe serves this model on this hardware with all six of: EXL3
 (the only quantization GB10 can actually run — it lacks the instruction NVFP4
-compiles to), a 1M window that *coexists* with speculative decoding, prefix caching
-that survives the hybrid-KDA architecture and the drafter, perfect structured
-acceptance, verification-only adaptive-k on the target (hashmap **+7.1%**,
-hard essay **+10.7%**; native draft stays eight-row / k=7), and a hand-tuned
-MoE kernel stack (packed-expert fat GEMM, dynamic ticket scheduling, a
-3-stage `cp.async` pipeline measured **+41%** over the base recipe's kernels
-at production shapes, grouped fat-expert dispatch measured **+19.6%**
-end-to-end 240k prefill vs that pipelined E2, and W2
-`EXL3_TEMP_ROWS_FUSED=32` measured **+13.3% / +16.1%** 240k/60k vs E3@128).
-Each of those is a specific fix in this tree, and removing any one of them
-has a measured cost (`docs/10-selfbuild-production.md`, "load-bearing set";
-receipts `docs/06`, 2026-09-02 S2b, 2026-09-07 E3, 2026-09-09 Task 25 / W2).
+compiles to), a 1M window that *coexists* with speculative decoding, prefix
+caching that survives the hybrid-KDA architecture and the drafter, perfect
+structured acceptance, verification-only adaptive-k on the target, and a
+hand-tuned MoE kernel stack (fat-expert GEMM, dynamic ticket scheduling, grouped
+fat-expert dispatch, a 3-stage `cp.async` pipeline). Each is a specific fix in
+this tree, and removing any one of them has a measured cost
+(`docs/10-selfbuild-production.md`, "load-bearing set").
 
-Metric provenance, honestly: the cache/latency rows were re-measured on
-2026-08-31 on the self-built image with all of this repo's then-fixes active
-(decode = medians of 3+ converged temp-0 passes; prefill and latency rows
-are matched same-day probe runs — a reference from another day or image
-drifts by a few percent, so every A/B here runs its control arm the same
-day). The fat-GEMM pipeline rows are from the 2026-09-02 wave (isolated
-kernel **+41%** at production shapes, bit-exact ×56; that day's end-to-end
-240k was **parity under ambient bursts**, +0.3%). The **standing prefill
-and decode numbers** are the 2026-09-09 stack on
-`glm53-selfbuild:e3-w3-zfill`: last-wins `EXL3_TEMP_ROWS_FUSED=32` plus
-`GLM53_ADAPTIVE_K=ema` / extra target graphs. Isolated decode receipt
-is Task 25 (PR #58): hashmap **27.72 → 29.70 (+7.1%)**, hard essay
-**21.77 → 24.09 (+10.7%)** vs extra-graphs-off; structured stayed
-**69.54** at 7.0/1.000; verify tokens/step ~4 on trimmed prose. Isolated
-prefill receipt is W2 (PR #59): same-boot A vs B, 240k
-**1242.4 → 1407.8 tok/s (+13.3%)**, 60k **1253.1 → 1454.3 (+16.1%)**,
-hashmap **27.54 → 30.82** with adaptive-k already on, structured
-**66.60 → 69.10** at 7.0/1.000, pool 1,396,551 / 1.40×. The 2026-09-07
-E3 grouped-MoE adopt (240k **1075.0 → 1285.7 / 1284.2**, +19.6%; 60k
-**1108.8 → 1330.3 / 1328.2**; structured **69.62**) is the previous
-kernel stack. Isolated GPU microbench PARITY OK, 1.87× at Zipf-1.0
-cap=32. The
-500k/111× replay row is from the 2026-08-30 cutover battery
-(pre-kernel-stack image) and is not a current-stack rate. Every bench
-and probe ships in `tests/` and `local/` — reproduce any row in minutes.
-The offline regression suite runs with
+Provenance: every row is a same-day A/B on this pair — a reference from another
+day or image drifts by a few percent, so each window runs its own control arm.
+The standing numbers are the 2026-09-09 stack (`glm53-selfbuild:e3-w3-zfill`,
+last-wins `EXL3_TEMP_ROWS_FUSED=32`, `GLM53_ADAPTIVE_K=ema`); the isolated
+receipts, the previous-stack figures and every rejected arm are in
+`docs/06-improvement-plan.md`. Every bench and probe ships in `tests/` and
+`local/` — reproduce any row in minutes. Offline regression suite:
 `pip install -r requirements-dev.txt && pytest tests/ -q`.
 
 ## The serving image: preview vLLM, pinned and completed
@@ -187,7 +156,10 @@ raise it — `docs/02`), and **`MAX_NUM_BATCHED_TOKENS` = the 3,584-token page s
 with async scheduling OFF** — get either wrong and cache hits silently read 0%
 (`docs/04`). Patch installers run under `python3 -S` so a persisted `.pth` import
 hook cannot re-enter later installers, and the API bearer credential is passed
-only to rank 0, never to the headless worker.
+only to rank 0, never to the headless worker. The bearer middleware guards only
+`/v1`-style prefixes, so root-mounted routes (`/tokenize`, `/detokenize`, the
+prefix-cache reset) answer without the key — keep `GLM53_EXPOSE_CACHE_RESET=0`
+for untrusted clients.
 
 ## Quickstart
 
@@ -227,67 +199,58 @@ This release is reproduce-tested: this exact tree was rebuilt on the production 
 and booted **as production**, passing acceptance 7/7, serving 6/6, a byte-identical
 KV pool (1,396,551 tokens), and 1.0000/7.0 structured acceptance on first boot.
 
-## API surface notes (this build)
+## CUDA kernel changes in this tree
 
-**Cache reset** — `POST /reset_prefix_cache` (from `overlay/patch_cache_reset.py`)
-empties a cold cache without a restart; returns `{"success": false}` while blocks
-are held, retry after requests drain. Auth caveat: the bearer middleware guards only
-`/v1`-style prefixes, so root-mounted routes (`/tokenize`, `/detokenize`, the cache
-reset) answer without the key — set `GLM53_EXPOSE_CACHE_RESET=0` for untrusted
-clients. **Tokenize** is mounted at the root (`/v1/tokenize` is 404) and validates
-`prompt`/`messages`, not `text`.
+The MoE expert path is no longer upstream's stock `exllamav3` code. Every kernel
+change here, oldest first:
 
-## The CUDA kernels changed recently (read before upgrading)
+- **Fat-expert GEMM** (`overlay/exl3_fat_gemm.cu`, W24, 2026-08-31) — experts above
+  the fused launch's row cap run a packed-trellis dequant + warp-level
+  `mma.m16n8k16` GEMM + fused Hadamard + scatter epilogue instead of per-expert
+  reconstruction. Cold prefill 240k **837 → 932/991 tok/s (+11–18%)**, 178k
+  **895 → 1038 (+16%)**, 254k **891 → 972 (+9%)**; pool byte-identical, 0 IMA.
+- **Dynamic ticket scheduler** in the fused `exl3_moe` kernel (S2a, 2026-09-02) —
+  upstream `d5e4361` cherry-picked onto the pinned `c5d9c657` ext: SM groups claim
+  active experts through `atomicAdd` on a self-resetting scheduler instead of
+  round-robin, and group width becomes runtime. Parity verified on an idle box.
+- **3-stage `cp.async` pipeline** in the fat GEMM k-loop (S2b, 2026-09-02) — kernel
+  throughput **+38.6 / +41.4 / +40.8%** at production shapes (52 → ~73.5 TFLOP/s);
+  bit-exact against the stock kernel over 56 comparisons, compute-sanitizer-clean.
+- **Grouped fat-expert dispatch** (`overlay/exl3_fat_moe.cu`, `EXL3_FAT_GROUPED=1`,
+  E3, 2026-09-07) — three launches instead of a host loop over fat experts: 240k
+  cold prefill **1075 → 1286 tok/s (+19.6%)** and 60k **1109 → 1330** vs the
+  pipelined-E2 control; isolated Zipf-1.0 microbench 1.87×, PARITY OK.
+- **Zero-fill A-pad** (W3, 2026-09-08, cubin-only) — unused A-tile rows use a
+  4-operand `cp.async.cg` with source size 0 instead of cloning row `rows-1`.
+  Deliberately a wash (240k −2.5%, structured 69.04 @ 7.0/1.000), adopted as the
+  safer pad.
+- **Pin advance to native `exllamav3` v1.4.7 `ca13bdd`** (2026-09-07) — the ticket
+  scheduler and the current ext set arrive upstream, so the tree carries that
+  cherry-pick only for the older `c5d9c657` lineage.
 
-> The MoE expert path in this tree is no longer upstream's stock `exllamav3`
-> code: this repo carries (1) the **fat-expert GEMM** (`overlay/exl3_fat_gemm.cu`
-> — oversized prefill experts run a fused trellis-GEMM + Hadamard + scatter
-> launch instead of per-expert reconstruction), (2) the **dynamic ticket
-> scheduler** in the fused `exl3_moe` kernel (native in v1.4.7; originally
-> cherry-picked from `d5e4361` onto `c5d9c657` — idle SM groups steal heavy
-> experts instead of round-robin), (3) a **3-stage `cp.async` pipeline** in
-> the fat GEMM k-loop — **+38.6/+41.4/+40.8%** kernel throughput at
-> production shapes (52 → ~73.5 TFLOP/s), bit-exact vs the stock kernel
-> over 56 comparisons, compute-sanitizer-clean, and (4) **grouped
-> fat-expert dispatch** (`overlay/exl3_fat_moe.cu`, `EXL3_FAT_GROUPED=1`) —
-> three launches instead of a host loop over fat experts, 240k cold
-> prefill **1075 → 1286 tok/s (+19.6%)** vs the pipelined-E2 control
-> (2026-09-07; isolated Zipf-1.0 microbench 1.87×, PARITY OK), and
-> (5) **W2 fused-temp floor** (`EXL3_TEMP_ROWS_FUSED=32`, 2026-09-09)
-> — 240k **1242 → 1408 tok/s (+13.3%)**, 60k **1253 → 1454
-> (+16.1%)** vs same-boot E3@128; decode stays fused `exl3_moe`
-> (structured **69.10** at 7.0/1.000, hashmap **30.82**).
-> `docs/11-gb10-kernel-program.md` is the full program
-> ledger, with the rejected arms too. If you update `exllamav3` or
-> rebuild, the JIT-cache shape guard wipes Triton/TileLang caches on
-> **both** nodes by design; and if you touch the `.cu`, the validation
-> gates in `docs/11` §6 (bit-exactness sweep, compute-sanitizer, kernel
-> and end-to-end benches) are the bar — the first pipeline draft failed
-> bit-exactness on every shape from a one-line `cp.async` source-offset
-> bug. `docs/12` documents why a drop-in replacement (Sparkinfer's
-> Trellis) stays parked behind a measured trigger.
+Measured and reverted, with numbers: W1 lazy grouped scratch (PR #54), W4 fused
+gather (PR #57, 60k −10.7%), the W4 successor persistent A-cache (PR #65), and W5
+grouped-kernel occupancy (PR #66 — `fm_gateup_kernel` 33.01–33.02%,
+`fm_down_kernel` 33.15–33.20% of theoretical, so there is no gap to close).
 
-## The experiments that lost (read before "optimizing")
+If you touch a `.cu`, the intake gates in `docs/11-gb10-kernel-program.md` §2 are
+the bar, and each stage plan in §6 records the gates it actually ran:
+bit-exactness sweep, compute-sanitizer, kernel bench, end-to-end bench. The first
+pipeline draft failed bit-exactness on every shape from a one-line `cp.async`
+source-offset bug. The JIT-cache shape guard wipes Triton/TileLang caches on
+**both** nodes by design after any `exllamav3` update or rebuild, and `docs/12`
+explains why a drop-in replacement (Sparkinfer's Trellis) stays parked behind a
+measured trigger. The full program ledger, including the rejected arms, is
+`docs/11`.
 
-The improvement program (`docs/06`, `docs/08`, `docs/10`, `docs/11`) records
-every tested change, including the rejections — with numbers, so you don't re-pay
-for them: a community-recommended prefill config (+3.7% cold prefill, but −3.3–4%
-on every decoded token and −12% pool); FlashInfer's radix top-k (zero gain at
-draft-batch sizes); a bigger draft length (k=8: prose −9%); dual-rail NCCL (loses
-at production geometry); both newer DFlash2 drafter checkpoints (no win, one −6%
-prose — the pin stays on `7d74cdd`); sharding the drafter across ranks
-(`DFLASH_DRAFT_TP=2` — tested twice, single-stream *and* at 4-way concurrency: a
-wash here, and the head node's memory gets slightly worse); the row-tiling arms
-of the fat-expert path (`EXL3_MOE_ROW_TILE=1` and a `EXL3_TEMP_ROWS_FUSED`
-ladder — both directions lose prefill to the stock 128-row config, and the
-row-tile path costs −20.9% once it bypasses the tuned fat kernel). W2
-isolated TRF=32 vs E3@128 was **ADOPTED 2026-09-09** (60k +16.1%, 240k
-+13.3%; unique-per-token top-k so decode does not drop experts; launcher
-default still 128, production last-wins 32). We also chased
-the reported long-context decode collapse (acceptance falling to 16% past 100k)
-and could not reproduce it on this stack — structured acceptance stays 0.93–0.98
-per position out to ~195k tokens. If a knob isn't set the way upstream defaults
-it, there's a measured reason in those docs.
+## Testing your own optimization
+
+Every change tested on this pair, adopted or rejected, is recorded with its
+numbers under [`docs/`](docs/) — start with `docs/06-improvement-plan.md` (the
+running ledger, and where the rejections live), `docs/08-concurrent-prefill.md`,
+`docs/10-selfbuild-production.md` (what is load-bearing) and
+`docs/11-gb10-kernel-program.md` (the kernel queue). If a knob is not set the way
+upstream defaults it, there is a measured reason in one of them.
 
 ## Layout
 
@@ -300,7 +263,9 @@ local/             production ops: prod-start, watchdog, monitors, tests, cache 
 docs/              01 architecture · 02 parameters · 03 bringup · 04 prefix caching ·
                    05 known issues · 06 improvement plan · 07 rebase plan ·
                    08 concurrent prefill · 09 rebase field test · 10 self-build cutover ·
-                   11 gb10 kernel program · 12 sparkinfer trellis study
+                   11 gb10 kernel program · 12 sparkinfer trellis study ·
+                   13 upstream review · 14 profiling runbook ·
+                   14 selective-quantization gate
 tests/             decode benches + kit regression tests
 ```
 
