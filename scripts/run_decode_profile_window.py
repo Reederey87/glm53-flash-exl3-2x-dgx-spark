@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""Guarded decode-profile window for the task 29/31 oracle (runs on spark1).
+"""Guarded profile window for the task 29/31 and task 24 oracles (runs on spark1).
 
 Adds ONLY the two profiler knobs to ``.env`` (hash-neutral: ProfilerConfig
 .compute_hash is a constant), restarts the pair through the validated
-``local/prod-start.sh``, captures one C4 decode window with the in-process
-torch profiler, copies the per-rank traces into ``local/``, then restores the
-exact pre-window ``.env`` and reboots production. Any failure on the arm side
+``local/prod-start.sh``, captures one window with the in-process torch
+profiler, copies the per-rank traces into ``local/``, then restores the exact
+pre-window ``.env`` and reboots production. Any failure on the arm side
 triggers the same restore unless ``--keep-armed`` is passed.
+
+The default probe is the C4 decode oracle (``scripts/probe_decode_profile.py``).
+``--probe``/``--probe-args``/``--tag`` select another capture in the same guarded
+window; the task 24 W4-successor gate uses ``scripts/probe_prefill_profile.py``
+with ``--probe-args '--prompt-repeats 4412'`` for the 240k shape.
 
 Phases run in order and can be bounded with --from/--to for a stepwise window:
 
@@ -26,6 +31,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -39,6 +45,12 @@ STAMP = Path.home() / ".cache" / "vllm-glm53-flash" / ".config-shape"
 TRACE_HOST_DIR = Path.home() / ".cache" / "vllm-glm53-flash" / "profiler"
 PROBE = ROOT / "scripts" / "probe_decode_profile.py"
 BASE = "http://127.0.0.1:8000"
+# Set by main(): the probe to run, its extra argv, and the tag used for
+# receipts/trace dirs. The guarded window machinery is shared by the decode
+# oracle (default) and the prefill share oracle (task 24 W4 gate).
+_PROBE: Path = PROBE
+_PROBE_ARG: list[str] = []
+_TAG: str = "task29"
 WORKER = os.environ.get("WORKER_SSH", "nvidia@192.168.177.11")
 ARM_KEYS = ("GLM53_PROFILE_TORCH_DIR", "GLM53_PROFILE_MAX_ITERS")
 SELECTED = (
@@ -235,7 +247,7 @@ def arm_env() -> None:
     if not text.endswith("\n"):
         text += "\n"
     text += (
-        "\n# task 29/31 decode-profile oracle window (removed by restore)\n"
+        f"\n# {_TAG} profile window, {_PROBE.name} (removed by restore)\n"
         "GLM53_PROFILE_TORCH_DIR=/root/.cache/vllm/profiler\n"
         "GLM53_PROFILE_MAX_ITERS=2000\n"
     )
@@ -249,10 +261,10 @@ def restore_env(backup: Path) -> None:
 def phase_preflight(state: dict) -> None:
     if not ENV_FILE.is_file():
         raise RuntimeError(f"missing {ENV_FILE}")
-    if not PROBE.is_file():
-        raise RuntimeError(f"missing {PROBE}")
+    if not _PROBE.is_file():
+        raise RuntimeError(f"missing {_PROBE}")
     stamp_before = STAMP.read_text().strip() if STAMP.is_file() else ""
-    backup = ROOT / f".env.bak-pre-task29-profile-{time.strftime('%Y%m%d-%H%M%S')}"
+    backup = ROOT / f".env.bak-pre-{_TAG}-profile-{time.strftime('%Y%m%d-%H%M%S')}"
     shutil.copy2(ENV_FILE, backup)
     # Persist the recovery coordinates before anything else can fail: an
     # interrupted window must still know which file to restore from.
@@ -267,7 +279,7 @@ def phase_preflight(state: dict) -> None:
     state.update(
         {
             "start_sha256": sha256(ROOT / "start.sh"),
-            "probe_sha256": sha256(PROBE),
+            "probe_sha256": sha256(_PROBE),
             "auditor_sha256": sha256(ROOT / "scripts" / "audit_decode_kernel_share.py"),
             "jit_stamp_before": stamp_before,
             "image_before": image_id(),
@@ -322,6 +334,12 @@ def phase_arm(state: dict) -> None:
     log("armed boot healthy and /start_profile mounted (405 on GET)")
 
 
+def probe_argv(probe: Path, probe_args: list[str], receipt: Path, trace_dir: Path) -> list[str]:
+    """Exact probe command line. Decode is the default; --probe swaps the capture."""
+    return [sys.executable, str(probe), *probe_args, "--warmup", "--out", str(receipt),
+            "--trace-dir", str(trace_dir)]
+
+
 def phase_profile(state: dict) -> None:
     TRACE_HOST_DIR.mkdir(parents=True, exist_ok=True)
     for old in TRACE_HOST_DIR.glob("*"):
@@ -331,21 +349,23 @@ def phase_profile(state: dict) -> None:
                timeout=60, check=False)
     if proc.returncode != 0:
         raise RuntimeError(f"worker trace-dir reset failed: {proc.stderr.strip()}")
-    receipt = ROOT / "local" / f"task29-profile-probe-{time.strftime('%Y%m%d-%H%M%S')}.json"
+    receipt = ROOT / "local" / f"{_TAG}-profile-probe-{time.strftime('%Y%m%d-%H%M%S')}.json"
     proc = subprocess.run(
-        [sys.executable, str(PROBE), "--warmup", "--out", str(receipt),
-         "--trace-dir", str(TRACE_HOST_DIR)],
+        probe_argv(_PROBE, _PROBE_ARG, receipt, TRACE_HOST_DIR),
         check=False, capture_output=True, text=True, timeout=3600,
         env={**os.environ, "GLM53_PROFILE_MAX_ITERS": "2000",
              "GLM53_PROFILE_TORCH_DIR": "/root/.cache/vllm/profiler"},
     )
     state["probe_stdout_tail"] = proc.stdout.strip().splitlines()[-12:]
     state["probe_stderr_tail"] = proc.stderr.strip().splitlines()[-12:]
+    # Record the receipt path even when the probe fails closed: the receipt is
+    # the diagnostic artifact a resumed or audited window needs.
+    state["probe_receipt"] = str(receipt)
     log("probe stdout:\n" + "\n".join(state["probe_stdout_tail"]))
     if proc.returncode != 0:
         log("probe stderr:\n" + "\n".join(state["probe_stderr_tail"]))
         raise RuntimeError(f"probe exited {proc.returncode}")
-    outdir = ROOT / "local" / f"task29-traces-{time.strftime('%Y%m%d-%H%M%S')}"
+    outdir = ROOT / "local" / f"{_TAG}-traces-{time.strftime('%Y%m%d-%H%M%S')}"
     (outdir / "head").mkdir(parents=True)
     (outdir / "worker").mkdir(parents=True)
     for trace in TRACE_HOST_DIR.glob("*"):
@@ -442,12 +462,19 @@ def _on_signal(signum: int, _frame: object) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    global _ACTIVE, _KEEP_ARMED, _RECEIPT, _RESTORE_DONE
+    global _ACTIVE, _KEEP_ARMED, _RECEIPT, _RESTORE_DONE, _PROBE, _PROBE_ARG, _TAG
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--from", dest="first", choices=PHASES, default=PHASES[0])
     ap.add_argument("--to", dest="last", choices=PHASES, default=PHASES[-1])
     ap.add_argument("--keep-armed", action="store_true",
                     help="on failure leave the profiler boot running (debug only)")
+    ap.add_argument("--probe", type=Path,
+                    help=f"probe script to run (default: {PROBE.relative_to(ROOT)})")
+    ap.add_argument("--probe-args", default=None, metavar="SHELL",
+                    help="shell-quoted extra probe argv (shlex.split), e.g. "
+                         "--probe-args '--prompt-repeats 3300'")
+    ap.add_argument("--tag", default=None,
+                    help="receipt/trace filename tag (default: task29)")
     ap.add_argument("--receipt", type=Path)
     ap.add_argument("--state", type=Path,
                     help="resume/checkpoint file (loaded if present, written at exit)")
@@ -458,7 +485,7 @@ def main(argv: list[str] | None = None) -> int:
         print("--from must not come after --to", file=sys.stderr)
         return 2
     receipt = args.receipt or args.state or (
-        ROOT / "local" / f"task29-profile-window-{time.strftime('%Y%m%d-%H%M%S')}.json"
+        ROOT / "local" / f"{(args.tag or 'task29')}-profile-window-{time.strftime('%Y%m%d-%H%M%S')}.json"
     )
     state: dict = {}
     if receipt.is_file():
@@ -466,7 +493,36 @@ def main(argv: list[str] | None = None) -> int:
             state = json.loads(receipt.read_text())
         except json.JSONDecodeError:
             state = {}
+    # A resumed window must run the probe the checkpoint was taken with; the
+    # selection is part of the window's identity, not a per-invocation default.
+    # Resolve to absolute paths so a resume from another cwd cannot silently
+    # select a different file.
+    stored = state.get("probe_selection") or {}
+    stored_probe = Path(stored["probe"]).resolve() if stored.get("probe") else None
+    requested_probe = args.probe.resolve() if args.probe is not None else None
+    conflicts: list[str] = []
+    if stored:
+        if requested_probe is not None and requested_probe != stored_probe:
+            conflicts.append("--probe")
+        if args.probe_args is not None and shlex.split(args.probe_args) != list(stored.get("probe_args", [])):
+            conflicts.append("--probe-args")
+        if args.tag is not None and args.tag != stored.get("tag"):
+            conflicts.append("--tag")
+    if conflicts:
+        print(
+            f"{', '.join(conflicts)} conflicts with the probe selection recorded in "
+            f"{receipt}; resume with the same selection or use a fresh receipt",
+            file=sys.stderr,
+        )
+        return 2
+    _PROBE = requested_probe or stored_probe or PROBE
+    _PROBE_ARG = (
+        shlex.split(args.probe_args) if args.probe_args is not None
+        else list(stored.get("probe_args", []))
+    )
+    _TAG = args.tag or stored.get("tag") or "task29"
     state.update({"schema": 2, "started": state.get("started") or time.strftime("%Y-%m-%dT%H:%M:%S%z")})
+    state["probe_selection"] = {"probe": str(_PROBE), "probe_args": list(_PROBE_ARG), "tag": _TAG}
     state.setdefault("phases", [])
     if args.first != PHASES[0] and "backup" not in state:
         print(f"--from {args.first} needs a prior preflight state (no backup in {receipt})", file=sys.stderr)

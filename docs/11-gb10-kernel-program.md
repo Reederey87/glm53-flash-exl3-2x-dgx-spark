@@ -356,7 +356,9 @@ Live TP2 scratch is **~280 MiB/rank**, not the 336 MiB microbench figure:
 
 **Queue:** ~~W1 lazy scratch~~ **REVERTED 2026-09-07** → W2 isolated TRF=32
 (gated) → ~~W3 zero-fill A-pad~~ **ADOPTED 2026-09-08** → ~~W4 fused gather~~
-**REVERTED 2026-09-08** → W5 occupancy (gated). Not automatic-next.
+**REVERTED 2026-09-08** → ~~W4 successor persistent A-cache~~ **STOP by
+measurement 2026-09-09** (gather 8.6% of E3 / 2.1% of prefill kernel time,
+below both pre-registered floors) → W5 occupancy (gated). Not automatic-next.
 
 | Window | Path it can move | Rebuild | Expected sign |
 |---|---|---|---|
@@ -460,14 +462,42 @@ restored `e3-w3-zfill`. Overlay stays in-tree. Do not re-run this
 gather-as-reload. A later attempt needs a persistent SUH-scaled
 A-cache across K, not per-stage `x[row_token]` re-Hadamard.
 
+**W4 successor — persistent SUH-scaled A-cache: STOP by measurement
+(2026-09-09).** The ncu-first gate was answered with the in-process
+torch-profiler prefill-share oracle instead (`scripts/probe_prefill_profile.py`
++ `scripts/audit_prefill_kernel_share.py` driven by the guarded window in
+`scripts/run_decode_profile_window.py --probe …`; ncu is not installed here and
+`nsys --gpu-metrics` fails `ERR_NVGPUCTRPERM`, see
+`docs/14-profiling-privilege-runbook.md`). Pre-registered before the window:
+proceed only if the min-across-ranks `fm_gather_kernel` share is ≥10% of E3
+layer time **and** ≥3% of total prefill kernel time. Two independent guarded 60k
+windows (`e3-w3-zfill`, TRF=32, adaptive-k ema, pin `7d74cdd`, JIT stamp
+`078835f1d75f` unchanged) measured gather at **8.68 / 8.62%** and **8.64 /
+8.69%** of E3 layer time (head/worker) and **2.10 / 2.09%** and **2.11 /
+2.09%** of total prefill kernel time; gateup 55.4%, down 35.9% of E3. Capture
+validity: 1428 grouped launches per rank (34 chunks × 42 layers) against
+1428/1428/1428 gather/gateup/down and 1470 fused `exl3_moe`, with 96.8% of CUDA
+time in 1792-token context steps and 1.7% in the final 896-token context step.
+The fused kernel also runs during prefill here (launch ratio 1.03), which is why
+the decode guard pairs a time ceiling with that ratio. Ceiling if the gather
+became free: **2.09%** of prefill kernel time, below the ≥3% end-to-end bar, and
+W4 already measured −10.7% at this shape. No kernel window opened and the
+persistent A-cache stays unbuilt; re-open only with a measured counter that
+contradicts the gather share. The 240k share is **unmeasured and deferred**: the
+60k window already stopped the gate, and equal chunk sizes do not imply equal
+per-expert routing — `build_grouped_fat_tables()` derives live rows and rounded
+segment counts from those counts — so the 240k share could differ.
+
 **W5 — occupancy.** `__launch_bounds__(256, 2)` is already on gateup/down.
 SMEM 32,768 B is not the limiter. Open only on ncu at production shapes
 (TP2 inter=1024, E3@128 fat histogram) showing achieved occupancy ≪
 theoretical from registers or the 512 grid-Y cap.
 
 Measure before coding: live `grouped_scratch_bytes` (expect ≈280 MiB/rank);
-E3@128 fat-row / segment-mod-64 histograms; gather vs gateup share of
-layer time; table-build share (persist tables only if ≥2% of layer time).
+E3@128 fat-row / segment-mod-64 histograms; table-build share (persist tables
+only if ≥2% of layer time). Gather-vs-gateup share of layer time is now
+measured (8.6% vs 55.4%, above), so it is no longer an open pre-coding
+measurement.
 
 ### Do-not-bundle / parked
 

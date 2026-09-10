@@ -551,7 +551,8 @@ def test_probe_gates_and_labels_are_truthful() -> None:
     assert "--trace-dir is required outside --dry-run" in src
     assert "the trace holds only" in src
     runner = (ROOT / "scripts" / "run_decode_profile_window.py").read_text()
-    assert '"--trace-dir", str(TRACE_HOST_DIR)' in runner
+    assert '"--trace-dir", str(trace_dir)' in runner
+    assert "probe_argv(_PROBE, _PROBE_ARG, receipt, TRACE_HOST_DIR)" in runner
 
 
 def test_launcher_argv_in_both_inner_scripts() -> None:
