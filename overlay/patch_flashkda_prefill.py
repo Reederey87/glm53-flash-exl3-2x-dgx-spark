@@ -4,10 +4,11 @@
 Prefill is this deployment's measured weak lane (240k cold ~1408 tok/s, 60k
 ~1454). #55737 replaces the ~15-kernel Triton ``chunk_kda_with_fused_gate``
 path with ``vllm._flashkda_C`` and reports 1.7-3.8x on the KDA layer and TTFT
--7.9% to -13.2%. That extension **is** present and functional in the deployed
-image (``torch.ops._flashkda_C.get_workspace_size(1792, 32, 4)`` -> 51,314,688 B
-on this GB10), and the auto-selection gate in the upstream patch accepts
-SM12x + bf16 + head_dim 128 + a bounded gate -- all true here.
+-7.9% to -13.2%. That extension is present in the deployed image and its
+workspace allocator works (``torch.ops._flashkda_C.get_workspace_size(1792,
+32, 4)`` -> 51,314,688 B on this GB10), and the auto-selection gate in the
+upstream patch accepts SM12x + bf16 + head_dim 128 + a bounded gate -- all
+true here.
 
 This overlay ports the upstream change onto the **deployed fork**, which does
 not carry upstream's ``glm5next/nvidia/ops/third_party/`` tree; the live KDA
@@ -23,10 +24,33 @@ than silently serving an unpatched (or half-patched) KDA layer.
 Knob (container runtime):
   GLM53_KDA_PREFILL_BACKEND   unset|triton = stock; flashkda = this arm
 
-Not yet cluster-armed: the numeric parity of the fused kernel against the
-Triton chunk path, and the e2e prefill/acceptance gates, still need a stopped
-maintenance window (see docs/13 and spec/TODO.md task 34). This file is the
-prepared candidate, not a receipt.
+DO NOT ARM. The task 34 numeric parity gate failed; see
+``docs/15-flashkda-prefill-arm.md`` and
+``local/task34-parity-gate-20260910.txt``. Two independent reasons:
+
+1. *Arity.* This port's first cut passed **16** positional arguments to
+   ``torch.ops._flashkda_C.fwd``. The deployed op declares **14**
+   (``q, k, v, g, beta, scale, out, workspace, A_log, dt_bias, lower_bound,
+   initial_state, final_state, cu_seqlens``), so arming raised
+   ``RuntimeError: expected at most 14 argument(s) but received 16`` at the
+   first prefill -- a hard failure, not a silent one. Fixed here, and
+   ``EXPECTED_FWD_ARITY`` now pins the emitted call.
+
+2. *Numerics.* With the arity corrected, ``_flashkda_C.fwd`` does not
+   reproduce the Triton chunk path. Against production's
+   ``vllm.third_party`` kernel its output is ~150x smaller in mean magnitude
+   and essentially uncorrelated (Pearson ~0.0), and the same holds against
+   the fork's own ``kimi_k3`` copy. The divergence survives sequence lengths
+   64/512, a zeroed gate, both beta conventions, pre-normalized q/k, and
+   ``lower_bound`` in {-1,-2,-3,-5}, and the ratio does not track
+   ``exp(lower_bound)``. Root cause not isolated; the fork's only sanctioned
+   caller (``kimi_k3/nvidia/kda.py``) pairs the fused kernel with a
+   *different* Triton kernel (``raw_beta``, no ``safe_gate``), a 1-D
+   ``A_log``, and workspace-manager buffers, so this port is not equivalent
+   to it.
+
+Consequence: no speed comparison is meaningful until parity passes, so the
+arm stays unwired on the cluster and the task 34 A/B window was not run.
 """
 from __future__ import annotations
 
@@ -49,6 +73,17 @@ TARGET = Path(
 )
 
 KNOB = "GLM53_KDA_PREFILL_BACKEND"
+
+# The deployed op's declaration, verbatim from the v1.4.7 image:
+#   _flashkda_C::fwd(Tensor q, Tensor k, Tensor v, Tensor g, Tensor beta,
+#                    float scale, Tensor(a!) out, Tensor(c!) workspace,
+#                    Tensor A_log, Tensor dt_bias, float lower_bound,
+#                    Tensor? initial_state=None, Tensor(b!)? final_state=None,
+#                    Tensor? cu_seqlens=None) -> ()
+# A first cut of this port passed two extra trailing ``None``s and raised
+# ``expected at most 14 argument(s) but received 16`` at the first prefill, so
+# the count is now pinned rather than assumed.
+EXPECTED_FWD_ARITY = 14
 
 # --- insertion point 1: module-level helper block -------------------------
 CLASS_ANCHOR = "class Glm5NextLinearAttention(GatedDeltaNetAttention):\n"
@@ -163,8 +198,6 @@ FLASHKDA_METHOD = f'''
             initial_state.contiguous(),
             final_state,
             cu_seqlens.contiguous(),
-            None,
-            None,
         )
         return out, final_state
 '''
@@ -259,12 +292,35 @@ def _has_required_imports(source: str) -> bool:
     return got_from and got_plain
 
 
+def _fwd_call_arity(source: str) -> int | None:
+    """Positional-argument count of the ``torch.ops._flashkda_C.fwd`` call.
+
+    The op is a fixed-arity TorchScript binding: passing the wrong number of
+    arguments raises at the first prefill, not at import. Counting them here
+    turns that into an install-time failure. Returns None if the call is
+    absent, so the caller decides what that means.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if ast.unparse(node.func) == "torch.ops._flashkda_C.fwd":
+            return len(node.args)
+    return None
+
+
 def is_complete(source: str) -> bool:
     """True only when every arm structure is present, the required imports are
-    real import statements, and the method is a real member of the class."""
+    real import statements, the method is a real member of the class, and the
+    fused call has the deployed op's arity."""
     if any(needle not in source for _, needle in REQUIRED_STRUCTURES):
         return False
     if not _has_required_imports(source):
+        return False
+    if _fwd_call_arity(source) != EXPECTED_FWD_ARITY:
         return False
     return _method_is_a_class_member(source)
 
@@ -300,6 +356,15 @@ def armed() -> bool:
 
 
 def apply_to(source: str) -> str:
+    # The template is indented as a class member; wrapping it in a class makes
+    # it parseable so its arity can be checked before anything is written.
+    template_arity = _fwd_call_arity("class _Probe:\n" + FLASHKDA_METHOD)
+    if template_arity != EXPECTED_FWD_ARITY:
+        raise SystemExit(
+            f"glm53 flashkda: the method template passes {template_arity} "
+            f"positional arguments to _flashkda_C.fwd, but the deployed op "
+            f"declares {EXPECTED_FWD_ARITY} — refusing to install"
+        )
     if MARK in source:
         if is_complete(source):
             return source

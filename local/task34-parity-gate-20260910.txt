@@ -1,0 +1,165 @@
+Task 34 — FlashKDA prefill arm: numeric parity gate
+===================================================
+Date        2026-09-10
+Host        spark1 (GB10, sm_121), throwaway containers from the deployed
+            image glm53-selfbuild:e3-w3-zfill
+Harness     local/flashkda-parity-check.py  (repo; also at /tmp on spark1)
+Script      docker run --rm --gpus all --ipc=host \
+              -v /tmp/flashkda-parity-check.py:/parity.py:ro \
+              --entrypoint python3 glm53-selfbuild:e3-w3-zfill /parity.py
+Note        the image entrypoint is `vllm`, so `--entrypoint python3` is required
+GPU         NVIDIA GB10, torch 2.13.0+cu130, CUDA 13.0
+Production  NOT stopped for this gate; the GPU is reachable alongside the
+            serving container.  Container glm53-exl3-head stayed up throughout
+            (21 h at the end of the run), /health 200 on :8000, kda.py ec090aab.
+
+VERDICT: PARITY_FAILED. The arm is REVERTED; the A/B window was not run.
+-----------------------------------------------------------------------
+
+The gate compares, on identical inputs, the Triton chunked path production runs
+today against torch.ops._flashkda_C.fwd as the overlay calls it. The candidate
+invocation mirrors overlay/patch_flashkda_prefill.py::_flashkda_prefill exactly;
+the reference mirrors glm5next/nvidia/kda.py's live prefill call exactly. So the
+comparison answers the A/B question itself: what would production compute if the
+arm were armed, versus what it computes now.
+
+FINDING 1 — FATAL ARITY DEFECT (independent of any numeric question)
+--------------------------------------------------------------------
+The overlay passed 16 positional arguments; the deployed op declares 14.
+
+  RuntimeError: _flashkda_C::fwd() expected at most 14 argument(s) but received
+  16 argument(s). Declaration: _flashkda_C::fwd(Tensor q, Tensor k, Tensor v,
+  Tensor g, Tensor beta, float scale, Tensor(a!) out, Tensor(c!) workspace,
+  Tensor A_log, Tensor dt_bias, float lower_bound, Tensor? initial_state=None,
+  Tensor(b!)? final_state=None, Tensor? cu_seqlens=None) -> ()
+
+The first 14 arguments of the overlay's call match that declaration in order, so
+the defect was two spurious trailing `None`s. Arming the arm would have raised at
+the first prefill — the arm could not have served a single request.
+
+Not caught earlier because the cluster smoke test only proved that the patched
+file parses and is idempotent. It never called the op. Fixed in the overlay, and
+EXPECTED_FWD_ARITY = 14 now pins the emitted call (apply_to refuses to install a
+template with the wrong count; is_complete rejects an installed file with one).
+
+Re-validated on the cluster after the fix, in a throwaway container against a
+copy of the deployed kda.py (the real file stayed ec090aabecc1a63d before and
+after):
+
+  armed hash            58ff323c3dc73e9d   (was a4bdc543baab284b before the fix)
+  fwd positional args   14, keywords 0
+  markers               6
+  idempotent            yes (re-run is a no-op)
+  py_compile            OK
+
+The unarmed hash is unaffected by the fix -- ec090aab in every case -- which is
+why this defect could not have reached production while the knob was off.
+
+FINDING 2 — NUMERIC DIVERGENCE (survives the arity fix)
+-------------------------------------------------------
+Default case: tokens=512, heads=32, head_dim=128, seed=0, lower_bound=-5.0.
+
+  reference = vllm.third_party.flash_linear_attention.ops.kda
+              .chunk_kda_with_fused_gate   (production's kernel; pre-sigmoided
+              fp32 beta, safe_gate=True, use_qk_l2norm_in_kernel=True)
+
+  out          max_abs_diff 0.0735474   ref_abs_max 0.0722656   max_rel   98.68
+               mean_abs_diff 0.003140   ref_mean|.| 0.00314     cand_mean|.| 2.095e-05
+  final_state  max_abs_diff 1.6172      ref_abs_max 1.62175     max_rel 1198.24
+               mean_abs_diff 0.035050   ref_mean|.| 0.03503     cand_mean|.| 1.580e-04
+  Pearson correlation: out +0.00843, final_state -0.06321
+
+The candidate's mean magnitude is ~150x below the reference's and its output is
+uncorrelated with it. The max_abs_diff exceeds the reference's own peak because
+the candidate is near-zero almost everywhere: every one of the 256 token rows in
+a T=256 probe had mean|.| ~2e-5 against the reference's ~2.7e-3.
+
+The kernel does run and does write: with `out` and `final_state` pre-filled with
+the sentinel 7.0, 100% of both buffers were overwritten and 256/256 token
+positions were written. So this is a wrong result, not a skipped kernel and not
+a layout/stride mismatch.
+
+Variants run, all PARITY_FAILED:
+
+  reference = kimi_k3's own Triton kernel (vllm.models.kimi_k3.nvidia.ops
+              .third_party.kda.chunk_kda_with_fused_gate, raw_beta=, no
+              safe_gate)          out max_abs 0.0735474  ref_abs_max 0.0722656
+                                  final_state max_abs 1.61636  ref 1.62093
+  tokens 64 instead of 512        out max_abs 0.0655823  mean_abs 0.003117
+  pre-normalized q/k              byte-identical to the default case, so the
+                                  kernel normalizes internally (as expected)
+  bf16 pre-sigmoided beta         out max_abs 0.0734253  (no improvement)
+  zeroed gate (g=dt_bias=A_log=0) out max_abs 0.07354  ref_mean|.| 0.002519
+                                  cand_mean|.| 1.449e-05  corr +0.00019
+
+lower_bound sweep — the ratio does NOT track exp(lower_bound), so the ~150x
+factor is not a mis-applied bound:
+
+  lower_bound   ratio(ref/cand)   1/exp(lb)   corr(out)
+     -1.0          129.769          2.718      -0.0245
+     -2.0          116.292          7.389      -0.0479
+     -3.0          100.168         20.086      -0.1085
+     -5.0           87.187        148.413      -0.2433
+
+CONVENTIONS THAT ARE NOT THE CAUSE (each tested, each ruled out)
+---------------------------------------------------------------
+  beta        the kernel requires bf16 and rejects anything else:
+              "fwd, .../csrc/flash_kda.cpp:55, beta must be bfloat16".
+              The overlay's raw-bf16 convention is correct; passing fp32
+              sigmoided beta raises, and bf16 sigmoided beta does not help.
+  A_log       the kernel requires [H] and rejects every other rank/shape:
+              "fwd, .../csrc/flash_kda.cpp:109, A_log must be [H]" for
+              (1,1,H,1), (H,1) and (H,1,1,1). The overlay's .view(-1) is the
+              correct adaptation of GLM's 4-D parameter.
+  scale       both paths use head_dim ** -0.5 (the reference defaults to
+              k.shape[-1] ** -0.5 and the overlay passes the same value).
+  l2norm      the kernel normalizes q/k internally; pre-normalizing is a no-op.
+  layout      the kernel writes 100% of (1, T, H, D) out and (1, H, D, D) state.
+
+ROOT CAUSE NOT ISOLATED. The strongest structural lead: the fused kernel is
+paired, in this fork, with a *different* Triton kernel than GLM's.
+
+  kimi_k3 (vllm/models/kimi_k3/nvidia/kda.py:180) is the ONLY _flashkda_prefill
+  in the image. It calls the fused op with the same 14 arguments, and its Triton
+  branch calls vllm.models.kimi_k3.nvidia.ops.third_party.kda
+  .chunk_kda_with_fused_gate(q, k, v, raw_g, raw_beta, A_log, g_bias, scale=None,
+  initial_state=None, output_final_state=False, lower_bound=None,
+  use_qk_l2norm_in_kernel=False, cu_seqlens=None)
+
+  GLM's branch calls a different implementation,
+  vllm.third_party.flash_linear_attention.ops.kda.chunk_kda_with_fused_gate(...,
+  beta, ..., safe_gate=False, lower_bound=-5.0), which takes PRE-SIGMOIDED beta
+  and has a safe_gate flag the kimi copy lacks.
+
+So the two Triton kernels are not the same kernel. The fused op matches neither
+here, but the port is a port of the kimi pairing onto the GLM layer, and the two
+Triton kernels' outputs on these inputs are themselves nearly identical
+(ref_abs_max 0.0722656 vs 0.0722656), which leaves the mismatch in the fused
+op's own input expectations rather than in the choice of reference. Isolating it
+would need the kernel source: the image ships only _flashkda_C.abi3.so, and the
+runtime error paths name a build-time path (/workspace/.deps/flashkda-src/csrc/
+flash_kda.cpp) that is not present in the image.
+
+Cluster deploy and revert
+-------------------------
+  before task 34    start.sh 560a7ed5b8be5243   (byte-identical to repo 6d071e4)
+  deployed          start.sh 9abb832a567b5c86, overlay/patch_flashkda_prefill.py
+                    a38a0ad4f6ec8f09
+  backup            start.sh.bak-20260910-task34 = 560a7ed5b8be5243
+  REVERTED          start.sh 560a7ed5b8be5243 (restored from backup), overlay file
+                    removed, bash -n OK, overlay absent, backup retained
+  production        never restarted; container glm53-exl3-head up 21 h, /health
+                    200 on :8000, kda.py ec090aab throughout
+
+The revert is exact: the kit is back to the bytes the running container was
+started from. The `-f` preflight check in the wired launcher makes the overlay
+file mandatory, so reverting start.sh and removing the overlay had to happen
+together (reverting only one would have aborted the next boot).
+
+Decision
+--------
+REVERT the arm. Per the pre-registered contract in docs/15 §4, "a divergence is
+a correctness finding, not a tuning result": with the fused output uncorrelated
+with production's, a cold-prefill speed comparison would measure a different
+computation. The A/B window was therefore not started, production was not
+stopped, and no speed claim is made.

@@ -3147,6 +3147,53 @@ Restored `IMAGE=glm53-selfbuild:b5ab8091-s2b`, clean pair restart
 re-armed (active/active), serving spot-check OK, 6/6 converge probes
 69.7–71.1 on the fresh boot. **M0′ is CLOSED as ADOPT s2b.**
 
+## 2026-09-10: task 34 arm REVERTED — the correctness gate failed before the window
+
+**Outcome.** The user authorised stopping production for the task 34 A/B window.
+The pre-registered contract in `docs/15` §4 makes numeric parity a *required*
+gate, so the gate was run first — deliberately **without** stopping production,
+since the GPU is reachable alongside the serving container. It failed, so the
+window was not started, production was never restarted, and no speed claim is
+made. Receipt: `local/task34-parity-gate-20260910.txt`.
+
+**The gate.** `local/flashkda-parity-check.py` compares
+`chunk_kda_with_fused_gate` (production's Triton path) against
+`torch.ops._flashkda_C.fwd` on identical inputs, mirroring both call sites
+exactly, so it answers the A/B question itself rather than a proxy for it.
+
+**Finding 1 — fatal arity defect.** The overlay passed **16** positional
+arguments to `_flashkda_C.fwd`; the deployed op declares **14**. Arming raised
+`RuntimeError: expected at most 14 argument(s) but received 16` at the first
+prefill: the arm could not have served one request. This is exactly the failure
+the smoke test could not see — it proved the patched file *parses*, never that
+the op accepts the call. Fixed, and `EXPECTED_FWD_ARITY = 14` now pins the
+emitted call so a drifted template is refused before any write.
+
+**Finding 2 — numeric divergence.** With the arity corrected, the fused output
+is ~150× smaller in mean magnitude than production's and **uncorrelated** with
+it (Pearson +0.008 on `out`, −0.063 on `final_state`), across sequence lengths
+64/512, a zeroed gate, both beta conventions, pre-normalized q/k, both Triton
+references, and `lower_bound` ∈ {−1,−2,−3,−5}. Conventions ruled out by direct
+test: `beta` (the kernel demands bf16 and rejects fp32), `A_log` (the kernel
+demands `[H]` and rejects 4-D), `scale`, `l2norm`, and layout. Root cause not
+isolated — the image ships only `_flashkda_C.abi3.so`, and the strongest lead is
+structural: this fork pairs the fused op with **kimi_k3's** Triton kernel
+(`raw_beta`, no `safe_gate`), not with GLM's (`beta`, `safe_gate`).
+
+**Cluster reverted.** `start.sh` restored from its backup to `560a7ed5b8be5243`
+— the exact bytes the running container was started from — and the deployed
+overlay file removed (they had to move together: the wired launcher's `-f`
+preflight makes the overlay mandatory, so removing only the overlay would abort
+the next boot). Production stayed up throughout (21 h, `/health` 200 on :8000,
+`kda.py` `ec090aab…`).
+
+**Validation.** `compileall` clean; `shellcheck -S warning start.sh` clean;
+`pytest tests/ -q` → **522 passed, 1 skipped, 18 subtests** (517 before; +5
+arity regressions). The corrected overlay bytes were re-validated on the cluster
+against the deployed `kda.py` in a throwaway container: armed hash
+`58ff323c…`, 14 positional arguments to `_flashkda_C.fwd`, zero keywords,
+`py_compile` OK, idempotent, real file `ec090aab…` before and after.
+
 ## 2026-09-10: PR #69 follow-up commits — task 37 CLOSED `NOT_REACHABLE`, task 34 arm wired and boot-validated
 
 **Ledger note.** These commits extend PR #69's branch (the PR is still open),
@@ -3360,21 +3407,31 @@ rejects `cvt.e2m1x2`, `.target sm_121a` assembles it and lowers to
 `F2FP.SATFINITE.E2M1.F32.PACK_AB_MERGE_C`. The deposed-NVFP4 decision is
 untouched — only its stated reason. Items 2–4 remain open.
 
-### Task 34 — first arm: FlashKDA prefill, PREPARED (window unrun)
+### Task 34 — first arm: FlashKDA prefill, REVERTED (parity gate failed)
 
 Scoped from "three-PR lineage migration" to the one PR portable without it.
 #55736 edits `glm5next/nvidia/ops/third_party/kda/*`, absent from this fork;
 #55738 touches shared MLA backends. #55737 edits `glm5next/nvidia/kda.py`, which
 this fork has. Overlay is default-off, three exactly-once anchors, fail-closed
 on drift, byte-neutral unarmed. Cluster smoke in-container on a temporary copy:
-unarmed `ec090aab…` → armed `a4bdc543…` (parses, 6 markers) → idempotent →
-production untouched. `start.sh` is now wired and boot-validated (nine sites;
-`bash -n` + shellcheck clean, both generated inner scripts syntax-checked, the
-knob enum validated through `./start.sh validate` in a scratch kit, and the boot
+unarmed `ec090aab…` → armed (parses, 6 markers) → idempotent → production
+untouched. `start.sh` was wired and boot-validated (nine sites; `bash -n` +
+shellcheck clean, both generated inner scripts syntax-checked, the knob enum
+validated through `./start.sh validate` in a scratch kit, and the boot
 invocation replayed in throwaway containers: stock → byte-identical, armed →
-`a4bdc543…`, idempotent, production `ec090aab…` throughout). **Window still NOT
-run** — it needs a stopped maintenance window. Contract in `docs/15` §4,
-including the mandatory numeric-parity check before any speed claim.
+idempotent, production `ec090aab…` throughout). The armed hash is `58ff323c…`
+after the parity fix below; it was `a4bdc543…` before.
+
+**REVERTED 2026-09-10: the mandatory numeric-parity gate failed.** The arm was
+deployed to the kit (backup `start.sh.bak-20260910-task34`) and the gate run in
+throwaway containers without stopping production. Two findings, either of which
+is disqualifying: the overlay's `_flashkda_C.fwd` call passed **16** positional
+arguments where the deployed op declares **14** (so the arm would have raised at
+the first prefill), and with that fixed the fused output is ~150× smaller than
+production's Triton output and **uncorrelated** with it. The window was not
+started, the deployment was reverted to `560a7ed5b8be5243`, and no speed claim
+is made. Do not arm `GLM53_KDA_PREFILL_BACKEND=flashkda`. Detail in `docs/15`
+§5–§6; receipt `local/task34-parity-gate-20260910.txt`.
 
 ### Task 36 — task-29 re-open condition replaced by arithmetic
 
@@ -3386,4 +3443,4 @@ open the gap; a candidate must cut `REG ≤ 64` and application smem
 
 ### Validation
 
-`compileall` OK; `pytest tests/ -q` → 457 passed, 1 skipped, 18 subtests.
+`compileall` OK; `pytest tests/ -q` → 522 passed, 1 skipped, 18 subtests.

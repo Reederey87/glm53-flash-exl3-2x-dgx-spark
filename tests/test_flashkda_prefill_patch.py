@@ -202,6 +202,7 @@ def test_applies_to_the_real_deployed_kda_py():
     )
     methods = [n.name for n in klass.body if isinstance(n, ast.FunctionDef)]
     assert "_flashkda_prefill" in methods
+    assert len(_fwd_call(out).args) == MODULE.EXPECTED_FWD_ARITY
     assert MODULE.apply_to(out) == out
 
 
@@ -360,3 +361,75 @@ def test_commented_out_import_is_incomplete():
     assert MODULE.is_complete(commented) is False
     with pytest.raises(SystemExit):
         MODULE.apply_to(commented)
+
+
+# --- task 34 parity gate: the fused call's arity ---------------------------
+#
+# The first cut of this port passed two extra trailing ``None``s. The op is a
+# fixed-arity TorchScript binding, so arming raised at the first prefill:
+#   _flashkda_C::fwd() expected at most 14 argument(s) but received 16.
+# Nothing caught it, because the smoke test only proved the patched file
+# parses. These pin the count instead of assuming it.
+
+_FWD_TAIL = "            cu_seqlens.contiguous(),\n        )\n        return out, final_state"
+
+
+def _fwd_call(source: str):
+    for node in ast.walk(ast.parse(source)):
+        if (
+            isinstance(node, ast.Call)
+            and ast.unparse(node.func) == "torch.ops._flashkda_C.fwd"
+        ):
+            return node
+    return None
+
+
+def test_template_arity_matches_the_deployed_op():
+    """14 is the arity the v1.4.7 image's extension declares."""
+    assert MODULE.EXPECTED_FWD_ARITY == 14
+
+
+def test_fused_call_passes_exactly_the_deployed_arity():
+    call = _fwd_call(_complete())
+    assert call is not None, "no _flashkda_C.fwd call in the patched source"
+    assert len(call.args) == MODULE.EXPECTED_FWD_ARITY
+    assert call.keywords == [], "the deployed call site is positional-only"
+
+
+def test_two_extra_trailing_nones_are_refused():
+    """The exact defect the cluster parity gate caught."""
+    complete = _complete()
+    sixteen = complete.replace(
+        _FWD_TAIL,
+        "            cu_seqlens.contiguous(),\n            None,\n            None,\n"
+        "        )\n        return out, final_state",
+        1,
+    )
+    assert sixteen != complete, "fixture did not change; test is vacuous"
+    assert len(_fwd_call(sixteen).args) == 16
+    assert MODULE.is_complete(sixteen) is False
+    with pytest.raises(SystemExit):
+        MODULE.apply_to(sixteen)
+
+
+def test_a_wrong_arity_template_is_refused_before_writing(monkeypatch):
+    """A template that drifted from the op must fail before any file write."""
+    broken = MODULE.FLASHKDA_METHOD.replace(
+        "            cu_seqlens.contiguous(),\n        )",
+        "            cu_seqlens.contiguous(),\n            None,\n        )",
+        1,
+    )
+    assert broken != MODULE.FLASHKDA_METHOD
+    monkeypatch.setattr(MODULE, "FLASHKDA_METHOD", broken)
+    with pytest.raises(SystemExit):
+        MODULE.apply_to(FIXTURE)
+
+
+def test_keyword_style_call_does_not_satisfy_the_arity_check():
+    """Only positional arguments count, so a keyword rewrite cannot pass."""
+    complete = _complete()
+    keyworded = complete.replace(
+        "            q.contiguous(),\n", "            q=q.contiguous(),\n", 1
+    )
+    assert keyworded != complete
+    assert MODULE.is_complete(keyworded) is False
