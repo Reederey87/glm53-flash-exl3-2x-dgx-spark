@@ -3225,6 +3225,26 @@ running the installer, indexer identity came from spelling rather than import
 provenance, and the overlay's completeness list omitted its own required
 imports.
 
+**Recorded residual hardening (P3, non-blocking; review-approved).** Three
+gaps remain in the audits' *universality* — none of them changes a verdict on
+the deployed tree, and each is a hardening item rather than a demonstrated wrong
+answer:
+
+1. `_installer_invocation()` matches the installer call syntactically, so a call
+   inside `if False` would qualify. The real loader calls it on the live path,
+   so the current conclusion holds; validate reachable invocation before relying
+   on changed loader code.
+2. `_resolve_indexer_class()` still resolves a name bound to one *unknown*
+   import plus one indexer import, because the unknown binding is discarded. The
+   deployed module has a single canonical kpool binding, so its receipt is
+   unaffected; reject unknown alternatives before extending the audit to such
+   layouts.
+3. `_has_required_imports()` checks the imported name but not the local binding
+   it is assigned to, so `... import current_workspace_manager as other` would
+   pass. The generated candidate uses the correct binding and its bytes are
+   unchanged; add alias/scope validation before treating arbitrary hand-edited
+   installations as certified.
+
 **Open question for the owner:** discharge the three modules with call-graph
 evidence (or prove they are never loaded), then the audit will report
 `NOT_REACHABLE` on its own. Until then **no #290 fix is proven owed, and none is
