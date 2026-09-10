@@ -1,8 +1,10 @@
 # 15 — Task 34 arm: FlashKDA fused chunked prefill (vLLM #55737)
 
-**Status 2026-09-10: PREPARED and cluster-smoked; the production A/B window has
-NOT been run.** No production restart, no `.env` change, no image change. The
-candidate overlay is default-off and byte-neutral when unarmed.
+**Status 2026-09-10: PREPARED, WIRED and boot-validated; the production A/B
+window has NOT been run.** No production restart, no `.env` change, no image
+change. The candidate overlay is default-off and byte-neutral when unarmed, and
+`start.sh` now mounts and executes it, so the arm can be armed by setting the
+knob alone.
 
 ## 1. Why this arm, and what it is not
 
@@ -67,8 +69,11 @@ Plus `_flashkda_prefill(...)`, appended as a method of the same class.
 - Same assertions run against the **real deployed `kda.py`** when the gitignored
   live-image dump is present (`tests/fixtures/live-image-vllm/`).
 - **Cluster smoke (in-container, on a temporary copy — production untouched):**
-  unarmed sha256 `ec090aab…` unchanged; armed → `02b234e9…`, parses, 6 markers;
-  re-run idempotent (`02b234e9…`); the production file stayed `ec090aab…`.
+  unarmed sha256 `ec090aab…` unchanged; armed → `a4bdc543…`, parses, 6 markers;
+  re-run idempotent (`a4bdc543…`); the production file stayed `ec090aab…`. The
+  armed hash moved from the earlier `02b234e9…` when the review rounds added the
+  marker-requires-completeness and class-boundary checks; `a4bdc543…` is the
+  current candidate and is the value re-verified through the wired boot path.
 
 ## 4. Pre-registered A/B contract (not yet run)
 
@@ -95,19 +100,41 @@ Follows docs/13 §6 in full. One independent variable: `GLM53_KDA_PREFILL_BACKEN
 - **Both-node shape-cache:** the KDA layer is a config-shape change only if the
   workspace sizing moves; the JIT stamp must be recorded before/after regardless.
 
-### Wiring still required before the window
+### Wiring — DONE and boot-validated (2026-09-10)
 
-`start.sh` must mount and execute the overlay the way
-`patch_glm_video_placeholders.py` is wired (host variable → worker `scp` →
-both ranks' `docker -v` → `python3 -S` at boot, after the FLA/KDA overlays).
-That edit touches a 91 KB launcher in five places and **must be boot-validated**;
-it was deliberately not made in the preparation session, because a launcher
-regression is the documented cluster-down class (AGENTS.md, the unquoted-heredoc
-and folded-`command:` incidents).
+`start.sh` mounts and executes the overlay the way the other `patch_*.py`
+overlays are wired: host variable (`FLASHKDA_PREFILL_PATCH_HOST`) → worker
+`scp` → both ranks' `docker -v` → `python3 -S` at boot, after the FLA/KDA
+overlays. Nine sites: host var, knob default, `validate` enum check, preflight
+`-f` check, both boot heredocs, worker `scp`, both `docker -v` mounts, and the
+`nccl_common` env forward (`-e GLM53_KDA_PREFILL_BACKEND`, which reaches both
+ranks).
+
+Validated, without touching production:
+
+| Check | Result |
+|---|---|
+| `bash -n start.sh`, `shellcheck -S warning start.sh` | clean |
+| Both generated inner scripts extracted and `bash -n` | rc=0, block present and `-f`-guarded in each |
+| `./start.sh validate` in a scratch kit on spark1 | `triton`, `flashkda`, empty → "configuration valid"; `bogus` and `FLASHKDA` → rejected with the enum message |
+| Boot invocation in a throwaway container, knob `triton` | `kda.py` byte-identical (`ec090aab…`), 0 markers |
+| Boot invocation in a throwaway container, knob `flashkda` | `a4bdc543…`, 6 markers, `py_compile` OK, re-run idempotent |
+| Live production during all of the above | `ec090aab…` unchanged, container up, `/health` 200 on :8000 |
+
+The default is `triton` (the stock spelling), so **no `.env` change is required
+to deploy this**: mounting the overlay cannot alter production by itself.
+
+Deliberately **not** added to `prod-start.sh`'s JIT shape hash. The hash guards
+the persistent Triton cache against changed *launch parameters*; this arm
+replaces the prefill call and adds no Triton specialization, so hashing it would
+force a full cache wipe on every arm switch for no benefit. Record the JIT stamp
+before/after the window regardless, as below.
 
 ## 5. Explicitly not done
 
 - No production restart, no armed boot, no A/B measurement.
+- The launcher wiring landed and was boot-validated in throwaway containers;
+  production was never restarted and its `kda.py` stayed `ec090aab…`.
 - No numeric-parity run of `_flashkda_C.fwd` vs `chunk_kda_with_fused_gate`.
 - #55736 and #55738 were not attempted; #55736's files do not exist in this fork
   and the whole lineage migration is its own multi-component window.

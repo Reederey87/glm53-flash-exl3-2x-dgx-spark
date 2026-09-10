@@ -152,8 +152,18 @@ import types
 from pathlib import Path
 
 
+class InferParams:
+    pass
+
+
+class NullConfig:
+    def __init__(self) -> None:
+        self.infer_params = InferParams()
+
+
 def inject_config_stub(package_root: Path, modules: dict | None = None) -> types.ModuleType:
     modules = sys.modules if modules is None else modules
+    package_root = Path(package_root)
     for name, path in (
         ("exllamav3", package_root),
         ("exllamav3.modules", package_root / "modules"),
@@ -166,8 +176,38 @@ def inject_config_stub(package_root: Path, modules: dict | None = None) -> types
         module.__package__ = name
         module.__path__ = [str(path)]
         modules[name] = module
-    return modules["exllamav3.model"]
+
+    existing = modules.get("exllamav3.model.config")
+    if existing is not None:
+        return existing
+    config = types.ModuleType("exllamav3.model.config")
+    config.__file__ = str(package_root / "model/config.py")
+    config.__package__ = "exllamav3.model"
+    config.Config = type("Config", (), {})
+    config.InferParams = InferParams
+    config.NullConfig = NullConfig
+    modules[config.__name__] = config
+    return config
 '''
+
+# Installs the three package namespaces but leaves the real ``model/config.py``
+# to execute. That file is the only route into ``architecture/``, so an overlay
+# shaped like this must never be certified NOT_REACHABLE.
+STUB_NAMESPACE_WITHOUT_CONFIG = STUB_NAMESPACE_PY.replace(
+    """    existing = modules.get("exllamav3.model.config")
+    if existing is not None:
+        return existing
+    config = types.ModuleType("exllamav3.model.config")
+    config.__file__ = str(package_root / "model/config.py")
+    config.__package__ = "exllamav3.model"
+    config.Config = type("Config", (), {})
+    config.InferParams = InferParams
+    config.NullConfig = NullConfig
+    modules[config.__name__] = config
+    return config
+""",
+    '    return modules["exllamav3.model"]\n',
+)
 
 # Mentions every token the old presence check looked for while installing
 # nothing: `types.ModuleType` is constructed but never stored in the mapping.
@@ -522,8 +562,11 @@ def test_unparseable_serving_module_aborts(tmp_path):
 
 
 def test_unparseable_closure_module_aborts(tmp_path):
+    # A module the closure actually walks. ``model/config.py`` is no longer a
+    # valid target: it is a stub namespace, so its body never runs and the audit
+    # deliberately never parses it (see test_stubbed_config_namespace_is_not_parsed).
     root = build_tree(tmp_path)
-    (root / "exllamav3/model/config.py").write_text("def broken(:\n")
+    (root / "exllamav3/modules/quant/exl3_lib/quantize.py").write_text("def broken(:\n")
     with pytest.raises(MODULE.Abort):
         MODULE.audit(
             root,
@@ -715,3 +758,132 @@ def test_installer_called_after_an_exllamav3_import_aborts(tmp_path):
 def test_stub_contract_records_which_overlay_invokes_the_installer():
     contract = MODULE.stub_contract(ROOT / "overlay")
     assert contract["invoked_by"].endswith("exl3_namespace.py")
+
+
+# --- the model.config stub namespace ---------------------------------------
+#
+# The serving module's first import is `from ...model.config import Config`, and
+# the real model/config.py reaches architecture/architectures.py -- which imports
+# every architecture, including the ones pulling in modules.attn, modules.dsv4
+# and modules.gated_delta_net -- from a function-local import. Stubbing that
+# namespace is what keeps the whole fan-out out of the runtime closure.
+
+CONFIG_PY_ARCHITECTURE_FANOUT = """\
+class Config:
+    def load(self):
+        from exllamav3.architecture.architectures import get_architectures
+        return get_architectures()
+"""
+
+
+def _add_architecture_fanout(root: Path) -> None:
+    """Mirror the real chain: model/config.py -> architecture -> modules.native."""
+    pkg = root / "exllamav3"
+    (pkg / "architecture").mkdir(parents=True, exist_ok=True)
+    (pkg / "model/config.py").write_text(CONFIG_PY_ARCHITECTURE_FANOUT)
+    (pkg / "architecture/__init__.py").write_text("")
+    (pkg / "architecture/architectures.py").write_text("from .nativearch import NativeModel\n")
+    (pkg / "architecture/nativearch.py").write_text("from ..modules.native import native\n")
+
+
+def test_installed_stub_names_resolves_a_dunder_name_key():
+    """`mapping[config.__name__] = config` installs that namespace."""
+    source = (
+        "import types\n"
+        "def inject_config_stub(root, modules=None):\n"
+        "    config = types.ModuleType('exllamav3.model.config')\n"
+        "    modules[config.__name__] = config\n"
+        "    return config\n"
+    )
+    assert MODULE._installed_stub_names(source) == {"exllamav3.model.config"}
+
+
+def test_installed_stub_names_ignores_a_mismatched_dunder_name_key():
+    """`mapping[other.__name__] = config` installs other, not config."""
+    source = (
+        "import types\n"
+        "def inject_config_stub(root, modules=None):\n"
+        "    other = types.ModuleType('exllamav3.other')\n"
+        "    config = types.ModuleType('exllamav3.model.config')\n"
+        "    modules[other.__name__] = config\n"
+        "    return config\n"
+    )
+    assert MODULE._installed_stub_names(source) == set()
+
+
+def test_installed_stub_names_ignores_a_non_literal_module_name():
+    """A name the installer computes at runtime cannot be resolved statically."""
+    source = (
+        "import types\n"
+        "def inject_config_stub(root, modules=None, name=None):\n"
+        "    config = types.ModuleType(name)\n"
+        "    modules[config.__name__] = config\n"
+        "    return config\n"
+    )
+    assert MODULE._installed_stub_names(source) == set()
+
+
+def test_installed_stub_names_recognises_the_real_overlay():
+    source = (ROOT / "overlay/exl3_namespace.py").read_text()
+    installed = MODULE._installed_stub_names(source)
+    assert "exllamav3.model.config" in installed
+    assert not (MODULE.STUB_NAMESPACES - installed)
+
+
+def test_stub_contract_requires_the_config_namespace(tmp_path):
+    overlay = build_overlay(tmp_path, stub=STUB_NAMESPACE_WITHOUT_CONFIG)
+    with pytest.raises(MODULE.Abort) as excinfo:
+        MODULE.stub_contract(overlay)
+    assert "exllamav3.model.config" in str(excinfo.value)
+
+
+def test_stubbed_config_namespace_is_not_parsed(tmp_path):
+    """The stub replaces the real module, so its body is never read."""
+    root = build_tree(tmp_path)
+    (root / "exllamav3/model/config.py").write_text("def broken(:\n")
+    result = MODULE.audit(
+        root,
+        root / "exllamav3",
+        "exllamav3.modules.quant.exl3",
+        MODULE.worst_case_slots(8, 4, 7),
+        build_overlay(tmp_path),
+    )
+    assert result["verdict"] == "NOT_REACHABLE"
+
+
+def test_config_stub_keeps_the_architecture_fanout_out_of_the_closure(tmp_path):
+    root = build_tree(tmp_path)
+    _add_architecture_fanout(root)
+    closure = MODULE.import_closure(root / "exllamav3", ["exllamav3.modules.quant.exl3"])
+    assert "exllamav3.architecture.architectures" not in closure["modules"]
+    assert "exllamav3.modules.native" not in closure["modules"]
+
+
+def test_the_fanout_enters_the_closure_when_config_is_not_stubbed(tmp_path, monkeypatch):
+    """The negative control for the test above."""
+    root = build_tree(tmp_path)
+    _add_architecture_fanout(root)
+    monkeypatch.setattr(
+        MODULE, "STUB_NAMESPACES", frozenset({"exllamav3.modules", "exllamav3.model"})
+    )
+    closure = MODULE.import_closure(root / "exllamav3", ["exllamav3.modules.quant.exl3"])
+    assert "exllamav3.architecture.architectures" in closure["modules"]
+    assert "exllamav3.modules.native" in closure["modules"]
+
+
+def test_unstubbed_fanout_is_reported_rather_than_certified(tmp_path, monkeypatch):
+    """With the fan-out live, the call-site module must not be certified clear."""
+    root = build_tree(tmp_path)
+    _add_architecture_fanout(root)
+    monkeypatch.setattr(
+        MODULE, "STUB_NAMESPACES", frozenset({"exllamav3.modules", "exllamav3.model"})
+    )
+    report = MODULE.audit(
+        root,
+        root / "exllamav3",
+        "exllamav3.modules.quant.exl3",
+        MODULE.worst_case_slots(8, 4, 7),
+        build_overlay(tmp_path, stub=STUB_NAMESPACE_WITHOUT_CONFIG),
+    )
+    assert report["verdict"] == "ABORT", report["reason"]
+    assert "exllamav3.modules.native" in report["unresolved_closure_call_site_modules"]

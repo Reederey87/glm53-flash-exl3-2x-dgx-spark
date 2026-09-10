@@ -29,6 +29,34 @@ Verdicts:
                   performance task.
   ABORT         — a required source or anchor is missing/unreadable. Never
                   reports a pass it did not establish.
+
+Basis and limits of a NOT_REACHABLE verdict — it is *static*, not observed:
+
+  * The verdict rests on ``overlay/exl3_namespace.py`` installing
+    ``exllamav3``, ``exllamav3.modules``, ``exllamav3.model`` and
+    ``exllamav3.model.config`` as synthetic module objects before the serving
+    module is imported. ``stub_contract`` proves that structurally *and* by
+    executing the installer and inspecting the mapping, and
+    ``_installer_invocation`` proves the loader calls it before its first
+    ``exllamav3`` import. If the deployment stops stubbing any of them, the
+    closure grows and the verdict reverts to ABORT or worse -- fail-closed.
+  * ``exllamav3.model.config`` is the load-bearing one: the serving module's
+    first import is ``from ...model.config import Config``, and the real
+    ``model/config.py`` reaches ``architecture/architectures.py`` (which imports
+    every architecture, including those pulling in ``modules.attn``,
+    ``modules.dsv4`` and ``modules.gated_delta_net``) from a function-local
+    import inside ``Config``. Stubbing the namespace is what keeps that fan-out
+    out of the runtime closure.
+  * Not modelled: importing ``exllamav3.modules.quant.exl3`` really does execute
+    the real ``modules/quant/__init__.py`` (its parents ``exllamav3`` and
+    ``exllamav3.modules`` are synthetic), because ``modules.quant`` is not a
+    stub. On the pinned revision that file imports only ``.fp16`` and ``.exl3``,
+    neither of which reaches ``architecture/``, so it does not change this
+    verdict -- but it is a gap in the model, not a proof about it.
+  * No live ``sys.modules`` observation backs any of this. ``__pycache__``
+    mtimes cannot substitute: the image precompiles the whole tree at build
+    time. If a static basis is ever judged insufficient, the answer is a
+    one-time check in a stopped window, not a stronger claim from this script.
 """
 from __future__ import annotations
 
@@ -46,14 +74,26 @@ LINEAR_REL = "exllamav3_ext/libtorch/linear.cpp"
 BINDINGS_REL = "exllamav3_ext/bindings.cpp"
 SERVING_PY_REL = "modules/quant/exl3.py"
 
-# ``overlay/exl3_namespace.py::inject_config_stub`` installs these two names as
-# synthetic ``types.ModuleType`` namespaces before anything else imports them,
-# so the real ``modules/__init__.py`` (which pulls in block_sparse_mlp, attn,
-# sliding_attn, gated_delta_net, mlp -- every native module holding an
-# ``exl3_mgemm`` call site) never executes in this deployment. Treating them as
-# leaves is what makes the reachability answer faithful instead of a
-# conservative over-approximation.
-STUB_NAMESPACES = frozenset({"exllamav3.modules", "exllamav3.model"})
+# ``overlay/exl3_namespace.py::inject_config_stub`` installs these as synthetic
+# ``types.ModuleType`` namespaces before anything else imports them, so the real
+# ``modules/__init__.py`` (which pulls in block_sparse_mlp, attn, sliding_attn,
+# gated_delta_net, mlp -- every native module holding an ``exl3_mgemm`` call
+# site) never executes in this deployment. Treating them as leaves is what makes
+# the reachability answer faithful instead of a conservative over-approximation.
+#
+# ``exllamav3.model.config`` matters for the same reason and is the subtler of
+# the three: the serving module's first import is
+# ``from ...model.config import Config``, and the real ``model/config.py``
+# reaches ``architecture/architectures.py`` -- which imports every architecture,
+# including the ones that pull in ``modules.attn``, ``modules.dsv4`` and
+# ``modules.gated_delta_net`` -- from a *function-local* import inside
+# ``Config``. Stubbing the namespace is what keeps that whole fan-out out of the
+# runtime closure. The installer writes this one through its own ``__name__``
+# (``modules[config.__name__] = config``) rather than a literal key, so
+# ``_installed_stub_names`` resolves it from the ``ModuleType`` literal.
+STUB_NAMESPACES = frozenset(
+    {"exllamav3.modules", "exllamav3.model", "exllamav3.model.config"}
+)
 
 MAX_INDICES_DECL = "#define MAX_INDICES 128"
 V_INDICES_DECL = "__device__ int64_t v_indices[128];"
@@ -401,23 +441,24 @@ def _installed_stub_names(source: str) -> set[str]:
     """
     tree = ast.parse(source)
     module_typed: set[str] = set()
+    # local variable -> the literal name passed to `types.ModuleType(...)`, so a
+    # later `mapping[var.__name__] = var` can be resolved back to a namespace.
+    module_type_literal: dict[str, set[str]] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
-            func = node.value.func
-            callee = func.attr if isinstance(func, ast.Attribute) else (
-                func.id if isinstance(func, ast.Name) else None
-            )
-            if callee == "ModuleType":
+            if _callee_name(node.value.func) == "ModuleType":
+                literal = _module_type_name(node.value)
                 for target in node.targets:
                     if isinstance(target, ast.Name):
                         module_typed.add(target.id)
+                        if literal:
+                            module_type_literal.setdefault(target.id, set()).update(literal)
         elif isinstance(node, ast.AnnAssign) and isinstance(node.value, ast.Call):
-            func = node.value.func
-            callee = func.attr if isinstance(func, ast.Attribute) else (
-                func.id if isinstance(func, ast.Name) else None
-            )
-            if callee == "ModuleType" and isinstance(node.target, ast.Name):
+            if _callee_name(node.value.func) == "ModuleType" and isinstance(node.target, ast.Name):
                 module_typed.add(node.target.id)
+                literal = _module_type_name(node.value)
+                if literal:
+                    module_type_literal.setdefault(node.target.id, set()).update(literal)
 
     # Loop variables bound to string literals, e.g.
     # `for name, path in (("exllamav3", ...), ("exllamav3.modules", ...)):`.
@@ -437,12 +478,24 @@ def _installed_stub_names(source: str) -> set[str]:
                 if isinstance(value, ast.Constant) and isinstance(value.value, str):
                     literal_names.setdefault(var, set()).add(value.value)
 
-    def _keys(node: ast.Subscript) -> set[str]:
+    def _keys(node: ast.Subscript, assigned: ast.expr) -> set[str]:
         key = node.slice
         if isinstance(key, ast.Constant) and isinstance(key.value, str):
             return {key.value}
         if isinstance(key, ast.Name):
             return literal_names.get(key.id, set())
+        # `mapping[config.__name__] = config` right after
+        # `config = types.ModuleType("exllamav3.model.config")`. Only the same
+        # variable on both sides counts: `mapping[other.__name__] = config` does
+        # not install `config`'s namespace, so it stays unresolved.
+        if (
+            isinstance(assigned, ast.Name)
+            and isinstance(key, ast.Attribute)
+            and key.attr == "__name__"
+            and isinstance(key.value, ast.Name)
+            and key.value.id == assigned.id
+        ):
+            return module_type_literal.get(assigned.id, set())
         return set()
 
     def _is_module_value(value: ast.expr) -> bool:
@@ -468,8 +521,37 @@ def _installed_stub_names(source: str) -> set[str]:
             continue
         for target in targets:
             if isinstance(target, ast.Subscript):
-                installed |= _keys(target)
+                installed |= _keys(target, node.value)
     return installed
+
+
+def _callee_name(func: ast.expr) -> str | None:
+    """The bare name of a called expression (``types.ModuleType`` -> ``ModuleType``)."""
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    if isinstance(func, ast.Name):
+        return func.id
+    return None
+
+
+def _module_type_name(call: ast.Call) -> set[str]:
+    """The literal namespace passed to ``types.ModuleType(...)``, if it is one."""
+    if _callee_name(call.func) != "ModuleType":
+        return set()
+    if (
+        call.args
+        and isinstance(call.args[0], ast.Constant)
+        and isinstance(call.args[0].value, str)
+    ):
+        return {call.args[0].value}
+    for keyword in call.keywords:
+        if (
+            keyword.arg == "name"
+            and isinstance(keyword.value, ast.Constant)
+            and isinstance(keyword.value.value, str)
+        ):
+            return {keyword.value.value}
+    return set()
 
 
 def _installer_invocation(overlay_dir: Path) -> str | None:
@@ -521,10 +603,11 @@ def _installer_invocation(overlay_dir: Path) -> str | None:
 def stub_contract(overlay_dir: Path | None) -> dict:
     """Justify pruning ``STUB_NAMESPACES`` from the closure.
 
-    Treating ``exllamav3.modules``/``exllamav3.model`` as leaves is only sound
-    if the deployment really installs them as synthetic module objects before
-    anything imports them -- otherwise their ``__init__.py`` runs and pulls in
-    every native module that holds an ``exl3_mgemm`` call site.
+    Treating ``exllamav3.modules``/``exllamav3.model``/``exllamav3.model.config``
+    as leaves is only sound if the deployment really installs them as synthetic
+    module objects before anything imports them -- otherwise their ``__init__.py``
+    (or, for ``model.config``, the real module body) runs and pulls in every
+    native module that holds an ``exl3_mgemm`` call site.
 
     Checked structurally rather than by token presence, and then *behaviourally*:
     the installer is actually run against a fresh mapping and the result is

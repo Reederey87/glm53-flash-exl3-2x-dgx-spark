@@ -241,6 +241,10 @@ W28_CORRECTNESS_PATCH_HOST="${W28_CORRECTNESS_PATCH_HOST:-$SCRIPT_DIR/overlay/pa
 MAMBA_NULL_GAP_PATCH_HOST="${MAMBA_NULL_GAP_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_mamba_null_gap_retirement.py}"
 # LOCAL: task 17 / #55234 — inherited KVCacheSpec.merge assert -> raise (python -O)
 KV_MERGE_ASSERT_PATCH_HOST="${KV_MERGE_ASSERT_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_kv_merge_assert.py}"
+# LOCAL: task 34 track A — FlashKDA fused chunked prefill (vLLM #55737), opt-in
+# GLM53_KDA_PREFILL_BACKEND=flashkda. Default-off and byte-neutral when unarmed,
+# so mounting it cannot change production by itself. See docs/15.
+FLASHKDA_PREFILL_PATCH_HOST="${FLASHKDA_PREFILL_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_flashkda_prefill.py}"
 KV_CACHE_DTYPE="${KV_CACHE_DTYPE:-fp8}"
 QUANTIZATION="${QUANTIZATION:-exl3}"
 LANGUAGE_MODEL_ONLY="${LANGUAGE_MODEL_ONLY:-0}"
@@ -327,6 +331,12 @@ GLM53_ADAPTIVE_K_HIST="${GLM53_ADAPTIVE_K_HIST:-200}"
 GLM53_KDA_REC_WARPS="${GLM53_KDA_REC_WARPS:-}"
 GLM53_KDA_REC_STAGES="${GLM53_KDA_REC_STAGES:-}"
 GLM53_KDA_REC_BV_CAP="${GLM53_KDA_REC_BV_CAP:-}"
+# LOCAL: task 34 track A (begin) — prefill backend. Stock is the Triton chunked
+# path; `flashkda` is the #55737 arm. The default is the STOCK spelling, not
+# empty, because the overlay treats anything other than `flashkda` as stock and
+# an explicit `triton` documents the rollback value in `env.example`.
+GLM53_KDA_PREFILL_BACKEND="${GLM53_KDA_PREFILL_BACKEND:-triton}"
+# LOCAL: task 34 track A (end)
 if [ "${ENFORCE_EAGER}" != "1" ]; then
     case " ${EXTRA_ARGS:-} " in
         *" --cudagraph-capture-sizes "*|*" cudagraph-capture-sizes "*) ;;
@@ -624,6 +634,14 @@ validate_numeric_config() {
         ""|8|16|32) ;;
         *) echo "GLM53_KDA_REC_BV_CAP must be empty (stock 8) or one of: 8 16 32 (got: '${GLM53_KDA_REC_BV_CAP}')" >&2; return 2 ;;
     esac
+    # LOCAL: task 34 track A — prefill backend. `triton` is the stock Triton
+    # chunked path, `flashkda` is the #55737 arm, empty means stock. The overlay
+    # re-validates in-process and fails closed at boot, so this check only buys
+    # a clearer message before the containers are torn down.
+    case "${GLM53_KDA_PREFILL_BACKEND:-}" in
+        ""|triton|flashkda) ;;
+        *) echo "GLM53_KDA_PREFILL_BACKEND must be one of: triton flashkda (or empty for stock) (got: '${GLM53_KDA_PREFILL_BACKEND}')" >&2; return 2 ;;
+    esac
     # Capture list is a configuration-shape change (prod-start hashes EXTRA_ARGS).
     # Extra 3/5 multiples are the independent B0/B variable; stock stays 1 2 4 8 16 24 32.
     if [ "$SPEC_METHOD" = dflash ]; then
@@ -838,6 +856,7 @@ preflight() {
     [ -f "$INDEXER_WORKSPACE_PATCH_HOST" ] || die "$INDEXER_WORKSPACE_PATCH_HOST missing"  # LOCAL: W28
     [ -f "$W28_CORRECTNESS_PATCH_HOST" ] || die "$W28_CORRECTNESS_PATCH_HOST missing"  # LOCAL: W28
     [ -f "$KV_MERGE_ASSERT_PATCH_HOST" ] || die "$KV_MERGE_ASSERT_PATCH_HOST missing"
+    [ -f "$FLASHKDA_PREFILL_PATCH_HOST" ] || die "$FLASHKDA_PREFILL_PATCH_HOST missing"  # LOCAL: task 34
 
     local need_kb=$((180 * 1024 * 1024)) avail
     mkdir -p "$HF_CACHE_DIR"
@@ -1379,6 +1398,12 @@ fi
 if [ -f /opt/glm53/patch_kda_recurrent.py ]; then  # LOCAL: task 30 (after adaptive-k)
     python3 -S /opt/glm53/patch_kda_recurrent.py
 fi
+# LOCAL: task 34 track A — self-gated on GLM53_KDA_PREFILL_BACKEND. Runs last
+# among the KDA overlays so it sees the finished kda.py, and is a no-op that
+# leaves the file byte-identical when the knob is stock/unset.
+if [ -f /opt/glm53/patch_flashkda_prefill.py ]; then
+    python3 -S /opt/glm53/patch_flashkda_prefill.py
+fi
 if [ -f /opt/glm53/patch_kv_capacity_log.py ]; then  # LOCAL: W41 (after patch_hybrid_prefix_hit.py)
     python3 -S /opt/glm53/patch_kv_capacity_log.py
 fi
@@ -1535,6 +1560,12 @@ fi
 if [ -f /opt/glm53/patch_kda_recurrent.py ]; then  # LOCAL: task 30 (after adaptive-k)
     python3 -S /opt/glm53/patch_kda_recurrent.py
 fi
+# LOCAL: task 34 track A — self-gated on GLM53_KDA_PREFILL_BACKEND. Runs last
+# among the KDA overlays so it sees the finished kda.py, and is a no-op that
+# leaves the file byte-identical when the knob is stock/unset.
+if [ -f /opt/glm53/patch_flashkda_prefill.py ]; then
+    python3 -S /opt/glm53/patch_flashkda_prefill.py
+fi
 if [ -f /opt/glm53/patch_kv_capacity_log.py ]; then  # LOCAL: W41 (after patch_hybrid_prefix_hit.py)
     python3 -S /opt/glm53/patch_kv_capacity_log.py
 fi
@@ -1610,6 +1641,8 @@ launch_cluster() {
     [ -f "$MAMBA_NULL_GAP_PATCH_HOST" ] || die "missing $MAMBA_NULL_GAP_PATCH_HOST"
     scp -q -o BatchMode=yes "$MAMBA_NULL_GAP_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_mamba_null_gap_retirement.py"
     [ -f "$KV_MERGE_ASSERT_PATCH_HOST" ] || die "missing $KV_MERGE_ASSERT_PATCH_HOST"
+    [ -f "$FLASHKDA_PREFILL_PATCH_HOST" ] || die "missing $FLASHKDA_PREFILL_PATCH_HOST"  # LOCAL: task 34
+    scp -q -o BatchMode=yes "$FLASHKDA_PREFILL_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_flashkda_prefill.py"
     scp -q -o BatchMode=yes "$KV_MERGE_ASSERT_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_kv_merge_assert.py"
 
 
@@ -1655,6 +1688,7 @@ launch_cluster() {
         -e "GLM53_KDA_REC_WARPS=$GLM53_KDA_REC_WARPS"
         -e "GLM53_KDA_REC_STAGES=$GLM53_KDA_REC_STAGES"
         -e "GLM53_KDA_REC_BV_CAP=$GLM53_KDA_REC_BV_CAP"
+        -e "GLM53_KDA_PREFILL_BACKEND=$GLM53_KDA_PREFILL_BACKEND"  # LOCAL: task 34 (both ranks read it at patch time)
         -e "GLM53_KV_CAPACITY_LOG=$GLM53_KV_CAPACITY_LOG"  # LOCAL: W41
         -e "GLM53_APC_NO_STORE=$GLM53_APC_NO_STORE"  # LOCAL: W42
         -e "GLM53_INDEXER_WORKSPACE=$GLM53_INDEXER_WORKSPACE"  # LOCAL: W28
@@ -1765,6 +1799,7 @@ launch_cluster() {
         -v '/tmp/patch_align_floor.py:/opt/glm53/patch_align_floor.py:ro' \
         -v '/tmp/patch_adaptive_k.py:/opt/glm53/patch_adaptive_k.py:ro' \
         -v '/tmp/patch_kda_recurrent.py:/opt/glm53/patch_kda_recurrent.py:ro' \
+        -v '/tmp/patch_flashkda_prefill.py:/opt/glm53/patch_flashkda_prefill.py:ro' \
         -v '/tmp/patch_kv_capacity_log.py:/opt/glm53/patch_kv_capacity_log.py:ro' \
         -v '/tmp/patch_apc_no_store.py:/opt/glm53/patch_apc_no_store.py:ro' \
         -v '/tmp/patch_w28_correctness.py:/opt/glm53/patch_w28_correctness.py:ro' \
@@ -1807,6 +1842,7 @@ launch_cluster() {
         -v "$ALIGN_FLOOR_PATCH_HOST:/opt/glm53/patch_align_floor.py:ro" \
         -v "$ADAPTIVE_K_PATCH_HOST:/opt/glm53/patch_adaptive_k.py:ro" \
         -v "$KDA_REC_PATCH_HOST:/opt/glm53/patch_kda_recurrent.py:ro" \
+        -v "$FLASHKDA_PREFILL_PATCH_HOST:/opt/glm53/patch_flashkda_prefill.py:ro" \
         -v "$KV_CAPACITY_LOG_PATCH_HOST:/opt/glm53/patch_kv_capacity_log.py:ro" \
         -v "$APC_NO_STORE_PATCH_HOST:/opt/glm53/patch_apc_no_store.py:ro" \
         -v "$W28_CORRECTNESS_PATCH_HOST:/opt/glm53/patch_w28_correctness.py:ro" \

@@ -3147,6 +3147,25 @@ Restored `IMAGE=glm53-selfbuild:b5ab8091-s2b`, clean pair restart
 re-armed (active/active), serving spot-check OK, 6/6 converge probes
 69.7–71.1 on the fresh boot. **M0′ is CLOSED as ADOPT s2b.**
 
+## 2026-09-10: PR #69 follow-up commits — task 37 CLOSED `NOT_REACHABLE`, task 34 arm wired and boot-validated
+
+**Ledger note.** These commits extend PR #69's branch (the PR is still open),
+so they carry the same number rather than inventing a new one. Both close work
+that the earlier commits in that PR left open.
+
+**Task 37 CLOSED `NOT_REACHABLE`.** The three modules that had forced `ABORT`
+are reached through one dead edge, and the audit already knew how to model it —
+it was simply missing a namespace. Detail in the task 37 section below.
+
+**Task 34 track A wired.** The FlashKDA prefill overlay is now mounted and
+executed by `start.sh` (nine sites) and boot-validated without touching
+production. The default is the stock `triton` spelling, so no `.env` change is
+required to deploy the wiring and mounting the overlay cannot alter production
+by itself. Detail in `docs/15` §4.
+
+**Validation.** `compileall` clean; `pytest tests/ -q` → **517 passed, 1
+skipped, 18 subtests** (508 before). Receipts regenerated for both revisions.
+
 ## 2026-09-10: PR #69 — task 39 CLOSED by audit, task 37 NARROWED, 38.1 landed, 34 first arm prepared
 
 **Ledger note.** PRs #64–#67 did not add entries here; this one does, because
@@ -3154,11 +3173,12 @@ task 34 creates an arm that will need a window record and task 36 replaces a
 standing gate. Detail lives in `docs/15` (task 34) and `docs/11` §9 (task 36).
 
 **Review correction.** Three independent review passes of this change found
-fourteen fail-open defects, thirteen of them in the two audits — the code whose entire job is
-to refuse to certify a tree it could not read. All ten are fixed with regression
-tests; the net effect is that **task 37's verdict changed from `NOT_REACHABLE`
-to `ABORT`**, because the original verdict rested on evidence the audit could
-not actually establish. See the task 37 section below.
+fourteen fail-open defects, thirteen of them in the two audits — the code whose
+entire job is to refuse to certify a tree it could not read. All fourteen are
+fixed with regression tests. The verdict travelled `NOT_REACHABLE` -> `ABORT` -> `NOT_REACHABLE`: the
+original pass certified a conclusion it had not established, the audit was
+made fail-closed (which produced the `ABORT`), and call-graph evidence then
+closed the question properly. See the task 37 section below.
 
 Pass 1: the verdict ignored a `calls_exl3_mgemm` hit in the C++ bridge; closure
 modules holding call sites were reported as advisory and then certified anyway;
@@ -3185,7 +3205,7 @@ import could shadow a module-level one, and it ignored the imported symbol
 name; and the overlay's completeness check was still textual, so a
 commented-out import counted as present.
 
-### Task 37 — `v_indices[128]` scratch: **ABORT (narrowed, NOT closed)**
+### Task 37 — `v_indices[128]` scratch: **CLOSED `NOT_REACHABLE`**
 
 The TODO's premise ("unenforced, reachable from the serving path") is **not
 established**, and neither is its negation. What is established, on the
@@ -3204,16 +3224,42 @@ Worst-case slots at production shapes (`top_k=8`, `MAX_NUM_SEQS=4`, draft 7) is
 32 ≤ 128, so *if* the entry were reached it would not overflow — but the entry
 is not the open question.
 
-**Why it is not closed.** Two (v1.4.7) / three (v1.4.9) modules inside the
-serving import closure still contain `exl3_mgemm` call sites:
+**Why it was briefly open, and how it closed.** Two (v1.4.7) / three (v1.4.9)
+modules inside the serving import closure held `exl3_mgemm` call sites:
 `exllamav3.modules.attn`, `exllamav3.modules.dsv4` (and
-`gated_delta_net` on v1.4.9). They enter the closure through **function-local**
-imports — `modules/block_sparse_mlp_routing.py` does `from .attn import
-get_for_device` inside a function body — and all their `ext.exl3_mgemm(...)`
-sites are inside functions, not at module level. Importing a module does not
-execute its call sites, so static import-closure analysis cannot discharge
-them; that needs a call graph. The earlier `NOT_REACHABLE` verdict came from
-reporting exactly these as "advisory context" and then certifying anyway.
+`exllamav3.modules.gated_delta_net` on v1.4.9). The audit refused to certify
+them away and returned `ABORT`. The call-graph work then showed they are
+**not reachable at all**, through one dead edge:
+
+    exllamav3.modules.quant.exl3:3   from ...model.config import Config
+      -> exllamav3.model.config:245  from exllamav3.architecture.architectures
+                                     import get_architectures   (function-local,
+                                     inside Config)
+      -> architecture/architectures.py:1,8,24  imports every architecture
+      -> architecture/{arcee,deepseek_v4,glm5_next}.py
+      -> modules.{attn,dsv4,gated_delta_net}
+
+`overlay/exl3_namespace.py::inject_config_stub` installs
+**`exllamav3.model.config`** as a synthetic `types.ModuleType` *before*
+`exllamav3.modules.quant.exl3` is imported, so that first import binds the stub
+and the real `model/config.py` body never executes. With the namespace stubbed,
+the closure is 79 modules on the deployed v1.4.7 and 92 on the v1.4.9 clone, and
+contains **no** module holding an `exl3_mgemm` call site. The audit already
+honoured this mechanism for `exllamav3`, `exllamav3.model` and
+`exllamav3.modules`; `exllamav3.model.config` was simply missing from
+`STUB_NAMESPACES`.
+
+The fix needed two parts, because the installer writes this namespace through
+its own `__name__` (`modules[config.__name__] = config`) rather than a literal
+key: the name was added to `STUB_NAMESPACES`, and `_installed_stub_names` now
+resolves `X.__name__` back to the `types.ModuleType(...)` literal — but only
+when the same variable appears on both sides of the assignment, so
+`mapping[other.__name__] = config` still installs nothing. Both are covered by
+regressions, including a negative control that shows the architecture fan-out
+re-entering the closure if the namespace is not stubbed.
+
+The deployed stub installer is byte-identical to the repo copy
+(`3611f7f5…`), so the receipt describes the file that actually runs.
 
 An earlier draft of this audit did precisely that, and also returned
 `NOT_REACHABLE` when the serving module was deleted or corrupted, and ignored a
@@ -3245,13 +3291,20 @@ answer:
    unchanged; add alias/scope validation before treating arbitrary hand-edited
    installations as certified.
 
-**Open question for the owner:** discharge the three modules with call-graph
-evidence (or prove they are never loaded), then the audit will report
-`NOT_REACHABLE` on its own. Until then **no #290 fix is proven owed, and none is
-proven unnecessary.** Reusable: `scripts/audit_exl3_mgemm_indices.py`
-(fail-closed; `--exl3-root`, `--overlay-dir`). Receipts:
-`local/task37-mgemm-indices-v147-20260910.json`,
-`local/task37-mgemm-indices-v149-local-clone-20260910.json`.
+**Closed: no #290 fix is owed on this deployment, and the entry point is not
+reachable at any shape.** Worst case remains 32 ≤ 128 if the premise ever
+changes. The verdict is **static, not observed** — no live `sys.modules` check
+was run, and `__pycache__` mtimes cannot substitute because the image
+precompiles the whole tree. If a static basis is later judged insufficient, the
+answer is a one-time check in a stopped window, not a stronger claim from the
+script. Two residual model gaps are recorded in the script's own docstring: the
+real `modules/quant/__init__.py` executes (benign on the pinned revision, which
+imports only `.fp16` and `.exl3`), and the installer-invocation check is
+syntactic (P3, above). Reusable:
+`scripts/audit_exl3_mgemm_indices.py` (fail-closed; `--exl3-root`,
+`--overlay-dir`). Receipts:
+`local/task37-mgemm-indices-v147-20260910.json` (79 modules),
+`local/task37-mgemm-indices-v149-local-clone-20260910.json` (92 modules).
 
 ### Task 39 — persistent-top-k: NOT_APPLICABLE
 
@@ -3283,10 +3336,14 @@ Scoped from "three-PR lineage migration" to the one PR portable without it.
 #55738 touches shared MLA backends. #55737 edits `glm5next/nvidia/kda.py`, which
 this fork has. Overlay is default-off, three exactly-once anchors, fail-closed
 on drift, byte-neutral unarmed. Cluster smoke in-container on a temporary copy:
-unarmed `ec090aab…` → armed `02b234e9…` (parses, 6 markers) → idempotent →
-production untouched. **Window NOT run; `start.sh` NOT wired** (launcher edits
-need a boot validation). Contract in `docs/15` §4, including the mandatory
-numeric-parity check before any speed claim.
+unarmed `ec090aab…` → armed `a4bdc543…` (parses, 6 markers) → idempotent →
+production untouched. `start.sh` is now wired and boot-validated (nine sites;
+`bash -n` + shellcheck clean, both generated inner scripts syntax-checked, the
+knob enum validated through `./start.sh validate` in a scratch kit, and the boot
+invocation replayed in throwaway containers: stock → byte-identical, armed →
+`a4bdc543…`, idempotent, production `ec090aab…` throughout). **Window still NOT
+run** — it needs a stopped maintenance window. Contract in `docs/15` §4,
+including the mandatory numeric-parity check before any speed claim.
 
 ### Task 36 — task-29 re-open condition replaced by arithmetic
 
