@@ -3146,3 +3146,70 @@ Restored `IMAGE=glm53-selfbuild:b5ab8091-s2b`, clean pair restart
 (`SKIP_DOWNLOAD=1`), pool **1,396,551 byte-identical**, watchdog timer
 re-armed (active/active), serving spot-check OK, 6/6 converge probes
 69.7–71.1 on the fresh boot. **M0′ is CLOSED as ADOPT s2b.**
+
+## 2026-09-10: PR #69 — tasks 37/39 CLOSED by audit, 38.1 landed, 34 first arm prepared
+
+**Ledger note.** PRs #64–#67 did not add entries here; this one does, because
+task 34 creates an arm that will need a window record and task 36 replaces a
+standing gate. Detail lives in `docs/15` (task 34) and `docs/11` §9 (task 36).
+
+### Task 37 — `v_indices[128]` scratch: NOT_REACHABLE
+
+The TODO's premise ("unenforced, reachable from the serving path") did not
+survive re-derivation from the deployed source. The scratch is written only
+inside `exl3_mgemm_kernel`; `BC_LinearEXL3::run_gr` — the bridge the model
+actually calls — uses `exl3_gemm_gr`/`exl3_gemm`; the only binding-level entry
+to `exl3_mgemm` is the standalone binding; and the overlay's four named symbols
+(`exl3_fat_gemm`, `exl3_fat_gemm_scatter`, `exl3_moe`,
+`exl3_moe_max_concurrency`) do not include it. Worst-case slots at production
+shapes (`top_k=8`, `MAX_NUM_SEQS=4`, draft 7) = 32 ≤ 128. Checked on pinned
+**v1.4.7** (19 call sites) and a local **v1.4.9** clone (22 call sites).
+**No #290 fix is owed.** Reusable: `scripts/audit_exl3_mgemm_indices.py`
+(fail-closed; `--exl3-root`).
+
+### Task 39 — persistent-top-k: NOT_APPLICABLE
+
+The GLM path runs `SparseAttnIndexerKpool`. Its `persistent_topk` branch is
+dead by construction: a deliberate local patch
+(`overlay/patch_glm_video_placeholders.py::_disable_gb10_persistent_topk`)
+inserts `if False and current_platform.is_cuda()`, with the in-file rationale
+that the persistent variant oversubscribes GB10 shared memory on long
+sequences. The live kernel is `top_k_per_row_decode`. The plain
+`SparseAttnIndexer` — where `persistent_topk` *is* live — is DeepSeek-only.
+So upstream #52149/#55314 do not gate this deployment. **This also corrects the
+task-34 migration gate**, which had listed task 39 as a prerequisite.
+Reusable: `scripts/audit_persistent_topk_reachability.py`; re-run it against any
+migrated tree before assuming the conclusion still holds.
+
+### Task 38 item 1 — silicon fact corrected (scope wider than the TODO said)
+
+The TODO named one file; the same false claim appeared in three tracked files
+(`docs/01-architecture.md`, `docs/07-rebase-plan.md`, `README.md`). All now use
+the target-gated wording. Verified on spark1 with ptxas 13.0.88: `.target sm_121`
+rejects `cvt.e2m1x2`, `.target sm_121a` assembles it and lowers to
+`F2FP.SATFINITE.E2M1.F32.PACK_AB_MERGE_C`. The deposed-NVFP4 decision is
+untouched — only its stated reason. Items 2–4 remain open.
+
+### Task 34 — first arm: FlashKDA prefill, PREPARED (window unrun)
+
+Scoped from "three-PR lineage migration" to the one PR portable without it.
+#55736 edits `glm5next/nvidia/ops/third_party/kda/*`, absent from this fork;
+#55738 touches shared MLA backends. #55737 edits `glm5next/nvidia/kda.py`, which
+this fork has. Overlay is default-off, three exactly-once anchors, fail-closed
+on drift, byte-neutral unarmed. Cluster smoke in-container on a temporary copy:
+unarmed `ec090aab…` → armed `02b234e9…` (parses, 6 markers) → idempotent →
+production untouched. **Window NOT run; `start.sh` NOT wired** (launcher edits
+need a boot validation). Contract in `docs/15` §4, including the mandatory
+numeric-parity check before any speed claim.
+
+### Task 36 — task-29 re-open condition replaced by arithmetic
+
+`docs/11` §9. CC 12.0: 48 warps/SM, 64K regs/SM, 128 KB smem/SM. The measured
+launch (block 512, `REG:128`, `SMEM:92,160 B`) is pinned to 1 block/SM = 16
+warps = 33.3% by two independent ceilings. No counter or occupancy sweep can
+open the gap; a candidate must cut `REG ≤ 64` and application smem
+`≤ 65,536 B`, then confirm residency via the occupancy API.
+
+### Validation
+
+`compileall` OK; `pytest tests/ -q` → 457 passed, 1 skipped, 18 subtests.
