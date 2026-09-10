@@ -1,0 +1,9 @@
+Pseudo-terminal will not be allocated because stdin is not a terminal.
+ptxas: Build cuda_13.0.r13.0/compiler.36424714_0
+--- .target sm_121 ---
+ptxas /tmp/p_sm_121.ptx, line 11; error   : Instruction 'cvt with .e2m1x2' not supported on .target 'sm_121'
+ptxas fatal   : Ptx assembly aborted due to errors
+--- .target sm_121a ---
+(assembled clean)
+--- SASS ---
+        /*0040*/                   F2FP.SATFINITE.E2M1.F32.PACK_AB_MERGE_C R5, R0, R0, RZ ;  /* 0x000000000005723e */

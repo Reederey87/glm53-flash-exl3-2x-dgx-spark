@@ -1,0 +1,37 @@
+  "dead_branches": [
+    {
+      "else_branch": true,
+      "line": 817,
+      "live_kernel_calls": [
+        832,
+        843
+      ],
+      "persistent_topk_calls": [
+        822
+      ]
+    }
+  ],
+  "glm_indexer": {
+    "imports_kpool_class": true,
+    "instantiates_kpool_class": true,
+    "uses_plain_indexer": false
+  },
+  "live_kernel": "top_k_per_row_decode",
+  "live_kernel_has_fixed_scratch": null,
+  "live_persistent_topk_lines": [],
+  "overlay_guard": {
+    "checked": true,
+    "fail_closed": true,
+    "guard_call": true,
+    "installs_dead_branch": true,
+    "present": true
+  },
+  "plain_indexer_users": [
+    "models/deepseek_v32/amd/rocm.py",
+    "models/deepseek_v32/attention.py",
+    "models/deepseek_v4/attention.py",
+    "models/deepseek_v4/common/ops/fused_indexer_q.py"
+  ],
+  "reason": "the GLM-5.3-Flash path uses SparseAttnIndexerKpool and that file's persistent_topk branch is dead by construction (line 817), with top_k_per_row_decode on the live else branch. #52149/#55314 cannot change selection here, so no indexer-logits comparison is owed.",
+  "verdict": "NOT_APPLICABLE"
+}

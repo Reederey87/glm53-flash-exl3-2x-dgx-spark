@@ -33,9 +33,13 @@ will never take, instead of a 142-commit private fork delta.
 - **FlashInfer #4802/#4791** — a *native* SM120 NoPE sparse-MLA path (D_CKV=512,
   D_ROPE=0). When integrated, the zero-padding workaround retires and DSA-layer
   KV records drop from 656 B toward ~528 B/token — a pool win to re-measure.
-- **SM121 hardware facts** (field-confirmed): SM121 lacks `cvt.e2m1x2` — NVFP4
-  kernels can never compile for it (the EXL3 choice was structural, not taste);
-  sm_120 cubins run on sm_121 via forward compatibility; platform support
+- **SM121 target facts** (field-confirmed): on the family target `.target sm_121`
+  the FP4 conversion `cvt.rn.satfinite.e2m1x2.f32` is rejected, but it assembles
+  and lowers to real SASS on `sm_121a` — the FP4 alphabet is **target-gated, not
+  silicon-absent**, so "NVFP4 can never compile" holds only for the default
+  (non-`a`) target. The EXL3 choice was structural, not an ISA impossibility
+  (see `01-architecture.md`); sm_120 cubins run on sm_121 via forward
+  compatibility; platform support
   (`is_blackwell_class()`, GB10 MoE configs, TRITON_PTXAS_PATH) is merged (#31740).
 
 ## What current main already ships (verified in-tree, `cacc429f62`)

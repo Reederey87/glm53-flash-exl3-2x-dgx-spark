@@ -28,16 +28,24 @@ upstream's asymmetric interface pins hang `ncclCommInitRank`.
 - CUDA graphs FULL_AND_PIECEWISE; capture sizes `1 2 4 8 16 24 32` are **token batches**
   (1–4 seqs × 8 spec tokens), not sequence counts.
 
-## Why EXL3 — GB10 has no NVFP4 hardware
+## Why EXL3 — the NVFP4 route is target-gated, not silicon-absent
 
-The quantization choice is dictated by silicon, not preference. **GB10 (sm_121)
-lacks the `cvt.e2m1x2` microscaling instruction** that datacenter Blackwell
-(SM100/SM103) and even workstation SM120 carry — NVFP4 kernels *can never compile*
-for this chip; it is a hardware limitation, and any "just use the NVFP4
-checkpoint" advice you'll find for other Blackwell platforms does not transfer.
-(sm_120 cubins do run on sm_121 via forward compatibility, but not the FP4
-microscaling paths.) The predecessor NVFP4 deployment of this same model ran
-through Marlin-style emulation and was deposed for exactly this reason.
+The quantization choice is structural, but **not** because GB10 cannot express
+FP4. `cvt.rn.satfinite.e2m1x2.f32` is rejected on the family target `.target
+sm_121`, yet it **assembles and lowers to real SASS on `sm_121a`**
+(`F2FP.SATFINITE.E2M1.F32.PACK_AB_MERGE_C`, confirmed on this node's own ptxas
+13.0.88). The FP4 conversion alphabet is therefore **target-gated, not
+silicon-absent**. An earlier version of this section claimed the instruction is
+absent from the chip; that was wrong in its strong form. The likely origin of
+the observation is that nvcc 13.0 full `-c` compiles emit intermediate PTX
+carrying `.target sm_121`, so an FP4 intrinsic that only assembles under the
+`a` suffix fails in the default build. Treat "NVFP4 can never compile on GB10"
+as a toolchain claim about the default target, not a hardware fact.
+
+The predecessor NVFP4 deployment of this same model ran through Marlin-style
+emulation and was deposed on memory and throughput grounds, not on an ISA
+impossibility. That decision stands; only its stated reason is corrected here.
+The reasons EXL3 remains the right fit are the ones below.
 
 EXL3 is the right fit for what GB10 actually has:
 
