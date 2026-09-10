@@ -53,6 +53,19 @@ Basis and limits of a NOT_REACHABLE verdict — it is *static*, not observed:
     stub. On the pinned revision that file imports only ``.fp16`` and ``.exl3``,
     neither of which reaches ``architecture/``, so it does not change this
     verdict -- but it is a gap in the model, not a proof about it.
+  * ``_installed_stub_names`` is a structural over-approximation: it can
+    attribute a namespace the installer never reaches (rebinding, scope). That
+    direction is safe here because ``stub_contract`` then *executes* the
+    installer and requires the namespace to be a real module in the mapping --
+    every structural false positive tested so far ends in ABORT, not in a
+    wrong NOT_REACHABLE. It is a boundary of the structural pass, not of the
+    verdict.
+  * Pruning assumes the serving process has not already imported the genuine
+    module under that name. The real installer returns an existing
+    ``exllamav3.model.config`` only when it already carries
+    ``NullConfig``/``InferParams`` and raises otherwise, so a genuine preload
+    is refused rather than silently accepted -- but this script does not model
+    arbitrary pre-imported process states.
   * No live ``sys.modules`` observation backs any of this. ``__pycache__``
     mtimes cannot substitute: the image precompiles the whole tree at build
     time. If a static basis is ever judged insufficient, the answer is a

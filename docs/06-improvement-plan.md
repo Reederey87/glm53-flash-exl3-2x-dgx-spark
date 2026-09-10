@@ -3163,8 +3163,18 @@ production. The default is the stock `triton` spelling, so no `.env` change is
 required to deploy the wiring and mounting the overlay cannot alter production
 by itself. Detail in `docs/15` §4.
 
+**Task 38 item 3 also landed** (same session, separate concern): the
+`cvt.rn.bf16x2.e4m3x2` failure is a **toolchain-version** gate (CUDA ≥ 13.2, PTX
+ISA 9.2), not an arch limit — the `f16x2` sibling assembles on `sm_121a` with the
+same ptxas 13.0.88. The helper is on b12x's paged/QSA sparse-attention path but
+not the P8 codec's, so the P8 disposition stands. `docs/11` §2 qualified; receipt
+`local/task38-cvt-bf16x2-e4m3x2-20260910.txt`.
+
 **Validation.** `compileall` clean; `pytest tests/ -q` → **517 passed, 1
 skipped, 18 subtests** (508 before). Receipts regenerated for both revisions.
+Independent review of this candidate returned **APPROVED** with no required
+findings; it re-derived both closures (79 / 92, and 90 / 103 when every unstubbed
+parent initializer is added) and still found no `exl3_mgemm` call-site module.
 
 ## 2026-09-10: PR #69 — task 39 CLOSED by audit, task 37 NARROWED, 38.1 landed, 34 first arm prepared
 
@@ -3305,6 +3315,27 @@ syntactic (P3, above). Reusable:
 `--overlay-dir`). Receipts:
 `local/task37-mgemm-indices-v147-20260910.json` (79 modules),
 `local/task37-mgemm-indices-v149-local-clone-20260910.json` (92 modules).
+
+**Recorded residual hardening (P3, non-blocking; review-approved).** The
+independent review of this flip approved it and named two boundaries that limit
+the audit's *universality* rather than its conclusion on this deployment:
+
+1. `_installed_stub_names` is a structural over-approximation — it can attribute
+   a namespace the installer never reaches. That direction is safe: the
+   behavioural `stub_contract` pass then executes the installer and requires the
+   namespace to be a real module in the mapping, so a structural false positive
+   ends in `ABORT`, not in a wrong `NOT_REACHABLE`.
+2. Pruning assumes the serving process has not already imported the genuine
+   module. The real installer returns an existing `exllamav3.model.config` only
+   when it already carries `NullConfig`/`InferParams` and raises otherwise, so a
+   genuine preload is refused rather than accepted — but arbitrary pre-imported
+   process states are not modelled.
+
+The review also independently strengthened the evidence beyond what was
+submitted: it expanded both closures to include every unstubbed parent
+initializer (90 / 103 modules versus the reported 79 / 92) and still found no
+`exl3_mgemm` call-site module, and confirmed that the real root, model, modules
+and config bodies do not execute while the `quant` parent initializer does.
 
 ### Task 39 — persistent-top-k: NOT_APPLICABLE
 

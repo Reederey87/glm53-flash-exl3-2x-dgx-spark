@@ -30,12 +30,15 @@ before each window restart, `POST /reset_prefix_cache` for cold rounds
 | tcgen05 / TMEM | **NOT present** | Warp-level `mma.sync` is the only tensor-core path; no 2-SM MMA, no tile-level UMMA | CUTLASS issues [#2947](https://github.com/NVIDIA/cutlass/issues/2947), [#3100](https://github.com/NVIDIA/cutlass/issues/3100) — NVIDIA staff: *"SM121a and SM120a do not support tcgen05 … use warp level mma"* |
 | Shared memory | **101,376 B/CTA** (same as RTX 4090) | SGLang-class default MoE configs (~147 KB) fail `OutOfResources`; tile configs must fit 99 KB effective | [NVIDIA forum: SM121 CUTLASS results](https://forums.developer.nvidia.com/t/sm121-cutlass-kernel-optimization-results-nvfp4-356-tflops-moe-grouped-gemm-on-dgx-spark/359960) |
 | NVFP4/FP8 tensor cores | Present via warp-level block-scaled `mma.sync` (CUDA 13); measured 356 TFLOPS dense NVFP4 (71% of peak) | FP4 compute is real but through the SM80-era issue path, not tcgen05 | same forum thread |
-| Toolchain | CUDA 13.x system ptxas required (`TORCH_CUDA_ARCH_LIST=12.1a`); older bundled ptxas lacks sm_121 | Keep `TORCH_CUDA_ARCH_LIST=12.1a` in the kit Dockerfile (already set) | [triton-blackwell-bringup](https://github.com/eniktab/triton-blackwell-bringup) |
+| Toolchain | CUDA 13.x system ptxas required (`TORCH_CUDA_ARCH_LIST=12.1a`); older bundled ptxas lacks sm_121. **CUDA ≥ 13.2 (PTX ISA 9.2) additionally required for any entry using the `cvt.rn.bf16x2.e4m3x2` widening** — ptxas 13.0.88 caps at ISA 9.0 and rejects it on `sm_121a` (`Unexpected instruction types specified for 'cvt'`), while the `cvt.rn.f16x2.e4m3x2` sibling assembles. A toolchain-version limit, not an arch one. | Keep `TORCH_CUDA_ARCH_LIST=12.1a` in the kit Dockerfile (already set); for a b12x-style intake, gate on CUDA ≥ 13.2 rather than on the arch | [triton-blackwell-bringup](https://github.com/eniktab/triton-blackwell-bringup); measured on spark1 ptxas 13.0.88, receipt `local/task38-cvt-bf16x2-e4m3x2-20260910.txt` |
 | Memory bandwidth | 218 GB/s measured LPDDR5X unified | The fat-expert wall is **weight streaming, not MMA** — format/traffic optimizations beat ISA upgrades | forum; matches docs/06 W24 ("weight streaming ≈ 63% of every prefill step") |
 
 **Intake rule (adopted):** any kernel candidate that requires tcgen05/TMEM, 2-SM MMA,
 >101,376 B SMEM, or a pre-CUDA-13 toolchain is rejected at intake. Warp-level-MMA
-probes come before any port.
+probes come before any port. A candidate whose kernels use the PTX ISA 9.2
+bf16x2 e4m3 widening is additionally gated on **CUDA ≥ 13.2**, which is a
+toolchain gate rather than an arch gate — do not record it as an SM121
+limitation.
 
 ## 3. Qualification of `overlay/exl3_fat_gemm.cu` (W24, adopted 2026-08-31)
 
