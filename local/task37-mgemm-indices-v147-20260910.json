@@ -1,8 +1,4 @@
 {
-  "advisory_closure_call_site_modules": [
-    "exllamav3.modules.attn",
-    "exllamav3.modules.dsv4"
-  ],
   "binding_reaches_mgemm": [],
   "call_site_modules": {
     "exllamav3.modules.attn": 2,
@@ -18,7 +14,7 @@
     "per_matrix_widths_require_min_index_negative": true,
     "sliced_mode_requires_min_index_negative": true
   },
-  "import_closure_size": 284,
+  "import_closure_size": 282,
   "mgemm_entry_points": [
     "exl3_mgemm"
   ],
@@ -28,7 +24,7 @@
     "exl3_moe",
     "exl3_moe_max_concurrency"
   ],
-  "reason": "no exl3_mgemm entry point is reachable: the 128-slot scratch is written only inside exl3_mgemm_kernel, the only bridge the vLLM overlay uses (BC_LinearEXL3 -> exl3_gemm_gr/exl3_gemm) never calls exl3_mgemm, the extension symbols the overlay names (['exl3_fat_gemm', 'exl3_fat_gemm_scatter', 'exl3_moe', 'exl3_moe_max_concurrency']) exclude every exl3_mgemm* entry, and the serving module itself has no exl3_mgemm call site.",
+  "reason": "the deployment's own entry points do not reach an exl3_mgemm entry, but 2 module(s) inside the serving import closure hold exl3_mgemm call sites: ['exllamav3.modules.attn', 'exllamav3.modules.dsv4']. Importing a module is not executing its call sites, so static non-reachability is NOT established. Discharge these with call-graph evidence (or prove they are never loaded) before any NOT_REACHABLE verdict.",
   "scratch": {
     "arrays": [
       "v_indices",
@@ -46,11 +42,6 @@
     "writes_outside_mgemm_kernel": []
   },
   "seed_modules": [
-    "exllamav3.model",
-    "exllamav3.model.config",
-    "exllamav3.model.config.InferParams",
-    "exllamav3.model.config.NullConfig",
-    "exllamav3.modules",
     "exllamav3.modules.quant.exl3"
   ],
   "serving_module": "exllamav3.modules.quant.exl3",
@@ -60,7 +51,19 @@
     "calls_exl3_mgemm": false,
     "entry": "BC_LinearEXL3::run_gr"
   },
-  "verdict": "NOT_REACHABLE",
+  "stub_contract": {
+    "checked": true,
+    "installs": [
+      "exllamav3.model",
+      "exllamav3.modules"
+    ],
+    "source": "/tmp/ovl/exl3_namespace.py"
+  },
+  "unresolved_closure_call_site_modules": [
+    "exllamav3.modules.attn",
+    "exllamav3.modules.dsv4"
+  ],
+  "verdict": "ABORT",
   "worst_case": {
     "num_tokens_1_slots_batch_x_topk": 32,
     "num_tokens_gt_1_slots_bszm": 32,

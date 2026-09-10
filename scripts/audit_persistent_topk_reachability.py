@@ -86,19 +86,36 @@ def _calls_named(node: ast.AST, attr: str) -> list[int]:
     return hits
 
 
+def _in_body(statements: list[ast.stmt]) -> ast.Module:
+    """Wrap a statement list so ``ast.walk`` sees only those statements.
+
+    The whole point of the dead-branch check is that ``if False: ...`` is
+    unreachable. Walking the enclosing ``ast.If`` instead would also traverse
+    ``orelse``, which is *live* — and a live ``else: persistent_topk()``
+    misread as dead turns a REACHABLE audit into a false NOT_APPLICABLE.
+    """
+    return ast.Module(body=statements, type_ignores=[])
+
+
+def _is_literal_false_guard(test: ast.expr) -> bool:
+    return (
+        isinstance(test, ast.BoolOp)
+        and isinstance(test.op, ast.And)
+        and bool(test.values)
+        and _is_literal_false(test.values[0])
+    )
+
+
 def dead_persistent_topk_branches(source: str, label: str) -> list[dict]:
-    """``if False and ...`` blocks whose body calls persistent_topk."""
+    """``if False and ...`` blocks whose *body* calls persistent_topk."""
     tree = _parse(source, label)
     found: list[dict] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.If):
             continue
-        test = node.test
-        if not isinstance(test, ast.BoolOp) or not isinstance(test.op, ast.And):
+        if not _is_literal_false_guard(node.test):
             continue
-        if not test.values or not _is_literal_false(test.values[0]):
-            continue
-        hits = _calls_named(node, PERSISTENT_TOPK)
+        hits = _calls_named(_in_body(node.body), PERSISTENT_TOPK)
         if not hits:
             continue
         found.append(
@@ -107,7 +124,7 @@ def dead_persistent_topk_branches(source: str, label: str) -> list[dict]:
                 "persistent_topk_calls": hits,
                 "else_branch": bool(node.orelse),
                 "live_kernel_calls": _calls_named(
-                    ast.Module(body=node.orelse, type_ignores=[]), LIVE_KERNEL
+                    _in_body(node.orelse), LIVE_KERNEL
                 ),
             }
         )
@@ -115,31 +132,68 @@ def dead_persistent_topk_branches(source: str, label: str) -> list[dict]:
 
 
 def live_persistent_topk(source: str, label: str) -> list[int]:
-    """persistent_topk calls that are NOT inside a literal-False branch."""
+    """persistent_topk calls that are NOT inside a literal-False *body*."""
     tree = _parse(source, label)
     dead_lines: set[int] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.If):
             continue
-        test = node.test
-        if (
-            isinstance(test, ast.BoolOp)
-            and isinstance(test.op, ast.And)
-            and test.values
-            and _is_literal_false(test.values[0])
-        ):
-            dead_lines.update(_calls_named(node, PERSISTENT_TOPK))
+        if _is_literal_false_guard(node.test):
+            dead_lines.update(_calls_named(_in_body(node.body), PERSISTENT_TOPK))
     return [line for line in _calls_named(tree, PERSISTENT_TOPK) if line not in dead_lines]
 
 
-def glm_uses_kpool(glm_source: str) -> dict:
-    # `SparseAttnIndexer` is a prefix of `SparseAttnIndexerKpool`, so a plain
-    # substring test would report the GLM module as a user of both indexers.
-    plain_re = re.compile(rf"\b{PLAIN_CLASS}\b(?!Kpool)")
+def glm_uses_kpool(glm_source: str, label: str = "GLM attention module") -> dict:
+    """Which indexer the GLM module *actually* constructs.
+
+    Parsed, not pattern-matched: a textual occurrence in a comment, docstring
+    or dead code must not stand in for a real construction, and the plain
+    ``SparseAttnIndexer`` (whose ``persistent_topk`` *is* live) is a prefix of
+    the kpool name, so substring tests misreport in both directions.
+    """
+    tree = _parse(glm_source, label)
+
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                imported.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                imported.add(alias.asname or alias.name.split(".")[-1])
+
+    # Every name/attribute actually *used* in code — comments and strings are
+    # not AST nodes, so they cannot contribute here.
+    referenced: set[str] = set()
+    constructed: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            referenced.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            referenced.add(node.attr)
+        elif isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Name):
+                constructed.add(func.id)
+            elif isinstance(func, ast.Attribute):
+                constructed.add(func.attr)
+
+    kpool_lines = sorted(
+        {
+            node.lineno
+            for node in ast.walk(tree)
+            if (
+                (isinstance(node, ast.Name) and node.id == KPOOL_CLASS)
+                or (isinstance(node, ast.Attribute) and node.attr == KPOOL_CLASS)
+            )
+        }
+    )
     return {
-        "imports_kpool_class": bool(re.search(rf"\b{KPOOL_CLASS}\b", glm_source)),
-        "instantiates_kpool_class": f"{KPOOL_CLASS}(" in glm_source,
-        "uses_plain_indexer": bool(plain_re.search(glm_source)),
+        "imports_kpool_class": KPOOL_CLASS in imported or KPOOL_CLASS in referenced,
+        "instantiates_kpool_class": KPOOL_CLASS in constructed,
+        "kpool_reference_lines": kpool_lines,
+        "uses_plain_indexer": PLAIN_CLASS in referenced or PLAIN_CLASS in constructed,
+        "plain_indexer_constructed": PLAIN_CLASS in constructed,
     }
 
 
@@ -189,11 +243,19 @@ def overlay_guard(overlay_dir: Path | None) -> dict:
 def audit(site: Path, overlay_dir: Path | None, kernel_dir: Path | None) -> dict:
     glm_src = _read(site / GLM_ATTENTION_REL, "GLM attention module")
     kpool_src = _read(site / KPOOL_REL, "kpool sparse indexer")
-    glm = glm_uses_kpool(glm_src)
-    if not glm["imports_kpool_class"]:
+    glm = glm_uses_kpool(glm_src, GLM_ATTENTION_REL)
+    if not glm["instantiates_kpool_class"]:
         raise Abort(
-            "the GLM-5.3-Flash model path no longer imports SparseAttnIndexerKpool; "
-            "re-derive which indexer it uses before trusting this audit"
+            "the GLM-5.3-Flash model path does not construct "
+            f"{KPOOL_CLASS} (reference lines: {glm['kpool_reference_lines']}); "
+            "the indexer routing this audit reasons about has changed — "
+            "re-derive it before trusting any verdict"
+        )
+    if glm["uses_plain_indexer"]:
+        raise Abort(
+            f"the GLM-5.3-Flash model path also references {PLAIN_CLASS}, whose "
+            "persistent_topk is live; routing is unresolved, so the kpool "
+            "verdict cannot be claimed"
         )
     dead = dead_persistent_topk_branches(kpool_src, "sparse_attn_indexer_kpool.py")
     live = live_persistent_topk(kpool_src, "sparse_attn_indexer_kpool.py")

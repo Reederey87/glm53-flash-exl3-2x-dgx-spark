@@ -3147,25 +3147,61 @@ Restored `IMAGE=glm53-selfbuild:b5ab8091-s2b`, clean pair restart
 re-armed (active/active), serving spot-check OK, 6/6 converge probes
 69.7–71.1 on the fresh boot. **M0′ is CLOSED as ADOPT s2b.**
 
-## 2026-09-10: PR #69 — tasks 37/39 CLOSED by audit, 38.1 landed, 34 first arm prepared
+## 2026-09-10: PR #69 — task 39 CLOSED by audit, task 37 NARROWED, 38.1 landed, 34 first arm prepared
 
 **Ledger note.** PRs #64–#67 did not add entries here; this one does, because
 task 34 creates an arm that will need a window record and task 36 replaces a
 standing gate. Detail lives in `docs/15` (task 34) and `docs/11` §9 (task 36).
 
-### Task 37 — `v_indices[128]` scratch: NOT_REACHABLE
+**Review correction.** An independent review of the first revision found six
+fail-open defects, five of them in the two audits — the code whose entire job is
+to refuse to certify a tree it could not read. All six are fixed with regression
+tests; the net effect is that **task 37's verdict changed from `NOT_REACHABLE`
+to `ABORT`**, because the original verdict rested on evidence the audit could
+not actually establish. See the task 37 section below.
 
-The TODO's premise ("unenforced, reachable from the serving path") did not
-survive re-derivation from the deployed source. The scratch is written only
-inside `exl3_mgemm_kernel`; `BC_LinearEXL3::run_gr` — the bridge the model
-actually calls — uses `exl3_gemm_gr`/`exl3_gemm`; the only binding-level entry
-to `exl3_mgemm` is the standalone binding; and the overlay's four named symbols
-(`exl3_fat_gemm`, `exl3_fat_gemm_scatter`, `exl3_moe`,
-`exl3_moe_max_concurrency`) do not include it. Worst-case slots at production
-shapes (`top_k=8`, `MAX_NUM_SEQS=4`, draft 7) = 32 ≤ 128. Checked on pinned
-**v1.4.7** (19 call sites) and a local **v1.4.9** clone (22 call sites).
-**No #290 fix is owed.** Reusable: `scripts/audit_exl3_mgemm_indices.py`
-(fail-closed; `--exl3-root`).
+### Task 37 — `v_indices[128]` scratch: **ABORT (narrowed, NOT closed)**
+
+The TODO's premise ("unenforced, reachable from the serving path") is **not
+established**, and neither is its negation. What is established, on the
+deployed source:
+
+- the scratch is written only inside `exl3_mgemm_kernel`;
+- `BC_LinearEXL3::run_gr` — the bridge the model actually calls — uses
+  `exl3_gemm_gr`/`exl3_gemm` and never `exl3_mgemm`;
+- the overlay's four named extension symbols (`exl3_fat_gemm`,
+  `exl3_fat_gemm_scatter`, `exl3_moe`, `exl3_moe_max_concurrency`) exclude every
+  `exl3_mgemm*` entry, and `exl3_mgemm` is the only such binding;
+- the serving Python module (`exllamav3.modules.quant.exl3`) has no
+  `exl3_mgemm` call site.
+
+Worst-case slots at production shapes (`top_k=8`, `MAX_NUM_SEQS=4`, draft 7) is
+32 ≤ 128, so *if* the entry were reached it would not overflow — but the entry
+is not the open question.
+
+**Why it is not closed.** Two (v1.4.7) / three (v1.4.9) modules inside the
+serving import closure still contain `exl3_mgemm` call sites:
+`exllamav3.modules.attn`, `exllamav3.modules.dsv4` (and
+`gated_delta_net` on v1.4.9). They enter the closure through **function-local**
+imports — `modules/block_sparse_mlp_routing.py` does `from .attn import
+get_for_device` inside a function body — and all their `ext.exl3_mgemm(...)`
+sites are inside functions, not at module level. Importing a module does not
+execute its call sites, so static import-closure analysis cannot discharge
+them; that needs a call graph. The earlier `NOT_REACHABLE` verdict came from
+reporting exactly these as "advisory context" and then certifying anyway.
+
+An earlier draft of this audit did precisely that, and also returned
+`NOT_REACHABLE` when the serving module was deleted or corrupted, and ignored a
+`calls_exl3_mgemm` hit in the C++ bridge. All four are now fail-closed with
+regression tests.
+
+**Open question for the owner:** discharge the three modules with call-graph
+evidence (or prove they are never loaded), then the audit will report
+`NOT_REACHABLE` on its own. Until then **no #290 fix is proven owed, and none is
+proven unnecessary.** Reusable: `scripts/audit_exl3_mgemm_indices.py`
+(fail-closed; `--exl3-root`, `--overlay-dir`). Receipts:
+`local/task37-mgemm-indices-v147-20260910.json`,
+`local/task37-mgemm-indices-v149-local-clone-20260910.json`.
 
 ### Task 39 — persistent-top-k: NOT_APPLICABLE
 

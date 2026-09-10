@@ -203,3 +203,116 @@ def test_applies_to_the_real_deployed_kda_py():
     methods = [n.name for n in klass.body if isinstance(n, ast.FunctionDef)]
     assert "_flashkda_prefill" in methods
     assert MODULE.apply_to(out) == out
+
+
+# --- finding 5: a marker is not evidence of installation -------------------
+
+
+def _complete(source: str = FIXTURE) -> str:
+    return MODULE.apply_to(source)
+
+
+def test_marker_only_is_not_treated_as_installed():
+    """The marker is written by several lines, so a partial file can carry it."""
+    marked = FIXTURE.replace(
+        MODULE.CLASS_ANCHOR, MODULE.MARK + "\n" + MODULE.CLASS_ANCHOR, 1
+    )
+    assert MODULE.MARK in marked
+    assert MODULE.is_complete(marked) is False
+    with pytest.raises(SystemExit):
+        MODULE.apply_to(marked)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        pytest.param(
+            lambda s: s.replace(
+                next(
+                    line
+                    for line in s.splitlines(keepends=True)
+                    if line.strip().startswith("if self._glm53_flashkda_prefill:")
+                ),
+                "",
+                1,
+            ),
+            id="dispatch-removed",
+        ),
+        pytest.param(
+            lambda s: s.replace("self._flashkda_buffer_specs = (", "self._x = (", 1),
+            id="workspace-sizing-renamed",
+        ),
+        pytest.param(
+            lambda s: s.replace("def _glm53_flashkda_supported(", "def _other(", 1),
+            id="helper-renamed",
+        ),
+        pytest.param(
+            lambda s: s.replace("torch.ops._flashkda_C.fwd(", "torch.ops._flashkda_C.fwdX(", 1),
+            id="kernel-call-renamed",
+        ),
+        pytest.param(
+            lambda s: s.replace("self._glm53_flashkda_prefill = True", "pass", 1),
+            id="flag-removed",
+        ),
+    ],
+)
+def test_partial_installation_aborts_instead_of_reporting_installed(mutate):
+    complete = _complete()
+    partial = mutate(complete)
+    assert partial != complete, "fixture did not change; test is vacuous"
+    assert MODULE.is_complete(partial) is False
+    with pytest.raises(SystemExit):
+        MODULE.apply_to(partial)
+
+
+def test_armed_main_refuses_a_partial_installation(tmp_path, monkeypatch):
+    target = tmp_path / "kda.py"
+    target.write_text(MODULE.MARK + "\n" + FIXTURE)
+    monkeypatch.setattr(MODULE, "TARGET", target)
+    monkeypatch.setenv(MODULE.KNOB, "flashkda")
+    before = target.read_text()
+    with pytest.raises(SystemExit):
+        MODULE.main()
+    assert target.read_text() == before, "a refused install must not write"
+
+
+# --- finding 6: the method must land inside the target class ---------------
+
+
+def test_method_stays_a_class_member_with_a_trailing_function():
+    source = FIXTURE + "\n\ndef trailing_helper():\n    return 1\n"
+    tree = ast.parse(MODULE.apply_to(source))
+    klass = _klass(tree)
+    assert "_flashkda_prefill" in [n.name for n in klass.body if isinstance(n, ast.FunctionDef)]
+    assert "trailing_helper" in [
+        n.name for n in tree.body if isinstance(n, ast.FunctionDef)
+    ], "the trailing helper must remain module-level"
+
+
+def test_method_stays_a_class_member_with_a_trailing_class():
+    source = FIXTURE + "\n\nclass Later:\n    def method(self):\n        return 2\n"
+    tree = ast.parse(MODULE.apply_to(source))
+    assert "_flashkda_prefill" in [
+        n.name for n in _klass(tree).body if isinstance(n, ast.FunctionDef)
+    ]
+    later = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Later")
+    assert "_flashkda_prefill" not in [n.name for n in later.body if isinstance(n, ast.FunctionDef)]
+
+
+def test_method_does_not_land_inside_a_trailing_function():
+    """The old EOF append nested the method inside whatever came last."""
+    source = FIXTURE + "\n\ndef trailing_helper():\n    return 1\n"
+    tree = ast.parse(MODULE.apply_to(source))
+    helper = next(
+        n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "trailing_helper"
+    )
+    nested = [n.name for n in helper.body if isinstance(n, ast.FunctionDef)]
+    assert "_flashkda_prefill" not in nested
+
+
+def _klass(tree):
+    return next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "Glm5NextLinearAttention"
+    )

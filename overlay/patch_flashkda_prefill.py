@@ -30,11 +30,15 @@ prepared candidate, not a receipt.
 """
 from __future__ import annotations
 
+import ast
 import os
 import sys
 from pathlib import Path
 
 MARK = "# [glm53-flashkda-prefill]"
+
+CLASS_NAME = "Glm5NextLinearAttention"
+METHOD_NAME = "_flashkda_prefill"
 
 TARGET = Path(
     os.environ.get(
@@ -183,6 +187,79 @@ CALL_NEW = (
 )
 
 
+# Every structure a *fully* installed arm must contain. A bare marker is not
+# evidence of installation: the marker is written by several of these lines, so
+# a truncated or hand-edited file can carry it while the arm is absent.
+REQUIRED_STRUCTURES = (
+    ("module helper", "def _glm53_flashkda_supported("),
+    ("capability gate call", "if not _glm53_flashkda_supported("),
+    ("workspace sizing", "self._flashkda_buffer_specs = ("),
+    ("arm flag", "self._glm53_flashkda_prefill = True"),
+    ("dispatch", "if self._glm53_flashkda_prefill:"),
+    ("method definition", f"def {METHOD_NAME}("),
+    ("fused kernel call", "torch.ops._flashkda_C.fwd("),
+)
+
+
+def _class_node(source: str) -> ast.ClassDef:
+    """The target class, or fail closed if it is absent or ambiguous."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        raise SystemExit(f"glm53 flashkda: target does not parse: {exc}") from exc
+    found = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == CLASS_NAME
+    ]
+    if len(found) != 1:
+        raise SystemExit(
+            f"glm53 flashkda: expected exactly one module-level class "
+            f"{CLASS_NAME!r}, found {len(found)}"
+        )
+    return found[0]
+
+
+def _method_is_a_class_member(source: str) -> bool:
+    try:
+        klass = _class_node(source)
+    except SystemExit:
+        return False
+    return any(
+        isinstance(stmt, ast.FunctionDef) and stmt.name == METHOD_NAME
+        for stmt in klass.body
+    )
+
+
+def is_complete(source: str) -> bool:
+    """True only when every arm structure is present *and* the method is a
+    real member of the target class."""
+    if any(needle not in source for _, needle in REQUIRED_STRUCTURES):
+        return False
+    return _method_is_a_class_member(source)
+
+
+def _insert_method(source: str) -> str:
+    """Insert the method at the end of the *target class body*.
+
+    Appending at EOF is not equivalent: a module-level function or class after
+    the target class would silently swallow the method as a nested definition,
+    leaving the arm compiling but non-functional.
+    """
+    klass = _class_node(source)
+    if not klass.body:
+        raise SystemExit(f"glm53 flashkda: class {CLASS_NAME!r} has an empty body")
+    last = max(stmt.end_lineno or stmt.lineno for stmt in klass.body)
+    lines = source.splitlines(keepends=True)
+    if last > len(lines):
+        raise SystemExit("glm53 flashkda: class body extends past end of file")
+    block = FLASHKDA_METHOD
+    if not lines[last - 1].endswith("\n"):
+        block = "\n" + block
+    lines.insert(last, block)
+    return "".join(lines)
+
+
 def armed() -> bool:
     raw = os.environ.get(KNOB, "").strip().lower()
     if raw in ("", "triton"):
@@ -194,7 +271,12 @@ def armed() -> bool:
 
 def apply_to(source: str) -> str:
     if MARK in source:
-        return source
+        if is_complete(source):
+            return source
+        raise SystemExit(
+            "glm53 flashkda: the marker is present but the arm is incomplete — "
+            "refusing to accept a partial installation as already installed"
+        )
     for anchor, name in (
         (CLASS_ANCHOR, "Glm5NextLinearAttention class"),
         (INIT_ANCHOR, "__init__ conv-state tail"),
@@ -206,12 +288,17 @@ def apply_to(source: str) -> str:
                 f"glm53 flashkda: anchor {name!r} matched {count} times, expected 1 — "
                 "refusing to patch a drifted kda.py"
             )
-    source = source.replace(CLASS_ANCHOR, HELPER_BLOCK + CLASS_ANCHOR, 1)
-    source = source.replace(INIT_ANCHOR, INIT_BLOCK + INIT_ANCHOR, 1)
-    source = source.replace(CALL_ANCHOR, CALL_NEW + "\n", 1)
-    # the method goes at the end of the class body, before the module's tail
-    source = source.rstrip("\n") + "\n" + FLASHKDA_METHOD + "\n"
-    return source
+    patched = source.replace(CLASS_ANCHOR, HELPER_BLOCK + CLASS_ANCHOR, 1)
+    patched = patched.replace(INIT_ANCHOR, INIT_BLOCK + INIT_ANCHOR, 1)
+    patched = patched.replace(CALL_ANCHOR, CALL_NEW + "\n", 1)
+    patched = _insert_method(patched)
+    if not is_complete(patched):
+        raise SystemExit(
+            "glm53 flashkda: the assembled patch failed its own completeness "
+            "check — refusing to write"
+        )
+    compile(patched, "kda.py", "exec")
+    return patched
 
 
 def main() -> int:

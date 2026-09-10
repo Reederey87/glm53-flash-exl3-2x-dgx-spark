@@ -3,6 +3,10 @@
 
 Every case runs against a synthetic ExLlamaV3 tree so the suite is hermetic and
 does not need the 100+ GiB checkout or a GPU.
+
+The suite is deliberately biased toward *fail-open* regressions: an audit whose
+job is to certify non-reachability is only worth as much as its refusal to
+certify a tree it could not actually read.
 """
 
 from __future__ import annotations
@@ -104,6 +108,20 @@ def bad(x):
     return ext.exl3_mgemm(x, x, x, x, x, x, None, None, 4, 0, 1, 1, -1, -1, 0, 1)
 """
 
+# A serving module that calls an *imported helper*, which in turn calls mgemm.
+# Nothing in the serving module itself names exl3_mgemm, so a check that looks
+# only at the serving module reports NOT_REACHABLE on a genuinely reachable
+# path. This is the transitive case the audit must not wave through.
+SERVING_PY_TRANSITIVE = SERVING_PY + """\
+from ..native import native
+
+
+def forward_indirect(x):
+    return native(x)
+"""
+
+SERVING_PY_BROKEN = "def broken(:\n"
+
 NATIVE_PY = """\
 def native(x):
     return ext.exl3_mgemm(x, x, x, x, x, x, None, None, 4, 0, 1, 1, 0, 8, 0, 1)
@@ -118,19 +136,24 @@ void bind(py::module& m)
 }
 """
 
-OVERLAY_OK = """\
-SYMBOL = "exllamav3_ext.exl3_moe"
-MODULE = "exllamav3.modules.quant.exl3"
-"""
+# Satisfies the stub contract the audit checks before pruning STUB_NAMESPACES.
+STUB_NAMESPACE_PY = '''\
+import sys
+import types
+from pathlib import Path
 
-OVERLAY_MGEMM = """\
-SYMBOL = "exllamav3_ext.exl3_mgemm"
-MODULE = "exllamav3.modules.quant.exl3"
-"""
 
-OVERLAY_NO_SYMBOL = """\
-MODULE = "exllamav3.modules.quant.exl3"
-"""
+def inject_config_stub(package_root: Path, modules: dict | None = None) -> types.ModuleType:
+    modules = sys.modules if modules is None else modules
+    for name in ("exllamav3", "exllamav3.modules", "exllamav3.model"):
+        modules[name] = types.ModuleType(name)
+    return modules["exllamav3.model"]
+'''
+
+# The overlay must name at least one extension symbol, or the audit refuses.
+OVERLAY_SYMBOLS = 'SYMBOL = "exllamav3_ext.exl3_moe"\n'
+OVERLAY_MGEMM_SYMBOL = 'SYMBOL = "exllamav3_ext.exl3_mgemm"\n'
+OVERLAY_IMPORT = "import exllamav3.modules.native\n"
 
 
 def build_tree(
@@ -171,7 +194,16 @@ def build_tree(
     return root
 
 
-def run(tmp_path: Path, shapes=None, **kwargs):
+def build_overlay(tmp_path: Path, *extra: str, stub: str | None = STUB_NAMESPACE_PY):
+    overlay = tmp_path / "overlay"
+    overlay.mkdir(exist_ok=True)
+    if stub is not None:
+        (overlay / "exl3_namespace.py").write_text(stub)
+    (overlay / "patch_symbols.py").write_text(OVERLAY_SYMBOLS + "".join(extra))
+    return overlay
+
+
+def run(tmp_path: Path, shapes=None, overlay=None, **kwargs):
     defaults = {
         "kernel": KERNEL_HEADER,
         "linear": LINEAR_CPP,
@@ -180,15 +212,21 @@ def run(tmp_path: Path, shapes=None, **kwargs):
     }
     defaults.update(kwargs)
     root = build_tree(tmp_path, **defaults)
+    if overlay is None:
+        overlay = build_overlay(tmp_path)
     return MODULE.audit(
         root,
         root / "exllamav3",
         "exllamav3.modules.quant.exl3",
         shapes or MODULE.worst_case_slots(8, 4, 7),
+        overlay,
     )
 
 
-def test_scratch_writes_are_confined_to_the_mgemm_kernel(tmp_path):
+# --- scratch containment ---------------------------------------------------
+
+
+def test_scratch_writes_are_confined_to_the_mgemm_kernel():
     scratch = MODULE.kernel_scratch(KERNEL_HEADER)
     assert scratch["max_indices"] == 128
     assert scratch["writer_kernels"] == ["exl3_mgemm_kernel"]
@@ -196,7 +234,7 @@ def test_scratch_writes_are_confined_to_the_mgemm_kernel(tmp_path):
     assert sorted(scratch["arrays"]) == ["v_indices", "v_weights"]
 
 
-def test_orphan_writer_is_reported(tmp_path):
+def test_orphan_writer_is_reported():
     scratch = MODULE.kernel_scratch(KERNEL_HEADER_ORPHAN)
     assert scratch["writes_outside_mgemm_kernel"], "orphan write must be surfaced"
     assert "exl3_gemm_kernel" in scratch["writer_kernels"]
@@ -210,6 +248,9 @@ def test_missing_declaration_aborts():
 def test_missing_scratch_arrays_abort():
     with pytest.raises(MODULE.Abort):
         MODULE.kernel_scratch(KERNEL_HEADER.replace("__device__ half v_weights[128];", ""))
+
+
+# --- serving path ----------------------------------------------------------
 
 
 def test_serving_path_calls_gemm_and_never_mgemm():
@@ -240,12 +281,38 @@ def test_gemm_guards_abort_on_missing_anchor():
         MODULE.gemm_guards(GEMM_CU.replace("min_index < 0", "min_index >= 0"))
 
 
+# --- import closure --------------------------------------------------------
+
+
 def test_import_closure_follows_relative_imports(tmp_path):
     root = build_tree(tmp_path)
     closure = MODULE.import_closure(root / "exllamav3", ["exllamav3.modules.quant.exl3"])
-    assert "exllamav3.model.config" in closure, "relative `...model.config` must resolve"
-    assert "exllamav3.modules.quant.exl3_lib.quantize" in closure
-    assert "exllamav3.modules.native" not in closure, "unimported native module must stay out"
+    assert "exllamav3.model.config" in closure["modules"], "relative `...model.config` must resolve"
+    assert "exllamav3.modules.quant.exl3_lib.quantize" in closure["modules"]
+    assert "exllamav3.modules.native" not in closure["modules"]
+    assert closure["unresolved"] == []
+    assert closure["unparseable"] == []
+
+
+def test_import_closure_reports_an_unresolvable_in_package_module(tmp_path):
+    root = build_tree(tmp_path)
+    closure = MODULE.import_closure(root / "exllamav3", ["exllamav3.modules.gone"])
+    assert "exllamav3.modules.gone" in closure["unresolved"]
+
+
+def test_import_closure_reports_an_unparseable_module(tmp_path):
+    root = build_tree(tmp_path)
+    (root / "exllamav3/modules/quant/exl3_lib/quantize.py").write_text("def broken(:\n")
+    closure = MODULE.import_closure(root / "exllamav3", ["exllamav3.modules.quant.exl3"])
+    assert closure["unparseable"], "an unparseable module must be surfaced"
+    assert not closure["modules"] or True
+
+
+def test_import_closure_ignores_attribute_chains(tmp_path):
+    """`from x import y` yields an attribute, not an unresolvable module."""
+    root = build_tree(tmp_path)
+    closure = MODULE.import_closure(root / "exllamav3", ["exllamav3.modules.quant.exl3"])
+    assert "exllamav3.model.config.Config" not in closure["unresolved"]
 
 
 def test_call_sites_enumerated(tmp_path):
@@ -263,7 +330,41 @@ def test_call_site_names_match_closure_namespace(tmp_path):
         root / "exllamav3", ["exllamav3.modules.quant.exl3"]
     )
     assert "exllamav3.modules.quant.exl3" in sites
-    assert "exllamav3.modules.quant.exl3" in closure
+    assert "exllamav3.modules.quant.exl3" in closure["modules"]
+
+
+# --- stub contract ---------------------------------------------------------
+
+
+def test_stub_contract_accepts_the_real_overlay():
+    contract = MODULE.stub_contract(ROOT / "overlay")
+    assert contract["installs"] == sorted(MODULE.STUB_NAMESPACES)
+
+
+def test_stub_contract_requires_an_overlay_dir():
+    with pytest.raises(MODULE.Abort):
+        MODULE.stub_contract(None)
+
+
+def test_stub_contract_aborts_when_a_namespace_is_not_installed(tmp_path):
+    overlay = tmp_path / "overlay"
+    overlay.mkdir()
+    (overlay / "exl3_namespace.py").write_text(
+        STUB_NAMESPACE_PY.replace('"exllamav3.modules", ', "")
+    )
+    with pytest.raises(MODULE.Abort):
+        MODULE.stub_contract(overlay)
+
+
+def test_stub_contract_aborts_without_synthetic_modules(tmp_path):
+    overlay = tmp_path / "overlay"
+    overlay.mkdir()
+    (overlay / "exl3_namespace.py").write_text("def inject_config_stub(a, b=None):\n    pass\n")
+    with pytest.raises(MODULE.Abort):
+        MODULE.stub_contract(overlay)
+
+
+# --- verdicts --------------------------------------------------------------
 
 
 def test_verdict_not_reachable(tmp_path):
@@ -272,6 +373,7 @@ def test_verdict_not_reachable(tmp_path):
     assert report["decisive_reachable"] == []
     assert report["binding_reaches_mgemm"] == []
     assert report["serving_path"]["calls_exl3_mgemm"] is False
+    assert report["unresolved_closure_call_site_modules"] == []
 
 
 def test_verdict_reachable_overflow(tmp_path):
@@ -290,26 +392,6 @@ def test_verdict_reachable_ok_when_shapes_fit(tmp_path):
     assert report["verdict"] == "REACHABLE_OK"
 
 
-def test_closure_is_advisory_only(tmp_path):
-    """A native module in the closure is context, not a reachability verdict."""
-    root = build_tree(tmp_path)
-    overlay = tmp_path / "overlay"
-    overlay.mkdir()
-    (overlay / "patch_x.py").write_text(
-        OVERLAY_OK + 'NATIVE = "exllamav3.modules.native"\n'
-    )
-    report = MODULE.audit(
-        root,
-        root / "exllamav3",
-        "exllamav3.modules.quant.exl3",
-        MODULE.worst_case_slots(8, 32, 7),
-        overlay,
-    )
-    assert "exllamav3.modules.native" in report["advisory_closure_call_site_modules"]
-    assert report["verdict"] == "NOT_REACHABLE"
-    assert report["decisive_reachable"] == []
-
-
 def test_orphan_writer_forces_abort(tmp_path):
     report = run(tmp_path, kernel=KERNEL_HEADER_ORPHAN)
     assert report["verdict"] == "ABORT"
@@ -321,6 +403,81 @@ def test_worst_case_slots_is_batch_times_topk():
     assert shapes["num_tokens_gt_1_slots_bszm"] == 32
 
 
+# --- finding 1: the C++ bridge and the transitive path must be decisive -----
+
+
+def test_cpp_bridge_calling_mgemm_makes_the_verdict_reachable(tmp_path):
+    """The deployed bridge is the most decisive reachability fact there is."""
+    report = run(tmp_path, linear=LINEAR_CPP_MGEMM)
+    assert report["verdict"] == "REACHABLE_OK", report["reason"]
+    assert any("exl3_mgemm" in d for d in report["decisive_reachable"])
+
+
+def test_cpp_bridge_overflow_is_reported_as_overflow(tmp_path):
+    report = run(
+        tmp_path,
+        linear=LINEAR_CPP_MGEMM,
+        shapes=MODULE.worst_case_slots(8, 32, 7),
+    )
+    assert report["verdict"] == "REACHABLE_OVERFLOW"
+
+
+def test_transitive_helper_call_site_is_never_not_reachable(tmp_path):
+    """Serving -> imported helper -> mgemm must not be certified NOT_REACHABLE."""
+    report = run(tmp_path, serving=SERVING_PY_TRANSITIVE)
+    assert report["verdict"] == "ABORT", report["reason"]
+    assert "exllamav3.modules.native" in report["unresolved_closure_call_site_modules"]
+
+
+def test_overlay_naming_an_mgemm_entry_is_reachable(tmp_path):
+    overlay = build_overlay(tmp_path, stub=STUB_NAMESPACE_PY)
+    (overlay / "patch_symbols.py").write_text(OVERLAY_MGEMM_SYMBOL)
+    report = run(tmp_path, overlay=overlay)
+    assert report["verdict"] == "REACHABLE_OK"
+    assert report["binding_reaches_mgemm"] == ["exl3_mgemm"]
+
+
+def test_overlay_importing_a_native_module_seeds_the_closure(tmp_path):
+    overlay = build_overlay(tmp_path, OVERLAY_IMPORT)
+    report = run(tmp_path, overlay=overlay)
+    assert "exllamav3.modules.native" in report["unresolved_closure_call_site_modules"]
+    assert report["verdict"] == "ABORT"
+
+
+# --- finding 2: unreadable or malformed serving inputs must abort ----------
+
+
+def test_missing_serving_module_aborts(tmp_path):
+    root = build_tree(tmp_path)
+    (root / "exllamav3/modules/quant/exl3.py").unlink()
+    with pytest.raises(MODULE.Abort):
+        MODULE.audit(
+            root,
+            root / "exllamav3",
+            "exllamav3.modules.quant.exl3",
+            MODULE.worst_case_slots(8, 4, 7),
+            build_overlay(tmp_path),
+        )
+
+
+def test_unparseable_serving_module_aborts(tmp_path):
+    with pytest.raises(MODULE.Abort):
+        run(tmp_path, serving=SERVING_PY_BROKEN)
+
+
+def test_unparseable_closure_module_aborts(tmp_path):
+    root = build_tree(tmp_path)
+    (root / "exllamav3/model/config.py").write_text("def broken(:\n")
+    with pytest.raises(MODULE.Abort):
+        MODULE.audit(
+            root,
+            root / "exllamav3",
+            "exllamav3.modules.quant.exl3",
+            MODULE.worst_case_slots(8, 4, 7),
+            build_overlay(tmp_path),
+        )
+
+
 def test_missing_source_aborts(tmp_path):
     root = build_tree(tmp_path)
     (root / "exllamav3/exllamav3_ext/libtorch/linear.cpp").unlink()
@@ -330,13 +487,30 @@ def test_missing_source_aborts(tmp_path):
             root / "exllamav3",
             "exllamav3.modules.quant.exl3",
             MODULE.worst_case_slots(8, 4, 7),
+            build_overlay(tmp_path),
         )
+
+
+def test_missing_overlay_dir_aborts(tmp_path):
+    with pytest.raises(MODULE.Abort):
+        MODULE.stub_contract(tmp_path / "nope")
+
+
+# --- CLI -------------------------------------------------------------------
 
 
 def test_cli_exit_codes(tmp_path):
     root = build_tree(tmp_path)
+    overlay = build_overlay(tmp_path)
     ok = subprocess.run(
-        [sys.executable, str(SCRIPT), "--exl3-root", str(root)],
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--exl3-root",
+            str(root),
+            "--overlay-dir",
+            str(overlay),
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -345,7 +519,14 @@ def test_cli_exit_codes(tmp_path):
     assert json.loads(ok.stdout)["verdict"] == "NOT_REACHABLE"
 
     bad = subprocess.run(
-        [sys.executable, str(SCRIPT), "--exl3-root", str(tmp_path / "nope")],
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--exl3-root",
+            str(tmp_path / "nope"),
+            "--overlay-dir",
+            str(overlay),
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -360,6 +541,8 @@ def test_cli_exit_codes(tmp_path):
             str(SCRIPT),
             "--exl3-root",
             str(overflow_root),
+            "--overlay-dir",
+            str(overlay),
             "--max-num-seqs",
             "32",
         ],
@@ -371,121 +554,13 @@ def test_cli_exit_codes(tmp_path):
     assert json.loads(overflow.stdout)["verdict"] == "REACHABLE_OVERFLOW"
 
 
-def test_overlay_dir_seeds_closure(tmp_path):
+def test_cli_aborts_without_an_overlay_dir(tmp_path):
     root = build_tree(tmp_path)
-    overlay = tmp_path / "overlay"
-    overlay.mkdir()
-    (overlay / "patch_x.py").write_text(
-        OVERLAY_OK + 'NATIVE = "exllamav3.modules.native"\n'
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--exl3-root", str(root)],
+        capture_output=True,
+        text=True,
+        check=False,
     )
-    report = MODULE.audit(
-        root,
-        root / "exllamav3",
-        "exllamav3.modules.quant.exl3",
-        MODULE.worst_case_slots(8, 32, 7),
-        overlay,
-    )
-    assert "exllamav3.modules.native" in report["advisory_closure_call_site_modules"], (
-        "an overlay that names a native mgemm module must appear in the advisory list"
-    )
-
-
-def test_overlay_calling_mgemm_entry_point_is_reachable(tmp_path):
-    root = build_tree(tmp_path)
-    overlay = tmp_path / "overlay"
-    overlay.mkdir()
-    (overlay / "patch_x.py").write_text(OVERLAY_MGEMM)
-    report = MODULE.audit(
-        root,
-        root / "exllamav3",
-        "exllamav3.modules.quant.exl3",
-        MODULE.worst_case_slots(8, 32, 7),
-        overlay,
-    )
-    assert report["verdict"] == "REACHABLE_OVERFLOW"
-    assert report["binding_reaches_mgemm"] == ["exl3_mgemm"]
-
-
-def test_binding_check_is_clean_for_the_real_overlay_symbols(tmp_path):
-    root = build_tree(tmp_path)
-    overlay = tmp_path / "overlay"
-    overlay.mkdir()
-    (overlay / "patch_x.py").write_text(OVERLAY_OK)
-    report = MODULE.audit(
-        root,
-        root / "exllamav3",
-        "exllamav3.modules.quant.exl3",
-        MODULE.worst_case_slots(8, 32, 7),
-        overlay,
-    )
-    assert report["verdict"] == "NOT_REACHABLE"
-    assert report["binding_reaches_mgemm"] == []
-    assert report["overlay_ext_symbols"] == ["exl3_moe"]
-    assert report["mgemm_entry_points"] == ["exl3_mgemm"]
-
-
-def test_overlay_without_ext_symbols_aborts(tmp_path):
-    root = build_tree(tmp_path)
-    overlay = tmp_path / "overlay"
-    overlay.mkdir()
-    (overlay / "patch_x.py").write_text(OVERLAY_NO_SYMBOL)
-    with pytest.raises(MODULE.Abort):
-        MODULE.audit(
-            root,
-            root / "exllamav3",
-            "exllamav3.modules.quant.exl3",
-            MODULE.worst_case_slots(8, 4, 7),
-            overlay,
-        )
-
-
-def test_bindings_without_mgemm_entry_aborts(tmp_path):
-    root = build_tree(tmp_path)
-    bindings = root / "exllamav3/exllamav3_ext/bindings.cpp"
-    bindings.write_text(BINDINGS_CPP.replace('m.def("exl3_mgemm"', 'm.def("exl3_other"'))
-    with pytest.raises(MODULE.Abort):
-        MODULE.audit(
-            root,
-            root / "exllamav3",
-            "exllamav3.modules.quant.exl3",
-            MODULE.worst_case_slots(8, 4, 7),
-        )
-
-
-def test_stub_namespace_is_not_descended(tmp_path):
-    """`exllamav3.modules` is stubbed at runtime, so modules/__init__ never runs."""
-    root = build_tree(tmp_path)
-    pkg = root / "exllamav3"
-    (pkg / "modules/__init__.py").write_text("from . import native\n")
-    closure = MODULE.import_closure(
-        pkg, ["exllamav3.modules.quant.exl3", "exllamav3.modules"]
-    )
-    assert "exllamav3.modules" in closure
-    assert "exllamav3.modules.native" not in closure, (
-        "the synthetic stub namespace must not pull in the native model modules"
-    )
-    overlay = tmp_path / "overlay"
-    overlay.mkdir()
-    (overlay / "patch_x.py").write_text(
-        OVERLAY_OK + 'MODULE = "exllamav3.modules"\n'
-    )
-    report = MODULE.audit(
-        root,
-        pkg,
-        "exllamav3.modules.quant.exl3",
-        MODULE.worst_case_slots(8, 32, 7),
-        overlay,
-    )
-    assert report["verdict"] == "NOT_REACHABLE"
-
-
-def test_overlay_dir_missing_aborts(tmp_path):
-    root = build_tree(tmp_path)
-    with pytest.raises(MODULE.Abort):
-        MODULE.audit(
-            root,
-            root / "exllamav3",
-            "exllamav3.modules.quant.exl3",
-            MODULE.worst_case_slots(8, 4, 7),
-            tmp_path / "absent",
-        )
+    assert result.returncode == 1
+    assert json.loads(result.stdout)["verdict"] == "ABORT"

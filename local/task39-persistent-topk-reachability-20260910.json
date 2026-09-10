@@ -1,3 +1,4 @@
+{
   "dead_branches": [
     {
       "else_branch": true,
@@ -14,6 +15,10 @@
   "glm_indexer": {
     "imports_kpool_class": true,
     "instantiates_kpool_class": true,
+    "kpool_reference_lines": [
+      311
+    ],
+    "plain_indexer_constructed": false,
     "uses_plain_indexer": false
   },
   "live_kernel": "top_k_per_row_decode",

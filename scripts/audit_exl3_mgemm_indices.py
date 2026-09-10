@@ -213,17 +213,29 @@ def _resolve_module(python_dir: Path, name: str) -> tuple[Path | None, bool]:
     return None, False
 
 
-def import_closure(python_dir: Path, seeds: list[str]) -> set[str]:
+def import_closure(python_dir: Path, seeds: list[str]) -> dict:
     """Transitive in-package imports, resolving relative (``level``) imports.
 
     Relative imports are the norm inside ExLlamaV3 (``from ...model.config
     import Config``), so a regex over absolute names silently under-counts the
     closure. ``ast`` plus explicit ``level`` handling is used instead.
+
+    Returns the resolved module set **plus** the in-package references that
+    could not be resolved or parsed. Skipping those silently is a fail-open:
+    deleting the serving module, or corrupting a module inside the closure,
+    shrinks the closure and turns an undecidable tree into a confident
+    ``NOT_REACHABLE``. Names introduced by ``Import`` (and by an
+    ``ImportFrom``'s module part) are module references; names introduced by an
+    ``ImportFrom`` *alias* are usually attributes, so they are only treated as
+    modules when they actually resolve.
     """
     seen: set[str] = set()
-    queue = list(seeds)
+    unresolved: set[str] = set()
+    unparseable: set[str] = set()
+    root = python_dir.name
+    queue: list[tuple[str, bool]] = [(name, True) for name in seeds]
     while queue:
-        name = queue.pop()
+        name, is_module_ref = queue.pop()
         if name in seen:
             continue
         seen.add(name)
@@ -231,17 +243,25 @@ def import_closure(python_dir: Path, seeds: list[str]) -> set[str]:
             continue
         path, is_package = _resolve_module(python_dir, name)
         if path is None:
+            if is_module_ref and (name == root or name.startswith(root + ".")):
+                unresolved.add(name)
             continue
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-        except (OSError, SyntaxError):
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            unparseable.add(f"{name}: unreadable ({exc})")
+            continue
+        try:
+            tree = ast.parse(text)
+        except SyntaxError as exc:
+            unparseable.add(f"{name}: {exc}")
             continue
         parts = name.split(".")
         package_parts = parts if is_package else parts[:-1]
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    queue.append(alias.name)
+                    queue.append((alias.name, True))
             elif isinstance(node, ast.ImportFrom):
                 if node.level:
                     drop = node.level - 1
@@ -251,16 +271,28 @@ def import_closure(python_dir: Path, seeds: list[str]) -> set[str]:
                     if node.module:
                         base_parts = base_parts + node.module.split(".")
                     if base_parts:
-                        queue.append(".".join(base_parts))
+                        queue.append((".".join(base_parts), True))
                 elif node.module:
-                    queue.append(node.module)
+                    queue.append((node.module, True))
                     for alias in node.names:
-                        queue.append(f"{node.module}.{alias.name}")
-    return seen
+                        queue.append((f"{node.module}.{alias.name}", False))
+    return {
+        "modules": seen,
+        "unresolved": sorted(unresolved),
+        "unparseable": sorted(unparseable),
+    }
 
 
 def overlay_module_seeds(overlay_dir: Path | None) -> list[str]:
-    """ExLlamaV3 modules the vLLM overlay itself names (fail-closed if absent)."""
+    """ExLlamaV3 modules the vLLM overlay itself *imports* (fail-closed if absent).
+
+    Parsed, not regex-scanned. Overlay sources also *name* ExLlamaV3 modules
+    they merely patch (file paths, anchors, docstrings) and dotted attribute
+    chains such as ``exllamav3.model.config.InferParams``. Seeding the closure
+    from those both over-counts (patch targets are not call targets) and
+    under-counts (an attribute chain resolves to no module at all), and the
+    previous regex did both.
+    """
     if overlay_dir is None:
         return []
     if not overlay_dir.is_dir():
@@ -273,8 +305,21 @@ def overlay_module_seeds(overlay_dir: Path | None) -> list[str]:
             text = path.read_text(encoding="utf-8")
         except OSError:  # pragma: no cover - unreadable file
             continue
-        for match in MODULE_REF_RE.finditer(text):
-            seeds.add(match.group(0))
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:  # pragma: no cover - overlay must be importable
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name == "exllamav3" or alias.name.startswith("exllamav3."):
+                        seeds.add(alias.name)
+            elif isinstance(node, ast.ImportFrom):
+                if node.level:
+                    continue
+                module = node.module or ""
+                if module == "exllamav3" or module.startswith("exllamav3."):
+                    seeds.add(module)
     if not found_any:
         raise Abort(f"no overlay sources found in {overlay_dir}")
     return sorted(seeds)
@@ -324,6 +369,43 @@ def worst_case_slots(top_k: int, max_num_seqs: int, draft_tokens: int) -> dict:
     }
 
 
+def stub_contract(overlay_dir: Path | None) -> dict:
+    """Justify pruning ``STUB_NAMESPACES`` from the closure.
+
+    Treating ``exllamav3.modules``/``exllamav3.model`` as leaves is only sound
+    if the deployment really installs them as synthetic module objects before
+    anything imports them -- otherwise their ``__init__.py`` runs and pulls in
+    every native module that holds an ``exl3_mgemm`` call site. The assumption
+    is checked here rather than trusted.
+    """
+    if overlay_dir is None:
+        raise Abort(
+            "no --overlay-dir given: the stub-namespace pruning cannot be "
+            "justified, so the import closure would be unsound"
+        )
+    path = overlay_dir / "exl3_namespace.py"
+    source = _read(path, "exllamav3 namespace stub")
+    if "types.ModuleType" not in source:
+        raise Abort(f"{path.name} does not build synthetic module objects")
+    if "def inject_config_stub(" not in source:
+        raise Abort(f"{path.name} has no inject_config_stub entry point")
+    missing = [
+        name
+        for name in sorted(STUB_NAMESPACES)
+        if f'"{name}"' not in source and f"'{name}'" not in source
+    ]
+    if missing:
+        raise Abort(
+            f"{path.name} does not install {missing}; refusing to prune them "
+            "from the import closure"
+        )
+    return {
+        "checked": True,
+        "source": str(path),
+        "installs": sorted(STUB_NAMESPACES),
+    }
+
+
 def audit(
     exl3_root: Path,
     python_dir: Path,
@@ -342,18 +424,57 @@ def audit(
     serving = serving_path(linear_src)
     guards = gemm_guards(gemm_src)
     entries = mgemm_entry_points(bindings_src)
+    stubs = stub_contract(overlay_dir)
     ext_symbols = overlay_ext_symbols(overlay_dir)
     binding_reaches_mgemm = sorted(ext_symbols & entries)
     sites = mgemm_call_sites(python_dir)
     seeds = [serving_module] + overlay_module_seeds(overlay_dir)
     closure = import_closure(python_dir, seeds)
-    closure_hits = sorted(name for name in sites if name in closure)
-    # The static closure over-approximates: importing a module is not the same
-    # as executing a call site inside it. Only two facts are decisive -- the
-    # overlay naming an mgemm extension entry, and the serving module itself
-    # calling one. Everything else is reported as advisory context.
-    decisive = sorted(set(binding_reaches_mgemm) | (set(sites) & {serving_module}))
-    advisory = sorted(set(closure_hits) - {serving_module})
+
+    # A seed that will not resolve or parse means the reachability question
+    # cannot be posed at all -- never a silent shrink of the closure.
+    bad_seeds = [
+        name
+        for name in seeds
+        if name in closure["unresolved"] or any(
+            entry.split(":")[0] == name for entry in closure["unparseable"]
+        )
+    ]
+    if bad_seeds:
+        raise Abort(
+            f"serving-path seed module(s) missing or unparseable: {bad_seeds}; "
+            "the import closure cannot be established"
+        )
+    if closure["unparseable"]:
+        raise Abort(
+            "in-package module(s) inside the closure could not be parsed: "
+            f"{closure['unparseable'][:8]}; the closure is incomplete"
+        )
+    if closure["unresolved"]:
+        raise Abort(
+            "in-package import(s) inside the closure did not resolve: "
+            f"{closure['unresolved'][:8]}; the closure is incomplete"
+        )
+
+    closure_modules = closure["modules"]
+    closure_hits = sorted(name for name in sites if name in closure_modules)
+
+    # Decisive facts -- each one *is* an observed reachable path to an
+    # exl3_mgemm entry: the overlay naming an mgemm extension symbol, the
+    # serving Python module calling one, or the C++ bridge calling one.
+    decisive: set[str] = set(binding_reaches_mgemm)
+    if serving_module in sites:
+        decisive.add(serving_module)
+    if serving["calls_exl3_mgemm"]:
+        decisive.add(f"{serving['entry']} -> exl3_mgemm")
+    decisive = sorted(decisive)
+
+    # Closure modules that hold mgemm call sites but are not themselves a
+    # decisive entry. Importing a module does not execute its call sites, so
+    # these are *unresolved*, not unreachable -- a call graph would be needed
+    # to discharge them. Reporting them as advisory context and then claiming
+    # NOT_REACHABLE is exactly the fail-open this audit exists to prevent.
+    unresolved_calls = sorted(set(closure_hits) - {serving_module})
 
     if scratch["writes_outside_mgemm_kernel"]:
         verdict = "ABORT"
@@ -381,6 +502,16 @@ def audit(
                 f"stays at or below MAX_INDICES={scratch['max_indices']} at the "
                 "declared production shapes."
             )
+    elif unresolved_calls:
+        verdict = "ABORT"
+        reason = (
+            "the deployment's own entry points do not reach an exl3_mgemm entry, "
+            f"but {len(unresolved_calls)} module(s) inside the serving import "
+            f"closure hold exl3_mgemm call sites: {unresolved_calls}. Importing a "
+            "module is not executing its call sites, so static non-reachability "
+            "is NOT established. Discharge these with call-graph evidence (or "
+            "prove they are never loaded) before any NOT_REACHABLE verdict."
+        )
     else:
         verdict = "NOT_REACHABLE"
         reason = (
@@ -388,8 +519,9 @@ def audit(
             "written only inside exl3_mgemm_kernel, the only bridge the vLLM "
             "overlay uses (BC_LinearEXL3 -> exl3_gemm_gr/exl3_gemm) never calls "
             "exl3_mgemm, the extension symbols the overlay names "
-            f"({sorted(ext_symbols)}) exclude every exl3_mgemm* entry, and the "
-            "serving module itself has no exl3_mgemm call site."
+            f"({sorted(ext_symbols)}) exclude every exl3_mgemm* entry, the "
+            "serving module itself has no exl3_mgemm call site, and no other "
+            "module in the serving import closure has one either."
         )
 
     return {
@@ -401,13 +533,14 @@ def audit(
         "mgemm_entry_points": sorted(entries),
         "binding_reaches_mgemm": binding_reaches_mgemm,
         "decisive_reachable": decisive,
+        "unresolved_closure_call_site_modules": unresolved_calls,
+        "stub_contract": stubs,
         "scratch": scratch,
         "serving_path": serving,
         "guards": guards,
         "call_sites_total": sum(len(v) for v in sites.values()),
         "call_site_modules": {k: len(v) for k, v in sorted(sites.items())},
-        "advisory_closure_call_site_modules": advisory,
-        "import_closure_size": len(closure),
+        "import_closure_size": len(closure_modules),
         "worst_case": shapes,
     }
 

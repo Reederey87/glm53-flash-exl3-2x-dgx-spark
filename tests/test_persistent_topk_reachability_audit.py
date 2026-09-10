@@ -74,6 +74,26 @@ class DeepseekV4Attention:
         self.indexer_op = SparseAttnIndexer()
 """
 
+
+GLM_ATTENTION_PLAIN_CONSTRUCT = """\
+from vllm.model_executor.layers.sparse_attn_indexer_kpool import SparseAttnIndexerKpool
+from vllm.model_executor.layers.sparse_attn_indexer import SparseAttnIndexer
+
+
+class Glm5NextAttention:
+    def __init__(self):
+        self.indexer_op = SparseAttnIndexer()
+"""
+
+GLM_ATTENTION_COMMENT_ONLY = """\
+# This deployment deliberately avoids SparseAttnIndexerKpool.
+
+
+class Glm5NextAttention:
+    def __init__(self):
+        pass
+"""
+
 OVERLAY = """\
 KPOOL_OLD = "if current_platform.is_cuda() and select_k in (512, 1024, 2048):"
 KPOOL_NEW = (
@@ -247,3 +267,91 @@ def test_cli_exit_codes(tmp_path):
     )
     assert missing.returncode == 1
     assert json.loads(missing.stdout)["verdict"] == "ABORT"
+
+
+# --- finding 3: a live else/elif is not a dead branch ----------------------
+
+KPOOL_LIVE_ELSE = """\
+def _decode_topk(logits, select_k, topk_dst, seq_lens):
+    if False and current_platform.is_cuda() and select_k in (512, 1024, 2048):
+        pass
+    else:
+        torch.ops._C.persistent_topk(
+            logits,
+            seq_lens,
+            topk_dst,
+            select_k,
+        )
+"""
+
+KPOOL_DEAD_BODY_LIVE_ELSE = """\
+def _decode_topk(logits):
+    if False and current_platform.is_cuda():
+        torch.ops._C.persistent_topk(logits)
+    else:
+        torch.ops._C.persistent_topk(logits)
+"""
+
+KPOOL_DEAD_BODY_LIVE_ELIF = """\
+def _decode_topk(logits):
+    if False and current_platform.is_cuda():
+        torch.ops._C.persistent_topk(logits)
+    elif other_platform.is_cuda():
+        torch.ops._C.persistent_topk(logits)
+"""
+
+
+def test_live_else_call_is_not_classified_dead():
+    """The `else` branch is executable; walking the whole `ast.If` hid that."""
+    assert MODULE.dead_persistent_topk_branches(KPOOL_LIVE_ELSE, "kpool") == []
+    assert MODULE.live_persistent_topk(KPOOL_LIVE_ELSE, "kpool") == [5]
+
+
+def test_dead_body_with_a_live_else_keeps_the_else_call():
+    assert MODULE.dead_persistent_topk_branches(KPOOL_DEAD_BODY_LIVE_ELSE, "kpool") == [
+        {"line": 2, "persistent_topk_calls": [3], "else_branch": True, "live_kernel_calls": []}
+    ]
+    assert MODULE.live_persistent_topk(KPOOL_DEAD_BODY_LIVE_ELSE, "kpool") == [5]
+
+
+def test_dead_body_with_a_live_elif_keeps_the_elif_call():
+    assert MODULE.live_persistent_topk(KPOOL_DEAD_BODY_LIVE_ELIF, "kpool") == [5]
+
+
+def test_verdict_reachable_when_only_the_else_branch_calls_topk(tmp_path):
+    site = build_site(tmp_path, kpool=KPOOL_LIVE_ELSE)
+    report = MODULE.audit(site, build_overlay(tmp_path), None)
+    assert report["verdict"] == "REACHABLE", report["reason"]
+    assert report["live_persistent_topk_lines"] == [5]
+
+
+# --- finding 4: parse the GLM module, do not pattern-match it --------------
+
+
+def test_plain_indexer_construction_is_not_given_the_kpool_verdict():
+    """Importing the kpool name is not the same as constructing it."""
+    glm = MODULE.glm_uses_kpool(GLM_ATTENTION_PLAIN_CONSTRUCT)
+    assert glm["instantiates_kpool_class"] is False
+    assert glm["plain_indexer_constructed"] is True
+    assert glm["uses_plain_indexer"] is True
+
+
+def test_comment_only_mention_is_not_an_import_or_a_construction():
+    glm = MODULE.glm_uses_kpool(GLM_ATTENTION_COMMENT_ONLY)
+    assert glm["imports_kpool_class"] is False
+    assert glm["instantiates_kpool_class"] is False
+    assert glm["kpool_reference_lines"] == []
+
+
+def test_abort_when_glm_constructs_the_plain_indexer_instead(tmp_path):
+    site = build_site(tmp_path)
+    (site / MODULE.GLM_ATTENTION_REL).write_text(GLM_ATTENTION_PLAIN_CONSTRUCT)
+    with pytest.raises(MODULE.Abort):
+        MODULE.audit(site, build_overlay(tmp_path), None)
+
+
+def test_abort_when_glm_only_mentions_kpool_in_a_comment(tmp_path):
+    site = build_site(tmp_path)
+    (site / MODULE.GLM_ATTENTION_REL).write_text(GLM_ATTENTION_COMMENT_ONLY)
+    with pytest.raises(MODULE.Abort):
+        MODULE.audit(site, build_overlay(tmp_path), None)
