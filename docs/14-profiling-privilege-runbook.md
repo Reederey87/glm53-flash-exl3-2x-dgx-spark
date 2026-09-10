@@ -1,7 +1,9 @@
 # 14 — Enabling GPU performance counters on the Spark pair (owner runbook)
 
-**Status: prepared, not executed.** This change needs root on both nodes and a
-reboot, so it is the owner's call. Nothing in this document has been run.
+**Status: the host drop-in is prepared, not executed.** This change needs root
+on both nodes and a reboot, so it is the owner's call. Nothing in *this*
+document has been run. The no-reboot container route in the second section
+**has** been validated and used (task 24 W5, 2026-09-09).
 
 ## Why
 
@@ -17,16 +19,49 @@ GPU Metrics: None of the installed GPUs are supported:
   see https://developer.nvidia.com/ERR_NVGPUCTRPERM
 ```
 
-`ncu` is not installed on either node; `nsys` 2025.3.2 is, and it reports the
-GB10 as *supported but privilege-denied*. `dcgmi`/`nv-hostengine` are not
+`ncu` is not on `PATH` but **is installed** at
+`/opt/nvidia/nsight-compute/2025.3.1/ncu` (corrected 2026-09-09; the earlier
+note here said it was absent). `nsys` 2025.3.2 is at
+`/opt/nvidia/nsight-systems/2025.3.2/bin/nsys`. `dcgmi`/`nv-hostengine` are not
 installed. `perf_event_paranoid=4` is a second, unrelated restriction on host
 perf events.
 
 Consequence today: PR #64's in-process torch profiler is the only counter path
-that works. It gives kernel durations and launch geometry, which is enough for
-share questions, but it cannot produce DRAM/L2 byte counters. Task 29 was parked
-(`GAP_CANDIDATE_UNMEASURED`) and W5 (occupancy) was gated on exactly that
-missing measurement.
+that works *on the live server*. It gives kernel durations and launch geometry,
+which is enough for share questions, but it cannot produce DRAM/L2 byte
+counters. Task 29 was parked (`GAP_CANDIDATE_UNMEASURED`) and W5 (occupancy) was
+gated on exactly that missing measurement.
+
+## No-reboot alternative (validated 2026-09-09): profiler in a container
+
+`RmProfilingAdminOnly` is enforced as a `CAP_SYS_ADMIN` check, so a container
+launched with `--cap-add SYS_ADMIN` clears it without editing any host file and
+without a reboot:
+
+```
+docker run --rm --gpus all --cap-add SYS_ADMIN \
+  -v /opt/nvidia/nsight-compute:/opt/nvidia/nsight-compute:ro \
+  --entrypoint /opt/nvidia/nsight-compute/2025.3.1/ncu \
+  glm53-selfbuild:e3-w3-zfill --query-metrics --chip gb10b        # lists metrics
+```
+
+`nsys profile --gpu-metrics-devices=help` likewise lists
+`0: Blackwell GB20B | NVIDIA GB10` instead of
+`Insufficient privilege`. Task 24 W5 used this path
+(`scripts/run_e3_occupancy_window.py`) on 2026-09-09.
+
+What it does **not** replace: the container can only profile processes it
+launches. Profiling the *live* server would still need a profiling boot (or an
+attach, which PR #40/#64 rejected as unsafe on the CUDA-graph server). And
+production holds essentially all of the unified memory, so a second CUDA process
+cannot start while it serves — measured 2026-09-09: a 1 KiB `cudaMalloc` and
+even `cudaMemGetInfo` return `out of memory` on the head while
+`vllm-glm53exl3` runs, on the host as well as in a container. Offline counter
+work therefore still needs a **stopped window**; the container flag only removes
+the reboot, not the window.
+
+The host drop-in below remains the right change if you want *host* users
+(`nsys`, `ncu` run directly on the node) to profile without the container.
 
 ## What the change is
 
@@ -83,10 +118,12 @@ rebuilds initramfs), then reboot. Counters go back to root-only.
 
 - Task 29: a measured DRAM-byte counter for the fused `exl3_moe` decode path,
   replacing the advisory 218 GB/s weight-streaming model.
-- Task 24 W5: the achieved-occupancy measurement the cubin sweep is gated on.
+- Task 24 W5: the achieved-occupancy measurement the cubin sweep is gated on —
+  **captured 2026-09-09** through the container route, not this drop-in.
 - Task 1: the exact-workload traffic measurement that gates selective
   quantization.
 - #55061: the `index_select` overflow-path probe.
 
-Until this is run, those stay parked and the software-only oracles in
-`scripts/audit_*_kernel_share.py` remain the only counter path.
+Until the host drop-in is run, those stay parked for *host-side* profiling and
+the container route (plus the software-only oracles in
+`scripts/audit_*_kernel_share.py`) is the available counter path.

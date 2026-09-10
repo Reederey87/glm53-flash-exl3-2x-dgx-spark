@@ -342,23 +342,25 @@ Operator queue lives in `docs/06` (night rewrite) and `spec/TODO.md`.
    CUTLASS sm120 grouped GEMM #43814 (FP8 path only), DeepGEMM sm120, Marlin
    sm121 W4A8 corruption #49546 (**do not adopt**).
 
-## 8. E3 follow-up TEST-NEXT (cuda-reviewer, 2026-09-07)
+## 8. E3 follow-up TEST-NEXT (cuda-reviewer, 2026-09-07) — all five items resolved by 2026-09-09
 
-Plan only. No implementation candidate. Ranked after task 23 adopted
-`EXL3_FAT_GROUPED=1` on `glm53-selfbuild:e3-grouped`. E3 is **prefill-only**:
-`tokens <= TRF` stays fused `exl3_moe` and never enters grouped kernels.
-Prose (~28–31 tok/s) and structured (~70 @ 7.0/1.000) are decode-path
-numbers; do not retune E3 to chase them.
+Ranked after task 23 adopted `EXL3_FAT_GROUPED=1` on
+`glm53-selfbuild:e3-grouped`. E3 is **prefill-only**: `tokens <= TRF` stays fused
+`exl3_moe` and never enters grouped kernels. Prose (~28–31 tok/s) and structured
+(~70 @ 7.0/1.000) are decode-path numbers; do not retune E3 to chase them.
 
 Live TP2 scratch is **~280 MiB/rank**, not the 336 MiB microbench figure:
 `h13` 28,672 × 4096 × 2 B = 224 MiB plus `h2` 28,672 ×
 `intermediate_size_per_partition` (1024) × 2 B = 56 MiB.
 
-**Queue:** ~~W1 lazy scratch~~ **REVERTED 2026-09-07** → W2 isolated TRF=32
-(gated) → ~~W3 zero-fill A-pad~~ **ADOPTED 2026-09-08** → ~~W4 fused gather~~
-**REVERTED 2026-09-08** → ~~W4 successor persistent A-cache~~ **STOP by
-measurement 2026-09-09** (gather 8.6% of E3 / 2.1% of prefill kernel time,
-below both pre-registered floors) → W5 occupancy (gated). Not automatic-next.
+**Queue: CLOSED 2026-09-09.** ~~W1 lazy scratch~~ **REVERTED 2026-09-07** →
+~~W2 isolated TRF=32~~ **ADOPTED 2026-09-09** → ~~W3 zero-fill A-pad~~
+**ADOPTED 2026-09-08** → ~~W4 fused gather~~ **REVERTED 2026-09-08** →
+~~W4 successor persistent A-cache~~ **STOP by measurement 2026-09-09** (gather
+8.6% of E3 / 2.1% of prefill kernel time, below both pre-registered floors) →
+~~W5 occupancy~~ **STOP by measurement 2026-09-09** (achieved 33.0/33.2% vs
+33.33% theoretical; `REG:128` > the 96 stop threshold). No E3 follow-up remains
+open.
 
 | Window | Path it can move | Rebuild | Expected sign |
 |---|---|---|---|
@@ -366,7 +368,7 @@ below both pre-registered floors) → W5 occupancy (gated). Not automatic-next.
 | ~~**W2 TRF=32 vs E3@128**~~ **ADOPTED** | Same-boot 60k **+16.1%**, 240k **+13.3%**. Structured 69.10 @ 7.0/1.000. Decode unique-topk safe. | env only | win (fat-path share) |
 | ~~**W3 zero-fill A-pad**~~ **ADOPTED** | Same-boot 240k −2.5% (wash). Structured 69.04 @ 7.0/1.000. | cubin | wash |
 | ~~**W4 fuse gather into gate/up A-tile**~~ **REVERTED** | 60k −10.7%, 240k −3.2%, structured −2.2%. No MemFree win. 8× A-tile gather. | cubin+Python | no MemFree win; speed lose |
-| **W5 occupancy sweep** | Cold prefill **only if ncu shows a gap**. | cubin | stop if regs > 96 or <3% |
+| ~~**W5 occupancy sweep**~~ **STOP by measurement** | ncu at production shapes: achieved 33.01 / 33.15% (min across launches) vs 33.33% theoretical (99.0 / 99.6%), block limit registers 2, `REG:128` > the 96 stop threshold. | — | no gap to open |
 
 ### Decode vs prefill vs concurrency
 
@@ -488,10 +490,65 @@ contradicts the gather share. The 240k share is **unmeasured and deferred**: the
 per-expert routing — `build_grouped_fat_tables()` derives live rows and rounded
 segment counts from those counts — so the 240k share could differ.
 
-**W5 — occupancy.** `__launch_bounds__(256, 2)` is already on gateup/down.
-SMEM 32,768 B is not the limiter. Open only on ncu at production shapes
-(TP2 inter=1024, E3@128 fat histogram) showing achieved occupancy ≪
-theoretical from registers or the 512 grid-Y cap.
+**W5 — occupancy. PRE-REGISTERED 2026-09-09, before the window.**
+`__launch_bounds__(256, 2)` is already on gateup/down and SMEM is not the
+limiter. The production cubin (`glm53-selfbuild:e3-w3-zfill`,
+`exl3_fat_moe_ext.so`) reports `fm_gateup_kernel` and `fm_down_kernel`
+`REG:128 STACK:16 SHARED:1024 LOCAL:0` (`cuobjdump -res-usage`), so
+256 threads × 128 regs × 2 blocks = 65,536 = the whole 64K register file per
+SM: the register file, not SMEM (block limit shared memory 3 at 32,768 B
+dynamic per block, so 98,304 B of the 102,400 B/SM) or warps (6 blocks) or the
+512 grid-Y cap, binds at 2 blocks/SM = 16 warps of 48 =
+**33.3% theoretical occupancy**.
+
+Decision rule, fixed before the measurement: the sweep **opens** only if the
+minimum-across-kernels achieved occupancy is **< 0.8 × theoretical** *and*
+registers/thread **≤ 96**; otherwise it **stops**. 96 is the documented stop
+threshold because a third block/SM needs ≤ 85 regs/thread and would spill. The
+auditor applies the rule to the minimum across a kernel's launches, keeps every
+launch record in the report, and fails closed (ABORT) on a missing kernel, a
+missing or out-of-range metric, an incomplete launch, or an achieved value above
+the theoretical one.
+
+Vehicle: `scripts/probe_e3_occupancy.py` (offline E3 grouped replica at
+production per-rank geometry — hidden 4096, TP2 inter 1024, TRF cap 32 — with a
+reduced routed-expert count for footprint only) under
+`ncu --section LaunchStats --section Occupancy --launch-skip 1 --launch-count 3`,
+run in a `docker run --gpus all --cap-add SYS_ADMIN` container. That profile
+records three launches in total: `fm_down_kernel` twice and `fm_gateup_kernel`
+once. The container flag is
+the no-reboot counter path: it clears `ERR_NVGPUCTRPERM` without touching
+`NVreg_RestrictProfilingToAdminUsers` (docs/14). A second CUDA process cannot
+start while production holds the unified memory (measured: even a 1 KiB
+`cudaMalloc` fails), so the capture needs a stopped window, driven by
+`scripts/run_e3_occupancy_window.py` and judged by
+`scripts/audit_e3_occupancy.py`.
+
+**Result: W5 STOP by measurement (2026-09-09) — task 24 is closed.** Six
+independent captures measured `fm_gateup_kernel` **33.01–33.02%** and
+`fm_down_kernel` **33.15–33.20%** achieved occupancy (minimum across launches:
+each profile records three launches in total — down twice, gateup once — and the
+two down launches read 33.17/33.17, 33.17/33.18, 33.18/33.20, 33.20/33.18,
+33.15/33.17 and 33.20/33.20)
+against 33.33%
+theoretical (99.0% / 99.6%), with block limits registers 2, shared memory 3,
+warps 6 and `REG:128` on both kernels: there is no gap, and the stop condition
+(registers/thread > 96) is already met by the incumbent. No cubin or Python
+change was made. Receipts: `local/task24-w5-window-20260909-r7.json` (frozen
+final bytes: all eight phases ok, acceptance 7/7, image and JIT
+stamp unchanged, timers re-armed), `…-r6.json`, `…-r5.json`, `…-r3.json`,
+`…-202752.json`, the
+failure-path windows
+`local/task24-w5-failpath-window-20260909.json`,
+`local/task24-w5-timeout4-window-20260909.json` (timeout + recovery validated on
+the cluster against the frozen final bytes, exit 1, production healthy and
+timers re-armed) and `…-timeout3-window-20260909.json`,
+`…-timeout2-window-20260909.json`, and the capture
+directories
+`local/task24-w5-occupancy-20260909-{225704,221957,215941,211435,202800,201521}`;
+full
+entry in
+docs/06.
 
 Measure before coding: live `grouped_scratch_bytes` (expect ≈280 MiB/rank);
 E3@128 fat-row / segment-mod-64 histograms; table-build share (persist tables

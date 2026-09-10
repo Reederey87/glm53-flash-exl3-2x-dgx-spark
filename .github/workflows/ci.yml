@@ -18,7 +18,7 @@ jobs:
 
       - name: python syntax
         run: |
-          python3 -m compileall -q local overlay tests
+          python3 -m compileall -q local overlay tests scripts
           echo "python OK"
 
       - name: python tests
