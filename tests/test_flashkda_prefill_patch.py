@@ -345,3 +345,18 @@ def test_every_required_structure_is_present_in_a_complete_install():
     complete = _complete()
     missing = [name for name, needle in MODULE.REQUIRED_STRUCTURES if needle not in complete]
     assert missing == []
+
+
+def test_commented_out_import_is_incomplete():
+    """A commented import keeps the substring but leaves the name undefined."""
+    complete = _complete()
+    commented = complete.replace(
+        "from vllm.v1.worker.workspace import current_workspace_manager",
+        "# from vllm.v1.worker.workspace import current_workspace_manager",
+        1,
+    )
+    assert commented != complete
+    assert "current_workspace_manager" in commented
+    assert MODULE.is_complete(commented) is False
+    with pytest.raises(SystemExit):
+        MODULE.apply_to(commented)

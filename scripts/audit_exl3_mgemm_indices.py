@@ -231,22 +231,28 @@ def import_closure(python_dir: Path, seeds: list[str]) -> dict:
     modules when they actually resolve.
     """
     seen: set[str] = set()
-    unresolved: set[str] = set()
+    required: set[str] = set()
+    resolvable: set[str] = set()
     unparseable: set[str] = set()
     root = python_dir.name
     queue: list[tuple[str, bool]] = [(name, True) for name in seeds]
     while queue:
         name, is_module_ref = queue.pop()
+        # Record the requirement *before* the dedup check: a name first seen as
+        # a weak alias candidate (an attribute) and later as a hard `import`
+        # must still be validated as a module, whatever the queue order.
+        if is_module_ref:
+            required.add(name)
         if name in seen:
             continue
         seen.add(name)
         if name in STUB_NAMESPACES:
+            resolvable.add(name)
             continue
         path, is_package = _resolve_module(python_dir, name)
         if path is None:
-            if is_module_ref and (name == root or name.startswith(root + ".")):
-                unresolved.add(name)
             continue
+        resolvable.add(name)
         try:
             text = path.read_text(encoding="utf-8")
         except OSError as exc:
@@ -286,9 +292,14 @@ def import_closure(python_dir: Path, seeds: list[str]) -> dict:
                     queue.append((node.module, True))
                     for alias in node.names:
                         queue.append((f"{node.module}.{alias.name}", False))
+    unresolved = sorted(
+        name
+        for name in required
+        if (name == root or name.startswith(root + ".")) and name not in resolvable
+    )
     return {
         "modules": seen,
-        "unresolved": sorted(unresolved),
+        "unresolved": unresolved,
         "unparseable": sorted(unparseable),
     }
 
@@ -461,6 +472,52 @@ def _installed_stub_names(source: str) -> set[str]:
     return installed
 
 
+def _installer_invocation(overlay_dir: Path) -> str | None:
+    """The overlay file that calls the stub installer before importing exllamav3.
+
+    Executing the installer proves it *can* install; it does not prove the
+    deployment *runs* it. If the loader imports ``exllamav3`` without calling
+    the installer first, ``modules/__init__.py`` executes and pulls in every
+    native module holding an ``exl3_mgemm`` call site, so pruning those
+    namespaces would be unsound. Returns the qualifying file, or ``None``.
+    """
+    for path in sorted(overlay_dir.glob("*.py")):
+        try:
+            source = path.read_text(encoding="utf-8")
+        except OSError:  # pragma: no cover - unreadable file
+            continue
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:  # pragma: no cover
+            continue
+        call_line: int | None = None
+        first_exllamav3_import: int | None = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                callee = func.attr if isinstance(func, ast.Attribute) else (
+                    func.id if isinstance(func, ast.Name) else None
+                )
+                if callee == "inject_config_stub" and call_line is None:
+                    call_line = node.lineno
+            elif isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                if module == "exllamav3" or module.startswith("exllamav3."):
+                    if first_exllamav3_import is None:
+                        first_exllamav3_import = node.lineno
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name == "exllamav3" or alias.name.startswith("exllamav3."):
+                        if first_exllamav3_import is None:
+                            first_exllamav3_import = node.lineno
+        if call_line is None:
+            continue
+        if first_exllamav3_import is not None and first_exllamav3_import < call_line:
+            continue
+        return str(path)
+    return None
+
+
 def stub_contract(overlay_dir: Path | None) -> dict:
     """Justify pruning ``STUB_NAMESPACES`` from the closure.
 
@@ -515,11 +572,20 @@ def stub_contract(overlay_dir: Path | None) -> dict:
             f"{path.name} declares but does not install {not_installed} as module "
             "objects; refusing to prune them from the import closure"
         )
+
+    invoker = _installer_invocation(overlay_dir)
+    if invoker is None:
+        raise Abort(
+            "no overlay source calls inject_config_stub() before importing "
+            "exllamav3; the deployment may load the real exllamav3.modules "
+            "package, so pruning the stub namespaces is unsound"
+        )
     return {
         "checked": True,
         "source": str(path),
         "installs": sorted(STUB_NAMESPACES),
         "verified_by": "structural assignment check + executed installer",
+        "invoked_by": invoker,
     }
 
 

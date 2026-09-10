@@ -219,11 +219,33 @@ def build_tree(
     return root
 
 
+# The loader must call the installer before importing exllamav3, or the real
+# modules/__init__.py runs and the stub-namespace pruning is unsound.
+OVERLAY_LOADER = """\
+from exl3_namespace import inject_config_stub
+
+
+def install(package_root, modules=None):
+    return inject_config_stub(package_root, modules)
+"""
+
+# Same installer, but the loader imports exllamav3 first.
+OVERLAY_LOADER_LATE = """\
+from exl3_namespace import inject_config_stub
+import exllamav3
+
+
+def install(package_root, modules=None):
+    return inject_config_stub(package_root, modules)
+"""
+
+
 def build_overlay(tmp_path: Path, *extra: str, stub: str | None = STUB_NAMESPACE_PY):
     overlay = tmp_path / "overlay"
     overlay.mkdir(exist_ok=True)
     if stub is not None:
         (overlay / "exl3_namespace.py").write_text(stub)
+        (overlay / "loader.py").write_text(OVERLAY_LOADER)
     (overlay / "patch_symbols.py").write_text(OVERLAY_SYMBOLS + "".join(extra))
     return overlay
 
@@ -633,3 +655,63 @@ def test_relative_alias_resolves_to_the_submodule(tmp_path):
         root / "exllamav3", ["exllamav3.modules.quant.exl3"]
     )
     assert "exllamav3.modules.quant.helper" in closure["modules"]
+
+
+# --- finding 1 (third pass): queue order must not weaken a requirement -----
+
+
+def test_weak_alias_before_a_required_import_does_not_hide_it(tmp_path):
+    """A weak alias candidate must not mark a hard import as already seen."""
+    root = build_tree(tmp_path)
+    (root / "exllamav3/modules/quant/exl3.py").write_text(
+        "import exllamav3.modules.quant.missing\nfrom . import missing\n"
+    )
+    closure = MODULE.import_closure(
+        root / "exllamav3", ["exllamav3.modules.quant.exl3"]
+    )
+    assert "exllamav3.modules.quant.missing" in closure["unresolved"]
+
+
+def test_required_import_before_a_weak_alias_also_reports(tmp_path):
+    root = build_tree(tmp_path)
+    (root / "exllamav3/modules/quant/exl3.py").write_text(
+        "from . import missing\nimport exllamav3.modules.quant.missing\n"
+    )
+    closure = MODULE.import_closure(
+        root / "exllamav3", ["exllamav3.modules.quant.exl3"]
+    )
+    assert "exllamav3.modules.quant.missing" in closure["unresolved"]
+
+
+@pytest.mark.parametrize(
+    "serving",
+    [
+        "import exllamav3.modules.quant.missing\nfrom . import missing\n",
+        "from . import missing\nimport exllamav3.modules.quant.missing\n",
+    ],
+)
+def test_unresolvable_required_import_aborts_in_either_order(tmp_path, serving):
+    with pytest.raises(MODULE.Abort):
+        run(tmp_path, serving=serving)
+
+
+# --- finding 2 (third pass): the installer must actually be invoked --------
+
+
+def test_installer_present_but_never_called_aborts(tmp_path):
+    overlay = build_overlay(tmp_path)
+    (overlay / "loader.py").write_text("# nothing installs the stub\n")
+    with pytest.raises(MODULE.Abort):
+        MODULE.stub_contract(overlay)
+
+
+def test_installer_called_after_an_exllamav3_import_aborts(tmp_path):
+    overlay = build_overlay(tmp_path)
+    (overlay / "loader.py").write_text(OVERLAY_LOADER_LATE)
+    with pytest.raises(MODULE.Abort):
+        MODULE.stub_contract(overlay)
+
+
+def test_stub_contract_records_which_overlay_invokes_the_installer():
+    contract = MODULE.stub_contract(ROOT / "overlay")
+    assert contract["invoked_by"].endswith("exl3_namespace.py")

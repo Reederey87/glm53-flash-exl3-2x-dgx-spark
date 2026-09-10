@@ -235,10 +235,36 @@ def _method_is_a_class_member(source: str) -> bool:
     )
 
 
+def _has_required_imports(source: str) -> bool:
+    """Require the arm's imports as *statements*, not as substrings.
+
+    A commented-out `# from vllm.v1.worker.workspace import
+    current_workspace_manager` leaves the substring present, so a textual check
+    certifies a file that compiles and then raises NameError at prefill time.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return False
+    need_from = ("vllm.v1.worker.workspace", "current_workspace_manager")
+    need_plain = "vllm._flashkda_C"
+    got_from = got_plain = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == need_from[0]:
+            if any(alias.name == need_from[1] for alias in node.names):
+                got_from = True
+        elif isinstance(node, ast.Import):
+            if any(alias.name == need_plain for alias in node.names):
+                got_plain = True
+    return got_from and got_plain
+
+
 def is_complete(source: str) -> bool:
-    """True only when every arm structure is present *and* the method is a
-    real member of the target class."""
+    """True only when every arm structure is present, the required imports are
+    real import statements, and the method is a real member of the class."""
     if any(needle not in source for _, needle in REQUIRED_STRUCTURES):
+        return False
+    if not _has_required_imports(source):
         return False
     return _method_is_a_class_member(source)
 

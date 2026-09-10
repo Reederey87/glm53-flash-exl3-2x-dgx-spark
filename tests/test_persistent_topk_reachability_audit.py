@@ -85,6 +85,29 @@ class Glm5NextAttention:
         self.indexer_op = SparseAttnIndexer()
 """
 
+GLM_ATTENTION_SHADOWED = """\
+from vllm.model_executor.layers.sparse_attn_indexer import SparseAttnIndexer as Indexer
+
+
+def unrelated():
+    from vllm.model_executor.layers.sparse_attn_indexer_kpool import SparseAttnIndexerKpool as Indexer
+    return Indexer
+
+
+class Glm5NextAttention:
+    def __init__(self):
+        self.indexer_op = Indexer()
+"""
+
+GLM_ATTENTION_MISSING_SYMBOL = """\
+from vllm.model_executor.layers.sparse_attn_indexer_kpool import MissingIndexer
+
+
+class Glm5NextAttention:
+    def __init__(self):
+        self.indexer_op = MissingIndexer()
+"""
+
 GLM_ATTENTION_PLAIN_ALIASED = """\
 from vllm.model_executor.layers.sparse_attn_indexer import SparseAttnIndexer as SparseAttnIndexerKpool
 
@@ -408,3 +431,34 @@ def test_import_provenance_beats_the_local_spelling():
     plain = MODULE.glm_uses_kpool(GLM_ATTENTION_PLAIN_ALIASED)
     kpool = MODULE.glm_uses_kpool(GLM_ATTENTION_KPOOL_ALIASED)
     assert plain["instantiates_kpool_class"] is not kpool["instantiates_kpool_class"]
+
+
+# --- finding 3 (third pass): bindings live in scopes, not in a flat dict ---
+
+
+def test_shadowed_binding_is_unresolved():
+    """A function-local kpool import must not overwrite a global plain one."""
+    glm = MODULE.glm_uses_kpool(GLM_ATTENTION_SHADOWED)
+    assert glm["instantiates_kpool_class"] is False
+    assert glm["unresolved_indexer_names"] == ["Indexer"]
+
+
+def test_missing_exported_symbol_is_unresolved():
+    """Importing from the kpool module is not enough; the symbol must exist."""
+    glm = MODULE.glm_uses_kpool(GLM_ATTENTION_MISSING_SYMBOL)
+    assert glm["instantiates_kpool_class"] is False
+    assert glm["unresolved_indexer_names"] == ["MissingIndexer"]
+
+
+def test_abort_on_a_shadowed_indexer_binding(tmp_path):
+    site = build_site(tmp_path)
+    (site / MODULE.GLM_ATTENTION_REL).write_text(GLM_ATTENTION_SHADOWED)
+    with pytest.raises(MODULE.Abort):
+        MODULE.audit(site, build_overlay(tmp_path), None)
+
+
+def test_abort_on_a_missing_exported_symbol(tmp_path):
+    site = build_site(tmp_path)
+    (site / MODULE.GLM_ATTENTION_REL).write_text(GLM_ATTENTION_MISSING_SYMBOL)
+    with pytest.raises(MODULE.Abort):
+        MODULE.audit(site, build_overlay(tmp_path), None)

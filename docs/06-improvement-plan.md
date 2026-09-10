@@ -3153,8 +3153,8 @@ re-armed (active/active), serving spot-check OK, 6/6 converge probes
 task 34 creates an arm that will need a window record and task 36 replaces a
 standing gate. Detail lives in `docs/15` (task 34) and `docs/11` §9 (task 36).
 
-**Review correction.** Two independent review passes of this change found ten
-fail-open defects, nine of them in the two audits — the code whose entire job is
+**Review correction.** Three independent review passes of this change found
+fourteen fail-open defects, thirteen of them in the two audits — the code whose entire job is
 to refuse to certify a tree it could not read. All ten are fixed with regression
 tests; the net effect is that **task 37's verdict changed from `NOT_REACHABLE`
 to `ABORT`**, because the original verdict rested on evidence the audit could
@@ -3176,6 +3176,14 @@ rather than import provenance, so `from ...sparse_attn_indexer import
 SparseAttnIndexer as SparseAttnIndexerKpool` read as the kpool class; and the
 overlay's completeness list omitted the required imports, so a file missing
 `current_workspace_manager` still counted as installed.
+
+Pass 3: queue order let a weak alias candidate mark a name as already seen
+before its hard `import` was validated; the stub contract proved the installer
+*could* install but not that the loader *calls* it before importing
+`exllamav3`; the indexer resolver used a flat binding map, so a function-local
+import could shadow a module-level one, and it ignored the imported symbol
+name; and the overlay's completeness check was still textual, so a
+commented-out import counted as present.
 
 ### Task 37 — `v_indices[128]` scratch: **ABORT (narrowed, NOT closed)**
 

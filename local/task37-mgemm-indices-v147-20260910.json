@@ -57,6 +57,7 @@
       "exllamav3.model",
       "exllamav3.modules"
     ],
+    "invoked_by": "/tmp/ovl/exl3_namespace.py",
     "source": "/tmp/ovl/exl3_namespace.py",
     "verified_by": "structural assignment check + executed installer"
   },

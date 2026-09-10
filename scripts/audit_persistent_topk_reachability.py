@@ -147,22 +147,33 @@ KPOOL_MODULE_TAIL = KPOOL_REL.rsplit("/", 1)[-1].removesuffix(".py")
 PLAIN_MODULE_TAIL = PLAIN_INDEXER_REL.rsplit("/", 1)[-1].removesuffix(".py")
 
 
-def _import_bindings(tree: ast.Module) -> dict[str, tuple[str, str]]:
-    """Local name -> (originating module, original name) for every import."""
-    bindings: dict[str, tuple[str, str]] = {}
+def _import_bindings(tree: ast.Module) -> dict[str, set[tuple[str, str]]]:
+    """Local name -> every (originating module, original name) it is bound to.
+
+    Every binding is kept, not just the last one: a function-local import must
+    not silently overwrite a module-level binding of the same name, because the
+    two are visible in different scopes.
+    """
+    bindings: dict[str, set[tuple[str, str]]] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             module = node.module or ""
             for alias in node.names:
-                bindings[alias.asname or alias.name] = (module, alias.name)
+                bindings.setdefault(alias.asname or alias.name, set()).add(
+                    (module, alias.name)
+                )
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 local = alias.asname or alias.name.split(".")[-1]
-                bindings[local] = (alias.name, alias.name.split(".")[-1])
+                bindings.setdefault(local, set()).add(
+                    (alias.name, alias.name.split(".")[-1])
+                )
     return bindings
 
 
-def _resolve_indexer_class(local: str, bindings: dict[str, tuple[str, str]]) -> str | None:
+def _resolve_indexer_class(
+    local: str, bindings: dict[str, set[tuple[str, str]]]
+) -> str | None:
     """Which indexer class a *name* denotes, by import provenance.
 
     Identity must come from where the name came from, not from how it is
@@ -171,18 +182,48 @@ def _resolve_indexer_class(local: str, bindings: dict[str, tuple[str, str]]) -> 
     ``persistent_topk`` is live, while reading exactly like the kpool class.
 
     A name imported from a module that is neither indexer module resolves to
-    nothing, and the caller treats that as unresolved rather than guessing.
+    nothing, the exported symbol must actually be an indexer class, and a name
+    bound to more than one distinct indexer class is ambiguous and also resolves
+    to nothing. Callers treat "nothing" as unresolved rather than guessing.
     """
-    if local not in bindings:
+    entries = bindings.get(local)
+    if not entries:
         # No import binding: a class defined in this module under that name.
         return local if local in (KPOOL_CLASS, PLAIN_CLASS) else None
-    module, _original = bindings[local]
-    tail = module.rsplit(".", 1)[-1] if module else ""
-    if tail == KPOOL_MODULE_TAIL:
-        return KPOOL_CLASS
-    if tail == PLAIN_MODULE_TAIL:
-        return PLAIN_CLASS
-    return None
+    resolved = set()
+    for module, original in entries:
+        tail = module.rsplit(".", 1)[-1] if module else ""
+        if tail == KPOOL_MODULE_TAIL and original == KPOOL_CLASS:
+            resolved.add(KPOOL_CLASS)
+        elif tail == PLAIN_MODULE_TAIL and original == PLAIN_CLASS:
+            resolved.add(PLAIN_CLASS)
+    if len(resolved) != 1:
+        return None
+    return resolved.pop()
+
+
+def _mentions_an_indexer(entries: set[tuple[str, str]]) -> bool:
+    for module, original in entries:
+        tail = module.rsplit(".", 1)[-1] if module else ""
+        if tail in (KPOOL_MODULE_TAIL, PLAIN_MODULE_TAIL):
+            return True
+        if original in (KPOOL_CLASS, PLAIN_CLASS):
+            return True
+    return False
+
+
+def _ambiguous_indexer_names(bindings: dict[str, set[tuple[str, str]]]) -> list[str]:
+    """Imported names that look like an indexer but do not resolve uniquely.
+
+    Covers a name bound to two different indexer classes in different scopes (a
+    function-local import shadowing a module-level one) and a name imported from
+    an indexer module that does not export that class.
+    """
+    return sorted(
+        local
+        for local, entries in bindings.items()
+        if _mentions_an_indexer(entries) and _resolve_indexer_class(local, bindings) is None
+    )
 
 
 def glm_uses_kpool(glm_source: str, label: str = "GLM attention module") -> dict:
@@ -201,7 +242,7 @@ def glm_uses_kpool(glm_source: str, label: str = "GLM attention module") -> dict
 
     referenced_classes: set[str] = set()
     constructed_classes: set[str] = set()
-    unresolved_references: set[str] = set()
+    unresolved_references: set[str] = set(_ambiguous_indexer_names(bindings))
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
@@ -242,7 +283,7 @@ def glm_uses_kpool(glm_source: str, label: str = "GLM attention module") -> dict
         "uses_plain_indexer": PLAIN_CLASS in referenced_classes,
         "plain_indexer_constructed": PLAIN_CLASS in constructed_classes,
         "unresolved_indexer_names": sorted(unresolved_references),
-        "import_bindings": {k: list(v) for k, v in sorted(bindings.items())},
+        "import_bindings": {k: sorted(list(e) for e in v) for k, v in sorted(bindings.items())},
     }
 
 
