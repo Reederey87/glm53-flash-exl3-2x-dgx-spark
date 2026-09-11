@@ -13,6 +13,14 @@ bump on which no performance claim is made. Do not cite this task as a completed
 performance qualification. Verdict receipts: `local/task35-v149-verdict-20260910.txt`,
 `local/task35-prod-start-hardening-20260910.txt`.
 
+A **paired two-arm diagnostic** (not the §6 contract) has since measured the two
+pins directly, in two passes on 2026-09-11 — see §4, "A paired two-arm diagnostic
+instead of a re-run". It establishes non-inferiority on four of five lanes and
+demonstrates no regression on any lane, but leaves `hashmap` undecided, so it
+does **not** close §6. An earlier, smaller pass reported v1.4.9 ~3.7–4.9%
+*faster* on decode; the resized pass refuted that as a small-sample artifact and
+the claim is withdrawn.
+
 Production runs `glm53-selfbuild:e3-w3-zfill-v149` (`sha256:c9ab369e62a1…`).
 Rollback is the last-wins `IMAGE=glm53-selfbuild:e3-w3-zfill` line, restored from
 `.env.bak-pre-task35-v149-20260910`.
@@ -228,8 +236,13 @@ inactive unit (rc=3) **and** for a unit that does not exist (rc=4), verified on
 the live node, so a wrong-user or renamed-unit query would otherwise look
 disarmed. Disarm now requires a provable `inactive`, and rearm attempts both
 timers independently so a persistent failure on one cannot leave the other down.
-Cold-prefill validation likewise requires an explicit `cached_tokens == 0`;
-missing cache telemetry is not measured zero usage. The audit receipt is derived
+Cold-prefill validation likewise requires an explicit
+zero-cache-hit reading; missing cache telemetry is not measured zero usage.
+**Amended 2026-09-11 after the first window attempt failed** — see
+"The first §6 attempt failed on unavailable cache telemetry" below: on this kit
+the per-request field does not exist, so the reading comes from the engine's own
+prefix-cache counters instead. The standard is unchanged (an explicit
+zero-hits reading attributable to the run); only its source moved. The audit receipt is derived
 by suffixing, so a receipt named without a `-window-` token no longer collides
 with its own audit output.
 
@@ -242,6 +255,364 @@ bug and must not be cited. Corrected on production: structured 30.1 tok/s
 (TTFT 0.62 s), hashmap 14.7 tok/s, with `ttft + decode == wall` holding exactly.
 Those lower numbers are consistent with the 507 MHz clock fault below, which the
 inflated ones were not. Detail: `local/probe-timing-defect-20260911.txt`.
+
+### The first §6 attempt failed on unavailable cache telemetry (2026-09-11)
+
+The first real window ran on 2026-09-11 (state
+`local/task35b-window-20260911T140111Z.json`). It completed `preflight`,
+`disarm`, `arm_a` and the three **decode** lanes, then failed at
+`measure_a`/`prefill60k`. The recovery path worked exactly as designed: the
+pre-window `.env` was restored, production was rebooted onto the v1.4.9
+candidate, both timers were re-armed, and the receipt was written.
+
+The failure was in the **harness**, not the cluster:
+
+```
+[probe] prefill60k run 1/5: {... "prefill_tok_s": 1581.8, "prompt_tokens": 60002,
+  "cached_tokens": null} INVALID no cached_tokens in usage (cannot prove the run was cold)
+```
+
+The lane produced **zero** valid observations; all five runs were rejected. The
+fail-closed cold check was working — the telemetry it required does not exist on
+this server.
+
+**Root cause.** `prompt_tokens_details` is gated in the deployed vLLM at
+`entrypoints/openai/completion/serving.py:455`:
+
+```python
+if self.enable_prompt_tokens_details and num_cached_tokens is not None:
+    final_usage_info.prompt_tokens_details = PromptTokenUsageInfo(...)
+```
+
+`enable_prompt_tokens_details` defaults to **False** and is wired from
+`--enable-prompt-tokens-details`, which production does not pass. So the field is
+**never** populated.
+
+**Verified, not assumed.** Two byte-identical 66,129-token requests were sent to
+production. Both returned `prompt_tokens_details: null`, while the engine's own
+`vllm:prefix_cache_hits_total` advanced by **66,176** tokens on the second and
+the server's reported prefix-cache hit rate jumped to 49.5%. The cache was
+demonstrably hit and the per-request field still said nothing — so `null` here
+carries **no** information and must not be relaxed into "cold". (A non-streaming
+request returns the same: `"prompt_tokens_details": null`.)
+
+**Fix.** Coldness now comes from whichever source the server actually offers, in
+order: (1) `cached_tokens` when present — unchanged for a server that enables the
+flag; (2) otherwise the engine's `vllm:prefix_cache_hits_total` /
+`vllm:prefix_cache_queries_total` counters, sampled immediately before and after
+the request. A cold run must show a **hits delta of exactly 0** while the
+**queries delta accounts for the run's own `prompt_tokens`** — the second half is
+what keeps it fail-closed, because a frozen or unreadable counter then cannot be
+read as "zero hits". An unreadable `/metrics` yields no delta at all and the run
+is rejected.
+
+This is a *stronger* proof than the field it replaces: it is the engine's own
+accounting rather than a client-echoed value, and it is attributable to the
+specific request. Confirmed against live production, one run:
+
+```
+{"prefill_tok_s": 1607.2, "prompt_tokens": 60002, "cached_tokens": null,
+ "cache_queries_delta": 60002.0, "cache_hits_delta": 0.0}   -> valid_runs 1, rc 0
+```
+
+The fresh-salt half of the contract is untouched: every prefill request still
+carries a `uuid4` salt plus 24 random hex bytes. Because the receipt registers
+every block before it runs and the judge rejects a receipt containing a failed
+block, the re-run uses a **fresh state file**; the failed receipt is kept as the
+evidence of this failure.
+
+### A paired two-arm diagnostic instead of a re-run (2026-09-11)
+
+Fixing the probe removed the reason the first attempt failed, but it did **not**
+make the registered window decidable. The head node produces a **transient
+decode stall roughly once in twenty observations** — a ~2.7x drop whose position
+varies between runs — and the registered variability gate is
+`(max - min) / median <= 0.30`, which a single such stall destroys. Arm A's own
+receipts show the shape: the settled decode lanes sit at 0.053 and 0.065 spread
+and the prefill lanes at 0.0038, while the essay lane reached **0.65** off the
+back of a few stalled observations. The head has also accumulated **173 s** of
+`SW Power Capping`. Re-running the registered A-B-B-A would therefore have spent
+about two hours and five boots to return INCONCLUSIVE again.
+
+No regression signal exists for v1.4.9, though the only comparison available is
+**unpaired** (different boots, different times) and is *not* §6 evidence:
+
+| lane | v1.4.7 (arm A, registered protocol) | v1.4.9 (production, same probe) |
+|---|---|---|
+| structured | 64.54 | 67.08 / 67.15 / 67.21 |
+| essay | 24.39 | 24.91 |
+| hashmap | 32.50 | — |
+
+So the question was narrowed to the one the owner needs answered — *is v1.4.9
+slower than v1.4.7 on these lanes?* — and answered with an estimator a couple of
+stalls cannot move. `scripts/diagnose_v149_ab.py` boots arm A (v1.4.7) and arm B
+(v1.4.9), each once, and compares **medians**. The receipt also records each
+lane's registered `(max - min) / median` spread, so it shows what the registered
+gate would have concluded.
+
+**Sample sizes are set per lane from measured spread, not from symmetry.** The
+first pass used 21 observations per decode lane and the registered 9 and 5 on
+prefill (receipt `local/task35b-diag-20260911T1555Z.json`). When the decision
+rule was corrected to bound the median ratio exactly (see below), that pass
+turned out to be underpowered: the exact composition is roughly 2.5x wider than
+the shift interval it replaced, so 21 observations cannot resolve a 5% band
+against this host's spread. A resampling estimate of each lane's power, taken
+from the pilot's own empirical distribution, sized the second pass:
+
+| lane | pilot n | re-run n | why |
+|---|---|---|---|
+| structured | 21 | 31 | power 0.97 → 1.00; ~3.8 s per observation |
+| essay | 21 | 31 | power 0.99 → 1.00; ~9.1 s per observation |
+| hashmap | 21 | **81** | the binding lane: power 0.19 → 0.94. Its clean values genuinely span 26–33 tok/s around a 29.5 median, so a 5% band on the median needs roughly four times the sample |
+| prefill60k | 9 | 31 | power 0.91 → 0.99; ~38.5 s per observation |
+| prefill240k | 5 | 11 | power 1.00 even at 7, since its spread is only 0.006 relative, but 7 gives order statistic k=0 (both extremes inside the interval, so one stall breaks the lane). 11 buys k=1. Each observation costs ~152 s, so this lane is kept near the coverage minimum rather than matched to the decode count |
+
+That is ~2h05m of measurement plus ~22 min of fixed preflight/arm/restore
+overhead, against the pilot's ~51 min of measurement; the actual run took 2h39m.
+Every default count is checked against the coverage requirement at startup, and
+`validate_capture` checks the delivered files against the count the receipt
+recorded.
+
+The sizing estimate is not a guarantee, and `hashmap` is where it missed: 0.94
+power means a 6% chance of an undecided lane, and that is the draw this run got.
+The estimate was built from the pilot's own empirical distribution, which for
+`hashmap` contained only 21 values including three deep stalls, so its spread was
+the least well estimated of any lane. This is recorded rather than papered over
+by re-running until the answer looks better.
+
+**How a lane is decided.** The point estimate is the median ratio `B_median /
+A_median`, and the verdict comes from a **conservative composed interval for that
+same ratio**. Each arm's median gets a distribution-free sign-test interval from
+its own order statistics, at 0.975 per arm; pairing the candidate's low bound
+with the control's high bound (and the reverse) covers the ratio at `2 x 0.975 -
+1 = 0.95` by the union bound. Nothing is assumed about the shape of either
+distribution and nothing about which observations are stalls. The §6 band is a
+ratio bound, so the interval is compared with the band directly. A lane whose
+interval **spans** its band is reported inconclusive rather than rounded to
+whichever side its point estimate fell on, which is what makes a wide or
+contaminated lane fail closed instead of quietly becoming a pass.
+
+**A first attempt at this was circular, and review caught it.** That version
+gated on a `median_robust` flag which counted observations below half their own
+median and called the lane trustworthy when fewer than half qualified. For
+positive values and odd `n` — including every default count — fewer than half
+*always* qualify, so the flag could not detect majority contamination: eleven
+observations at 30 with ten at 100 gave a median of 30 and still reported
+"robust". The accompanying invariance claim was wrong too, because the median's
+50% breakdown point bounds how far it can be *moved*, not whether replacing a
+minority can move it: replacing three of twenty-one observations in
+`[90]x10 + [100]x11` moves the median from 100 to 90. The flag has been removed
+entirely. `stall_count` survives as a descriptive number, never used to certify
+the median it was measured against, and both counterexamples are now regression
+tests. (A near-50/50 bimodal arm still yields inconclusive rather than a verdict,
+which is the honest answer: such a sample genuinely cannot say where its centre
+is.)
+
+**A second attempt targeted the wrong quantity, and review caught that too.** The
+replacement was a **Hodges-Lehmann shift interval** — the median of all pairwise
+`B - A` differences with its exact Mann-Whitney confidence interval. It is
+distribution-free and it is the standard two-sample non-parametric comparison,
+but it estimates the **median of the pairwise differences**, which equals the
+difference of the two medians only under a location-shift model. Two differently
+shaped arms can therefore have a median ratio below the band while the shift
+interval sits comfortably above the boundary. The reviewer's counterexample: ten
+observations near 90 with eleven near 100 against eleven near 96 with ten near
+110 gives a median ratio of `96 / 100 = 0.96`, below `structured`'s 0.97 band, yet
+the HL point estimate is `+10` against a boundary of `-3`, so it returned
+non-inferior. The rule now bounds the median ratio directly, which is the
+quantity the bands are written in; the counterexample is a regression test.
+
+**A lane must reach the coverage it claims.** The composed interval's width is
+set by the sample sizes alone, so whether a lane can be decided at all is known
+before the run starts. One, two and three observations support levels of None,
+0.0 and 0.5 respectively — an earlier version reported them at a claimed 95%.
+`compare_lane` now marks any lane below `MIN_LEVEL = 0.95` inconclusive, and
+`main` refuses to start a measurement whose lane counts cannot reach it
+(`min_runs_for_level()` is 7). This is why `prefill240k` moved from the
+registered 5 to 7: five observations reach only 0.875 composed coverage.
+
+**The report validates the capture before issuing a verdict.** `--from report`
+and a resume after a late failure are both reachable with every lane file present
+but the capture rejected, so reading those files and printing a verdict would
+launder a failed run into a pass. `validate_capture()` requires the completed
+phases, **every** phase entry to have succeeded (a phase that failed and then
+succeeded on retry still fails the capture), no phase left in progress, the
+measured image and exllamav3 version to match the arm, the measured boot to be
+the armed boot, zero preemption deltas, **every** registered probe attempt to
+have succeeded, the selected evidence file to belong to the arm's *current*
+measurement attempt, the requested observation count, no invalid runs, finite
+positive values, and `any_cache_hit` false on prefill lanes. Any failure yields
+**INVALID CAPTURE** and a non-zero exit; the per-lane numbers are still written
+as evidence, but they cannot be read as a result.
+
+**A retry must not erase the failure that preceded it.** An earlier version kept
+only the latest entry per phase name and accepted *any* successful block, so a
+lane whose retry worked after an earlier attempt failed read as clean. A kill
+during a phase was also invisible, because `main` overwrote `phase_in_progress`
+before every phase. Both paths are closed: the phase list is scanned entry by
+entry, every block for a lane must have succeeded, and a leftover
+`phase_in_progress` is moved into `interrupted_phases` before the loop overwrites
+it and is checked by `validate_capture`. The one leftover that is *not* evidence
+of a crash is the phase this invocation is about to run, since `main` sets the
+field before calling the handler; a resumed phase is caught by its own block
+record instead, which is registered before the block runs.
+
+**The cluster caught one more defect in that validation.** `main` records
+`phase_in_progress` *before* calling a phase's handler and clears it afterwards,
+so a receipt read from inside the report phase legitimately has it set to
+`"report"`. `validate_capture` treated any non-empty value as evidence that an
+earlier run had died mid-phase, so running the report through the real entry
+point returned INVALID CAPTURE and exit 1 on a healthy receipt. The tests missed
+it because they called `phase_report(state)` directly, which never sets the
+field; exercising the committed bytes on the cluster is what surfaced it, which
+is precisely what the publication gate is for. The check now ignores the phase
+executing right now and flags only a different leftover value, and the regression
+test drives the real entry point (`main --from report --to report`) so the
+interaction stays covered. Re-validated on the cluster with the fixed bytes
+(`sha256 bb66d679…`): rc=0 and no capture problems, under the shift rule that was
+still in force at that point and has since been withdrawn — what that run
+established is that the report path no longer rejects a healthy receipt.
+
+**This is diagnostic evidence, not §6 qualification.** It does not satisfy the
+pre-registered contract, `audit_v149_qualification.py` does not consume its
+receipt, and the receipt carries an explicit evidence-class label. §6 stays open
+until the registered window completes or the owner records a narrowing.
+
+The diagnostic reuses the reviewed window runner's primitives (`.env` handling,
+both-node arm verification, the MemFree tripwire, the preemption check, the
+disarm/restore/re-arm recovery path, signal and atexit recovery, and the probe
+itself) and imports the bands and arm tags rather than redeclaring them, so the
+two harnesses cannot drift. It deliberately does **not** reuse `phase_measure`,
+because that function's sample sizes *are* the pre-registered §6 contract; the
+§6 harness is left byte-identical.
+
+**First pass (2026-09-11, receipt `local/task35b-diag-20260911T1555Z.json`).**
+Arm A ran v1.4.7 and arm B v1.4.9, each with its own verified boot, ~73 minutes
+total. This pass used the sample sizes in the table above's "pilot n" column and
+the **Hodges-Lehmann shift** rule that the final review rejected; the intervals
+below are that rule's, kept here because they are what the receipt recorded.
+
+| lane | A median | B median | B/A | band | shift CI (95%) | stalls A/B | registered spread A/B | verdict under HL |
+|---|---|---|---|---|---|---|---|---|
+| structured | 64.34 | 66.71 | 1.0368 | 0.97 | [+1.64, +2.76] | 3/21 vs 1/21 | 0.645 / 0.638 | non-inferior |
+| essay | 24.00 | 25.18 | 1.0490 | 0.95 | [+0.54, +2.60] | 1/21 vs 0/21 | 0.640 / 0.149 | non-inferior |
+| hashmap | 29.49 | 30.61 | 1.0379 | 0.95 | [-0.15, +3.28] | 0/21 vs 0/21 | 0.586 / 0.191 | non-inferior |
+| prefill60k | 1606.58 | 1601.28 | 0.9967 | 0.95 | [-10.53, +16.80] | 0/9 vs 0/9 | 0.164 / 0.127 | non-inferior |
+| prefill240k | 1585.00 | 1584.55 | 0.9997 | 0.95 | [-9.06, +8.39] | 0/5 vs 0/5 | 0.006 / 0.007 | non-inferior |
+
+**Re-judged under the corrected rule, that pass is INCONCLUSIVE.** The raw
+observations are unchanged, so every point estimate above stands; what changed is
+the interval. Because the shift rule was measuring the wrong quantity, its
+"non-inferior" verdicts cannot be carried over. Applying the exact composed
+median-ratio interval to the same 73-minute capture gives:
+
+| lane | B/A | band | median-ratio CI | coverage | verdict |
+|---|---|---|---|---|---|
+| structured | 1.0368 | 0.97 | [1.0159, 1.0536] | 0.9856 | non-inferior |
+| essay | 1.0490 | 0.95 | [0.9755, 1.7196] | 0.9856 | non-inferior |
+| hashmap | 1.0379 | 0.95 | [0.9284, 1.2541] | 0.9856 | **inconclusive** |
+| prefill60k | 0.9967 | 0.95 | [0.8722, 1.1928] | 0.9922 | **inconclusive** |
+| prefill240k | 0.9997 | 0.95 | [0.9927, 1.0062] | 0.8750 | **inconclusive** (coverage) |
+
+**INCONCLUSIVE — at least one lane could not be decided.** Two of five lanes are
+decided non-inferior. No lane's point estimate falls below its band — every one
+is at or above 0.9967 and three of five are ~4–5% *faster* — but a point estimate
+is not the decision, and with three lanes undecidable **no regression is ruled
+out either**: `hashmap`'s interval reaches 0.9284 against a 0.95 band and
+`prefill60k`'s reaches 0.8722, so both are consistent with a regression as well
+as with the improvement they measured. Three lanes are undecidable on this
+capture — `hashmap` and `prefill60k` because the interval spans the band at 21
+and 9 observations respectively, and `prefill240k` because 5 observations reach
+only 0.875 coverage, below the 0.95 the rule requires. An earlier revision of
+this document reported NO REGRESSION DETECTED on this same capture; that verdict
+came from the shift rule and is withdrawn.
+
+Note what the corrected rule does *not* do: it does not turn any measured
+improvement into a regression, and it does not doubt the point estimates. The
+lane medians are the same numbers. It refuses to certify them at a precision
+this sample does not buy, which is exactly the failure mode the review found in
+the rule it replaced.
+
+**Second pass (2026-09-11, receipt `local/task35b-diag2-20260911-rerun.json`).**
+Resized per lane as above, ~2h39m total, `capture_problems: []`.
+
+| lane | n | A median | B median | B/A | band | median-ratio CI | coverage | verdict |
+|---|---|---|---|---|---|---|---|---|
+| structured | 31 | 66.55 | 66.02 | 0.9920 | 0.97 | [0.9836, 0.9978] | 0.9787 | non-inferior |
+| essay | 31 | 24.47 | 24.58 | 1.0044 | 0.95 | [0.9691, 1.0556] | 0.9787 | non-inferior |
+| hashmap | 81 | 30.69 | 30.85 | 1.0054 | 0.95 | [0.9361, 1.0763] | 0.9720 | **inconclusive** |
+| prefill60k | 31 | 1601.37 | 1606.78 | 1.0034 | 0.95 | [1.0002, 1.0065] | 0.9787 | non-inferior |
+| prefill240k | 11 | 1588.29 | 1581.98 | 0.9960 | 0.95 | [0.9573, 1.0353] | 0.9766 | non-inferior |
+
+**INCONCLUSIVE — one lane undecided.** Four of five lanes are decided
+non-inferior: `structured`, `essay`, `prefill60k` and `prefill240k` each have an
+interval entirely above their band. `hashmap` is the exception, and the reason is
+headroom rather than data quality: its point ratio is 1.0054 against a 0.95 band,
+so the margin available is 5.5%, while the exact interval's half-width at 81
+observations is about 7%. Deciding that lane needs roughly 131–161 observations.
+The failure is on width, not coverage — the interval spans its band, and the
+lane's coverage (0.9720) is above the requirement.
+
+That lane is therefore **not decided in either direction**, and the distinction
+matters for how this pass is read: its interval `[0.9361, 1.0763]` crosses the
+0.95 band, so this capture does **not** establish that `hashmap` is
+non-inferior, and does **not** rule out a regression there. The honest summary is
+that no regression is *demonstrated* on any lane, on four lanes non-inferiority
+is *established*, and on `hashmap` the question stays open. It is not a pass for
+that lane.
+
+**The first pass's decode win does not reproduce, and that is the headline
+correction.** The withdrawn pass reported v1.4.9 ~3.7–4.9% *faster* on the three
+decode lanes, and that number reached the README. At 31–81 observations every
+lane's point estimate sits within ±0.8% of parity, so the apparent win was a
+small-sample artifact — the first pass had 21 observations per decode lane, and
+at that size the order-statistic interval is wide enough for a chance draw to
+look like a consistent advantage. The honest result is **throughput parity on the
+point estimates**: v1.4.9's measured medians are within ±0.8% of v1.4.7's on
+every lane here.
+
+That is a statement about the medians, not a bound on the difference. Only four
+lanes carry a decided answer, and `hashmap`'s interval is wide enough (±7%) to
+contain both a 5% regression and a 5% win, so "within ±0.8%" must not be read as
+"equivalent to within ±0.8%", and no lane's *interval* is ±0.8% wide. One detail
+belongs in that statement rather than under it: `structured` is 0.8% *slower* on
+this pass and its interval [0.9836, 0.9978] excludes 1.0, so that slowdown is
+resolved — it is simply far inside the 0.97 band. Both passes agree that the pin
+is safe to hold; only the first pass's *magnitude* was wrong, and it was wrong in
+the direction that flattered the change.
+
+The receipt also shows why the registered window could not answer this: on arm A
+alone the `(max - min) / median` spread was **0.645** (structured), **0.640**
+(essay) and **0.586** (hashmap) — three of five lanes past the 0.30 gate — driven
+by the transient stalls, which were observed in the raw runs (a structured
+observation at 24.73 tok/s against 61–66 for its neighbours, a ~2.6x drop) and
+whose count varied between arms. Those stalls are visible in `stall_count` and in
+the registered spread.
+
+The stalls also explain the width of the corrected interval, and they are the
+reason the pilot was underpowered rather than any property of v1.4.9. A
+distribution-free interval for a median is built from order statistics, so the
+observations it discards are set by the sample size alone: at 21 observations and
+0.975 per arm, k=4, and on arm A `hashmap`'s four lowest values are genuine but
+its *spread* among the rest still spans 26–33 around a 29.5 median. Composing two
+such intervals for the ratio costs a further union bound. The remedy is sample
+size, and the second pass sizes it per lane from that measured spread.
+
+A tighter interval for the same estimand would decide `hashmap`: a
+non-parametric bootstrap for the ratio of medians gives it [0.9642, 1.0514] on
+this same 81-observation capture, above the band. It was offered and declined,
+because it is asymptotic rather than exact; the exact rule is kept and the lane
+is reported undecided. That is the honest cost of the stricter method, recorded
+rather than worked around.
+
+Production was restored byte-for-byte (`.env` sha256 identical to the pre-run
+backup, no leftover diagnostic `IMAGE=` line, both nodes back on
+`e3-w3-zfill-v149` at exllamav3 1.4.9, health 200) and both timers were re-armed.
+The diagnostic receipt carries `evidence_class: "diagnostic — NOT §6
+qualification evidence"`, and **§6 remains open**: this pass establishes
+non-inferiority on four lanes and demonstrates no regression on any lane, but it
+is neither the registered contract nor, on `hashmap`, a decided answer, and must
+not be filed as either.
 
 ### What this harness does NOT cover
 
@@ -359,7 +730,11 @@ not certify that execution either.
 
 ### Review rounds
 
-Four review rounds ran against the harness.
+Eight review rounds ran against the harness, the launcher fixes, the probe's
+replacement coldness proof, and the paired diagnostic. Rounds 1–4 covered the §6
+harness; round 5 covered the launcher changes in §4; rounds 6–7 covered the
+coldness proof described under "The first §6 attempt failed on unavailable cache
+telemetry"; round 8 covered the diagnostic.
 
 - **Round 1 — eleven findings.** Two would have aborted a healthy window, two
   would have produced wrong numbers, and the rest were fail-closed or evidence
@@ -381,6 +756,293 @@ Four review rounds ran against the harness.
   `phase_disarm`, where a hung first query or stop hid the second unit.
   Reproduced against the pre-fix revision (only the watchdog timer attempted,
   `rearm_failures` absent) and covered by three regression tests.
+- **Round 5 — four findings, all against the launcher changes in §4.** See
+  "Four defects in the launcher fixes" below. Fixed in `bb61b3f`.
+- **Rounds 6–7 — the replacement coldness proof.** Round 6 rejected the first
+  engine-counter version on three counts: the counters' **lifetime** was not
+  checked, so a server restart between the two samples could make a caught-up
+  counter read as a cold run; the source precedence in the summary was
+  ambiguous; and non-finite telemetry was accepted. Round 7 rejected the fix for
+  the first of those: the lifetime check compared the `created` gauge **map** as
+  a whole, so an unrelated series' gauge could authorise a different series'
+  reset. Each counter now requires **its own** equal
+  `created:<kind>{<labels>}` gauge in both samples. Fixed in `5880578` and
+  `0a73b58`; the reviewer's counterexample became a regression test, and the
+  final verdict was **APPROVED** — "no remaining demonstrated path accepts a
+  warm request as cold".
+- **Round 8 — two findings against the paired diagnostic, both real.** The first
+  was the circular `median_robust` gate and its false invariance claim, with two
+  worked counterexamples (see "A first attempt at this was circular" above); the
+  fix replaced it with a distribution-free Hodges-Lehmann shift interval. The
+  second was that `phase_report` ignored failed phases, registered blocks,
+  preemption deltas, requested counts, and correctness flags, so `--from report`
+  on a rejected capture printed NO REGRESSION DETECTED — the reviewer reached
+  that verdict after a failed preemption check, and offline with 1/9 prefill
+  observations, an invalid run, and `any_cache_hit=True`. The fix adds
+  `validate_capture()`, which yields INVALID CAPTURE and a non-zero exit. Both
+  defects were reproduced against the pre-fix revision before the fixes landed,
+  and the counterexamples are now regression tests (34 of the new tests failed
+  pre-fix).
+- **Round 9 — three more findings, all real, and the first one invalidates the
+  round-8 estimator.** (1) The Hodges-Lehmann interval estimates the median of
+  the pairwise differences, which equals the difference of the two medians only
+  under a location-shift model. The reviewer's counterexample: ten observations
+  near 90 with eleven near 100 against eleven near 96 with ten near 110 gives a
+  median ratio of 0.96, below `structured`'s 0.97 band, yet HL reported
+  non-inferior because its point estimate is `+10` against a boundary of `-3`.
+  The remedy is to bound the median ratio itself, which is what the bands are
+  written in. (2) Retry history was fail-open: only the latest phase entry was
+  kept, any successful block for a lane was accepted, and `main` overwrote
+  `phase_in_progress` before each phase, so a lane whose retry worked after a
+  failure — and a run killed mid-phase — both read as clean captures. (3) The
+  achieved coverage level was ignored: arms of one, two and three observations
+  passed at levels of None, 0.0 and 0.5 while the receipt claimed 95%.
+  All three were reproduced before the fixes, and 18 of the new tests fail
+  against the pre-fix revision.
+  The corrected rule is the **composed median-ratio interval** described above.
+  Its consequence is recorded rather than hidden: it is ~2.5x wider than the
+  shift interval it replaced, so the round-8 capture is **INCONCLUSIVE** and the
+  second pass resizes every lane (see "Sample sizes are set per lane" above).
+  The owner chose the exact composition over a tighter asymptotic alternative
+  (a bootstrap interval for the same estimand decides all five lanes on the same
+  capture, but is not exact) and chose to re-run rather than record a narrowing.
+  **The resized pass then refuted the round-8 pass's own headline**: at 31–81
+  observations every lane's point estimate is within ±0.8% of v1.4.7, so the
+  ~3.7–4.9% decode advantage the withdrawn verdict reported was a small-sample
+  artifact.
+  One lane, `hashmap`, remains undecided on interval width; the owner accepted
+  that rather than spending another three-hour window. The finding that survives
+  both passes, and the one the pin actually needed, is that **no lane is
+  demonstrated to regress past its band** — on four lanes non-inferiority is
+  established outright, and on `hashmap`, whose interval straddles the band, the
+  question is left open rather than answered in the pin's favour.
+- **Round 10 — four findings against the capture validation, all real.** (1)
+  **Resuming the interrupted phase discarded the interruption.** `main` exempted
+  a leftover `phase_in_progress` equal to the phase being resumed, on the
+  reasoning that the in-run case looks identical — so `--from rearm --to report`
+  on a run killed inside `rearm` returned rc=0 and NO REGRESSION DETECTED.
+  `restore` and the `arm_*`/`measure_*` phases had the same hole, and those
+  phases leave no probe block behind, so nothing else preserved the failure. The
+  in-run case is now handled only by `validate_capture`'s `current_phase`, and
+  every evidence-producing phase's leftover is kept. The one exemption is the
+  terminal `report` phase, which recomputes its output from evidence still on
+  disk: flagging a kill there would poison a receipt permanently for a
+  millisecond-wide window, and on this host (stalls, power capping) that is a
+  real possibility. (2) **The worker node was unvalidated.** Only the head's
+  image and version were checked, so arm B with its worker still on arm A's image
+  passed a two-node comparison. Both nodes are now checked per node, with the
+  worker's boot bound to the measured boot and the two arms' worker boots
+  required to differ. (3) **Incomplete contracts bypassed the checks.** A phase
+  entry with `ok: null` counted as success because the test was `ok is False`,
+  and a missing `counts.<lane>` silently disabled the observation-length check,
+  so a 7-observation file could stand in for a 31-observation contract. Success
+  is now affirmative, every lane needs a usable positive-integer count, and the
+  block that wrote the selected file must agree with that count. (4) **The
+  documentation overclaimed.** README, this document and the PR body said "no
+  lane regresses" and that no interval crosses its band, but `hashmap`'s verified
+  interval `[0.9361, 1.0763]` crosses the 0.95 band. Corrected to four lanes
+  decided non-inferior, `hashmap` undecided, and **no regression demonstrated —
+  not ruled out**. All four are covered by tests verified to fail against the
+  pre-fix revision (`554fe86`): 18 red, each mapping to its finding.
+- **Round 11 — the missing-contract bypass survived one entry point.** Round 10's
+  finding 3 was only partly closed. `validate_capture` did reject an absent, null
+  or empty `counts`, but `main` preserved the recorded contract behind
+  `if recorded and recorded != counts`, so a *falsy* contract skipped the guard
+  entirely and the CLI defaults were written over it **before** validation ran.
+  `--from report` on such a receipt therefore returned rc=0 and NO REGRESSION
+  DETECTED while fabricating a 31/31/81/31/11 contract — the same fail-open the
+  round had just closed, reachable through the one entry point the fixtures did
+  not drive (they called `validate_capture` directly).
+  The guard is now keyed on whether the run needs a contract in hand
+  (`consumes_contract`, which is wider than "measures" because `phase_arm` sizes
+  its probe blocks from `counts`) rather than on whether the receipt happens to
+  hold one: a run that neither arms nor measures keeps the receipt's own record
+  **including its absence**, and a measuring resume of a receipt that holds
+  evidence but no usable contract is refused outright rather than defaulted.
+  Four regression tests, verified RED against `3649dc4` — absent, null and empty
+  counts each returned 0 where 1 is required, and the measuring resume returned 0
+  where 2 is required.
+
+### The 507 MHz clock cap CLEARED — and how (2026-09-11)
+
+**Resolved.** A **cold power cycle** (power off, unplug from the wall, wait,
+reconnect) cleared the fault. A warm reboot did **not** — that was measured
+earlier the same day, and the fault survived it intact. This matches the
+community RCA material for this platform, where firmware-level stuck state clears
+only when power is removed, because the relevant initialization happens at
+power-on rather than at warm reset.
+
+| | head before | head after | worker (control) |
+|---|---|---|---|
+| bf16 8192³ | 23.8 TFLOP/s | **95.1 TFLOP/s** | 86.6 TFLOP/s |
+| clock under load | 507 MHz | **2216–2496 MHz** | 2288–2340 MHz |
+| power under load | ~12 W | **42–92 W** | 74–92 W |
+| utilisation | 96 % | 94–96 % | 96 % |
+
+The mechanism is now confirmed by contrast. Before, the GPU was 96 % busy while
+drawing ~12 W — it cannot run at full clock on 12 W, so it sat at its floor.
+After the cold cycle the same utilisation draws 42–92 W and the clock rises
+proportionally. Power → clock → throughput.
+
+A real serving-load test agrees: four concurrent 15001-token prefills all
+returned HTTP 200 at ~1376 tok/s aggregate, against ~582 tok/s while faulty and
+the standing ~1454 tok/s receipt. Receipts:
+`local/spark1-clock-fault-RESOLVED-20260911.txt`,
+`local/spark2-worker-baseline-20260911.txt`.
+
+**The blocker on §6 is therefore cleared.** The head exceeds the required
+threshold (≥ 2000 MHz and ≥ 80 TFLOP/s: measured 2216–2496 MHz and
+95.1 TFLOP/s).
+
+Two cautions. First, **the original root cause is still unidentified**: the cold
+cycle cleared the state without explaining how the head entered it, and GB10
+exposes no power-supply telemetry, so the 240 W USB-C PD supply or cable remains
+the prime suspect if it recurs. Second, an **idle** clock reading is
+uninformative — both nodes park at 208 MHz idle — so only a load measurement
+counts.
+
+### Two launcher failures the same incident exposed (fixed)
+
+The reboot also surfaced two independent, recurring failure modes. Both are
+launcher-level and both are fixed in the branch that follows PR #73.
+
+1. **Hardcoded RoCE v2 GID indices are a latent outage.** `start.sh` validated
+   one configured index per rank and only rejected an EMPTY entry. The index is a
+   runtime table slot, not a stable property of the address: it drifted twice on
+   this kit (the worker's RoCE v2 entry moved 4 → 3), and each drift took
+   production down until `.env` was hand-edited. A populated entry for the wrong
+   address or the wrong RoCE version also passed and would have killed the rank
+   ~60 s in with a bare `ibv_modify_qp errno 61`. `start.sh` now **resolves** each
+   rank's index from the fabric (own IP + `RoCE v2` type, exactly one match,
+   fail-closed otherwise), treats `.env` as a hint, reports a stale override, and
+   re-checks the resolved index immediately before launching. Validated
+   read-only against the real fabric on both nodes.
+
+2. **The retry loop retried deterministic failures and leaked containers.**
+   `local/prod-start.sh` stopped the pair once, before its loop. A failure before
+   `launch_cluster()` leaves containers holding unified memory and the API/master
+   ports, which the next attempt then trips over; and a deterministic failure
+   (unresolvable GID, RDMA port down) fails identically every time, so three
+   attempts produced a misleading "3 attempts failed" from one configuration
+   problem. Every retry now tears the pair down first and re-runs a new read-only
+   `start.sh preflight`; if that still fails, it aborts immediately with the real
+   reason instead of retrying.
+
+Receipt: `local/launcher-fixes-gid-and-retry-20260911.txt`.
+
+**Note for whoever deploys the launcher:** the live `start.sh` on the head node
+is an OLDER revision than the repo's — it lacks the task-34 track-A FlashKDA
+wiring, and the matching `overlay/patch_flashkda_prefill.py` is absent from the
+live checkout too. Deploying the repo `start.sh` as-is would `die` at preflight on
+the missing overlay, so the two must be shipped together.
+
+### Four defects in the launcher fixes (review round 5, fixed in `bb61b3f`)
+
+Review round 5 on `628833d` found four behavioural defects in the fixes above.
+None was cosmetic; each is now covered by a regression test that was verified to
+fail against the pre-fix revision (15 red, 30 green).
+
+1. **The exhaustion branch exited before cleaning up.** The retry bound was
+   checked *before* `./start.sh stop`, so the last failed attempt's containers
+   stayed up while the log reported "production left down". They hold unified
+   memory plus the API/master ports — which is precisely what makes the next
+   manual start fail. Cleanup now runs before the exhaustion decision, so it
+   happens on the final attempt too.
+
+2. **`start.sh preflight` was not read-only.** It wrote `.env` from
+   `env.example` (the bootstrap skipped only `validate`) and created the head HF
+   cache plus the worker's cache directory. `local/prod-start.sh` calls it to
+   *classify* a failed start, and a classifier that mutates state also changes
+   its own next answer. The `.env` bootstrap now skips `validate|preflight`, and
+   a `READ_ONLY` flag suppresses both `mkdir`s — testing instead of creating.
+   Under `READ_ONLY` a missing cache only warns: `start` would create it, so
+   dying there would abort a retry that could still have succeeded.
+
+3. **`preflight && log "preflight OK"` suppressed `errexit`.** A call in an
+   AND-list disables `set -e` for the whole call, so preflight could report
+   success on a failed check. It is now called standalone. The two GID table
+   reads additionally carry explicit `|| die`: a command substitution that
+   printed a usable row and *then* returned non-zero was swallowed, so an
+   incomplete check read as a pass.
+
+4. **Malformed IPv4 was accepted and resolved to a plausible GID.** Three forms
+   survived the original `read -a` plus per-octet loop:
+
+   | Input | Why it passed | What it resolved to |
+   |---|---|---|
+   | `192.168.177.11.` | the empty fifth field is dropped, so the 4-field count check passed | the worker's address |
+   | `192.168.177.18446744073709551627` | `$((10#$o))` overflowed 64 bits and wrapped to 11 | the worker's address |
+   | `192.168.177.11\nignored` | `read` consumed only the first line and discarded the rest | the worker's address |
+
+   A bad `HEAD_IP`/`WORKER_IP` in `.env` would therefore have silently matched
+   the wrong fabric address instead of failing closed. Validation is now an
+   anchored `^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$` plus a **digit-count** bound
+   before any arithmetic, so an overflow cannot wrap. `192.168.177.010` still
+   resolves as decimal 10 (intended: `10#` defeats octal interpretation).
+
+Also validated: `MAX_BOOT_ATTEMPTS=bogus` disabled the retry bound entirely,
+because `[ "$attempt" -ge "bogus" ]` is false. A non-numeric or sub-1 value now
+falls back to 3 with a warning.
+
+### The live checkout was converged to the reviewed bytes (2026-09-11)
+
+The reviewed launcher fixes were committed but the deployed checkout on spark1
+had drifted from them. Three files differed, and one was absent entirely:
+
+| file | live before | repo | action |
+|---|---|---|---|
+| `start.sh` | `560a7ed5…` | `b3c56d3f…` | replaced |
+| `local/prod-start.sh` | `84f6b488…` | `1e208b4f…` | replaced |
+| `overlay/patch_flashkda_prefill.py` | **absent** | `b3423aee…` | added |
+
+`scripts/probe_v149_qualification.py` was also stale and was converged to the
+fixed coldness proof in the same operation; `audit_v149_qualification.py` and
+`run_v149_qualification_window.py` already matched. Every file was staged into
+the destination directory and moved into place with an atomic rename (never an
+in-place write, which would corrupt a script bash is mid-way through reading),
+and the two replaced scripts were backed up to
+`local/backup-pre-launcher-deploy-20260911-114223/`. Post-deploy hashes match the
+repository byte for byte.
+
+**Read-only validation.** `./start.sh validate` returned 0, and
+`./start.sh preflight` — the read-only classifier `prod-start.sh` now depends on
+— resolved both GID indices **from the fabric** rather than from the `.env`
+hint:
+
+```
+RoCE v2 GID resolved from the fabric: head rocep1s0f1 gid3 (192.168.177.10),
+                                        worker rocep1s0f1 gid3 (192.168.177.11)
+```
+
+It then refused, correctly, with `port 8000 is held by glm53-exl3-head`, because
+production was still running. That is the intended answer, and it confirms the
+ordering `prod-start.sh` relies on: it stops the failed attempt *before* calling
+preflight, so the port is free when the classifier runs.
+
+**Production restart through the new launcher.** `systemctl --user restart
+vllm-glm53exl3.service` exercised the new `local/prod-start.sh` and the new
+`start.sh` end to end:
+
+```
+restart rc=0 elapsed=512s
+unit: active          Result=success      NRestarts=0
+head   started 2026-09-11T15:43:11Z image glm53-selfbuild:e3-w3-zfill-v149
+worker started 2026-09-11T15:43:11Z image glm53-selfbuild:e3-w3-zfill-v149
+health=200            exllamav3 Version: 1.4.9
+```
+
+It booted on the **first** attempt, so the retry loop was not needed. This is the
+cluster-validation receipt for the launcher changes; the publication gate is
+satisfied for them.
+
+**The FlashKDA overlay is present but inert.** It is bind-mounted into the
+container at `/opt/glm53/patch_flashkda_prefill.py`, and `start.sh` sets
+`GLM53_KDA_PREFILL_BACKEND=triton` (the stock spelling). The overlay's own
+contract is byte-neutral unless it is armed with `flashkda`, so shipping it
+cannot change production by itself. **It must not be armed:** its task 34
+numeric parity gate failed — see `docs/15-flashkda-prefill-arm.md` and
+`local/task34-parity-gate-20260910.txt`. Adding the file closes a latent gap,
+not a behavior change.
 
 ## 5. What the window broke, and the three fixes it produced
 

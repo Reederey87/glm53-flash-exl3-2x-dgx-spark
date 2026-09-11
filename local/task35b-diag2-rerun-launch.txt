@@ -1,0 +1,8 @@
+Rerun launch
+date: 2026-09-11T14:03:02-04:00
+state: local/task35b-diag2-20260911-rerun.json
+log: /tmp/task35b-diag2-rerun.log
+pid: 193373
+diag sha256: 7e8db8604889f2965d4a11c6ff4667d5935fde823fe823529bd13bec562bcbc3
+counts: structured=31 essay=31 hashmap=81 prefill60k=31 prefill240k=11
+expected duration: ~2h30 (128 min measurement + ~22 min fixed)

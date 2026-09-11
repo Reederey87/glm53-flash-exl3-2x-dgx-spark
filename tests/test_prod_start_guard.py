@@ -37,35 +37,53 @@ def retry_block() -> str:
 
 
 def run_retry(
-    tmp: Path, fail_count: int, rc: int = 17
-) -> tuple[subprocess.CompletedProcess[str], int]:
+    tmp: Path,
+    fail_count: int,
+    rc: int = 17,
+    preflight_ok: bool = True,
+    max_attempts: str | None = None,
+) -> tuple[subprocess.CompletedProcess[str], int, list[str]]:
     """Run the bounded boot-retry loop with a fake start.sh.
 
-    start.sh fails with `rc` for its first `fail_count` invocations, then
-    succeeds. Returns the result and the number of start invocations.
+    start.sh fails with `rc` for its first `fail_count` invocations of `start`,
+    then succeeds. `preflight_ok=False` models a deterministic environment
+    failure that no amount of retrying can fix. Returns the result, the number
+    of `start` invocations, and every subcommand the loop issued in order.
     """
     work = tmp / "kit"
     work.mkdir(exist_ok=True)
     calls = tmp / "start-calls.log"
+    issued = tmp / "issued.log"
     start = work / "start.sh"
     start.write_text(
         "#!/usr/bin/env bash\n"
-        f'echo start >> {calls}\n'
-        f'n=$(wc -l < {calls} | tr -d " ")\n'
-        f'if [ "$n" -le {fail_count} ]; then exit {rc}; fi\n'
-        "exit 0\n"
+        f'echo "$1" >> {issued}\n'
+        'case "$1" in\n'
+        f'  start) echo start >> {calls}\n'
+        f'         n=$(wc -l < {calls} | tr -d " ")\n'
+        f'         if [ "$n" -le {fail_count} ]; then exit {rc}; fi\n'
+        "         exit 0 ;;\n"
+        f'  preflight) exit {0 if preflight_ok else 1} ;;\n'
+        "  *) exit 0 ;;\n"
+        "esac\n"
     )
     start.chmod(start.stat().st_mode | stat.S_IEXEC)
+    bind = ""
+    if max_attempts is not None:
+        # Single-quoted so a hostile value (spaces, globs, `$(...)`) reaches the
+        # loop as data rather than being expanded by the outer shell.
+        bind = f"MAX_BOOT_ATTEMPTS='{max_attempts}'\n"
     script = (
         "set -uo pipefail\n"
         "log() { printf '[prod-start] %s\\n' \"$*\"; }\n"
-        "settle_wait() { :; }\n" + retry_block()
+        "settle_wait() { :; }\n" + bind + retry_block()
     )
     r = subprocess.run(
         ["bash", "-c", script], cwd=work, capture_output=True, text=True
     )
     n = len(calls.read_text().splitlines()) if calls.exists() else 0
-    return r, n
+    order = issued.read_text().splitlines() if issued.exists() else []
+    return r, n, order
 
 
 def make_shim(bindir: Path, name: str, body: str) -> None:
@@ -256,7 +274,7 @@ def test_retry_loop_exhaustion_returns_the_failure_status() -> None:
     if-statement's own status, which is 0 when the condition failed and no
     branch ran — so exhausting the retries exited 0 with production down."""
     with tempfile.TemporaryDirectory() as t:
-        r, n = run_retry(Path(t), fail_count=99, rc=17)
+        r, n, _ = run_retry(Path(t), fail_count=99, rc=17)
         assert n == 3, n
         assert r.returncode == 17, (r.returncode, r.stdout, r.stderr)
         assert "production left down" in r.stdout
@@ -264,11 +282,109 @@ def test_retry_loop_exhaustion_returns_the_failure_status() -> None:
 
 def test_retry_loop_stops_at_the_first_success() -> None:
     with tempfile.TemporaryDirectory() as t:
-        r, n = run_retry(Path(t), fail_count=1)
+        r, n, _ = run_retry(Path(t), fail_count=1)
         assert r.returncode == 0, r.stderr
         assert n == 2, n
         assert "production left down" not in r.stdout
         assert "retrying" in r.stdout
+
+
+def test_each_retry_cleans_up_the_partial_launch_first() -> None:
+    """A failed attempt can leave containers running (start.sh only removes
+    them inside launch_cluster, so a failure before that point leaks them,
+    holding unified memory and the API/master ports). Every retry must tear the
+    pair down again before trying."""
+    with tempfile.TemporaryDirectory() as t:
+        r, n, order = run_retry(Path(t), fail_count=1)
+        assert n == 2, n
+        # start -> stop -> preflight -> start
+        assert order == ["start", "stop", "preflight", "start"], order
+        assert "cleaning up any partial launch" in r.stdout
+
+
+def test_a_deterministic_failure_is_not_retried() -> None:
+    """An unresolvable RoCE GID or a downed RDMA port fails identically every
+    time. Burning the remaining attempts on it produced the confusing
+    "3 attempts failed" report from a single configuration problem."""
+    with tempfile.TemporaryDirectory() as t:
+        r, n, order = run_retry(Path(t), fail_count=99, rc=17, preflight_ok=False)
+        assert n == 1, f"should abort after the first attempt, ran {n}"
+        assert order == ["start", "stop", "preflight", "preflight"], order
+        assert r.returncode == 17
+        assert "not a transient one" in r.stdout
+        assert "not retrying" in r.stdout
+
+
+def test_cleanup_still_runs_before_the_deterministic_abort() -> None:
+    """The abort path must not skip cleanup: leaving the partial launch running
+    is exactly what made the next manual start fail preflight."""
+    with tempfile.TemporaryDirectory() as t:
+        _, _, order = run_retry(Path(t), fail_count=99, rc=17, preflight_ok=False)
+        assert order.index("stop") < order.index("preflight")
+
+
+def test_cleanup_failure_does_not_abort_the_retry() -> None:
+    """`stop` returning non-zero is reported but not fatal — the retry may still
+    succeed, and the final state is reported either way."""
+    with tempfile.TemporaryDirectory() as t:
+        work = Path(t) / "kit"
+        work.mkdir(exist_ok=True)
+        calls = Path(t) / "start-calls.log"
+        start = work / "start.sh"
+        start.write_text(
+            "#!/usr/bin/env bash\n"
+            'case "$1" in\n'
+            f'  start) echo start >> {calls}\n'
+            f'         n=$(wc -l < {calls} | tr -d " ")\n'
+            '         if [ "$n" -le 1 ]; then exit 17; fi\n'
+            "         exit 0 ;;\n"
+            "  stop) echo 'stop refused' >&2; exit 5 ;;\n"
+            "  *) exit 0 ;;\n"
+            "esac\n"
+        )
+        start.chmod(start.stat().st_mode | stat.S_IEXEC)
+        script = (
+            "set -uo pipefail\n"
+            "log() { printf '[prod-start] %s\\n' \"$*\"; }\n"
+            "settle_wait() { :; }\n" + retry_block()
+        )
+        r = subprocess.run(["bash", "-c", script], cwd=work, capture_output=True, text=True)
+        assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
+        assert "cleanup stop returned non-zero" in r.stdout
+
+
+def test_exhaustion_still_cleans_up_the_partial_launch() -> None:
+    """Regression (review round five): the exhaustion branch exited BEFORE the
+    cleanup, so the last failed attempt's containers were left running. The
+    report said "production left down" while the wreckage held unified memory
+    and the API/master ports, which is what made the next manual start fail."""
+    with tempfile.TemporaryDirectory() as t:
+        r, n, order = run_retry(Path(t), fail_count=99, rc=17, max_attempts="1")
+        assert n == 1, n
+        assert order == ["start", "stop"], order
+        assert r.returncode == 17, (r.returncode, r.stdout)
+        assert "cleaning up any partial launch" in r.stdout
+        assert "production left down" in r.stdout
+
+
+def test_a_non_numeric_max_boot_attempts_does_not_disable_the_bound() -> None:
+    """Regression (review round five): `[ "$attempt" -ge "$MAX_BOOT_ATTEMPTS" ]`
+    is false for a non-numeric right-hand side, so `MAX_BOOT_ATTEMPTS=bogus`
+    removed the bound entirely and spun forever on a failure that still passed
+    preflight. A bad value now falls back to the default of 3."""
+    with tempfile.TemporaryDirectory() as t:
+        r, n, _ = run_retry(Path(t), fail_count=99, rc=17, max_attempts="bogus")
+        assert n == 3, f"expected the default of 3 attempts, ran {n}"
+        assert r.returncode == 17
+        assert "not a positive integer" in r.stdout
+
+
+def test_a_sub_one_max_boot_attempts_falls_back_to_the_default() -> None:
+    with tempfile.TemporaryDirectory() as t:
+        r, n, _ = run_retry(Path(t), fail_count=99, rc=17, max_attempts="0")
+        assert n == 3, n
+        assert r.returncode == 17
+        assert "below 1" in r.stdout
 
 
 def test_hash_tracks_revision_and_launcher_default() -> None:
@@ -305,5 +421,12 @@ if __name__ == "__main__":
     test_unresolvable_image_leaves_stamp_and_skips_wipe()
     test_retry_loop_exhaustion_returns_the_failure_status()
     test_retry_loop_stops_at_the_first_success()
+    test_each_retry_cleans_up_the_partial_launch_first()
+    test_a_deterministic_failure_is_not_retried()
+    test_cleanup_still_runs_before_the_deterministic_abort()
+    test_cleanup_failure_does_not_abort_the_retry()
+    test_exhaustion_still_cleans_up_the_partial_launch()
+    test_a_non_numeric_max_boot_attempts_does_not_disable_the_bound()
+    test_a_sub_one_max_boot_attempts_falls_back_to_the_default()
     test_hash_tracks_revision_and_launcher_default()
     print("prod-start guard tests OK")

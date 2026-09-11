@@ -169,7 +169,38 @@ fi
 # a 103.44 GiB requirement and exited 1, a near miss that a second attempt a
 # minute later cleared. Retrying is the correct fix — lowering the gate would
 # convert a clean pre-check failure into a real OOM later.
+#
+# The retry is only correct for a TRANSIENT failure. Two defects measured
+# 2026-09-11 make the naive loop worse than useless:
+#
+#  1. A failed attempt can leave a PARTIAL launch behind. `start.sh start` only
+#     removes containers inside launch_cluster(), so a failure BEFORE that point
+#     (preflight, ensure_image, download/sync of weights) leaves whatever the
+#     previous attempt started still running — holding unified memory and the
+#     API/master ports. The next attempt then fails preflight for a new reason,
+#     and waiting for memory cannot recover it. Each retry must first tear the
+#     pair down again.
+#  2. A DETERMINISTIC failure (unresolvable RoCE GID, wrong fabric IP, RDMA port
+#     down, worker unreachable) fails identically every time. Burning three
+#     attempts and six seconds on it, while leaving containers up, produced the
+#     confusing "3 attempts failed" report from a single configuration problem.
+#
+# So: tear down, then re-check the deterministic preconditions. If they now
+# fail, abort immediately with that reason. Otherwise wait and retry.
 MAX_BOOT_ATTEMPTS="${MAX_BOOT_ATTEMPTS:-3}"
+# Validate the bound. `[ "$attempt" -ge "$MAX_BOOT_ATTEMPTS" ]` is false for a
+# non-numeric value, so a typo'd MAX_BOOT_ATTEMPTS would disable the bound
+# entirely and spin forever on a persistent failure that still passes preflight.
+case "$MAX_BOOT_ATTEMPTS" in
+    ''|*[!0-9]*)
+        log "WARN: MAX_BOOT_ATTEMPTS='$MAX_BOOT_ATTEMPTS' is not a positive integer — using 3"
+        MAX_BOOT_ATTEMPTS=3 ;;
+    *)
+        [ "$MAX_BOOT_ATTEMPTS" -ge 1 ] || {
+            log "WARN: MAX_BOOT_ATTEMPTS=$MAX_BOOT_ATTEMPTS is below 1 — using 3"
+            MAX_BOOT_ATTEMPTS=3
+        } ;;
+esac
 attempt=0
 while :; do
     attempt=$((attempt + 1))
@@ -184,10 +215,31 @@ while :; do
         # supervisor.
         rc=$?
     fi
+
+    # Tear down whatever the failed attempt left running BEFORE deciding
+    # anything else. This must happen on the FINAL attempt too: start.sh only
+    # removes containers inside launch_cluster(), so a failure earlier in the
+    # boot leaks them, and they hold unified memory plus the API/master ports.
+    # Exiting without cleanup reported "production left down" while leaving the
+    # wreckage in place, which is what made the next manual start fail.
+    log "start failed (rc=$rc) — cleaning up any partial launch"
+    ./start.sh stop || log "WARN: cleanup stop returned non-zero; continuing"
+
     if [ "$attempt" -ge "$MAX_BOOT_ATTEMPTS" ]; then
         log "ERROR: start failed after ${attempt} attempt(s) — production left down, see the log above"
         exit "$rc"
     fi
-    log "start failed (rc=$rc) — re-waiting for memory to settle, then retrying"
+
+    # Deterministic failure? A read-only preflight re-check answers this without
+    # duplicating the fabric/GID logic here. If the environment is still bad,
+    # another attempt cannot help — report the real reason and stop.
+    if ! ./start.sh preflight >/dev/null 2>&1; then
+        log "ERROR: preflight still fails — this is a configuration/environment problem, not a transient one"
+        log "ERROR: not retrying (attempt ${attempt} of ${MAX_BOOT_ATTEMPTS} was the last to run); see the preflight output below"
+        ./start.sh preflight || true
+        exit "$rc"
+    fi
+
+    log "preflight passes — re-waiting for memory to settle, then retrying"
     settle_wait || true
 done

@@ -1,0 +1,110 @@
+Launcher convergence + production restart validation
+===================================================
+Date:      2026-09-11
+Node:      spark1 (head, 10.0.0.214 / 192.168.177.10)
+Kit root:  /home/nvidia/GLM-5.3-Flash-EXL3-2x-DGX-Sparks
+Repo:      glm53-2x-dgx-spark, branch task35-38-qualification-20260911
+
+WHY
+---
+The reviewed launcher fixes (628833d, bb61b3f) were committed but the deployed
+checkout on spark1 had drifted from the repository. Three files differed and one
+was absent. This operation converged the live tree to the reviewed bytes and then
+validated them by restarting production through them.
+
+WHAT CHANGED
+------------
+file                                   live before   repo          action
+-------------------------------------  ------------  ------------  --------
+start.sh                               560a7ed5...   b3c56d3f...   replaced
+local/prod-start.sh                    84f6b488...   1e208b4f...   replaced
+overlay/patch_flashkda_prefill.py      ABSENT        b3423aee...   added
+scripts/probe_v149_qualification.py    b6193e20...   5d1160f9...   replaced
+scripts/audit_v149_qualification.py    b0229435...   b0229435...   unchanged
+scripts/run_v149_qualification_window.py  8919aa64...   8919aa64...   unchanged
+scripts/diagnose_v149_ab.py            ABSENT        14ac3754...   added
+
+METHOD
+------
+Files were staged to /tmp/deploy-stage on the node, hash-verified against the
+repository, then copied into the DESTINATION directory under a temporary name and
+moved into place with a rename. A rename within one directory is atomic, so a
+script bash is mid-way through reading can never be observed half-written (the
+failure mode AGENTS.md records from 2026-08-10 and 2026-09-01). No file was
+written in place.
+
+Backups of the two replaced scripts:
+  local/backup-pre-launcher-deploy-20260911-114223/start.sh
+  local/backup-pre-launcher-deploy-20260911-114223/prod-start.sh
+
+Post-deploy sha256 on the node, all matching the repository byte for byte:
+  b3c56d3f93ca92779e65c5356b40fb182d8d097b1a83d2a6a51768415871885f  start.sh
+  1e208b4f548b3bf8aa4b64c03a5317ce4dd91876893d6c24874e167bb7260708  local/prod-start.sh
+  b3423aeef6326c303f0b9410043081a574ed47212432990044c82b23266ce26d  overlay/patch_flashkda_prefill.py
+  5d1160f9ff03eb1cb217e471f4457252134d633c2030d82dcb8aa0aff0708a5e  scripts/probe_v149_qualification.py
+  14ac37544b1c30a2e777cfe4ea493e5e86e0ce23b7f96182c605cec856c4a36e  scripts/diagnose_v149_ab.py
+
+READ-ONLY VALIDATION
+--------------------
+bash -n start.sh                 -> OK
+bash -n local/prod-start.sh      -> OK
+./start.sh validate              -> rc=0, "configuration valid"
+
+./start.sh preflight (read-only; production was still running):
+  RoCE v2 GID resolved from the fabric: head rocep1s0f1 gid3 (192.168.177.10),
+                                         worker rocep1s0f1 gid3 (192.168.177.11)
+  WARN other containers are running on the worker: glm53-exl3-worker
+  ERROR: port 8000 is held by glm53-exl3-head
+
+The GID line confirms identity-based resolution works live: both indices were
+resolved from the fabric rather than taken from the .env hint. The port-8000
+refusal is the correct answer while production is up, and it confirms the
+ordering prod-start.sh depends on -- it stops the failed attempt BEFORE calling
+preflight, so the port is free when the classifier runs.
+
+PRODUCTION RESTART (cluster validation of the exact bytes)
+----------------------------------------------------------
+Command: systemctl --user restart vllm-glm53exl3.service
+The unit runs ExecStart=local/prod-start.sh and ExecStop/ExecStopPost=start.sh
+stop, so this exercised both new scripts end to end.
+
+BEFORE:
+  ExecMainStartTimestamp=Fri 2026-09-11 09:13:39 EDT   NRestarts=0
+  head started 2026-09-11T14:19:22Z  image glm53-selfbuild:e3-w3-zfill-v149
+  health=200
+
+AFTER:
+  restart rc=0   elapsed=512s
+  unit: active   Result=success   NRestarts=0
+  ExecMainStartTimestamp=Fri 2026-09-11 11:42:56 EDT
+  head   started 2026-09-11T15:43:11.749981058Z  image glm53-selfbuild:e3-w3-zfill-v149
+  worker started 2026-09-11T15:43:11.235401133Z  image glm53-selfbuild:e3-w3-zfill-v149
+  health=200
+  exllamav3 in-container: Version: 1.4.9
+
+The boot succeeded on the FIRST attempt, so the new retry loop was not exercised
+on this run (it is covered by tests/test_prod_start_guard.py). NRestarts=0 and
+Result=success confirm systemd did not fall back to a retry.
+
+FLASHKDA OVERLAY
+----------------
+overlay/patch_flashkda_prefill.py is now present and bind-mounted into the
+container at /opt/glm53/patch_flashkda_prefill.py:
+
+  -rw------- 1 1001 1001 16682 Sep 10 23:49 /opt/glm53/patch_flashkda_prefill.py
+
+start.sh sets GLM53_KDA_PREFILL_BACKEND=triton (the stock spelling). The
+overlay's own contract is byte-neutral unless it is armed with `flashkda`, so
+adding the file cannot change production behavior.
+
+DO NOT ARM IT. Its task 34 numeric parity gate failed. See
+docs/15-flashkda-prefill-arm.md and local/task34-parity-gate-20260910.txt.
+
+ROLLBACK
+--------
+cp local/backup-pre-launcher-deploy-20260911-114223/start.sh start.sh
+cp local/backup-pre-launcher-deploy-20260911-114223/prod-start.sh local/prod-start.sh
+systemctl --user restart vllm-glm53exl3.service
+
+Status: publication gate satisfied for the launcher changes (cluster-validated on
+the exact bytes). Not pushed at the time of writing.

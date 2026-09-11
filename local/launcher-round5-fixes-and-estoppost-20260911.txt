@@ -1,0 +1,145 @@
+Launcher round-five fixes, ExecStopPost, and the §6 window launch — 2026-09-11
+=============================================================================
+
+Scope: the two launcher files changed for the RoCE-GID / retry work
+(`start.sh`, `local/prod-start.sh`), the four defects review round 5 found in
+them, and the production unit's ExecStopPost. Written while the §6 window runs.
+
+1. Review round 5 on 628833d — CHANGES REQUIRED, four findings
+--------------------------------------------------------------
+
+All four were behavioural. Each now has a regression test verified RED against
+628833d (15 failed, 30 passed on the pre-fix sources; 708 passed, 1 skipped, 18
+subtests after the fix).
+
+F1  prod-start.sh exited BEFORE cleaning up on exhaustion.
+    Pre-fix symptom (test_exhaustion_still_cleans_up_the_partial_launch):
+      AssertionError: ['start']          <- no `stop` was ever issued
+    The last failed attempt's containers stayed up while the log said
+    "production left down". They hold unified memory plus the API/master ports,
+    which is exactly what makes the next manual start fail. Cleanup now runs
+    before the exhaustion decision, so it happens on the final attempt too.
+
+F2  `start.sh preflight` was not read-only.
+    (a) the `.env` bootstrap skipped only `validate`, so a missing `.env` was
+        written from env.example by every other subcommand — including the
+        classifier prod-start.sh depends on. A classifier that mutates state
+        also changes its own next answer.
+    (b) preflight() ran `mkdir -p "$HF_CACHE_DIR"` and a remote
+        `worker_ssh "mkdir -p '$WORKER_CACHE_DIR/hub' ..."`.
+    Fixed: the bootstrap computes `_readonly_cmd` from `${1:-start}` and refuses
+    for `validate|preflight`; a new `READ_ONLY` flag (set in the `preflight)`
+    dispatch arm) guards both mkdirs, testing instead of creating.
+    Design note: under READ_ONLY a missing cache only WARNS, because `start`
+    would create it — dying there would abort a retry that could still succeed.
+
+F3  `preflight && log "preflight OK"` suppressed errexit.
+    A call inside an AND-list disables `set -e` for the whole call, so preflight
+    reported success on a failed check.
+    Pre-fix symptom (test_dispatch_propagates_a_failure_from_inside_preflight):
+      returned 0 and printed REACHED-END
+    Pre-fix symptom (test_dispatch_propagates_an_implicit_mid_body_failure):
+      returned 0 and printed `LOG: preflight OK`
+    Fixed: `preflight` is now called STANDALONE. The two GID table reads also
+    carry an explicit `|| die` — a command substitution that printed a usable
+    row and THEN returned non-zero was swallowed, so an incomplete check read as
+    a pass. Pre-fix symptom:
+      assert '|| die' in 'head_table="$(gid_table "$HEAD_CX7_IB")"'
+
+F4  Malformed IPv4 accepted, resolving to a PLAUSIBLE GID.
+    Three forms survived `read -a` plus the per-octet loop:
+      192.168.177.11.                      -> the worker's address
+        (`read -a` drops the empty fifth field, so the 4-field count passed)
+      192.168.177.18446744073709551627     -> the worker's address
+        (`$((10#$o))` overflowed 64 bits and wrapped to 11)
+      192.168.177.11\nignored              -> the worker's address
+        (`read` consumed only the first line and discarded the rest)
+    A bad HEAD_IP/WORKER_IP in .env would therefore have silently matched the
+    wrong fabric address instead of failing closed.
+    Fixed: anchored `^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$`, then a DIGIT-COUNT bound
+    (`${#o} -le 3`) BEFORE any arithmetic so an overflow cannot wrap, then the
+    <=255 check. `192.168.177.010` still resolves as decimal 10 (intended).
+
+P3  `MAX_BOOT_ATTEMPTS=bogus` disabled the retry bound entirely, because
+    `[ "$attempt" -ge "bogus" ]` is false. Pre-fix symptom: "ran 100". A
+    non-numeric or sub-1 value now falls back to 3 with a warning.
+
+22-case standalone matrix over ipv4_mapped_gid (valid addresses, the three
+reported forms, and 19 other edge cases) — all 22 behaved as intended.
+
+2. Review round 5 re-review — APPROVED
+--------------------------------------
+
+Base 628833d -> candidate bb61b3f. No required findings. All four findings and
+the P3 resolved. Two non-blocking notes recorded:
+  - Warning (not failing) on an existing-but-unwritable worker cache is less
+    precise and can cause unnecessary, bounded retries; normal startup still
+    fails its preparation check.
+  - Some new tests are implementation-coupled (source-text assertions for the
+    cache guards and table-error handling; the bootstrap extraction depends on a
+    new comment). The reviewer confirmed the behaviour independently by
+    execution. Kept as regression pins; the behavioural tests carry the
+    semantics.
+Reviewer stated explicitly that exact-byte cluster validation remains pending —
+that is the separate pre-publication gate, not a claim.
+
+3. ExecStopPost added to the production unit (2026-09-11 10:00 EDT)
+------------------------------------------------------------------
+
+Unit: /home/nvidia/.config/systemd/user/vllm-glm53exl3.service
+Backup: vllm-glm53exl3.service.bak-pre-estoppost-20260911-100036
+Added (after ExecStop=, written via temp + os.replace):
+  ExecStopPost=/home/nvidia/GLM-5.3-Flash-EXL3-2x-DGX-Sparks/start.sh stop
+Then `systemctl --user daemon-reload`; `systemd-analyze --user verify` clean;
+`show -p ExecStopPost` now resolves to start.sh stop; unit still active,
+/health 200. Reason: on a FAILED start systemd runs ExecStopPost, not ExecStop,
+so containers from the failed attempt keep running and the next attempt dies in
+preflight on check_port_free. `start.sh stop` is idempotent.
+
+4. Production state established before the window (ground truth)
+---------------------------------------------------------------
+
+Production was ALREADY under systemd — contrary to the earlier note that it was
+running from a manual launch. ExecMainStartTimestamp 09:13:39 EDT (at boot),
+ActiveEnterTimestamp 09:25:43 EDT, Result=success, NRestarts=0.
+  containers: glm53-exl3-head + glm53-exl3-worker, both "Up 36 minutes"
+  endpoint  : http://127.0.0.1:8000/v1  (LOOPBACK ONLY — not 8888)
+  health    : 200, model id GLM-5.3-Flash-EXL3
+So "bring production under systemd" needed no work; only ExecStopPost was
+missing.
+
+Live checkout vs repo:
+  live start.sh      md5 b7ef4966247932c2ec64a2a79b2f3673  (2026-09-10 19:45)
+  live prod-start.sh md5 4e0745f5d75ae843ff81fcfd22aae219
+  repo start.sh      md5 c441f7f799e72c66162afba3f29e265e
+  repo prod-start.sh md5 5ecb64d66396597878fd32efe3dc15b8
+The live pair is the OLD, mutually consistent revision: live prod-start.sh has
+no `start.sh preflight` call and live start.sh has no `preflight` subcommand.
+That is why the window can run on it.
+
+Overlay gap, measured exactly: of the 22 `*_PATCH_HOST` defaults in the repo
+start.sh, 21 exist in the live checkout and exactly ONE does not —
+overlay/patch_flashkda_prefill.py. So deploying the repo start.sh requires
+shipping that overlay in the same change (its absence makes preflight die, and
+prod-start.sh calls preflight).
+
+5. §6 window launched (2026-09-11 14:01:11Z / 10:01:11 EDT)
+----------------------------------------------------------
+
+Runner : python3 -u scripts/run_v149_qualification_window.py
+State  : local/task35b-window-20260911T140111Z.json
+Log    : local/task35b-window-20260911T140111Z.log
+PID    : 43306 (setsid + nohup, survives SSH disconnect)
+
+Preconditions verified before launch:
+  both arm images present on BOTH nodes
+    glm53-selfbuild:e3-w3-zfill      (A, v1.4.7 control)
+    glm53-selfbuild:e3-w3-zfill-v149 (B, v1.4.9 candidate)
+  HEAD_GID=3, WORKER_GID=3 (matches the current fabric)
+  pre-window KV pool capacity 1,396,551 tokens
+
+Decision (user-approved): the window runs on TODAY'S LIVE CONFIG, before the
+FlashKDA overlay ships. The overlay patches the prefill path and the window
+measures the prefill60k/prefill240k lanes, so shipping it first would move the
+measured quantity away from the pre-registered baseline. The launcher +
+overlay deploy and its cluster validation follow the window.

@@ -1,0 +1,159 @@
+Head node went DOWN while loading production — and why the 507 MHz cap is node-specific
+========================================================================================
+Date: 2026-09-11
+Observer: Mac-side session; all cluster access read-only except the GID fix noted below.
+
+SUMMARY
+-------
+After the user manually rebooted both Sparks, the head (spark1) failed to return
+production, was repaired, began loading the model, and then **left the network
+entirely mid-load**. As of 09:04 EDT spark1 is absent from the LAN (ARP
+incomplete) and unreachable on the fabric from the worker. The worker (spark2) is
+up and healthy.
+
+This blocked the re-measurement the reboot was meant to enable, so the question
+"did the 507 MHz cap clear?" is still OPEN. The reboot did NOT get far enough to
+answer it.
+
+BOOT IDS (confirming the user's manual reboot of both nodes)
+-----------------------------------------------------------
+  spark1  5f76a83f-e51b-44f6-858f-793683013776   (up 4 min at 08:32)
+  spark2  6a4bac02-dd59-49b5-83e7-86929e16b8c6   (up 3 min at 08:32)
+
+WHAT HAPPENED, IN ORDER
+-----------------------
+1. Production did not auto-start. `vllm-glm53exl3.service` was stuck in
+   `activating (auto-restart)`; `prod-start.sh` failed all 3 attempts (rc=1).
+
+2. Cause: the per-rank RoCE GID index drifted AGAIN. `start.sh` refused:
+
+     [glm53-exl3] worker GID index 4 is EMPTY on rocep1s0f1
+     ...ERROR: set NCCL_IB_GID_INDEX ... or HEAD_GID/WORKER_GID ... to populated indices
+
+   The worker's IPv4-mapped RoCE v2 entry was at **gid3**, and **gid4 was all
+   zero**. The `WORKER_GID=4` set after the previous (head-only) reboot was
+   therefore stale. Verified both ranks directly:
+
+     head   rocep1s0f1 gid3: ::ffff:c0a8:b10a  RoCE v2   (192.168.177.10)
+     worker rocep1s0f1 gid3: ::ffff:c0a8:b10b  RoCE v2   (192.168.177.11)
+
+3. Fix applied (the only write in this session): `.env` `WORKER_GID=4` -> `3`,
+   backed up first as `.env.bak-pre-gid-fix2-20260911-083434`. Production then
+   passed GID validation and the head container came up (`Up 52 seconds`).
+
+4. While I was clearing the failed state, the unit recorded
+   `Result: signal` / `code=killed, status=15/TERM`. Independent review confirmed
+   this is **my own `systemctl stop`** terminating an in-flight startup, not a
+   crash: the unit is `Type=oneshot` with `RemainAfterExit=yes`, and systemd
+   excludes oneshot from the "SIGTERM is a clean exit" rule, so an intentional
+   stop of a running `ExecStart` is recorded as `signal`. The reviewer also
+   established the start DID register later (`Starting` at 08:45:08).
+
+5. **Then the head disappeared.** It was answering at ~08:45-08:47 (the reviewer's
+   last observation was `activating/start`, job 361). By 09:03 every identifier
+   failed:
+
+     ping 10.0.0.214        -> sendto: Host is down, 100% loss
+     arp -n 10.0.0.214      -> (incomplete)
+     ssh nvidia@10.0.0.214  -> "Host is down"
+     ssh spark1 / spark-a183.local -> could not resolve / unreachable
+     subnet scan 10.0.0.200-230 -> no response
+     from the worker, ping 192.168.177.10 -> 100% loss
+
+   The worker's own fabric ports are now ALL down (`enp1s0f1np1` DOWN, all four
+   RDMA ports DOWN/Disabled), which is the expected consequence of the link
+   partner at the other end of the QSFP cable being off. spark2 rebooted at
+   ~08:29 and has 35 min uptime, so it did not reboot.
+
+   Net: the head node is off the air — powered off or hard-hung. It went down
+   **while loading production**, i.e. under heavy GPU and memory load.
+
+THE DECISIVE DISCRIMINATOR — IDENTICAL SOFTWARE, DIFFERENT BEHAVIOUR
+-------------------------------------------------------------------
+Both nodes run byte-identical software:
+
+  driver   580.173.02            (both)
+  kernel   6.17.0-1031-nvidia    (both)
+  DGX_SWBUILD_VERSION 7.2.3      (both)
+  DGX_OTA_VERSION     7.5.0      (both)
+  nvidia-driver-580-open 580.173.02-0ubuntu0.24.04.1 (both)
+
+Yet, measured in this session:
+
+  spark2 (worker)  clocks.sm 2411 MHz, 12.1 W, 45 C   -> healthy, repeated 3x
+  spark1 (head)    clocks.sm  507 MHz pinned under load -> capped, before the reboot
+
+Same OS, same driver, same kernel, same application clocks (2418 MHz on both),
+same model of GPU — and only the head is affected. A software cause would affect
+both. This is **node-specific hardware or power**, which is what the earlier
+receipts already concluded and what this comparison now makes hard to dispute.
+
+WHAT THE REBOOT DID AND DID NOT ESTABLISH
+-----------------------------------------
+Did NOT establish: whether the 507 MHz cap cleared. No load measurement was
+possible — the head was either down or loading the model the whole time, and an
+idle clock reading is uninformative (GB10 parks low when idle; the worker sits at
+2411 MHz idle, the head read 208 MHz idle before it went down, which is itself
+not comparable to the 507 MHz under-load figure).
+
+Did establish: the GID index drift is recurring and is a second, independent
+unattended-reboot failure; and the head node is now down.
+
+WEB RESEARCH — THIS IS A KNOWN DGX SPARK FAILURE CLASS
+------------------------------------------------------
+Searched with exa. Relevant findings (primary community/forum sources):
+
+- There is a documented DGX Spark GB10 **"513 MHz clock cap"** issue, with a
+  community diagnostic tool (`spark-gpu-throttle-check`, originally by @hoesing,
+  forked with GB10 clock-validation and load-adequacy gates) built specifically
+  to confirm whether a Spark is in a healthy power state before blaming software.
+- The 507/513 MHz cap is repeatedly associated with **power delivery**, not with
+  thermal throttling. John Carmack's widely-reported DGX Spark measurements had
+  the box drawing ~100 W against a rated 240 W; independent multi-vendor testing
+  found a software-imposed GPU power ceiling near 100 W with no thermal cause and
+  clock speeds that stayed stable. Relevant forum thread: "DGX Spark Performance
+  Degradation - GPU Power Draw Issue" (69 replies).
+- DGX Spark units are reported to **hard power-off under GPU load** and to reboot
+  spontaneously in several community threads, including cases with no crash
+  capture at all.
+- Separate RCA work on DGX Spark describes firmware-level stuck states (DOE
+  mailbox / NVLink-C2C `NVDA8800`/`NVDA8900` resource claims failing after a
+  kernel panic) where **warm reboots do not recover the state and only a cold
+  power cycle (unplug from the wall, wait ~60 s) clears it**.
+- A torn driver/firmware pairing is a real failure mode on this platform
+  (`nvidia-spark-ota-check torn-score` exists to detect it). On our nodes that
+  tool requires root and `sudo` is not available passwordless, so it was NOT run.
+  Note the forum's torn-pairing case was driver 580.159.03 vs OTA2607, whereas we
+  run 580.173.02 with OTA 7.5.0 — newer than that case, and **both** nodes match
+  the same pairing, which again argues against a software-only cause.
+
+  Caveat, stated plainly: none of this research is a confirmed diagnosis of OUR
+  head node. The forum material is community-sourced, describes partly different
+  symptoms (several are "GPU disappears entirely", ours was "GPU present but
+  clock-capped"), and does not prove our unit's fault. It is a strong prior for
+  where to look next, nothing more.
+
+CONSEQUENCE FOR TASK 35 SECTION 6
+---------------------------------
+Unchanged and still blocked. The window cannot run: the head GPU never
+demonstrated a healthy under-load clock, and the head is now offline. The
+harness itself is unaffected and remains published (PR #73, merged as `161cd9c`).
+
+WHAT NEEDS A HUMAN — the head node is physically off
+----------------------------------------------------
+The one remaining user-checkable item from the earlier receipt is now the most
+likely lead and requires physical access:
+
+1. Is the head powered off, and does it come back with the power button?
+2. Check the **240 W USB-C PD supply and cable** on the head — reseat at both
+   ends, try a known-good supply/cable, and confirm the outlet. GB10 exposes no
+   `power_supply` class and `nvidia-smi` reports Power Limit as `N/A`, so
+   nothing about the supply can be inspected from software.
+3. Prefer a **cold power cycle** (shut down, unplug from the wall, wait ~60 s,
+   reconnect) over another warm reboot — that is what the research says is
+   required to clear firmware-level stuck state on this platform.
+4. On the next boot, before anything else, re-run the LOAD measurement and
+   require >= 2000 MHz and >= 80 TFLOP/s. An idle reading proves nothing.
+
+Receipts: this file; `spark1-head-clock-post-reboot-20260911.txt`;
+`spark1-gid-fix-20260911.txt`; `task35b-cluster-preflight-20260911.txt`.

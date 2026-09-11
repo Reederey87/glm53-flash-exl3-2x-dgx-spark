@@ -1,0 +1,107 @@
+RESOLVED — the 507 MHz clock cap cleared after a COLD POWER CYCLE
+==================================================================
+Date: 2026-09-11
+Node: spark1 (head), user `reedrey`
+Method: identical to the original diagnosis — bf16 8192^3 matmul in the same
+container image, plus a real serving-load test against production.
+
+ANSWER
+------
+**Yes, the underperformance has cleared.** The head GPU now reaches full clock and
+full power under load, and matches or beats the worker.
+
+                    head BEFORE (faulty)   head NOW (fixed)   worker (control)
+  bf16 8192^3       23.8 TFLOP/s           95.1 TFLOP/s       86.6 TFLOP/s
+  clock under load  507 MHz                2216-2496 MHz      2288-2340 MHz
+  power under load  ~12 W                  42-92 W            74-92 W
+  utilisation       96 %                   94-96 %            96 %
+  temperature       41-44 C                61-73 C            62-71 C
+
+The head went from 23.8 to **95.1 TFLOP/s — a 4x recovery** — and is now marginally
+faster than the worker on the same command.
+
+WHAT FIXED IT — a COLD POWER CYCLE, NOT A REBOOT
+------------------------------------------------
+A **warm reboot did not clear it** (I issued one earlier today; the fault survived
+intact at 507 MHz on the fresh boot). What cleared it was the user's **cold power
+cycle** — power off, unplug from the wall, wait, reconnect, power on.
+
+New boot identity: `3488ad46-f3f9-47bb-a220-d00d964fcf65`
+(previous warm-reboot boot: `4b52ad93-c66f-4301-b111-4bdcd3904d3c`;
+original faulty boot: `b3ab1d6f-3727-4592-9461-8310495984c8`)
+
+This is exactly the behaviour the web research predicted, and it is the reason the
+earlier warm reboot was the wrong instrument. The community RCA material on this
+platform describes firmware-level stuck state that **only clears when power is
+removed from the wall**, because the relevant initialization happens at power-on,
+not at warm reset.
+
+MECHANISM — POWER STARVATION, NOW CONFIRMED BY CONTRAST
+-------------------------------------------------------
+Before, the GPU was 96 % busy while drawing only ~12 W. That is not a thermal or
+software-throttle signature; a GPU cannot run at full clock on 12 W, so it stayed
+at its 507 MHz floor. Throughput tracked clock exactly (23.8 x 2431/507 = 114
+TFLOP/s), i.e. the silicon computed correctly and simply never received power.
+
+After the cold cycle the same 96 % utilisation now draws 42-92 W, and the clock
+rises to 2216-2496 MHz. The correlation is direct: **more power -> higher clock ->
+proportional throughput.** That closes the loop on the power-delivery hypothesis.
+
+Consistent with this, the fault is **node-specific**: both nodes ran byte-identical
+software throughout (driver 580.173.02, kernel 6.17.0-1031-nvidia, OTA 7.5.0,
+same GPU model, same 2418 MHz application-clock ceiling), and only the head was
+capped. A software cause could not have produced that.
+
+SERVING LOAD TEST (real production path, not just a microbenchmark)
+-------------------------------------------------------------------
+Four concurrent requests, each 15001 prompt tokens + 64 completion tokens:
+
+  req1: http=200  20.66 s
+  req2: http=200  20.78 s
+  req3: http=200  25.73 s
+  req4: http=200  20.66 s
+
+All four returned HTTP 200 with correct usage. Aggregate prefill ~1376 tok/s,
+against the "~582 tok/s" measured while faulty and the standing ~1454 tok/s
+receipt — i.e. back to normal. GPU telemetry during the run: 2476-2496 MHz,
+42-73 W, 94-96 % utilisation, 61-73 C.
+
+RESIDUAL ITEMS (not part of this resolution)
+--------------------------------------------
+1. **The unit was not used.** Production is currently running from a MANUAL
+   launch (`local/prod-start.sh` / `start.sh start` are live processes;
+   `systemctl --user is-active` reports `inactive`, and the unit journal is
+   empty). It is serving correctly (health 200, container on the v149 image) but
+   it is not under systemd supervision and would not come back on its own after
+   a reboot. This needs reconciling.
+
+2. **The GID drift will recur.** `.env` currently has `HEAD_GID=3` /
+   `WORKER_GID=3`. Both ranks validate today, but the index is a runtime table
+   slot and has already drifted twice (worker 4 -> 3). Independent review
+   confirmed the durable fix is to resolve the index from the node's own fabric
+   IP + RoCE v2 type at startup rather than hardcoding it. Tracked separately.
+
+3. **A caution about the power-capping counter.** `SW Power Capping` reads
+   128,234,220 us on the head vs ~4,000,000 us on the worker. It did **not** reset
+   across the cold power cycle (110,034,847 before, 128,234,220 after, unchanged
+   during healthy load), so it accumulates over the machine's life and is NOT a
+   per-boot figure. Treat it as weak corroboration only, not evidence.
+
+4. **Root cause of the original power starvation is still unidentified.** The
+   cold cycle cleared the state but did not establish why the head entered it.
+   Candidates remain: marginal 240 W USB-C PD supply or cable, a PD negotiation
+   failure, or a board-level power issue. GB10 exposes no `/sys/class/power_supply`
+   and reports all Power Limit fields as N/A, so this cannot be inspected from
+   software. **If it recurs, treat the supply/cable as the prime suspect and
+   capture `nvidia-smi -q -d PERFORMANCE` plus the power readings under load
+   before doing anything else.**
+
+CONSEQUENCE FOR TASK 35 SECTION 6
+---------------------------------
+**The blocker is cleared.** The head now exceeds the required threshold
+(>= 2000 MHz and >= 80 TFLOP/s: measured 2216-2496 MHz and 95.1 TFLOP/s), so the
+A-B-B-A window is no longer blocked on hardware. It should still be run on a
+quiet node with production deliberately taken down by the window itself.
+
+Files: this file; `spark1-head-down-and-clock-fault-20260911.txt`;
+`spark2-worker-baseline-20260911.txt`; `spark1-head-clock-post-reboot-20260911.txt`.
