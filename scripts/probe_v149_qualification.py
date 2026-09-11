@@ -198,23 +198,21 @@ def prefix_cache_delta(before: dict[str, float], after: dict[str, float]) -> dic
     """Per-request prefix-cache deltas; None when the samples are not comparable.
 
     A delta is only reported when the two snapshots describe the SAME counter
-    lifetime, proved three ways:
+    lifetime, proved four ways:
 
-    1. identical ``_created`` gauges, and at least one present — this is the
-       lifetime evidence, and the only thing that catches a reset which
-       catch-up traffic has already masked;
-    2. identical series membership;
-    3. every series non-decreasing, with a finite non-negative result.
+    1. identical series membership, non-empty;
+    2. every counter series carries its OWN ``created:<kind>{<labels>}`` gauge in
+       BOTH snapshots, and those two gauges are equal. This is deliberately
+       per-series: a map-level check would let an unrelated series' gauge
+       authorize a reset in the series actually being subtracted;
+    3. every series non-decreasing;
+    4. a finite non-negative result.
 
     Any failure withholds BOTH deltas, so the caller reads "cannot prove cold"
     rather than a netted-out number.
     """
     none: dict[str, float | None] = {"queries_delta": None, "hits_delta": None}
     if not before or not after:
-        return none
-    before_life = {k: v for k, v in before.items() if k.startswith("created:")}
-    after_life = {k: v for k, v in after.items() if k.startswith("created:")}
-    if not before_life or before_life != after_life:
         return none
     before_series = {k: v for k, v in before.items() if not k.startswith("created:")}
     after_series = {k: v for k, v in after.items() if not k.startswith("created:")}
@@ -223,6 +221,11 @@ def prefix_cache_delta(before: dict[str, float], after: dict[str, float]) -> dic
     sums = {"queries": 0.0, "hits": 0.0}
     seen = {"queries": False, "hits": False}
     for key, earlier in before_series.items():
+        life_key = f"created:{key}"
+        earlier_life = before.get(life_key)
+        later_life = after.get(life_key)
+        if earlier_life is None or later_life is None or earlier_life != later_life:
+            return none  # this series has no stable lifetime evidence
         later = after_series[key]
         if not math.isfinite(earlier) or not math.isfinite(later) or later < earlier:
             return none  # reset, or unusable sample: not attributable

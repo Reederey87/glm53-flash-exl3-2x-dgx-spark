@@ -210,7 +210,23 @@ def test_prefix_cache_snapshot_keeps_series_identity_and_fails_closed():
         probe._get = real_get
 
 
-LIFE = {'created:queries{engine="0"}': 1.789e9, 'created:hits{engine="0"}': 1.789e9}
+LIFE_TS = 1.789e9
+LAB = '{engine="0"}'
+LAB1 = '{engine="1"}'
+
+
+def snap(*series):
+    """Compose a snapshot from (kind, labels, value, created) tuples.
+
+    `created=None` models a series whose `_created` gauge is absent — the case a
+    map-level lifetime check cannot see.
+    """
+    out = {}
+    for kind, labels, value, created in series:
+        out[f"{kind}{labels}"] = value
+        if created is not None:
+            out[f"created:{kind}{labels}"] = created
+    return out
 
 
 def test_prefix_cache_delta_rejects_a_reset_hidden_by_catch_up():
@@ -219,61 +235,91 @@ def test_prefix_cache_delta_rejects_a_reset_hidden_by_catch_up():
     reset (queries=120000, hits=512) net to (60000, 0) — an accepted cold run
     even though the new lifetime contains 512 hits. Nothing DECREASED between
     the samples, so a no-decrease rule alone cannot catch it either: the reset
-    is visible only in the `_created` lifetime gauges."""
-    before = {'queries{engine="0"}': 60000.0, 'hits{engine="0"}': 512.0, **LIFE}
-    after_same_lifetime = {'queries{engine="0"}': 120000.0, 'hits{engine="0"}': 512.0, **LIFE}
-    # Same lifetime and a genuine increase: reported.
-    assert probe.prefix_cache_delta(before, after_same_lifetime) == {
+    is visible only in the `_created` gauges."""
+    before = snap(
+        ("queries", LAB, 60000.0, LIFE_TS),
+        ("hits", LAB, 512.0, LIFE_TS),
+    )
+    same_lifetime = snap(
+        ("queries", LAB, 120000.0, LIFE_TS),
+        ("hits", LAB, 512.0, LIFE_TS),
+    )
+    assert probe.prefix_cache_delta(before, same_lifetime) == {
         "queries_delta": 60000.0,
         "hits_delta": 0.0,
     }
     # THE REPRO: same numbers, but the counters were recreated in between.
-    after_reset = {
-        'queries{engine="0"}': 120000.0,
-        'hits{engine="0"}': 512.0,
-        'created:queries{engine="0"}': 1.789e9 + 42,
-        'created:hits{engine="0"}': 1.789e9 + 42,
-    }
+    after_reset = snap(
+        ("queries", LAB, 120000.0, LIFE_TS + 42),
+        ("hits", LAB, 512.0, LIFE_TS + 42),
+    )
     assert probe.prefix_cache_delta(before, after_reset) == {
         "queries_delta": None,
         "hits_delta": None,
     }
-    # Lifetime evidence missing entirely is not evidence of a stable lifetime.
-    assert probe.prefix_cache_delta(
-        {'queries{engine="0"}': 1.0}, {'queries{engine="0"}': 2.0}
-    ) == {"queries_delta": None, "hits_delta": None}
     # A reset in ONE series is enough, even when the total still rises.
-    multi_before = {'hits{engine="0"}': 500.0, 'hits{engine="1"}': 500.0, **LIFE}
-    multi_after = {'hits{engine="0"}': 0.0, 'hits{engine="1"}': 1200.0, **LIFE}
+    multi_before = snap(("hits", LAB, 500.0, LIFE_TS), ("hits", LAB1, 500.0, LIFE_TS))
+    multi_after = snap(("hits", LAB, 0.0, LIFE_TS), ("hits", LAB1, 1200.0, LIFE_TS))
     assert probe.prefix_cache_delta(multi_before, multi_after)["hits_delta"] is None
     # Membership changes are a lifetime change too.
     assert probe.prefix_cache_delta(
-        {'hits{engine="0"}': 1.0, **LIFE},
-        {'hits{engine="0"}': 1.0, 'hits{engine="1"}': 0.0, **LIFE},
+        snap(("hits", LAB, 1.0, LIFE_TS)),
+        snap(("hits", LAB, 1.0, LIFE_TS), ("hits", LAB1, 0.0, LIFE_TS)),
     )["hits_delta"] is None
-    # A genuine monotonic increase is still reported.
-    assert probe.prefix_cache_delta(
-        {'queries{engine="0"}': 100.0, 'hits{engine="0"}': 5.0, **LIFE},
-        {'queries{engine="0"}': 160.0, 'hits{engine="0"}': 5.0, **LIFE},
-    ) == {"queries_delta": 60.0, "hits_delta": 0.0}
 
 
-def test_prefix_cache_delta_is_none_when_either_sample_is_unusable():
-    assert probe.prefix_cache_delta({}, {"hits{e}": 1.0, "queries{e}": 2.0}) == {
+def test_lifetime_evidence_must_bind_to_the_series_it_authorises():
+    """Review finding: a non-empty, unchanged `_created` MAP need not describe
+    the counters being subtracted. engine="1" could supply all the lifetime
+    evidence while engine="0" — the series actually being subtracted — reset and
+    caught up with no gauge at all, and the observation was accepted."""
+    before = snap(
+        ("queries", LAB, 60000.0, None),          # no lifetime evidence
+        ("hits", LAB, 512.0, None),
+        ("queries", LAB1, 100.0, LIFE_TS),        # unrelated, fully evidenced
+        ("hits", LAB1, 5.0, LIFE_TS),
+    )
+    after = snap(
+        ("queries", LAB, 120000.0, None),         # reset + catch-up, invisible
+        ("hits", LAB, 512.0, None),
+        ("queries", LAB1, 100.0, LIFE_TS),
+        ("hits", LAB1, 5.0, LIFE_TS),
+    )
+    assert probe.prefix_cache_delta(before, after) == {
         "queries_delta": None,
         "hits_delta": None,
     }
-    assert probe.prefix_cache_delta({"hits{e}": 5.0}, {}) == {
+    # A gauge present in only ONE of the two samples is not evidence either.
+    assert probe.prefix_cache_delta(
+        snap(("hits", LAB, 5.0, None)),
+        snap(("hits", LAB, 9.0, LIFE_TS)),
+    )["hits_delta"] is None
+    # Every series bound to its own stable gauge -> reported.
+    assert probe.prefix_cache_delta(
+        snap(("queries", LAB, 100.0, LIFE_TS), ("hits", LAB, 5.0, LIFE_TS),
+             ("hits", LAB1, 7.0, LIFE_TS)),
+        snap(("queries", LAB, 160.0, LIFE_TS), ("hits", LAB, 5.0, LIFE_TS),
+             ("hits", LAB1, 9.0, LIFE_TS)),
+    ) == {"queries_delta": 60.0, "hits_delta": 2.0}
+
+
+def test_prefix_cache_delta_is_none_when_either_sample_is_unusable():
+    assert probe.prefix_cache_delta({}, snap(("hits", LAB, 1.0, LIFE_TS))) == {
+        "queries_delta": None,
+        "hits_delta": None,
+    }
+    assert probe.prefix_cache_delta(snap(("hits", LAB, 5.0, LIFE_TS)), {}) == {
         "queries_delta": None,
         "hits_delta": None,
     }
     # Membership change (a series appeared): both withheld, not just the new one.
     assert probe.prefix_cache_delta(
-        {"hits{e}": 5.0, **LIFE}, {"hits{e}": 5.0, "queries{e}": 9.0, **LIFE}
+        snap(("hits", LAB, 5.0, LIFE_TS)),
+        snap(("hits", LAB, 5.0, LIFE_TS), ("queries", LAB, 9.0, LIFE_TS)),
     ) == {"queries_delta": None, "hits_delta": None}
     assert probe.prefix_cache_delta(
-        {"hits{e}": 5.0, "queries{e}": 100.0, **LIFE},
-        {"hits{e}": 5.0, "queries{e}": 160.0, **LIFE},
+        snap(("hits", LAB, 5.0, LIFE_TS), ("queries", LAB, 100.0, LIFE_TS)),
+        snap(("hits", LAB, 5.0, LIFE_TS), ("queries", LAB, 160.0, LIFE_TS)),
     ) == {"queries_delta": 60.0, "hits_delta": 0.0}
 
 
