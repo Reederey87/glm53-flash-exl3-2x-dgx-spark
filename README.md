@@ -64,8 +64,9 @@ proportionally longer TTFT. Read the rows as per-token rates, not per-document
 promises.
 
 No other public recipe serves this model on this hardware with all six of: EXL3
-(the only quantization GB10 can actually run — it lacks the instruction NVFP4
-compiles to), a 1M window that *coexists* with speculative decoding, prefix
+(the quantization this stack is built and tuned around — see `docs/01` for why
+the NVFP4 route is target-gated rather than silicon-absent on GB10), a 1M window
+that *coexists* with speculative decoding, prefix
 caching that survives the hybrid-KDA architecture and the drafter, perfect
 structured acceptance, verification-only adaptive-k on the target, and a
 hand-tuned MoE kernel stack (fat-expert GEMM, dynamic ticket scheduling, grouped

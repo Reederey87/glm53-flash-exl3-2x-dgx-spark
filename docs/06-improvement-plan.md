@@ -3146,3 +3146,301 @@ Restored `IMAGE=glm53-selfbuild:b5ab8091-s2b`, clean pair restart
 (`SKIP_DOWNLOAD=1`), pool **1,396,551 byte-identical**, watchdog timer
 re-armed (active/active), serving spot-check OK, 6/6 converge probes
 69.7–71.1 on the fresh boot. **M0′ is CLOSED as ADOPT s2b.**
+
+## 2026-09-10: task 34 arm REVERTED — the correctness gate failed before the window
+
+**Outcome.** The user authorised stopping production for the task 34 A/B window.
+The pre-registered contract in `docs/15` §4 makes numeric parity a *required*
+gate, so the gate was run first — deliberately **without** stopping production,
+since the GPU is reachable alongside the serving container. It failed, so the
+window was not started, production was never restarted, and no speed claim is
+made. Receipt: `local/task34-parity-gate-20260910.txt`.
+
+**The gate.** `local/flashkda-parity-check.py` compares
+`chunk_kda_with_fused_gate` (production's Triton path) against
+`torch.ops._flashkda_C.fwd` on identical inputs, mirroring both call sites
+exactly, so it answers the A/B question itself rather than a proxy for it.
+
+**Finding 1 — fatal arity defect.** The overlay passed **16** positional
+arguments to `_flashkda_C.fwd`; the deployed op declares **14**. Arming raised
+`RuntimeError: expected at most 14 argument(s) but received 16` at the first
+prefill: the arm could not have served one request. This is exactly the failure
+the smoke test could not see — it proved the patched file *parses*, never that
+the op accepts the call. Fixed, and `EXPECTED_FWD_ARITY = 14` now pins the
+emitted call so a drifted template is refused before any write.
+
+**Finding 2 — numeric divergence.** With the arity corrected, the fused output
+is ~150× smaller in mean magnitude than production's and **uncorrelated** with
+it (Pearson +0.008 on `out`, −0.063 on `final_state`), across sequence lengths
+64/512, a zeroed gate, both beta conventions, pre-normalized q/k, both Triton
+references, and `lower_bound` ∈ {−1,−2,−3,−5}. Conventions ruled out by direct
+test: `beta` (the kernel demands bf16 and rejects fp32), `A_log` (the kernel
+demands `[H]` and rejects 4-D), `scale`, `l2norm`, and layout. Root cause not
+isolated — the image ships only `_flashkda_C.abi3.so`, and the strongest lead is
+structural: this fork pairs the fused op with **kimi_k3's** Triton kernel
+(`raw_beta`, no `safe_gate`), not with GLM's (`beta`, `safe_gate`).
+
+**Cluster reverted.** `start.sh` restored from its backup to `560a7ed5b8be5243`
+— the exact bytes the running container was started from — and the deployed
+overlay file removed (they had to move together: the wired launcher's `-f`
+preflight makes the overlay mandatory, so removing only the overlay would abort
+the next boot). Production stayed up throughout (21 h, `/health` 200 on :8000,
+`kda.py` `ec090aab…`).
+
+**Validation.** `compileall` clean; `shellcheck -S warning start.sh` clean;
+`pytest tests/ -q` → **522 passed, 1 skipped, 18 subtests** (517 before; +5
+arity regressions). The corrected overlay bytes were re-validated on the cluster
+against the deployed `kda.py` in a throwaway container: armed hash
+`58ff323c…`, 14 positional arguments to `_flashkda_C.fwd`, zero keywords,
+`py_compile` OK, idempotent, real file `ec090aab…` before and after.
+
+## 2026-09-10: PR #69 follow-up commits — task 37 CLOSED `NOT_REACHABLE`, task 34 arm wired and boot-validated
+
+**Ledger note.** These commits extend PR #69's branch (the PR is still open),
+so they carry the same number rather than inventing a new one. Both close work
+that the earlier commits in that PR left open.
+
+**Task 37 CLOSED `NOT_REACHABLE`.** The three modules that had forced `ABORT`
+are reached through one dead edge, and the audit already knew how to model it —
+it was simply missing a namespace. Detail in the task 37 section below.
+
+**Task 34 track A wired.** The FlashKDA prefill overlay is now mounted and
+executed by `start.sh` (nine sites) and boot-validated without touching
+production. The default is the stock `triton` spelling, so no `.env` change is
+required to deploy the wiring and mounting the overlay cannot alter production
+by itself. Detail in `docs/15` §4.
+
+**Task 38 item 3 also landed** (same session, separate concern): the
+`cvt.rn.bf16x2.e4m3x2` failure is a **toolchain-version** gate (CUDA ≥ 13.2, PTX
+ISA 9.2), not an arch limit — the `f16x2` sibling assembles on `sm_121a` with the
+same ptxas 13.0.88. The helper is on b12x's paged/QSA sparse-attention path but
+not the P8 codec's, so the P8 disposition stands. `docs/11` §2 qualified; receipt
+`local/task38-cvt-bf16x2-e4m3x2-20260910.txt`.
+
+**Validation.** `compileall` clean; `pytest tests/ -q` → **517 passed, 1
+skipped, 18 subtests** (508 before). Receipts regenerated for both revisions.
+Independent review of this candidate returned **APPROVED** with no required
+findings; it re-derived both closures (79 / 92, and 90 / 103 when every unstubbed
+parent initializer is added) and still found no `exl3_mgemm` call-site module.
+
+## 2026-09-10: PR #69 — task 39 CLOSED by audit, task 37 NARROWED, 38.1 landed, 34 first arm prepared
+
+**Ledger note.** PRs #64–#67 did not add entries here; this one does, because
+task 34 creates an arm that will need a window record and task 36 replaces a
+standing gate. Detail lives in `docs/15` (task 34) and `docs/11` §9 (task 36).
+
+**Review correction.** Three independent review passes of this change found
+fourteen fail-open defects, thirteen of them in the two audits — the code whose
+entire job is to refuse to certify a tree it could not read. All fourteen are
+fixed with regression tests. The verdict travelled `NOT_REACHABLE` -> `ABORT` -> `NOT_REACHABLE`: the
+original pass certified a conclusion it had not established, the audit was
+made fail-closed (which produced the `ABORT`), and call-graph evidence then
+closed the question properly. See the task 37 section below.
+
+Pass 1: the verdict ignored a `calls_exl3_mgemm` hit in the C++ bridge; closure
+modules holding call sites were reported as advisory and then certified anyway;
+a missing or unparseable serving module silently shrank the closure; the
+stub-namespace pruning was assumed; the task 39 dead-branch check walked the
+whole `ast.If` and so called a live `else` dead; the task 39 indexer check was a
+textual match; the overlay accepted any marker occurrence as a complete
+install; and it appended its method at EOF without checking class ownership.
+
+Pass 2: relative imports' aliases (`from . import helper`) were not followed, so
+a helper reached that way never entered the closure; the stub contract checked
+token presence rather than installation (it now runs the installer and inspects
+the mapping); the indexer check inferred constructor identity from spelling
+rather than import provenance, so `from ...sparse_attn_indexer import
+SparseAttnIndexer as SparseAttnIndexerKpool` read as the kpool class; and the
+overlay's completeness list omitted the required imports, so a file missing
+`current_workspace_manager` still counted as installed.
+
+Pass 3: queue order let a weak alias candidate mark a name as already seen
+before its hard `import` was validated; the stub contract proved the installer
+*could* install but not that the loader *calls* it before importing
+`exllamav3`; the indexer resolver used a flat binding map, so a function-local
+import could shadow a module-level one, and it ignored the imported symbol
+name; and the overlay's completeness check was still textual, so a
+commented-out import counted as present.
+
+### Task 37 — `v_indices[128]` scratch: **CLOSED `NOT_REACHABLE`**
+
+The TODO's premise ("unenforced, reachable from the serving path") is **not
+established**, and neither is its negation. What is established, on the
+deployed source:
+
+- the scratch is written only inside `exl3_mgemm_kernel`;
+- `BC_LinearEXL3::run_gr` — the bridge the model actually calls — uses
+  `exl3_gemm_gr`/`exl3_gemm` and never `exl3_mgemm`;
+- the overlay's four named extension symbols (`exl3_fat_gemm`,
+  `exl3_fat_gemm_scatter`, `exl3_moe`, `exl3_moe_max_concurrency`) exclude every
+  `exl3_mgemm*` entry, and `exl3_mgemm` is the only such binding;
+- the serving Python module (`exllamav3.modules.quant.exl3`) has no
+  `exl3_mgemm` call site.
+
+Worst-case slots at production shapes (`top_k=8`, `MAX_NUM_SEQS=4`, draft 7) is
+32 ≤ 128, so *if* the entry were reached it would not overflow — but the entry
+is not the open question.
+
+**Why it was briefly open, and how it closed.** Two (v1.4.7) / three (v1.4.9)
+modules inside the serving import closure held `exl3_mgemm` call sites:
+`exllamav3.modules.attn`, `exllamav3.modules.dsv4` (and
+`exllamav3.modules.gated_delta_net` on v1.4.9). The audit refused to certify
+them away and returned `ABORT`. The call-graph work then showed they are
+**not reachable at all**, through one dead edge:
+
+    exllamav3.modules.quant.exl3:3   from ...model.config import Config
+      -> exllamav3.model.config:245  from exllamav3.architecture.architectures
+                                     import get_architectures   (function-local,
+                                     inside Config)
+      -> architecture/architectures.py:1,8,24  imports every architecture
+      -> architecture/{arcee,deepseek_v4,glm5_next}.py
+      -> modules.{attn,dsv4,gated_delta_net}
+
+`overlay/exl3_namespace.py::inject_config_stub` installs
+**`exllamav3.model.config`** as a synthetic `types.ModuleType` *before*
+`exllamav3.modules.quant.exl3` is imported, so that first import binds the stub
+and the real `model/config.py` body never executes. With the namespace stubbed,
+the closure is 79 modules on the deployed v1.4.7 and 92 on the v1.4.9 clone, and
+contains **no** module holding an `exl3_mgemm` call site. The audit already
+honoured this mechanism for `exllamav3`, `exllamav3.model` and
+`exllamav3.modules`; `exllamav3.model.config` was simply missing from
+`STUB_NAMESPACES`.
+
+The fix needed two parts, because the installer writes this namespace through
+its own `__name__` (`modules[config.__name__] = config`) rather than a literal
+key: the name was added to `STUB_NAMESPACES`, and `_installed_stub_names` now
+resolves `X.__name__` back to the `types.ModuleType(...)` literal — but only
+when the same variable appears on both sides of the assignment, so
+`mapping[other.__name__] = config` still installs nothing. Both are covered by
+regressions, including a negative control that shows the architecture fan-out
+re-entering the closure if the namespace is not stubbed.
+
+The deployed stub installer is byte-identical to the repo copy
+(`3611f7f5…`), so the receipt describes the file that actually runs.
+
+An earlier draft of this audit did precisely that, and also returned
+`NOT_REACHABLE` when the serving module was deleted or corrupted, and ignored a
+`calls_exl3_mgemm` hit in the C++ bridge. All of them are now fail-closed with
+regression tests. A second review pass then closed four more holes of the same
+kind: relative-import aliases were not followed into the closure, the
+stub-namespace pruning was justified by token presence rather than by actually
+running the installer, indexer identity came from spelling rather than import
+provenance, and the overlay's completeness list omitted its own required
+imports.
+
+**Recorded residual hardening (P3, non-blocking; review-approved).** Three
+gaps remain in the audits' *universality* — none of them changes a verdict on
+the deployed tree, and each is a hardening item rather than a demonstrated wrong
+answer:
+
+1. `_installer_invocation()` matches the installer call syntactically, so a call
+   inside `if False` would qualify. The real loader calls it on the live path,
+   so the current conclusion holds; validate reachable invocation before relying
+   on changed loader code.
+2. `_resolve_indexer_class()` still resolves a name bound to one *unknown*
+   import plus one indexer import, because the unknown binding is discarded. The
+   deployed module has a single canonical kpool binding, so its receipt is
+   unaffected; reject unknown alternatives before extending the audit to such
+   layouts.
+3. `_has_required_imports()` checks the imported name but not the local binding
+   it is assigned to, so `... import current_workspace_manager as other` would
+   pass. The generated candidate uses the correct binding and its bytes are
+   unchanged; add alias/scope validation before treating arbitrary hand-edited
+   installations as certified.
+
+**Closed: no #290 fix is owed on this deployment, and the entry point is not
+reachable at any shape.** Worst case remains 32 ≤ 128 if the premise ever
+changes. The verdict is **static, not observed** — no live `sys.modules` check
+was run, and `__pycache__` mtimes cannot substitute because the image
+precompiles the whole tree. If a static basis is later judged insufficient, the
+answer is a one-time check in a stopped window, not a stronger claim from the
+script. Two residual model gaps are recorded in the script's own docstring: the
+real `modules/quant/__init__.py` executes (benign on the pinned revision, which
+imports only `.fp16` and `.exl3`), and the installer-invocation check is
+syntactic (P3, above). Reusable:
+`scripts/audit_exl3_mgemm_indices.py` (fail-closed; `--exl3-root`,
+`--overlay-dir`). Receipts:
+`local/task37-mgemm-indices-v147-20260910.json` (79 modules),
+`local/task37-mgemm-indices-v149-local-clone-20260910.json` (92 modules).
+
+**Recorded residual hardening (P3, non-blocking; review-approved).** The
+independent review of this flip approved it and named two boundaries that limit
+the audit's *universality* rather than its conclusion on this deployment:
+
+1. `_installed_stub_names` is a structural over-approximation — it can attribute
+   a namespace the installer never reaches. That direction is safe: the
+   behavioural `stub_contract` pass then executes the installer and requires the
+   namespace to be a real module in the mapping, so a structural false positive
+   ends in `ABORT`, not in a wrong `NOT_REACHABLE`.
+2. Pruning assumes the serving process has not already imported the genuine
+   module. The real installer returns an existing `exllamav3.model.config` only
+   when it already carries `NullConfig`/`InferParams` and raises otherwise, so a
+   genuine preload is refused rather than accepted — but arbitrary pre-imported
+   process states are not modelled.
+
+The review also independently strengthened the evidence beyond what was
+submitted: it expanded both closures to include every unstubbed parent
+initializer (90 / 103 modules versus the reported 79 / 92) and still found no
+`exl3_mgemm` call-site module, and confirmed that the real root, model, modules
+and config bodies do not execute while the `quant` parent initializer does.
+
+### Task 39 — persistent-top-k: NOT_APPLICABLE
+
+The GLM path runs `SparseAttnIndexerKpool`. Its `persistent_topk` branch is
+dead by construction: a deliberate local patch
+(`overlay/patch_glm_video_placeholders.py::_disable_gb10_persistent_topk`)
+inserts `if False and current_platform.is_cuda()`, with the in-file rationale
+that the persistent variant oversubscribes GB10 shared memory on long
+sequences. The live kernel is `top_k_per_row_decode`. The plain
+`SparseAttnIndexer` — where `persistent_topk` *is* live — is DeepSeek-only.
+So upstream #52149/#55314 do not gate this deployment. **This also corrects the
+task-34 migration gate**, which had listed task 39 as a prerequisite.
+Reusable: `scripts/audit_persistent_topk_reachability.py`; re-run it against any
+migrated tree before assuming the conclusion still holds.
+
+### Task 38 item 1 — silicon fact corrected (scope wider than the TODO said)
+
+The TODO named one file; the same false claim appeared in three tracked files
+(`docs/01-architecture.md`, `docs/07-rebase-plan.md`, `README.md`). All now use
+the target-gated wording. Verified on spark1 with ptxas 13.0.88: `.target sm_121`
+rejects `cvt.e2m1x2`, `.target sm_121a` assembles it and lowers to
+`F2FP.SATFINITE.E2M1.F32.PACK_AB_MERGE_C`. The deposed-NVFP4 decision is
+untouched — only its stated reason. Items 2–4 remain open.
+
+### Task 34 — first arm: FlashKDA prefill, REVERTED (parity gate failed)
+
+Scoped from "three-PR lineage migration" to the one PR portable without it.
+#55736 edits `glm5next/nvidia/ops/third_party/kda/*`, absent from this fork;
+#55738 touches shared MLA backends. #55737 edits `glm5next/nvidia/kda.py`, which
+this fork has. Overlay is default-off, three exactly-once anchors, fail-closed
+on drift, byte-neutral unarmed. Cluster smoke in-container on a temporary copy:
+unarmed `ec090aab…` → armed (parses, 6 markers) → idempotent → production
+untouched. `start.sh` was wired and boot-validated (nine sites; `bash -n` +
+shellcheck clean, both generated inner scripts syntax-checked, the knob enum
+validated through `./start.sh validate` in a scratch kit, and the boot
+invocation replayed in throwaway containers: stock → byte-identical, armed →
+idempotent, production `ec090aab…` throughout). The armed hash is `58ff323c…`
+after the parity fix below; it was `a4bdc543…` before.
+
+**REVERTED 2026-09-10: the mandatory numeric-parity gate failed.** The arm was
+deployed to the kit (backup `start.sh.bak-20260910-task34`) and the gate run in
+throwaway containers without stopping production. Two findings, either of which
+is disqualifying: the overlay's `_flashkda_C.fwd` call passed **16** positional
+arguments where the deployed op declares **14** (so the arm would have raised at
+the first prefill), and with that fixed the fused output is ~150× smaller than
+production's Triton output and **uncorrelated** with it. The window was not
+started, the deployment was reverted to `560a7ed5b8be5243`, and no speed claim
+is made. Do not arm `GLM53_KDA_PREFILL_BACKEND=flashkda`. Detail in `docs/15`
+§5–§6; receipt `local/task34-parity-gate-20260910.txt`.
+
+### Task 36 — task-29 re-open condition replaced by arithmetic
+
+`docs/11` §9. CC 12.0: 48 warps/SM, 64K regs/SM, 128 KB smem/SM. The measured
+launch (block 512, `REG:128`, `SMEM:92,160 B`) is pinned to 1 block/SM = 16
+warps = 33.3% by two independent ceilings. No counter or occupancy sweep can
+open the gap; a candidate must cut `REG ≤ 64` and application smem
+`≤ 65,536 B`, then confirm residency via the occupancy API.
+
+### Validation
+
+`compileall` OK; `pytest tests/ -q` → 522 passed, 1 skipped, 18 subtests.

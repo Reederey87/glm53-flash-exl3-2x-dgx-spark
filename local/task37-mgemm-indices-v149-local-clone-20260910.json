@@ -1,0 +1,75 @@
+{
+  "binding_reaches_mgemm": [],
+  "call_site_modules": {
+    "exllamav3.modules.attn": 3,
+    "exllamav3.modules.block_sparse_mlp": 6,
+    "exllamav3.modules.dsv4": 8,
+    "exllamav3.modules.gated_delta_net": 1,
+    "exllamav3.modules.mlp": 1,
+    "exllamav3.modules.sliding_attn": 3
+  },
+  "call_sites_total": 22,
+  "decisive_reachable": [],
+  "guards": {
+    "declared_limit_slots": 128,
+    "per_matrix_widths_require_min_index_negative": true,
+    "sliced_mode_requires_min_index_negative": true
+  },
+  "import_closure_size": 92,
+  "mgemm_entry_points": [
+    "exl3_mgemm"
+  ],
+  "overlay_ext_symbols": [
+    "exl3_fat_gemm",
+    "exl3_fat_gemm_scatter",
+    "exl3_moe",
+    "exl3_moe_max_concurrency"
+  ],
+  "reason": "no exl3_mgemm entry point is reachable: the 128-slot scratch is written only inside exl3_mgemm_kernel, the only bridge the vLLM overlay uses (BC_LinearEXL3 -> exl3_gemm_gr/exl3_gemm) never calls exl3_mgemm, the extension symbols the overlay names (['exl3_fat_gemm', 'exl3_fat_gemm_scatter', 'exl3_moe', 'exl3_moe_max_concurrency']) exclude every exl3_mgemm* entry, the serving module itself has no exl3_mgemm call site, and no other module in the serving import closure has one either.",
+  "scratch": {
+    "arrays": [
+      "v_indices",
+      "v_weights"
+    ],
+    "kernels": [
+      "exl3_gemm_kernel",
+      "exl3_mgemm_kernel"
+    ],
+    "max_indices": 128,
+    "writer_count": 5,
+    "writer_kernels": [
+      "exl3_mgemm_kernel"
+    ],
+    "writes_outside_mgemm_kernel": []
+  },
+  "seed_modules": [
+    "exllamav3.modules.quant.exl3"
+  ],
+  "serving_module": "exllamav3.modules.quant.exl3",
+  "serving_path": {
+    "calls_exl3_gemm": true,
+    "calls_exl3_gemm_gr": true,
+    "calls_exl3_mgemm": false,
+    "entry": "BC_LinearEXL3::run_gr"
+  },
+  "stub_contract": {
+    "checked": true,
+    "installs": [
+      "exllamav3.model",
+      "exllamav3.model.config",
+      "exllamav3.modules"
+    ],
+    "invoked_by": "overlay/exl3_namespace.py",
+    "source": "overlay/exl3_namespace.py",
+    "verified_by": "structural assignment check + executed installer"
+  },
+  "unresolved_closure_call_site_modules": [],
+  "verdict": "NOT_REACHABLE",
+  "worst_case": {
+    "num_tokens_1_slots_batch_x_topk": 32,
+    "num_tokens_gt_1_slots_bszm": 32,
+    "production_draft_tokens": 7,
+    "production_max_num_seqs": 4,
+    "production_top_k": 8
+  }
+}

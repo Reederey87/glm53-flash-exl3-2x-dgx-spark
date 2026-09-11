@@ -1,0 +1,237 @@
+{
+  "dead_branches": [
+    {
+      "else_branch": true,
+      "line": 817,
+      "live_kernel_calls": [
+        832,
+        843
+      ],
+      "persistent_topk_calls": [
+        822
+      ]
+    }
+  ],
+  "glm_indexer": {
+    "import_bindings": {
+      "CacheConfig": [
+        [
+          "vllm.config",
+          "CacheConfig"
+        ]
+      ],
+      "ColumnParallelLinear": [
+        [
+          "vllm.model_executor.layers.linear",
+          "ColumnParallelLinear"
+        ]
+      ],
+      "DeepSeekV2FusedQkvAProjLinear": [
+        [
+          "vllm.model_executor.models.deepseek_v2",
+          "DeepSeekV2FusedQkvAProjLinear"
+        ]
+      ],
+      "DeepseekV32IndexerCache": [
+        [
+          "vllm.model_executor.models.deepseek_v2",
+          "DeepseekV32IndexerCache"
+        ]
+      ],
+      "F": [
+        [
+          "torch.nn.functional",
+          "functional"
+        ]
+      ],
+      "Glm5NextConfig": [
+        [
+          "vllm.transformers_utils.configs.glm5_next",
+          "Glm5NextConfig"
+        ]
+      ],
+      "KpoolTailBackend": [
+        [
+          "vllm.v1.attention.backends.mla.indexer",
+          "KpoolTailBackend"
+        ]
+      ],
+      "KpoolTailSpec": [
+        [
+          "vllm.v1.kv_cache_interface",
+          "KpoolTailSpec"
+        ]
+      ],
+      "LayerNorm": [
+        [
+          "vllm.model_executor.layers.layernorm",
+          "LayerNorm"
+        ]
+      ],
+      "MLAAttentionSpec": [
+        [
+          "vllm.v1.kv_cache_interface",
+          "MLAAttentionSpec"
+        ]
+      ],
+      "MLAModules": [
+        [
+          "vllm.model_executor.layers.mla",
+          "MLAModules"
+        ]
+      ],
+      "MergedColumnParallelLinear": [
+        [
+          "vllm.model_executor.layers.linear",
+          "MergedColumnParallelLinear"
+        ]
+      ],
+      "MultiHeadLatentAttentionWrapper": [
+        [
+          "vllm.model_executor.layers.mla",
+          "MultiHeadLatentAttentionWrapper"
+        ]
+      ],
+      "QuantizationConfig": [
+        [
+          "vllm.model_executor.layers.quantization.base_config",
+          "QuantizationConfig"
+        ]
+      ],
+      "RMSNorm": [
+        [
+          "vllm.model_executor.layers.layernorm",
+          "RMSNorm"
+        ]
+      ],
+      "ReplicatedLinear": [
+        [
+          "vllm.model_executor.layers.linear",
+          "ReplicatedLinear"
+        ]
+      ],
+      "RotaryEmbedding": [
+        [
+          "vllm.model_executor.layers.rotary_embedding",
+          "RotaryEmbedding"
+        ]
+      ],
+      "RowParallelLinear": [
+        [
+          "vllm.model_executor.layers.linear",
+          "RowParallelLinear"
+        ]
+      ],
+      "SparseAttnIndexerKpool": [
+        [
+          "vllm.model_executor.layers.sparse_attn_indexer_kpool",
+          "SparseAttnIndexerKpool"
+        ]
+      ],
+      "VllmConfig": [
+        [
+          "vllm.config",
+          "VllmConfig"
+        ]
+      ],
+      "_glm53_glm5next_workspace_entries": [
+        [
+          "vllm.v1.attention.backends.mla.indexer",
+          "_glm53_glm5next_workspace_entries"
+        ]
+      ],
+      "current_platform": [
+        [
+          "vllm.platforms",
+          "current_platform"
+        ]
+      ],
+      "extract_layer_index": [
+        [
+          "vllm.model_executor.models.utils",
+          "extract_layer_index"
+        ]
+      ],
+      "fwht128_quant_fp8": [
+        [
+          "vllm.models.glm5next.nvidia.ops.kpool_compress",
+          "fwht128_quant_fp8"
+        ]
+      ],
+      "get_rope": [
+        [
+          "vllm.model_executor.layers.rotary_embedding",
+          "get_rope"
+        ]
+      ],
+      "get_tensor_model_parallel_world_size": [
+        [
+          "vllm.distributed",
+          "get_tensor_model_parallel_world_size"
+        ]
+      ],
+      "init_logger": [
+        [
+          "vllm.logger",
+          "init_logger"
+        ]
+      ],
+      "maybe_disable_graph_partition": [
+        [
+          "vllm.model_executor.utils",
+          "maybe_disable_graph_partition"
+        ]
+      ],
+      "nn": [
+        [
+          "torch",
+          "nn"
+        ]
+      ],
+      "replace": [
+        [
+          "dataclasses",
+          "replace"
+        ]
+      ],
+      "torch": [
+        [
+          "torch",
+          "torch"
+        ]
+      ],
+      "yarn_get_mscale": [
+        [
+          "vllm.model_executor.models.deepseek_v2",
+          "yarn_get_mscale"
+        ]
+      ]
+    },
+    "imports_kpool_class": true,
+    "instantiates_kpool_class": true,
+    "kpool_reference_lines": [
+      311
+    ],
+    "plain_indexer_constructed": false,
+    "unresolved_indexer_names": [],
+    "uses_plain_indexer": false
+  },
+  "live_kernel": "top_k_per_row_decode",
+  "live_kernel_has_fixed_scratch": null,
+  "live_persistent_topk_lines": [],
+  "overlay_guard": {
+    "checked": true,
+    "fail_closed": true,
+    "guard_call": true,
+    "installs_dead_branch": true,
+    "present": true
+  },
+  "plain_indexer_users": [
+    "models/deepseek_v32/amd/rocm.py",
+    "models/deepseek_v32/attention.py",
+    "models/deepseek_v4/attention.py",
+    "models/deepseek_v4/common/ops/fused_indexer_q.py"
+  ],
+  "reason": "the GLM-5.3-Flash path uses SparseAttnIndexerKpool and that file's persistent_topk branch is dead by construction (line 817), with top_k_per_row_decode on the live else branch. #52149/#55314 cannot change selection here, so no indexer-logits comparison is owed.",
+  "verdict": "NOT_APPLICABLE"
+}

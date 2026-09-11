@@ -1,0 +1,435 @@
+#!/usr/bin/env python3
+"""CPU tests for the task 34 FlashKDA chunked-prefill overlay.
+
+The overlay is a *port* onto this fork's ``glm5next/nvidia/kda.py``, so the
+tests pin the three insertion points and the fail-closed/idempotence contract.
+A trimmed but structurally faithful fixture keeps the suite hermetic; when the
+gitignored live-image dump is present the same assertions run against the real
+deployed file.
+"""
+
+from __future__ import annotations
+
+import ast
+import importlib.util
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "overlay/patch_flashkda_prefill.py"
+SPEC = importlib.util.spec_from_file_location("flashkda_overlay", SCRIPT)
+assert SPEC is not None and SPEC.loader is not None
+MODULE = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(MODULE)
+
+LIVE_DUMP = (
+    ROOT
+    / "tests/fixtures/live-image-vllm/models/glm5next/nvidia/kda.py"
+)
+
+FIXTURE = '''\
+from vllm.platforms import current_platform
+
+
+def _cast_sigmoid(x):
+    return x.float().sigmoid()
+
+
+class Glm5NextLinearAttention(GatedDeltaNetAttention):
+    def __init__(self, config, vllm_config, prefix=""):
+        self.head_dim = 128
+        self.local_num_heads = 32
+        self.kda_lower_bound = -5.0
+        self._conv_state_dim_first = is_conv_state_dim_first()
+
+    def _forward(self):
+        ns_out = None
+        if attn_metadata_narrowed.num_prefills > 0:
+            initial_state = gather_initial_states(
+                recurrent_state, non_spec_state_indices_tensor, has_initial_state
+            )
+            (
+                core_attn_out_non_spec,
+                last_recurrent_state,
+            ) = chunk_kda_with_fused_gate(
+                q=_rearr(q_ns),
+                k=_rearr(k_ns),
+                v=_rearr(v_ns),
+                raw_g=g1_ns,
+                # Chunk path wants the pre-sigmoided fp32 beta (its kernels
+                # don't sigmoid); beta_ns is raw bf16 from forward.
+                beta=_cast_sigmoid(beta_ns.squeeze(0)).unsqueeze(0),
+                A_log=self.A_log,
+                g_bias=self.dt_bias,
+                initial_state=initial_state,
+                output_final_state=True,
+                use_qk_l2norm_in_kernel=True,
+                cu_seqlens=non_spec_query_start_loc,
+                safe_gate=safe_gate,
+                lower_bound=lower_bound,
+            )
+'''
+
+
+def patched(source: str = FIXTURE) -> str:
+    return MODULE.apply_to(source)
+
+
+def test_overlay_applies_and_compiles():
+    out = patched()
+    assert out != FIXTURE
+    compile(out, "kda.py", "exec")
+
+
+def test_marker_makes_it_idempotent():
+    once = patched()
+    assert MODULE.apply_to(once) == once
+    assert once.count(MODULE.MARK) > 0
+
+
+def test_helper_block_lands_before_the_class():
+    out = patched()
+    assert out.index("_glm53_flashkda_supported") < out.index(MODULE.CLASS_ANCHOR)
+
+
+def test_flashkda_method_is_a_class_method():
+    tree = ast.parse(patched())
+    klass = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "Glm5NextLinearAttention"
+    )
+    methods = [n.name for n in klass.body if isinstance(n, ast.FunctionDef)]
+    assert "_flashkda_prefill" in methods
+
+
+def test_init_gains_the_arm_flag_and_buffer_specs():
+    out = patched()
+    assert "self._glm53_flashkda_prefill = True" in out
+    assert "self._flashkda_buffer_specs = (" in out
+    assert "get_workspace_size" in out
+
+
+def test_call_site_becomes_a_dispatch_and_keeps_the_triton_path():
+    out = patched()
+    assert "if self._glm53_flashkda_prefill:" in out
+    assert "self._flashkda_prefill(" in out
+    # the original Triton call survives, re-indented into the else branch
+    assert "                ) = chunk_kda_with_fused_gate(" in out
+    assert "                    lower_bound=lower_bound," in out
+
+
+def test_gate_matches_the_upstream_selection_predicate():
+    out = patched()
+    for needle in (
+        "capability.major in (9, 10, 12)",
+        "head_dim == 128",
+        "torch.bfloat16",
+        "lower_bound is not None",
+    ):
+        assert needle in out, needle
+
+
+@pytest.mark.parametrize(
+    "anchor",
+    [
+        MODULE.CLASS_ANCHOR,
+        MODULE.INIT_ANCHOR,
+        MODULE.CALL_ANCHOR,
+    ],
+)
+def test_fail_closed_on_each_drifted_anchor(anchor):
+    drifted = FIXTURE.replace(anchor, "    pass  # drifted\n")
+    assert drifted != FIXTURE
+    with pytest.raises(SystemExit):
+        MODULE.apply_to(drifted)
+
+
+def test_fail_closed_on_ambiguous_anchor():
+    ambiguous = FIXTURE + "\n\n" + MODULE.CLASS_ANCHOR + "    pass\n"
+    with pytest.raises(SystemExit):
+        MODULE.apply_to(ambiguous)
+
+
+def test_unarmed_leaves_the_file_untouched(tmp_path, monkeypatch):
+    target = tmp_path / "kda.py"
+    target.write_text(FIXTURE)
+    monkeypatch.setattr(MODULE, "TARGET", target)
+    for value in ("", "triton", "TRITON"):
+        monkeypatch.setenv(MODULE.KNOB, value)
+        assert MODULE.main() == 0
+        assert target.read_text() == FIXTURE, value
+
+
+def test_invalid_knob_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setenv(MODULE.KNOB, "cuda")
+    with pytest.raises(SystemExit):
+        MODULE.main()
+
+
+def test_armed_writes_a_compiling_file(tmp_path, monkeypatch):
+    target = tmp_path / "kda.py"
+    target.write_text(FIXTURE)
+    monkeypatch.setattr(MODULE, "TARGET", target)
+    monkeypatch.setenv(MODULE.KNOB, "flashkda")
+    assert MODULE.main() == 0
+    written = target.read_text()
+    compile(written, str(target), "exec")
+    assert MODULE.MARK in written
+    # second run is a no-op
+    assert MODULE.main() == 0
+    assert target.read_text() == written
+
+
+def test_missing_target_is_fail_closed(tmp_path, monkeypatch):
+    monkeypatch.setattr(MODULE, "TARGET", tmp_path / "absent.py")
+    monkeypatch.setenv(MODULE.KNOB, "flashkda")
+    with pytest.raises(SystemExit):
+        MODULE.main()
+
+
+@pytest.mark.skipif(not LIVE_DUMP.is_file(), reason="live-image dump not present")
+def test_applies_to_the_real_deployed_kda_py():
+    source = LIVE_DUMP.read_text(encoding="utf-8")
+    out = MODULE.apply_to(source)
+    compile(out, str(LIVE_DUMP), "exec")
+    tree = ast.parse(out)
+    klass = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "Glm5NextLinearAttention"
+    )
+    methods = [n.name for n in klass.body if isinstance(n, ast.FunctionDef)]
+    assert "_flashkda_prefill" in methods
+    assert len(_fwd_call(out).args) == MODULE.EXPECTED_FWD_ARITY
+    assert MODULE.apply_to(out) == out
+
+
+# --- finding 5: a marker is not evidence of installation -------------------
+
+
+def _complete(source: str = FIXTURE) -> str:
+    return MODULE.apply_to(source)
+
+
+def test_marker_only_is_not_treated_as_installed():
+    """The marker is written by several lines, so a partial file can carry it."""
+    marked = FIXTURE.replace(
+        MODULE.CLASS_ANCHOR, MODULE.MARK + "\n" + MODULE.CLASS_ANCHOR, 1
+    )
+    assert MODULE.MARK in marked
+    assert MODULE.is_complete(marked) is False
+    with pytest.raises(SystemExit):
+        MODULE.apply_to(marked)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        pytest.param(
+            lambda s: s.replace(
+                next(
+                    line
+                    for line in s.splitlines(keepends=True)
+                    if line.strip().startswith("if self._glm53_flashkda_prefill:")
+                ),
+                "",
+                1,
+            ),
+            id="dispatch-removed",
+        ),
+        pytest.param(
+            lambda s: s.replace("self._flashkda_buffer_specs = (", "self._x = (", 1),
+            id="workspace-sizing-renamed",
+        ),
+        pytest.param(
+            lambda s: s.replace("def _glm53_flashkda_supported(", "def _other(", 1),
+            id="helper-renamed",
+        ),
+        pytest.param(
+            lambda s: s.replace("torch.ops._flashkda_C.fwd(", "torch.ops._flashkda_C.fwdX(", 1),
+            id="kernel-call-renamed",
+        ),
+        pytest.param(
+            lambda s: s.replace("self._glm53_flashkda_prefill = True", "pass", 1),
+            id="flag-removed",
+        ),
+    ],
+)
+def test_partial_installation_aborts_instead_of_reporting_installed(mutate):
+    complete = _complete()
+    partial = mutate(complete)
+    assert partial != complete, "fixture did not change; test is vacuous"
+    assert MODULE.is_complete(partial) is False
+    with pytest.raises(SystemExit):
+        MODULE.apply_to(partial)
+
+
+def test_armed_main_refuses_a_partial_installation(tmp_path, monkeypatch):
+    target = tmp_path / "kda.py"
+    target.write_text(MODULE.MARK + "\n" + FIXTURE)
+    monkeypatch.setattr(MODULE, "TARGET", target)
+    monkeypatch.setenv(MODULE.KNOB, "flashkda")
+    before = target.read_text()
+    with pytest.raises(SystemExit):
+        MODULE.main()
+    assert target.read_text() == before, "a refused install must not write"
+
+
+# --- finding 6: the method must land inside the target class ---------------
+
+
+def test_method_stays_a_class_member_with_a_trailing_function():
+    source = FIXTURE + "\n\ndef trailing_helper():\n    return 1\n"
+    tree = ast.parse(MODULE.apply_to(source))
+    klass = _klass(tree)
+    assert "_flashkda_prefill" in [n.name for n in klass.body if isinstance(n, ast.FunctionDef)]
+    assert "trailing_helper" in [
+        n.name for n in tree.body if isinstance(n, ast.FunctionDef)
+    ], "the trailing helper must remain module-level"
+
+
+def test_method_stays_a_class_member_with_a_trailing_class():
+    source = FIXTURE + "\n\nclass Later:\n    def method(self):\n        return 2\n"
+    tree = ast.parse(MODULE.apply_to(source))
+    assert "_flashkda_prefill" in [
+        n.name for n in _klass(tree).body if isinstance(n, ast.FunctionDef)
+    ]
+    later = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Later")
+    assert "_flashkda_prefill" not in [n.name for n in later.body if isinstance(n, ast.FunctionDef)]
+
+
+def test_method_does_not_land_inside_a_trailing_function():
+    """The old EOF append nested the method inside whatever came last."""
+    source = FIXTURE + "\n\ndef trailing_helper():\n    return 1\n"
+    tree = ast.parse(MODULE.apply_to(source))
+    helper = next(
+        n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "trailing_helper"
+    )
+    nested = [n.name for n in helper.body if isinstance(n, ast.FunctionDef)]
+    assert "_flashkda_prefill" not in nested
+
+
+def _klass(tree):
+    return next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "Glm5NextLinearAttention"
+    )
+
+
+# --- finding 4 (second pass): required imports count as completeness -------
+
+
+@pytest.mark.parametrize(
+    "needle",
+    [
+        "from vllm.v1.worker.workspace import current_workspace_manager",
+        "import vllm._flashkda_C",
+        "torch.ops._flashkda_C.get_workspace_size(",
+        "current_workspace_manager().get_simultaneous(",
+    ],
+)
+def test_removing_a_required_import_is_incomplete(needle):
+    """The file would still compile but raise NameError at prefill time."""
+    complete = _complete()
+    assert needle in complete
+    without = complete.replace(needle, "", 1)
+    assert without != complete
+    assert MODULE.is_complete(without) is False
+    with pytest.raises(SystemExit):
+        MODULE.apply_to(without)
+
+
+def test_every_required_structure_is_present_in_a_complete_install():
+    complete = _complete()
+    missing = [name for name, needle in MODULE.REQUIRED_STRUCTURES if needle not in complete]
+    assert missing == []
+
+
+def test_commented_out_import_is_incomplete():
+    """A commented import keeps the substring but leaves the name undefined."""
+    complete = _complete()
+    commented = complete.replace(
+        "from vllm.v1.worker.workspace import current_workspace_manager",
+        "# from vllm.v1.worker.workspace import current_workspace_manager",
+        1,
+    )
+    assert commented != complete
+    assert "current_workspace_manager" in commented
+    assert MODULE.is_complete(commented) is False
+    with pytest.raises(SystemExit):
+        MODULE.apply_to(commented)
+
+
+# --- task 34 parity gate: the fused call's arity ---------------------------
+#
+# The first cut of this port passed two extra trailing ``None``s. The op is a
+# fixed-arity TorchScript binding, so arming raised at the first prefill:
+#   _flashkda_C::fwd() expected at most 14 argument(s) but received 16.
+# Nothing caught it, because the smoke test only proved the patched file
+# parses. These pin the count instead of assuming it.
+
+_FWD_TAIL = "            cu_seqlens.contiguous(),\n        )\n        return out, final_state"
+
+
+def _fwd_call(source: str):
+    for node in ast.walk(ast.parse(source)):
+        if (
+            isinstance(node, ast.Call)
+            and ast.unparse(node.func) == "torch.ops._flashkda_C.fwd"
+        ):
+            return node
+    return None
+
+
+def test_template_arity_matches_the_deployed_op():
+    """14 is the arity the v1.4.7 image's extension declares."""
+    assert MODULE.EXPECTED_FWD_ARITY == 14
+
+
+def test_fused_call_passes_exactly_the_deployed_arity():
+    call = _fwd_call(_complete())
+    assert call is not None, "no _flashkda_C.fwd call in the patched source"
+    assert len(call.args) == MODULE.EXPECTED_FWD_ARITY
+    assert call.keywords == [], "the deployed call site is positional-only"
+
+
+def test_two_extra_trailing_nones_are_refused():
+    """The exact defect the cluster parity gate caught."""
+    complete = _complete()
+    sixteen = complete.replace(
+        _FWD_TAIL,
+        "            cu_seqlens.contiguous(),\n            None,\n            None,\n"
+        "        )\n        return out, final_state",
+        1,
+    )
+    assert sixteen != complete, "fixture did not change; test is vacuous"
+    assert len(_fwd_call(sixteen).args) == 16
+    assert MODULE.is_complete(sixteen) is False
+    with pytest.raises(SystemExit):
+        MODULE.apply_to(sixteen)
+
+
+def test_a_wrong_arity_template_is_refused_before_writing(monkeypatch):
+    """A template that drifted from the op must fail before any file write."""
+    broken = MODULE.FLASHKDA_METHOD.replace(
+        "            cu_seqlens.contiguous(),\n        )",
+        "            cu_seqlens.contiguous(),\n            None,\n        )",
+        1,
+    )
+    assert broken != MODULE.FLASHKDA_METHOD
+    monkeypatch.setattr(MODULE, "FLASHKDA_METHOD", broken)
+    with pytest.raises(SystemExit):
+        MODULE.apply_to(FIXTURE)
+
+
+def test_keyword_style_call_does_not_satisfy_the_arity_check():
+    """Only positional arguments count, so a keyword rewrite cannot pass."""
+    complete = _complete()
+    keyworded = complete.replace(
+        "            q.contiguous(),\n", "            q=q.contiguous(),\n", 1
+    )
+    assert keyworded != complete
+    assert MODULE.is_complete(keyworded) is False

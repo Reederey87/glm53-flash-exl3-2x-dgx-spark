@@ -30,12 +30,15 @@ before each window restart, `POST /reset_prefix_cache` for cold rounds
 | tcgen05 / TMEM | **NOT present** | Warp-level `mma.sync` is the only tensor-core path; no 2-SM MMA, no tile-level UMMA | CUTLASS issues [#2947](https://github.com/NVIDIA/cutlass/issues/2947), [#3100](https://github.com/NVIDIA/cutlass/issues/3100) — NVIDIA staff: *"SM121a and SM120a do not support tcgen05 … use warp level mma"* |
 | Shared memory | **101,376 B/CTA** (same as RTX 4090) | SGLang-class default MoE configs (~147 KB) fail `OutOfResources`; tile configs must fit 99 KB effective | [NVIDIA forum: SM121 CUTLASS results](https://forums.developer.nvidia.com/t/sm121-cutlass-kernel-optimization-results-nvfp4-356-tflops-moe-grouped-gemm-on-dgx-spark/359960) |
 | NVFP4/FP8 tensor cores | Present via warp-level block-scaled `mma.sync` (CUDA 13); measured 356 TFLOPS dense NVFP4 (71% of peak) | FP4 compute is real but through the SM80-era issue path, not tcgen05 | same forum thread |
-| Toolchain | CUDA 13.x system ptxas required (`TORCH_CUDA_ARCH_LIST=12.1a`); older bundled ptxas lacks sm_121 | Keep `TORCH_CUDA_ARCH_LIST=12.1a` in the kit Dockerfile (already set) | [triton-blackwell-bringup](https://github.com/eniktab/triton-blackwell-bringup) |
+| Toolchain | CUDA 13.x system ptxas required (`TORCH_CUDA_ARCH_LIST=12.1a`); older bundled ptxas lacks sm_121. **CUDA ≥ 13.2 (PTX ISA 9.2) additionally required for any entry using the `cvt.rn.bf16x2.e4m3x2` widening** — ptxas 13.0.88 caps at ISA 9.0 and rejects it on `sm_121a` (`Unexpected instruction types specified for 'cvt'`), while the `cvt.rn.f16x2.e4m3x2` sibling assembles. A toolchain-version limit, not an arch one. | Keep `TORCH_CUDA_ARCH_LIST=12.1a` in the kit Dockerfile (already set); for a b12x-style intake, gate on CUDA ≥ 13.2 rather than on the arch | [triton-blackwell-bringup](https://github.com/eniktab/triton-blackwell-bringup); measured on spark1 ptxas 13.0.88, receipt `local/task38-cvt-bf16x2-e4m3x2-20260910.txt` |
 | Memory bandwidth | 218 GB/s measured LPDDR5X unified | The fat-expert wall is **weight streaming, not MMA** — format/traffic optimizations beat ISA upgrades | forum; matches docs/06 W24 ("weight streaming ≈ 63% of every prefill step") |
 
 **Intake rule (adopted):** any kernel candidate that requires tcgen05/TMEM, 2-SM MMA,
 >101,376 B SMEM, or a pre-CUDA-13 toolchain is rejected at intake. Warp-level-MMA
-probes come before any port.
+probes come before any port. A candidate whose kernels use the PTX ISA 9.2
+bf16x2 e4m3 widening is additionally gated on **CUDA ≥ 13.2**, which is a
+toolchain gate rather than an arch gate — do not record it as an SM121
+limitation.
 
 ## 3. Qualification of `overlay/exl3_fat_gemm.cu` (W24, adopted 2026-08-31)
 
@@ -574,3 +577,75 @@ measurement.
   parity fails; dual-issue K16 / more stages / larger MB; cluster /
   DSMEM / multicast; CUDA-graphing prefill fat as a reason to change
   kernels.
+
+## 9. Task 36 — fused `exl3_moe` register/smem gate (supersedes the task-29 counter gate)
+
+Pre-registered 2026-09-10. This **replaces** the parked task-29 re-open condition
+("a *measured* hardware counter that contradicts 33.3% derived occupancy"). That
+gate asked for a counter to overturn arithmetic; the arithmetic is the gate.
+
+### The arithmetic, on CC 12.0
+
+From the Blackwell Tuning Guide (CUDA 13.3, §1.4.1.1), for compute capability 12.0:
+
+| Resource | Limit |
+|---|---|
+| Warps per SM | **48** (not 64) |
+| 32-bit registers per SM | **64K** |
+| Shared memory per SM | **128 KB** |
+| Shared memory per block (opt-in) | **99 KB / 101,376 B** (the cap already in §2) |
+
+The measured decode launch (§24, PR #64/#66) is `block 512`, `REG:128`,
+`SMEM:92,160 B`, grid `[8,1,6]`. Both binding limits are exact:
+
+- registers: `512 × 128 = 65,536` = the entire register file → **1 block/SM**;
+- shared memory: `2 × 92,160 = 184,320 B > 131,072 B` → **1 block/SM**.
+
+One 512-thread block is 16 warps, so residency is `16 / 48 = **33.3%**`. The
+33.33% figure in §24 and in the task-29 receipt is therefore not an artifact of a
+derived-occupancy formula; it is the arithmetic consequence of two independent
+resource ceilings.
+
+### Consequence: no counter and no occupancy sweep can open this
+
+The task-29 floor was 50% = 24 warps/SM. That is **not reachable** with 512-thread
+blocks, because each block is 16 warps and the register file admits only one. The
+practical step is 2 blocks/SM = 32 warps. A register cut alone does not get there:
+
+- a 256-thread block at 128 regs: the register limit would allow 2 blocks, but the
+  shared-memory limit still allows only 1 → `1 × 8 = 8` warps, i.e. **worse** than
+  the current 16.
+
+So both register pressure **and** smem footprint must move, and the smem must come
+down before a smaller block is even neutral.
+
+### Re-open condition (pre-registered; do not edit before an arm exists)
+
+A candidate arm must, at the production per-rank shape:
+
+1. cut `REG` to **≤ 64** *and* application SMEM to **≤ 65,536 B** at block 512
+   (necessary arithmetic, **not** a sufficient admission test — CUDA reserves
+   shared memory per block); **and**
+2. be confirmed resident by the occupancy API (`cudaOccupancyMaxActiveBlocksPerMultiprocessor`,
+   or ncu's achieved occupancy) on the candidate cubin — the two inequalities alone
+   are not sufficient; **and**
+3. then clear **≥ 5% decode e2e** (hashmap prose **and** hard essay) with
+   structured non-inferior, parity vs the current cubin, and the standing gates.
+
+A register cut that changes numerics is a **target-numerics change** and needs the
+§1-class quality conversation, not a kernel-parity claim.
+
+### Do not
+
+Do not re-run grow-from-this-call (W1), the W4 gather-as-reload, or an occupancy
+sweep on the current cubin — task 24 closed all three by measurement.
+
+### Reusable evidence
+
+- decode-step share oracle: `scripts/run_decode_profile_window.py`,
+  `probe_decode_profile.py`, `audit_decode_kernel_share.py`
+  (receipts `local/task29-decode-share-{head,worker}-20260909.json`);
+- no-reboot counter path: `docker run --gpus all --cap-add SYS_ADMIN` (docs/14);
+- **dependency:** if the task-34 lineage migration lands, re-baseline the
+  fused-kernel geometry and the 49.7% decode share first — the NoPE-concat and
+  KDA-stride changes move the decode-step composition this gate is stated against.

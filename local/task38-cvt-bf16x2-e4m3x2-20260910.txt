@@ -1,0 +1,61 @@
+Task 38 item 3 — cvt.rn.bf16x2.e4m3x2 toolchain requirement (task 38, P2)
+Date: 2026-09-10
+Host: spark1 (DGX Spark GB10, sm_121a)
+Toolchain: /usr/local/cuda/bin/ptxas 13.0.88 (release 13.0, V13.0.88)
+
+QUESTION
+  b12x `_lib/intrinsics.py` defines fp8x4_e4m3_to_bfloat2x2_native_sm120, whose
+  inline asm emits `cvt.rn.bf16x2.e4m3x2`. Recorded as failing ptxas on sm_121a
+  under CUDA 13.0. Is that accurate, and is it an arch limit or a toolchain one?
+
+PROBE (minimal, single instruction, no operands other than registers)
+  .version 9.0
+  .target sm_121a
+  .visible .entry probe() {
+      .reg .b16 e01;
+      .reg .b32 o;
+      <INSTR> o, e01;
+      ret;
+  }
+
+RESULTS  (ptxas -arch=sm_121a)
+  cvt.rn.bf16x2.e4m3x2  -> REJECTED: "Unexpected instruction types specified for 'cvt'"
+  cvt.rn.f16x2.e4m3x2   -> ASSEMBLES          <-- control (sibling helper)
+
+ISA CEILING OF THIS TOOLCHAIN
+  `.version 9.2` -> fatal: "Unsupported .version 9.2; current version is '9.0'"
+  So this ptxas accepts PTX ISA 9.0 at most; the bf16x2 form is unknown to it.
+
+FINDING
+  The rejection is a TOOLCHAIN-VERSION limit, not an architecture limit:
+  ptxas 13.0.88 (PTX ISA 9.0) does not know `cvt.rn.bf16x2.e4m3x2`, which
+  needs PTX ISA 9.2 / CUDA >= 13.2. The sibling f16x2 form assembles on the
+  same sm_121a target with the same toolchain, which isolates the gap to the
+  bf16x2 widening form. Consistent with the helper's own docstring: "requires
+  PTX ISA 9.2 and an architecture-specific SM120 target."
+
+REACHABILITY FROM THE SERVING PATH (read-only, public clone
+https://github.com/local-inference-lab/b12x, Apache-2.0)
+  - Definition: b12x/_lib/intrinsics.py:3000.
+  - Call sites: b12x/attention/paged/_selected_forward.py (4) and
+    b12x/attention/paged/forward_extend_generic.py (12+). No per-call arch
+    guard: gating is by *compiled entry*, so any build that compiles these
+    entries for sm_121a under CUDA < 13.2 fails ptxas.
+  - Entry chain into serving: b12x/attention/qsa/_sparse_gqa.py:243 imports
+    launch_selected_paged_gqa_direct from paged/_selected_forward;
+    paged/_forward.py:25 imports build_extend_forward_kernel from
+    forward_extend_generic.
+  - It is on the paged / QSA sparse-attention path (E4M3 KV dequantization),
+    NOT in the P8 codec's own kernels. The P8 disposition is unchanged.
+
+  NOTE ON THE COMMIT: spec/TODO.md cites `d564f6ca`, which does not exist in
+  this repository (checked: `git cat-file -t d564f6ca` -> not a valid object;
+  the clone's history tops out elsewhere). The call-site facts above were taken
+  from the current default branch instead, so treat the hash in the TODO as
+  wrong rather than as a pinned revision that was verified.
+
+CONSEQUENCE
+  docs/11 §2's toolchain intake row gains a qualifier: CUDA 13.x is required for
+  sm_121 *codegen*, but >= 13.2 (PTX ISA 9.2) is required for any b12x entry
+  that uses the bf16x2 e4m3 widening. An f16x2 sibling exists and assembles on
+  13.0, but it is a different numeric path and is not a drop-in substitute.
