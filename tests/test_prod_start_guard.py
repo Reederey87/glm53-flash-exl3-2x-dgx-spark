@@ -19,10 +19,53 @@ ROOT = Path(__file__).resolve().parents[1]
 PROD_START = (ROOT / "local" / "prod-start.sh").read_text(encoding="utf-8")
 
 
+def wipe_helper() -> str:
+    """The image resolver the wipe block calls; it is defined above the guard."""
+    begin = PROD_START.index("wipe_image_for() {")
+    end = PROD_START.index("\n}\n", begin) + 3
+    return PROD_START[begin:end]
+
+
 def guard_block() -> str:
     begin = PROD_START.index("# --- JIT-cache config-shape guard")
-    end = PROD_START.index("exec ./start.sh start")
+    end = PROD_START.index("# --- start, with a bounded retry")
     return PROD_START[begin:end]
+
+
+def retry_block() -> str:
+    return PROD_START[PROD_START.index("# --- start, with a bounded retry") :]
+
+
+def run_retry(
+    tmp: Path, fail_count: int, rc: int = 17
+) -> tuple[subprocess.CompletedProcess[str], int]:
+    """Run the bounded boot-retry loop with a fake start.sh.
+
+    start.sh fails with `rc` for its first `fail_count` invocations, then
+    succeeds. Returns the result and the number of start invocations.
+    """
+    work = tmp / "kit"
+    work.mkdir(exist_ok=True)
+    calls = tmp / "start-calls.log"
+    start = work / "start.sh"
+    start.write_text(
+        "#!/usr/bin/env bash\n"
+        f'echo start >> {calls}\n'
+        f'n=$(wc -l < {calls} | tr -d " ")\n'
+        f'if [ "$n" -le {fail_count} ]; then exit {rc}; fi\n'
+        "exit 0\n"
+    )
+    start.chmod(start.stat().st_mode | stat.S_IEXEC)
+    script = (
+        "set -uo pipefail\n"
+        "log() { printf '[prod-start] %s\\n' \"$*\"; }\n"
+        "settle_wait() { :; }\n" + retry_block()
+    )
+    r = subprocess.run(
+        ["bash", "-c", script], cwd=work, capture_output=True, text=True
+    )
+    n = len(calls.read_text().splitlines()) if calls.exists() else 0
+    return r, n
 
 
 def make_shim(bindir: Path, name: str, body: str) -> None:
@@ -84,6 +127,7 @@ def run_guard(
     ssh_rc: int,
     stamp: str | None = None,
     start_sh_default: str = 'DFLASH_REVISION="${DFLASH_REVISION-abc}"\n',
+    inspect_ok: bool = True,
 ) -> tuple[subprocess.CompletedProcess[str], Path, Path]:
     work = tmp / "kit"
     work.mkdir(exist_ok=True)
@@ -97,9 +141,36 @@ def run_guard(
     bindir = tmp / "bin"
     bindir.mkdir(exist_ok=True)
     log = tmp / "calls.log"
-    make_shim(bindir, "docker", f'echo "docker $*" >> {log}\nexit {docker_rc}\n')
-    make_shim(bindir, "ssh", f'echo "ssh $*" >> {log}\nexit {ssh_rc}\n')
-    script = "set -uo pipefail\nWORKER_SSH=nvidia@worker\n" + guard_block()
+    # The wipe resolves an image the node actually has before running it, so
+    # `image inspect` / `images` must succeed and print a tag; only the wipe
+    # container itself honours the injected return code. inspect_ok=False
+    # models the task-35 failure: the requested tag is not on the node yet.
+    inspect_rc = 0 if inspect_ok else 1
+    inspect_out = 'echo "glm53-selfbuild:b5ab8091-w15a"' if inspect_ok else ":"
+    make_shim(
+        bindir,
+        "docker",
+        f'echo "docker $*" >> {log}\n'
+        'case "$1" in\n'
+        f'  image) {inspect_out}; exit {inspect_rc} ;;\n'
+        '  images) echo "glm53-selfbuild:b5ab8091-w15a"; exit 0 ;;\n'
+        f'  *) exit {docker_rc} ;;\n'
+        "esac\n",
+    )
+    make_shim(
+        bindir,
+        "ssh",
+        f'echo "ssh $*" >> {log}\n'
+        'case "$*" in\n'
+        # The remote resolver is ONE command holding both the requested-tag
+        # inspect and its fallback, so it reports a tag either way; only the
+        # wipe container honours the injected return code.
+        '  *"docker image inspect"*) echo "glm53-selfbuild:b5ab8091-w15a"; exit 0 ;;\n'
+        f'  *"docker run"*) exit {ssh_rc} ;;\n'
+        "  *) exit 0 ;;\n"
+        "esac\n",
+    )
+    script = "set -uo pipefail\nWORKER_SSH=nvidia@worker\n" + wipe_helper() + "\n" + guard_block()
     env = {"PATH": f"{bindir}:{os.environ['PATH']}", "HOME": str(home)}
     r = subprocess.run(["bash", "-c", script], cwd=work, env=env, capture_output=True, text=True)
     return r, stamp_path, log
@@ -138,10 +209,27 @@ def test_image_resolved_from_IMAGE_line_and_stamp_written_on_success() -> None:
         calls = log.read_text()
         lines = calls.splitlines()
         assert "glm53-selfbuild:b5ab8091-w15a" in calls
-        assert sum(line.startswith("docker ") for line in lines) == 1
-        assert sum(line.startswith("ssh ") for line in lines) == 1
+        # one resolve (image inspect) + one wipe (docker run) per node
+        assert sum(line.startswith("docker ") for line in lines) == 2
+        assert sum(line.startswith("ssh ") for line in lines) == 2
         assert stamp.read_text().strip() != "stale"
         assert len(stamp.read_text().strip()) == 32
+
+
+def test_wipe_falls_back_to_a_locally_present_tag() -> None:
+    """Task 35: the requested tag may not be on the node yet (start.sh ships it
+    later), so the wipe must fall back to any local glm53-selfbuild image —
+    otherwise the worker wipe dies with `pull access denied` and half-wipes."""
+    with tempfile.TemporaryDirectory() as t:
+        r, stamp, log = run_guard(Path(t), ENV, 0, 0, stamp="stale", inspect_ok=False)
+        assert r.returncode == 0, r.stderr
+        calls = log.read_text()
+        assert "glm53-selfbuild:b5ab8091-w15a" in calls
+        assert "incomplete" not in r.stdout
+        assert stamp.read_text().strip() != "stale"
+        # both nodes wiped with the fallback tag, none with the requested one
+        assert calls.count("docker run") == 2
+        assert "glm53-selfbuild:b5ab8091-w15a" in calls
 
 
 def test_head_wipe_failure_leaves_stamp() -> None:
@@ -161,6 +249,26 @@ def test_unresolvable_image_leaves_stamp_and_skips_wipe() -> None:
         r, stamp, log = run_guard(Path(t), "DFLASH_TOKENS=7\n", 0, 0, stamp="stale")
         assert stamp.read_text() == "stale" and "could not resolve IMAGE" in r.stdout
         assert not log.exists()
+
+
+def test_retry_loop_exhaustion_returns_the_failure_status() -> None:
+    """Regression: `rc=$?` placed after the completed `if` read the
+    if-statement's own status, which is 0 when the condition failed and no
+    branch ran — so exhausting the retries exited 0 with production down."""
+    with tempfile.TemporaryDirectory() as t:
+        r, n = run_retry(Path(t), fail_count=99, rc=17)
+        assert n == 3, n
+        assert r.returncode == 17, (r.returncode, r.stdout, r.stderr)
+        assert "production left down" in r.stdout
+
+
+def test_retry_loop_stops_at_the_first_success() -> None:
+    with tempfile.TemporaryDirectory() as t:
+        r, n = run_retry(Path(t), fail_count=1)
+        assert r.returncode == 0, r.stderr
+        assert n == 2, n
+        assert "production left down" not in r.stdout
+        assert "retrying" in r.stdout
 
 
 def test_hash_tracks_revision_and_launcher_default() -> None:
@@ -191,8 +299,11 @@ if __name__ == "__main__":
     test_invalid_dflash_length_exits_before_stop_or_cache_handling()
     test_native_dflash_and_non_dflash_continue_after_validation()
     test_image_resolved_from_IMAGE_line_and_stamp_written_on_success()
+    test_wipe_falls_back_to_a_locally_present_tag()
     test_head_wipe_failure_leaves_stamp()
     test_worker_wipe_failure_leaves_stamp()
     test_unresolvable_image_leaves_stamp_and_skips_wipe()
+    test_retry_loop_exhaustion_returns_the_failure_status()
+    test_retry_loop_stops_at_the_first_success()
     test_hash_tracks_revision_and_launcher_default()
     print("prod-start guard tests OK")

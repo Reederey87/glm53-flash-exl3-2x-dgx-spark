@@ -62,26 +62,48 @@ avail_gib_worker() {
         "awk '/^MemFree:/ {printf \"%d\", \$2/1048576}' /proc/meminfo" 2>/dev/null
 }
 
-log "waiting for >= ${NEED_GIB} GiB MemFree on BOTH nodes (timeout ${SETTLE_TIMEOUT}s)"
-deadline=$(( $(date +%s) + SETTLE_TIMEOUT ))
-while :; do
-    h="$(avail_gib)"; w="$(avail_gib_worker)"
-    if [[ "$h" =~ ^[0-9]+$ ]] && [[ "$w" =~ ^[0-9]+$ ]] \
-       && [ "$h" -ge "$NEED_GIB" ] && [ "$w" -ge "$NEED_GIB" ]; then
-        log "memory settled: head ${h} GiB, worker ${w} GiB — starting"
-        break
+# The JIT wipe only needs a container carrying /bin/bash and `rm`; it does NOT
+# have to be the image being deployed. That distinction matters on the worker:
+# start.sh ships the new tag to it AFTER this block runs, so requesting the new
+# tag here always failed with
+#     pull access denied for glm53-selfbuild
+# and silently left a half-wipe (head wiped, worker not) while the stamp stayed
+# unadvanced. Resolve an image the node actually has, preferring the requested
+# tag. Echoes the tag, or nothing when the node has no glm53-selfbuild image.
+wipe_image_for() { # $1 = "" for the head, else an ssh target
+    local target="$1"
+    if [ -z "$target" ]; then
+        if docker image inspect "$img" >/dev/null 2>&1; then printf '%s' "$img"; return 0; fi
+        docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^glm53-selfbuild:' | head -1
+    else
+        ssh -o BatchMode=yes -o ConnectTimeout=10 "$target" \
+            "if docker image inspect '$img' >/dev/null 2>&1; then printf '%s' '$img'; else docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^glm53-selfbuild:' | head -1; fi" 2>/dev/null
     fi
-    if [ "$(date +%s)" -ge "$deadline" ]; then
-        # Proceed anyway: vLLM's own pre-check is the real gate and will fail
-        # cleanly with a precise number. Better that than silently never starting.
-        log "WARN: timed out waiting to settle (head=${h:-?} worker=${w:-?} GiB, need ${NEED_GIB})"
-        log "WARN: starting anyway — vLLM's pre-check will report the exact shortfall"
-        break
-    fi
-    sleep "$SETTLE_INTERVAL"
-done
+}
 
-log "starting pair"
+settle_wait() {
+    log "waiting for >= ${NEED_GIB} GiB MemFree on BOTH nodes (timeout ${SETTLE_TIMEOUT}s)"
+    local deadline h w
+    deadline=$(( $(date +%s) + SETTLE_TIMEOUT ))
+    while :; do
+        h="$(avail_gib)"; w="$(avail_gib_worker)"
+        if [[ "$h" =~ ^[0-9]+$ ]] && [[ "$w" =~ ^[0-9]+$ ]] \
+           && [ "$h" -ge "$NEED_GIB" ] && [ "$w" -ge "$NEED_GIB" ]; then
+            log "memory settled: head ${h} GiB, worker ${w} GiB"
+            return 0
+        fi
+        if [ "$(date +%s)" -ge "$deadline" ]; then
+            # Proceed anyway: vLLM's own pre-check is the real gate and will fail
+            # cleanly with a precise number. Better that than silently never starting.
+            log "WARN: timed out waiting to settle (head=${h:-?} worker=${w:-?} GiB, need ${NEED_GIB})"
+            log "WARN: starting anyway — vLLM's pre-check will report the exact shortfall"
+            return 1
+        fi
+        sleep "$SETTLE_INTERVAL"
+    done
+}
+
+settle_wait || true
 # --- JIT-cache config-shape guard (added 2026-08-28) -------------------------
 # The persistent Triton/TileLang caches (upstream a099743) are safe across
 # identical-config boots but MEASURED UNSAFE across spec-config changes:
@@ -109,12 +131,27 @@ if [ -n "$shape_hash" ] && [ "$(cat "$stamp" 2>/dev/null)" != "$shape_hash" ]; t
     [ -n "$img" ] || img="$(grep -oE 'ghcr.io[^"'"'"']*sha256:[0-9a-f]{64}' .env | head -1)"
     if [ -n "$img" ]; then
         wipe_ok=1
-        docker run --rm --entrypoint /bin/bash -v "$HOME/.cache/vllm-glm53-flash:/c" "$img"             -c 'rm -rf /c/triton /c/tilelang' || { echo "[prod-start] WARN: head cache wipe failed"; wipe_ok=0; }
-        ssh -o BatchMode=yes -o ConnectTimeout=10 "$WORKER_SSH"             "docker run --rm --entrypoint /bin/bash -v \$HOME/.cache/vllm-glm53-flash:/c '$img' -c 'rm -rf /c/triton /c/tilelang'"             || { echo "[prod-start] WARN: worker cache wipe failed"; wipe_ok=0; }
+        head_img="$(wipe_image_for "")"
+        worker_img="$(wipe_image_for "$WORKER_SSH")"
+        if [ -n "$head_img" ]; then
+            docker run --rm --entrypoint /bin/bash -v "$HOME/.cache/vllm-glm53-flash:/c" "$head_img" \
+                -c 'rm -rf /c/triton /c/tilelang' \
+                || { echo "[prod-start] WARN: head cache wipe failed"; wipe_ok=0; }
+        else
+            echo "[prod-start] WARN: head has no glm53-selfbuild image to wipe with"; wipe_ok=0
+        fi
+        if [ -n "$worker_img" ]; then
+            ssh -o BatchMode=yes -o ConnectTimeout=10 "$WORKER_SSH" \
+                "docker run --rm --entrypoint /bin/bash -v \$HOME/.cache/vllm-glm53-flash:/c '$worker_img' -c 'rm -rf /c/triton /c/tilelang'" \
+                || { echo "[prod-start] WARN: worker cache wipe failed"; wipe_ok=0; }
+        else
+            echo "[prod-start] WARN: worker has no glm53-selfbuild image to wipe with"; wipe_ok=0
+        fi
         # Advance the stamp ONLY when both nodes were wiped; a half-wipe must
         # retry on the next start (one rank on stale kernels is the 0.96->0.58 class).
         if [ "$wipe_ok" = 1 ]; then
             mkdir -p "$(dirname "$stamp")" && printf '%s\n' "$shape_hash" > "$stamp"
+            echo "[prod-start] JIT caches wiped on both nodes (head=$head_img worker=$worker_img)"
         else
             echo "[prod-start] WARN: JIT cache wipe incomplete — stamp left unchanged, will retry next start"
         fi
@@ -124,4 +161,33 @@ if [ -n "$shape_hash" ] && [ "$(cat "$stamp" 2>/dev/null)" != "$shape_hash" ]; t
     fi
 fi
 
-exec ./start.sh start
+# --- start, with a bounded retry on the memory pre-check --------------------
+# The settle gate above is deliberately below vLLM's own demand (0.85 x 121.69
+# = 103.44 GiB) because idle MemFree sits at 93-97 GiB: page cache is reclaimed
+# DURING the boot, so the node's free memory rises after the gate has already
+# passed. Measured 2026-09-10 (task 35): the worker reported 103.09 GiB against
+# a 103.44 GiB requirement and exited 1, a near miss that a second attempt a
+# minute later cleared. Retrying is the correct fix — lowering the gate would
+# convert a clean pre-check failure into a real OOM later.
+MAX_BOOT_ATTEMPTS="${MAX_BOOT_ATTEMPTS:-3}"
+attempt=0
+while :; do
+    attempt=$((attempt + 1))
+    log "starting pair (attempt ${attempt}/${MAX_BOOT_ATTEMPTS})"
+    if ./start.sh start; then
+        exit 0
+    else
+        # Capture the failure status HERE. `rc=$?` after the completed `if`
+        # would read the if-statement's own status, which is 0 when the
+        # condition failed and no branch ran — so exhausting the retries would
+        # have exited 0 with production down and masked the failure from any
+        # supervisor.
+        rc=$?
+    fi
+    if [ "$attempt" -ge "$MAX_BOOT_ATTEMPTS" ]; then
+        log "ERROR: start failed after ${attempt} attempt(s) — production left down, see the log above"
+        exit "$rc"
+    fi
+    log "start failed (rc=$rc) — re-waiting for memory to settle, then retrying"
+    settle_wait || true
+done

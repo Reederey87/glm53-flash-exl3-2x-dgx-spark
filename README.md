@@ -119,8 +119,8 @@ the official enablement lineage **before** it merged upstream (#53906 is still o
 and the tree predates vLLM's native DFlash2). Preview code is why this kit pins the
 base **by digest** and adds every capability explicitly, verified on the real pair:
 
-- **EXL3 kernels** — `exllamav3` built for aarch64/sm_121 at pinned **v1.4.7
-  `ca13bdd`**; keeps the 320B experts packed at 82 GiB/node, which is what
+- **EXL3 kernels** — `exllamav3` built for aarch64/sm_121 at pinned **v1.4.9
+  `5be8865`**; keeps the 320B experts packed at 82 GiB/node, which is what
   leaves room for the 1M pool.
 - **MoE expert kernels, hand-tuned for GB10** — this repo's fat-expert GEMM for
   oversized prefill experts, upstream's dynamic ticket scheduler in the fused
@@ -228,6 +228,12 @@ change here, oldest first:
 - **Pin advance to native `exllamav3` v1.4.7 `ca13bdd`** (2026-09-07) — the ticket
   scheduler and the current ext set arrive upstream, so the tree carries that
   cherry-pick only for the older `c5d9c657` lineage.
+- **Pin advance to `exllamav3` v1.4.9 `5be8865`** (2026-09-10, task 35) — 69
+  commits. The six quant/MoE files are byte-identical to v1.4.7, so the fused
+  kernels and the E3/W3 cubin contract are untouched; the MGEMM sliced-mode work
+  is additive and off our path. Kernel parity returns the same verdict as the
+  control and the microbench shows no delta. The reachable consequence is the
+  autotune-cache bump, which re-tunes on first boot.
 
 Measured and reverted, with numbers: W1 lazy grouped scratch (PR #54), W4 fused
 gather (PR #57, 60k −10.7%), the W4 successor persistent A-cache (PR #65), and W5
