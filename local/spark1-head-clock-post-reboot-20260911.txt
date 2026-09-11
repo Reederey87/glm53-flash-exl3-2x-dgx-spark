@@ -1,0 +1,80 @@
+spark1 (head) GPU clock fault - survives a node reboot (2026-09-11)
+===================================================================
+
+The head GPU was pinned at its 507 MHz minimum clock under load. A reboot was
+expected to clear it. It did not.
+
+Reboot
+------
+Issued 2026-09-11 ~07:37 EDT through a passwordless sudo rule that turned out
+to exist for reedrey@spark1 (the earlier "no sudo" conclusion was wrong):
+
+    (root) NOPASSWD: /usr/sbin/shutdown
+
+  boot_id  b3ab1d6f-3727-4592-9461-8310495984c8
+       ->  4b52ad93-c66f-4301-b111-4bdcd3904d3c
+  Production was idle when it was issued (0 requests running/waiting, /health 200).
+
+Re-measured after the reboot (fresh boot, uptime 31 min)
+--------------------------------------------------------
+Method: bf16 8192^3 matmul inside the live container, `nvidia-smi` sampled every
+1.5 s during the run.
+
+  sample        clock_sm   power    util
+  idle            507 MHz  10.35 W     -
+  under load      507 MHz  12.11 W    96 %
+  under load      507 MHz  12.01 W    96 %
+  ... all 14 samples read 507 MHz
+
+  n=8192 torch.bfloat16 46.26 ms -> 23.8 TFLOP/s
+  clock_sm: 507 kHz   (torch's unit label; the value is 507 MHz)
+
+  worker (spark2), identical hardware, same command: 2411 MHz, 94.8 TFLOP/s
+
+The fault is unchanged: 507 MHz and 23.8 TFLOP/s on the head against 2411 MHz
+and 94.8 TFLOP/s on the worker, on a fresh boot.
+
+Ruled out (all read-only, both nodes)
+-------------------------------------
+- Active throttle reason: none. Idle / Applications Clocks Setting / SW Power
+  Cap / HW Slowdown / HW Thermal Slowdown / HW Power Brake / Sync Boost /
+  SW Thermal Slowdown / Display Clock Setting are ALL "Not Active" on BOTH nodes.
+- Application clock: `clocks.applications.gr` is 2418 MHz on BOTH nodes. The
+  worker reaches 2411 MHz; the head stays at 507 MHz. The ceiling the driver
+  would allow is identical, so the head is not held by an application-clock
+  setting.
+- Clock lock: no `nvidia-smi --lock-gpu-clocks` / `-lgc` / `--ac` call exists in
+  /etc/systemd, /etc/rc.local, /usr/local/bin, /usr/local/sbin or the user unit
+  directories on either node. Nothing re-applies a lock at boot.
+- Persistence mode: Enabled on both; `nvidia-persistenced` active on both.
+- Power mode: no `nvpmodel` and no /etc/nvpmodel* on either node.
+- CPU contention: load average 1.39 (head) vs 0.60 (worker) at measurement
+  time, so the GB10 SoC is not being starved on the CPU side.
+- Thermal: 41-44 C at idle. Normal.
+- Kernel log: no NVRM or Xid lines readable.
+- Stray GPU process: the only compute process is the GLM container's own engine
+  (PID 31422, 103 GiB) whose cgroup resolves to glm53-exl3-head.
+- Power delivery: GB10 exposes no power_supply class and nvidia-smi reports
+  Current/Default/Min/Max Power Limit as N/A, so the 240 W USB-C PD input cannot
+  be inspected from software. This is the one remaining user-checkable item: a
+  DGX Spark fed by an under-delivering supply caps the whole SoC.
+- The GPU computes correctly and is only slow: 23.8 x (2431/507) = 114 TFLOP/s,
+  so throughput tracks the clock exactly. It simply never leaves minimum clock.
+
+Conclusion
+----------
+A clock cap that survives a reboot, with no software throttle, no clock lock, no
+CPU contention and no thermal cause, is a hardware or firmware condition on the
+head node. It is not fixable from the shell and needs vendor-level diagnosis or
+a hardware check (supply and cable first, then RMA).
+
+Consequence for task 35 section 6
+---------------------------------
+The prefill lanes (60k, 240k) cannot produce valid numbers while the head runs at
+23.8 TFLOP/s against the worker's 94.8, so the A-B-B-A window must not be
+started. The harness itself is unaffected and remains ready to run.
+
+Unblock check:
+  an idle clock reading is uninformative (GB10 parks at 507 MHz when idle), so
+  re-run the load measurement above and require >= 2000 MHz and >= 80 TFLOP/s
+  before starting the window.

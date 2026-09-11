@@ -360,8 +360,14 @@ def prefill_run_invalid(run: dict) -> str | None:
     target = run["target"]
     if abs(run["prompt_tokens"] - target) / target > PREFILL_TARGET_TOLERANCE:
         return f"prompt_tokens {run['prompt_tokens']} outside {target} +/- {PREFILL_TARGET_TOLERANCE:.0%}"
-    if run["cached_tokens"] not in (0, None):
-        return f"warm request: cached_tokens={run['cached_tokens']}"
+    cached = run["cached_tokens"]
+    if cached is None:
+        # Unknown cache usage is not measured zero usage. `cached_tokens == 0`
+        # is the substitute this harness relies on for the omitted APC-reset
+        # audit, so a missing counter must be rejected rather than assumed cold.
+        return "no cached_tokens in usage (cannot prove the run was cold)"
+    if cached != 0:
+        return f"warm request: cached_tokens={cached}"
     if run["nan"]:
         return "NaN/locklock marker in output"
     return None
@@ -402,7 +408,12 @@ def summarize(kind: str, runs: list[dict], invalid: list[dict]) -> dict:
         out["accept_ratio_median"] = statistics.median(ratios) if ratios else None
         out["any_nan"] = any(r["nan"] for r in runs)
     else:
-        out["any_cache_hit"] = any(r.get("cached_tokens") not in (0, None) for r in runs)
+        # Every accepted prefill run proved cached_tokens == 0, so this can only
+        # be true for a run that was rejected as warm. Kept as an explicit
+        # self-check over both lists rather than a tautology over `runs`.
+        out["any_cache_hit"] = any(
+            (r.get("cached_tokens") or 0) != 0 for r in runs + invalid
+        )
     return out
 
 

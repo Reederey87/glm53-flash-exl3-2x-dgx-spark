@@ -47,6 +47,7 @@ from __future__ import annotations
 import argparse
 import atexit
 import json
+import math
 import os
 import re
 import shutil
@@ -106,6 +107,9 @@ PHASES = (
     "rearm",
     "judge",
 )
+# The phases that boot and measure an arm. Resuming at one of these skips
+# `disarm`, so `main` re-establishes the disarm prerequisite before running.
+ARM_PHASES = tuple(name for name in PHASES if name.startswith(("arm_", "measure_")))
 PRODUCTION_IMAGE = ARMS["b"]["tag"]
 
 _RECEIPT: Path | None = None
@@ -242,17 +246,31 @@ def container_started_at(container: str = HEAD_CONTAINER, host: str | None = Non
     return win.run(argv, timeout=60, check=False).stdout.strip()
 
 
-def preemptions() -> float:
+def preemptions() -> float | None:
+    """Cumulative preemption count, or None when the metric is unavailable.
+
+    Fails closed: a failed curl, a missing counter, or a non-finite value all
+    return None, which propagates into a None delta that the auditor rejects.
+    Returning 0.0 on a failed request would make two unavailable samples look
+    like an accepted "no preemptions" delta.
+    """
     proc = win.run(["curl", "-fsS", f"{win.BASE}/metrics"], timeout=30, check=False)
+    if proc.returncode != 0:
+        return None
     total = 0.0
+    seen = False
     for line in proc.stdout.splitlines():
         if not line.startswith("vllm:num_preemptions_total"):
             continue
         try:
-            total += float(line.rsplit(" ", 1)[1])
+            value = float(line.rsplit(" ", 1)[1])
         except (IndexError, ValueError):
             continue
-    return total
+        if not math.isfinite(value):
+            return None
+        total += value
+        seen = True
+    return total if seen else None
 
 
 def memfree_pair() -> tuple[float, float]:
@@ -339,10 +357,21 @@ def phase_preflight(state: dict) -> None:
 
 
 def timer_states() -> dict[str, str]:
+    """Each timer's state, using the return code to tell "inactive" from "absent".
+
+    `is-active` prints `inactive` for BOTH a genuinely inactive unit (rc=3) and
+    a unit that does not exist (rc=4); verified on the live node. Without the
+    return code, disarm would read a missing unit as "successfully stopped" and
+    rearm's `!= active` check would be the only thing catching it.
+    """
     out: dict[str, str] = {}
     for unit in TIMERS:
         proc = win.run(["systemctl", "--user", "is-active", unit], timeout=30, check=False)
-        out[unit] = proc.stdout.strip() or "unknown"
+        status = proc.stdout.strip()
+        if proc.returncode in (0, 3) and status:
+            out[unit] = status
+        else:
+            out[unit] = f"unknown(rc={proc.returncode}, out={status!r})"
     return out
 
 
@@ -356,9 +385,12 @@ def phase_disarm(state: dict) -> None:
     win.run(["systemctl", "--user", "reset-failed"], timeout=60, check=False)
     states = timer_states()
     state["timers_after_disarm"] = states
-    bad = {unit: status for unit, status in states.items() if status == "active"}
-    if bad:
-        raise RuntimeError(f"timers still active after disarm: {bad}")
+    # Require a *provable* stop: anything that is not exactly "inactive"
+    # (including an `unknown(...)` marker for an absent or unreadable unit)
+    # means the timers were not verifiably disarmed, so the window must not run.
+    not_stopped = {unit: status for unit, status in states.items() if status != "inactive"}
+    if not_stopped:
+        raise RuntimeError(f"timers not provably stopped after disarm: {not_stopped}")
     # Stopping a timer does not stop a service it already started, nor cancel a
     # queued restart job. §6 requires waiting for in-flight watchdog/start work:
     # the watchdog can enqueue `systemctl restart --no-block`, and that job
@@ -375,13 +407,23 @@ def phase_disarm(state: dict) -> None:
 
 
 def _active_services() -> dict[str, str]:
+    """Each timer service's state, or an `unknown(...)` marker.
+
+    `systemctl is-active` prints `inactive` for BOTH a unit that is genuinely
+    inactive (rc=3) and a unit that does not exist (rc=4), so the stdout alone
+    cannot tell "disarmed" from "asked the wrong user manager". Verified on the
+    live node: an existing inactive unit gives rc=3, a nonexistent one rc=4.
+    Only rc 0 (active) and rc 3 (inactive) are trustworthy answers; anything
+    else is marked unknown and `wait_quiescent` counts it as busy.
+    """
     out: dict[str, str] = {}
     for unit in TIMER_SERVICES:
         proc = win.run(["systemctl", "--user", "is-active", unit], timeout=30, check=False)
         status = proc.stdout.strip()
-        # A failed query must not masquerade as "inactive". Mark it unknown so
-        # quiescence cannot be declared on absent evidence.
-        out[unit] = status if status else f"unknown(rc={proc.returncode})"
+        if proc.returncode in (0, 3) and status:
+            out[unit] = status
+        else:
+            out[unit] = f"unknown(rc={proc.returncode}, out={status!r})"
     return out
 
 
@@ -394,11 +436,13 @@ def _pending_jobs() -> int | None:
     return len([ln for ln in lines if "No jobs running" not in ln and not ln.startswith("JOB")])
 
 
-def wait_quiescent(timeout: float = 300.0) -> bool:
+def wait_quiescent(timeout: float = 300.0, poll: float = 5.0) -> bool:
     """Wait until the timer services are provably inactive and no jobs are queued.
 
     Fails closed: a failed `list-jobs` query, or a service whose state could not
-    be read, counts as busy rather than as quiet.
+    be read, counts as busy rather than as quiet. `poll` is the re-check
+    interval; a short timeout with a fixed 5s poll would still block for a full
+    poll interval, so callers that need a tight bound set it explicitly.
     """
     deadline = time.monotonic() + timeout
     while True:
@@ -411,7 +455,30 @@ def wait_quiescent(timeout: float = 300.0) -> bool:
             log(f"quiescence timed out: services={busy} jobs={jobs}")
             return False
         log(f"waiting for quiescence: services={busy} jobs={jobs}")
-        time.sleep(5)
+        time.sleep(poll)
+
+
+def require_disarmed(where: str, timeout: float = 120.0, poll: float = 5.0) -> None:
+    """Refuse to measure unless the timers are verifiably stopped and quiet.
+
+    Resuming a partial window at `arm_*`/`measure_*` skips `phase_disarm`, and
+    automatic recovery re-arms the timers, so a continuation after a recovery
+    would otherwise run every later boot and measurement with the watchdog able
+    to enqueue a restart mid-block. Both halves matter: the `.timer` units must
+    be stopped, and the services they already started must have drained.
+    """
+    states = timer_states()
+    armed = {unit: status for unit, status in states.items() if status != "inactive"}
+    if armed:
+        raise RuntimeError(
+            f"{where}: the watchdog/metrics timers are not disarmed ({armed}); "
+            "resume from the `disarm` phase instead"
+        )
+    if not wait_quiescent(timeout=timeout, poll=poll):
+        raise RuntimeError(
+            f"{where}: the timer services or queued jobs are not quiescent; "
+            "resume from the `disarm` phase instead"
+        )
 
 
 def phase_arm(state: dict, arm: str) -> None:
@@ -556,9 +623,20 @@ def phase_measure(state: dict, arm: str) -> None:
         save(state)
         log(f"arm {arm} lane {lane}: {runs} runs in {elapsed:.0f}s")
     state["arms"].setdefault(arm, {})["preemptions_after"] = preemptions()
-    delta = state["arms"][arm]["preemptions_after"] - state["arms"][arm].get("preemptions_before", 0.0)
+    before = state["arms"][arm].get("preemptions_before")
+    after = state["arms"][arm]["preemptions_after"]
+    # None on either side means the counter could not be read, which is not the
+    # same as "no preemptions". Propagate None so the auditor's `delta is None`
+    # gate rejects the arm instead of accepting an unread counter as zero.
+    delta = None if before is None or after is None else after - before
     state["arms"][arm]["preemptions_delta"] = delta
     save(state)
+    if delta is None:
+        raise RuntimeError(
+            f"arm {arm}: preemption telemetry unavailable "
+            f"(before={before!r} after={after!r}); refusing to treat an unread "
+            "counter as no preemptions"
+        )
     if delta:
         raise RuntimeError(f"arm {arm}: preemptions increased by {delta} during measurement")
 
@@ -618,20 +696,42 @@ def phase_gates(state: dict) -> None:
 
 
 def phase_rearm(state: dict) -> None:
+    """Start both timers, attempting each one independently.
+
+    Starting the first unit must not prevent attempting the second. A
+    persistent failure on the watchdog timer would otherwise leave the
+    metrics-alert timer permanently down, and recovery retries this same
+    ordered loop, so the second unit would never be attempted at all.
+    """
+    failures: dict[str, str] = {}
     for unit in TIMERS:
         proc = win.run(["systemctl", "--user", "start", unit], timeout=60, check=False)
         if proc.returncode != 0:
-            raise RuntimeError(f"systemctl start {unit} exited {proc.returncode}: {proc.stderr.strip()}")
+            failures[unit] = f"start exited {proc.returncode}: {proc.stderr.strip()}"
     states = timer_states()
     state["timers_after_rearm"] = states
-    bad = {unit: status for unit, status in states.items() if status != "active"}
-    if bad:
-        raise RuntimeError(f"timers not active after rearm: {bad}")
+    for unit, status in states.items():
+        if status != "active":
+            note = f"not active after start: {status}"
+            # Keep the start error too: overwriting it would discard why the
+            # start failed, which is the more actionable half of the report.
+            failures[unit] = f"{failures[unit]}; {note}" if unit in failures else note
+    state["rearm_failures"] = failures
+    save(state)
+    if failures:
+        raise RuntimeError(f"timers not restored: {failures}")
     log(f"watchdog + metrics-alert timers re-armed {states}")
 
 
 def phase_judge(state: dict) -> None:
-    audit_out = _RECEIPT.with_name(_RECEIPT.stem.replace("-window-", "-audit-") + ".json")
+    # Derive the audit path by SUFFIXING, not by replacing a `-window-` token.
+    # For a receipt named without that token (e.g. `--receipt custom.json`) the
+    # replace was a no-op, so the auditor wrote its verdict over the window
+    # receipt and the following save() then overwrote the audit with window
+    # state -- destroying both. A suffix is always distinct.
+    audit_out = _RECEIPT.with_name(_RECEIPT.stem + "-audit" + _RECEIPT.suffix)
+    if audit_out == _RECEIPT:
+        raise RuntimeError(f"refusing to judge: audit path collides with {_RECEIPT}")
     proc = subprocess.run(
         ["python3", str(AUDITOR), "--receipt", str(_RECEIPT), "--out", str(audit_out)],
         check=False, capture_output=True, text=True, timeout=900,
@@ -760,6 +860,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"--from {args.first} needs a prior preflight state (no backup in {receipt})", file=sys.stderr)
         return 2
     _RECEIPT, _ACTIVE, _KEEP_ARMED = receipt, state, args.keep_armed
+    # Resuming at an arm/measure phase skips `disarm`. Automatic recovery
+    # re-arms the timers, so the prerequisite must be re-established rather than
+    # assumed. Checked before any signal handler or atexit hook is installed.
+    if args.first in ARM_PHASES:
+        try:
+            require_disarmed(f"--from {args.first}")
+        except RuntimeError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
     for sig in (signal.SIGTERM, signal.SIGHUP):
         signal.signal(sig, _on_signal)
     atexit.register(emergency_restore)

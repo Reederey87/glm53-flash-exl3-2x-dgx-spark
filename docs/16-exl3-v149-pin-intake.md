@@ -209,6 +209,30 @@ on excluded runs rather than their reason text (the probe reports a stream error
 before the NaN check, so a NaN run that also errored carries an error string as
 its reason) and requires a non-empty JIT shape stamp per arm.
 
+The registry of attempts is **enforced**, not merely recorded: the judge reads
+`probe_blocks` and rejects any block that did not succeed, and it also re-reads
+the evidence a failed attempt left behind. Without that, a resumed arm replaces
+the selected probe path and an earlier corrupted attempt disappears behind a
+clean retry. A receipt that registers no blocks at all is rejected too, so the
+gate cannot be satisfied by omission.
+
+Three further fail-closed properties were added after live-node measurement. A
+resumed window that starts at an `arm_*`/`measure_*` phase re-establishes the
+disarm prerequisite, because automatic recovery re-arms the timers and the
+documented continuation would otherwise measure with the watchdog able to
+enqueue a restart mid-block. Preemption telemetry returns `None` rather than
+`0.0` when the counter is unreadable, so two failed samples cannot present as an
+accepted zero delta. And quiescence and timer state are read from the return
+code, not from stdout: `systemctl is-active` prints `inactive` for a genuinely
+inactive unit (rc=3) **and** for a unit that does not exist (rc=4), verified on
+the live node, so a wrong-user or renamed-unit query would otherwise look
+disarmed. Disarm now requires a provable `inactive`, and rearm attempts both
+timers independently so a persistent failure on one cannot leave the other down.
+Cold-prefill validation likewise requires an explicit `cached_tokens == 0`;
+missing cache telemetry is not measured zero usage. The audit receipt is derived
+by suffixing, so a receipt named without a `-window-` token no longer collides
+with its own audit output.
+
 The measurement probe's streaming reader was **also defective** and is fixed in
 the same commit: it read the SSE stream in 4096-byte blocks, which measured TTFT
 as "time until 4096 bytes arrived" and compressed the decode interval, inflating
@@ -250,12 +274,48 @@ minimum clock — 22.9 TFLOP/s against 94.8 TFLOP/s on spark2 for the same bf16
 8192³ matmul, with no throttle reason reported, persistence enabled, normal
 temperature and no Xid. Cold prefill measures ~582 tok/s against the standing
 ~1454 tok/s receipt, so a prefill arm run in this state would measure the fault
-rather than the candidate. A reboot is required. Receipt:
+rather than the candidate. Receipt:
 `local/spark1-head-clock-507mhz-20260911.txt`.
+
+**The reboot did not clear it.** The head was rebooted
+(`b3ab1d6f…` → `4b52ad93…`) and re-measured on the fresh boot: still 507 MHz at
+96% utilisation, still **23.8 TFLOP/s** against the worker's 94.8. The following
+were ruled out on both nodes: no active throttle reason (all nine reasons "Not
+Active"), identical application clocks (`clocks.applications.gr` = 2418 MHz on
+both, and the worker reaches 2411), no clock-lock call anywhere in the systemd
+or user-unit configuration, persistence enabled on both, no `nvpmodel` power
+mode, no CPU contention (load 1.39 vs 0.60), and a normal 41-44 C. Throughput
+tracks the clock exactly (23.8 × 2431/507 = 114 TFLOP/s), so the GPU computes
+correctly and merely never leaves minimum clock. A cap that survives a reboot
+with no software throttle is a hardware or firmware condition on the head node
+and needs vendor-level diagnosis; GB10 exposes no power-supply telemetry, so the
+240 W USB-C PD input is the one remaining user-checkable item. Receipt:
+`local/spark1-head-clock-post-reboot-20260911.txt`.
+
+An idle clock reading is uninformative — GB10 parks at 507 MHz when idle — so
+the window must not be started until a **load** measurement shows
+≥ 2000 MHz and ≥ 80 TFLOP/s.
 
 Note that `IMAGE` is part of `prod-start.sh`'s JIT shape hash, so the window
 wiped and rebuilt the Triton/TileLang caches on both nodes. The candidate's
 numbers are therefore post-rebuild and directly comparable to the standing band.
+
+### Operational note: the reboot exposed a per-rank RoCE GID mismatch
+
+Rebooting the head took production down and it did not come back on its own:
+`vllm-glm53exl3.service` failed three start attempts because `start.sh` resolved
+one GID index (`NCCL_IB_GID_INDEX=3`) for both ranks while the nodes' rail-1
+RoCE v2 entries sat at **different** indices — head `gid3`, worker `gid4`. The
+head's reboot bounced the QSFP link and the link-down/up cycle reordered the
+worker's GID table (the worker was never rebooted). The same `.env` value is in
+the pre-task35 backup, so this is not a task 35 regression.
+
+Fixed by setting the per-rank override `start.sh` prescribes — `HEAD_GID=3` and
+`WORKER_GID=4` in `.env`, with a timestamped backup — after which production came
+up normally (`/health` 200, both containers on the v149 image). `phase_restore`
+copies the preflight `.env` backup back and verifies its sha256, so this is part
+of the pre-window baseline and survives the window's restore path. Receipt:
+`local/spark1-gid-fix-20260911.txt`.
 
 ## 5. What the window broke, and the three fixes it produced
 

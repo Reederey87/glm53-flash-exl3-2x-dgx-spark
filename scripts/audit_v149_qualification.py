@@ -140,6 +140,50 @@ def judge(receipt: dict, base_dir: Path) -> dict:
         result["verdict"] = "ABORT"
         return result
 
+    # --- registered attempts -------------------------------------------------
+    # The runner registers every measurement block in `probe_blocks` BEFORE it
+    # runs, so a failure cannot vanish down the retry path. The judge must
+    # therefore read them: a resumed arm replaces `probes[arm][lane]` with the
+    # retry's path, and inspecting only the selected paths would hide an earlier
+    # corrupted attempt behind a later clean one.
+    blocks = receipt.get("probe_blocks")
+    if not isinstance(blocks, list) or not blocks:
+        errors.append("the receipt carries no registered measurement blocks")
+    else:
+        for index, block in enumerate(blocks):
+            where = f"block {index + 1} (arm {block.get('arm')} lane {block.get('lane')})"
+            if block.get("ok") is True:
+                continue
+            if block.get("ok") is None:
+                errors.append(
+                    f"{where} was registered but never completed; the window was "
+                    "interrupted mid-block"
+                )
+            else:
+                errors.append(
+                    f"{where} failed with rc={block.get('returncode')!r}: "
+                    f"{block.get('error')!r}"
+                )
+            # A failed attempt that left evidence behind must be judged on that
+            # evidence too, not just on the fact that it failed: this is how a
+            # NaN-corrupted attempt stays visible after a clean retry.
+            path = block.get("path")
+            if not path:
+                continue
+            try:
+                payload = json.loads((base_dir / path).read_text())
+            except (OSError, json.JSONDecodeError):
+                continue
+            for bad in payload.get("invalid_runs") or []:
+                if bad.get("nan"):
+                    errors.append(
+                        f"{where}: the failed attempt left a NaN-corrupted run "
+                        f"in {path} (i={bad.get('i')!r})"
+                    )
+    if errors:
+        result["verdict"] = "ABORT"
+        return result
+
     # --- KV pool and preemption identity ------------------------------------
     # Every arm must reserve the same pool. Checking this per arm, rather than
     # only before-and-after, localizes a divergence to the boot that caused it.

@@ -1,0 +1,66 @@
+spark1 reboot exposed a per-rank RoCE GID mismatch (2026-09-11)
+===============================================================
+
+What happened
+-------------
+Rebooting spark1 to clear the GPU clock fault took production down, and
+production did NOT come back on its own. The unit `vllm-glm53exl3.service`
+entered `activating (auto-restart)` and failed three start attempts with:
+
+  [glm53-exl3] worker GID index 3 is EMPTY on rocep1s0f1
+  [glm53-exl3] ERROR: set NCCL_IB_GID_INDEX (same index both ranks) or
+               HEAD_GID/WORKER_GID (per rank) in .env to populated indices
+
+Cause
+-----
+`start.sh` resolves one GID index for both ranks from `NCCL_IB_GID_INDEX=3`,
+which is what `.env` carried - and what the pre-task35 backup
+`.env.bak-pre-task35-v149-20260910` also carried, so this is NOT a task 35
+regression. The two nodes' rail-1 RoCE v2 entries sit at different indices:
+
+  head   rocep1s0f1  gid2 = ::ffff:c0a8:b10a (v1)
+                     gid3 = ::ffff:c0a8:b10a (v2)   <- populated
+                     gid4 = (empty)
+  worker rocep1s0f1  gid2 = ::ffff:c0a8:b10b (v1)
+                     gid3 = (empty)                 <- the failure
+                     gid4 = ::ffff:c0a8:b10b (v2)
+
+Production had started cleanly at 05:08:49 with the same `.env` ("preflight OK
+... worker=nvidia@192.168.177.11"), so the worker's GID table changed during its
+current boot: the head's reboot bounced the QSFP link, and the link-down/up
+cycle left the worker's rail-1 v2 entry at index 4 with a hole at index 3. The
+worker itself was never rebooted (boot_id 31da9678, unchanged).
+
+Fix applied
+-----------
+Backed up `.env`, then appended the per-rank override that `start.sh`'s own
+error message prescribes:
+
+  cp -a .env .env.bak-pre-gid-fix-20260911T075319
+  # appended:
+  HEAD_GID=3
+  WORKER_GID=4
+
+Then `systemctl --user reset-failed vllm-glm53exl3.service` and a restart. The
+engine came up normally (`init engine (profile, create kv cache, warmup model)
+took 133.24 s`, CUDA graphs captured, adaptive-k enabled) and `/health` returned
+200.
+
+Verification
+------------
+  head   glm53-exl3-head    glm53-selfbuild:e3-w3-zfill-v149   Up
+  worker glm53-exl3-worker  glm53-selfbuild:e3-w3-zfill-v149   Up
+  /health 200
+
+Notes for the window
+--------------------
+- `phase_restore` copies the preflight backup of `.env` back over `.env` and
+  verifies its sha256, so this fix is part of the pre-window baseline and
+  survives the window's restore path.
+- The JIT shape stamp hashes the raw `IMAGE=` lines only, so adding these two
+  non-IMAGE lines does not change it.
+- Rollback: `cp .env.bak-pre-gid-fix-20260911T075319 .env`
+
+Operational lesson: a single `NCCL_IB_GID_INDEX` for both ranks is fragile on
+this cluster - a link bounce on one node can reorder its GID table. The per-rank
+`HEAD_GID`/`WORKER_GID` form is now set explicitly.

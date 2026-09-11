@@ -110,6 +110,7 @@ def test_prefill_run_invalid_accepts_a_cold_run():
     "kwargs,needle",
     [
         ({"cached_tokens": 4096}, "warm request"),
+        ({"cached_tokens": None}, "cannot prove the run was cold"),
         ({"prompt_tokens": 20_000}, "outside"),
         ({"http": 503}, "http 503"),
         ({"ttft_s": None}, "no first token"),
@@ -324,8 +325,18 @@ def _window_receipt(tmp_path, arm_values, *, gates_ok=True, write_probes=True):
     }
     if not gates_ok:
         gates["acceptance_rc"] = 1
+    # The runner registers every measurement block before it runs; the judge
+    # requires that registry. A healthy window has one successful block per
+    # (arm, lane), pointing at the selected probe receipt.
+    blocks = [
+        {"arm": arm, "lane": lane, "runs": audit.REQUIRED_RUNS[lane], "attempt": "t",
+         "path": probes[arm][lane], "ok": True, "returncode": 0, "error": None}
+        for arm in audit.ARMS
+        for lane in audit.LANES
+    ]
     return {
         "schema": 1, "window": "task35b", "arms": arms, "gates": gates, "probes": probes,
+        "probe_blocks": blocks,
         "pool_capacity_before": "1396551 tokens; concurrency 1.40x",
     }
 
@@ -1101,7 +1112,8 @@ def test_measure_probe_paths_are_attempt_specific(monkeypatch, tmp_path):
     monkeypatch.setattr(window.subprocess, "run",
                         lambda argv, **k: seen.append(argv) or Done())
     state = {"arms": {"a": {"container_started_at": "boot",
-                            "worker_container_started_at": "boot"}}}
+                            "worker_container_started_at": "boot",
+                            "preemptions_before": 0.0}}}
     window.phase_measure(state, "a")
     outs = [argv[argv.index("--out") + 1] for argv in seen]
     assert len(outs) == len(window.LANES)
@@ -1131,7 +1143,8 @@ def test_measure_attempts_do_not_collide_across_invocations(monkeypatch, tmp_pat
     monkeypatch.setattr(window.subprocess, "run",
                         lambda argv, **k: seen.append(argv) or Done())
     state = {"arms": {"a": {"container_started_at": "boot",
-                            "worker_container_started_at": "boot"}}}
+                            "worker_container_started_at": "boot",
+                            "preemptions_before": 0.0}}}
     window.phase_measure(state, "a")
     first = {argv[argv.index("--out") + 1] for argv in seen}
     seen.clear()
@@ -1158,7 +1171,8 @@ def test_measure_registers_the_block_before_running_it(monkeypatch, tmp_path):
 
     monkeypatch.setattr(window.subprocess, "run", lambda *a, **k: Failed())
     state = {"arms": {"a": {"container_started_at": "boot",
-                            "worker_container_started_at": "boot"}}}
+                            "worker_container_started_at": "boot",
+                            "preemptions_before": 0.0}}}
     with pytest.raises(RuntimeError, match="no output"):
         window.phase_measure(state, "a")
     blocks = state["probe_blocks"]
@@ -1172,14 +1186,14 @@ def test_wait_quiescent_fails_closed_when_the_job_query_fails(monkeypatch):
     monkeypatch.setattr(window, "_active_services",
                         lambda: {u: "inactive" for u in window.TIMER_SERVICES})
     monkeypatch.setattr(window, "_pending_jobs", lambda: None)
-    assert window.wait_quiescent(timeout=0.01) is False
+    assert window.wait_quiescent(timeout=0.01, poll=0.0) is False
 
 
 def test_wait_quiescent_fails_closed_when_a_service_state_is_unknown(monkeypatch):
     monkeypatch.setattr(window, "_active_services",
                         lambda: {u: "unknown(rc=1)" for u in window.TIMER_SERVICES})
     monkeypatch.setattr(window, "_pending_jobs", lambda: 0)
-    assert window.wait_quiescent(timeout=0.01) is False
+    assert window.wait_quiescent(timeout=0.01, poll=0.0) is False
 
 
 def test_pending_jobs_reports_none_when_systemctl_fails(monkeypatch):
@@ -1251,9 +1265,323 @@ def test_quiescence_needs_no_pending_jobs(monkeypatch):
     monkeypatch.setattr(window, "_active_services",
                         lambda: {u: "inactive" for u in window.TIMER_SERVICES})
     monkeypatch.setattr(window, "_pending_jobs", lambda: 1)
-    assert window.wait_quiescent(timeout=0.01) is False
+    assert window.wait_quiescent(timeout=0.01, poll=0.0) is False
     monkeypatch.setattr(window, "_pending_jobs", lambda: 0)
-    assert window.wait_quiescent(timeout=1.0) is True
+    assert window.wait_quiescent(timeout=1.0, poll=0.0) is True
+
+
+# --- registered attempts (review round 3, finding 1) ------------------------
+
+def test_auditor_aborts_when_a_failed_attempt_is_hidden_by_a_retry(tmp_path):
+    """A resumed arm replaces the selected probe path. The judge must still see
+    the failed attempt, so a corrupted block cannot vanish behind a clean one."""
+    values = _values_with({})
+    receipt = _window_receipt(tmp_path, values)
+    # A failed attempt that left a NaN-corrupted receipt behind.
+    stale = tmp_path / "task35b-a-structured-attempt1.json"
+    stale.write_text(json.dumps({"invalid_runs": [{"i": 1, "nan": True}]}))
+    receipt["probe_blocks"].append({
+        "arm": "a", "lane": "structured", "runs": 9, "attempt": "t0",
+        "path": stale.name, "ok": False, "returncode": 1,
+        "error": "probe exited 1",
+    })
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "ABORT", result["errors"]
+    assert any("failed with rc=1" in message for message in result["errors"])
+    assert any("NaN-corrupted run" in message for message in result["errors"])
+
+
+def test_auditor_aborts_when_a_block_was_registered_but_never_completed(tmp_path):
+    values = _values_with({})
+    receipt = _window_receipt(tmp_path, values)
+    receipt["probe_blocks"].append({
+        "arm": "b", "lane": "essay", "runs": 9, "attempt": "t",
+        "path": "task35b-b-essay.json", "ok": None, "returncode": None, "error": None,
+    })
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "ABORT"
+    assert any("never completed" in message for message in result["errors"])
+
+
+def test_auditor_aborts_when_the_receipt_registers_no_blocks(tmp_path):
+    values = _values_with({})
+    receipt = _window_receipt(tmp_path, values)
+    del receipt["probe_blocks"]
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "ABORT"
+    assert any("no registered measurement blocks" in message for message in result["errors"])
+
+
+def test_auditor_accepts_a_window_whose_blocks_all_succeeded(tmp_path):
+    values = _values_with({})
+    receipt = _window_receipt(tmp_path, values)
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "ADOPT", result["errors"]
+
+
+# --- preemption telemetry (review round 3, finding 3) ----------------------
+
+def test_preemptions_fails_closed_on_a_failed_request(monkeypatch):
+    class Failed:
+        returncode = 22
+        stdout = ""
+        stderr = "curl: (22) 404"
+
+    monkeypatch.setattr(window.win, "run", lambda *a, **k: Failed())
+    assert window.preemptions() is None
+
+
+def test_preemptions_fails_closed_when_the_metric_is_absent(monkeypatch):
+    class Ok:
+        returncode = 0
+        stdout = "vllm:num_requests_running{engine=\"0\"} 0.0\n"
+
+    monkeypatch.setattr(window.win, "run", lambda *a, **k: Ok())
+    assert window.preemptions() is None
+
+
+def test_preemptions_fails_closed_on_a_non_finite_counter(monkeypatch):
+    class Ok:
+        returncode = 0
+        stdout = "vllm:num_preemptions_total{engine=\"0\"} nan\n"
+
+    monkeypatch.setattr(window.win, "run", lambda *a, **k: Ok())
+    assert window.preemptions() is None
+
+
+def test_preemptions_sums_finite_counters(monkeypatch):
+    class Ok:
+        returncode = 0
+        stdout = ('vllm:num_preemptions_total{engine="0"} 2.0\n'
+                  'vllm:num_preemptions_total{engine="1"} 3.0\n')
+
+    monkeypatch.setattr(window.win, "run", lambda *a, **k: Ok())
+    assert window.preemptions() == 5.0
+
+
+def test_measure_refuses_when_preemption_telemetry_is_unavailable(monkeypatch, tmp_path):
+    """Two unavailable samples must not read as an accepted zero delta."""
+    monkeypatch.setattr(window, "_RECEIPT", tmp_path / "task35b-window.json")
+    monkeypatch.setattr(window, "verify_arm", lambda arm, container, host=None: {
+        "image_tag": window.ARMS[arm]["tag"], "exllamav3_version": window.ARMS[arm]["exllamav3"],
+    })
+    monkeypatch.setattr(window, "container_started_at", lambda *a, **k: "boot")
+    monkeypatch.setattr(window.win, "memfree_gib", lambda host=None: 4.0)
+    monkeypatch.setattr(window, "preemptions", lambda: None)
+    monkeypatch.setattr(window, "save", lambda _s: None)
+
+    class Done:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setattr(window.subprocess, "run", lambda *a, **k: Done())
+    state = {"arms": {"a": {"container_started_at": "boot",
+                            "worker_container_started_at": "boot",
+                            "preemptions_before": 0.0}}}
+    with pytest.raises(RuntimeError, match="preemption telemetry unavailable"):
+        window.phase_measure(state, "a")
+    assert state["arms"]["a"]["preemptions_delta"] is None
+
+
+# --- quiescence and timer state use the return code (round 3) --------------
+
+def test_active_services_marks_a_missing_unit_unknown(monkeypatch):
+    """`is-active` prints `inactive` for a nonexistent unit with rc=4 (verified
+    on the live node), so stdout alone cannot distinguish "disarmed" from
+    "asked the wrong user manager"."""
+    class Missing:
+        returncode = 4
+        stdout = "inactive"
+
+    monkeypatch.setattr(window.win, "run", lambda *a, **k: Missing())
+    states = window._active_services()
+    assert all("unknown(rc=4" in value for value in states.values())
+    assert window.wait_quiescent(timeout=0.01, poll=0.0) is False
+
+
+def test_active_services_accepts_a_genuine_inactive_unit(monkeypatch):
+    class Inactive:
+        returncode = 3
+        stdout = "inactive"
+
+    monkeypatch.setattr(window.win, "run", lambda *a, **k: Inactive())
+    assert set(window._active_services().values()) == {"inactive"}
+
+
+def test_timer_states_marks_a_missing_unit_unknown(monkeypatch):
+    class Missing:
+        returncode = 4
+        stdout = "inactive"
+
+    monkeypatch.setattr(window.win, "run", lambda *a, **k: Missing())
+    assert all("unknown(rc=4" in value for value in window.timer_states().values())
+
+
+def test_disarm_refuses_when_a_timer_is_not_provably_stopped(monkeypatch):
+    """A missing unit must not read as a successful stop: `stop` can succeed
+    (rc=0) while `is-active` reports rc=4 because the unit does not exist."""
+    monkeypatch.setattr(window, "save", lambda _s: None)
+
+    class Result:
+        def __init__(self, returncode, stdout):
+            self.returncode, self.stdout, self.stderr = returncode, stdout, ""
+
+    def fake_run(argv, **kwargs):
+        # `stop` succeeds; the follow-up `is-active` cannot find the unit.
+        return Result(0, "") if argv[2] == "stop" else Result(4, "inactive")
+
+    monkeypatch.setattr(window.win, "run", fake_run)
+    with pytest.raises(RuntimeError, match="not provably stopped"):
+        window.phase_disarm({})
+
+
+def test_rearm_attempts_both_timers_even_when_the_first_fails(monkeypatch):
+    """A persistent watchdog failure must not prevent the metrics timer from
+    being restored."""
+    monkeypatch.setattr(window, "save", lambda _s: None)
+    started: list[str] = []
+
+    class Start:
+        def __init__(self, unit, status="inactive"):
+            self.unit, self.returncode, self.stdout, self.stderr = unit, 0, status, ""
+
+    class Failed:
+        returncode = 1
+        stdout = "inactive"
+        stderr = "boom"
+
+    def fake_run(argv, **kwargs):
+        unit = argv[-1]
+        if argv[2] == "start":
+            started.append(unit)
+            return Failed() if unit == window.TIMERS[0] else Start(unit)
+        # `is-active`: the first timer never came up, the second did.
+        return Start(unit, "inactive" if unit == window.TIMERS[0] else "active")
+
+    monkeypatch.setattr(window.win, "run", fake_run)
+    state: dict = {}
+    with pytest.raises(RuntimeError, match="timers not restored"):
+        window.phase_rearm(state)
+    # Both units were attempted, despite the first failing.
+    assert started == list(window.TIMERS)
+    failure = state["rearm_failures"][window.TIMERS[0]]
+    assert failure.startswith("start exited 1")
+    assert "not active after start" in failure
+    assert window.TIMERS[1] not in state["rearm_failures"]
+
+
+# --- resume must not skip disarm (review round 3, finding 2) ---------------
+
+def _main_fixture(monkeypatch, tmp_path):
+    """A hermetic `main()`: no real phases, no real restore at exit."""
+    receipt = tmp_path / "task35b-window.json"
+    receipt.write_text(json.dumps({"backup": "b.env"}))
+    monkeypatch.setattr(window, "save", lambda _s: None)
+    monkeypatch.setattr(window, "emergency_restore", lambda *a, **k: None)
+    monkeypatch.setattr(window, "recover_timers", lambda state: None)
+    monkeypatch.setattr(window, "HANDLERS",
+                        {name: (lambda state: None) for name in window.PHASES})
+    return receipt
+
+
+def test_arm_phases_are_exactly_the_operational_phases():
+    assert set(window.ARM_PHASES) == {
+        "arm_a", "measure_a", "arm_b", "measure_b",
+        "arm_b2", "measure_b2", "arm_a2", "measure_a2",
+    }
+    assert "disarm" not in window.ARM_PHASES
+    assert "restore" not in window.ARM_PHASES
+
+
+def test_require_disarmed_refuses_when_the_timers_are_still_armed(monkeypatch):
+    class Armed:
+        returncode = 0
+        stdout = "active"
+        stderr = ""
+
+    monkeypatch.setattr(window.win, "run", lambda *a, **k: Armed())
+    with pytest.raises(RuntimeError, match="not disarmed"):
+        window.require_disarmed("--from arm_b")
+
+
+def test_require_disarmed_refuses_when_a_timer_is_unreadable(monkeypatch):
+    class Missing:
+        returncode = 4
+        stdout = "inactive"
+        stderr = ""
+
+    monkeypatch.setattr(window.win, "run", lambda *a, **k: Missing())
+    with pytest.raises(RuntimeError, match="not disarmed"):
+        window.require_disarmed("--from arm_b")
+
+
+def test_require_disarmed_refuses_when_the_services_are_not_quiescent(monkeypatch):
+    class Inactive:
+        returncode = 3
+        stdout = "inactive"
+        stderr = ""
+
+    monkeypatch.setattr(window.win, "run", lambda *a, **k: Inactive())
+    monkeypatch.setattr(window, "_pending_jobs", lambda: 2)
+    with pytest.raises(RuntimeError, match="not quiescent"):
+        window.require_disarmed("--from measure_b", timeout=0.01, poll=0.0)
+
+
+def test_require_disarmed_passes_when_timers_are_stopped_and_quiet(monkeypatch):
+    class Inactive:
+        returncode = 3
+        stdout = "inactive"
+        stderr = ""
+
+    monkeypatch.setattr(window.win, "run", lambda *a, **k: Inactive())
+    monkeypatch.setattr(window, "_pending_jobs", lambda: 0)
+    window.require_disarmed("--from arm_b")
+
+
+def test_main_checks_disarm_when_resuming_an_operational_phase(monkeypatch, tmp_path):
+    """`--from arm_b` must re-establish the disarm prerequisite, because
+    automatic recovery re-arms the timers."""
+    receipt = _main_fixture(monkeypatch, tmp_path)
+    seen: list[str] = []
+
+    def refuse(where):
+        seen.append(where)
+        raise RuntimeError(f"{where}: not disarmed")
+
+    monkeypatch.setattr(window, "require_disarmed", refuse)
+    rc = window.main(["--state", str(receipt), "--from", "arm_b", "--to", "arm_b"])
+    assert rc == 2
+    assert seen == ["--from arm_b"]
+
+
+def test_main_checks_disarm_for_every_operational_phase(monkeypatch, tmp_path):
+    receipt = _main_fixture(monkeypatch, tmp_path)
+    seen: list[str] = []
+    monkeypatch.setattr(window, "require_disarmed",
+                        lambda where: seen.append(where) or None)
+    rc = window.main(["--state", str(receipt), "--from", "arm_b", "--to", "arm_b"])
+    assert rc == 0
+    assert seen == ["--from arm_b"]
+
+
+def test_main_does_not_check_disarm_for_post_window_phases(monkeypatch, tmp_path):
+    """The phases after `restore` legitimately run with the timers re-armed."""
+    receipt = _main_fixture(monkeypatch, tmp_path)
+    called: list[str] = []
+    monkeypatch.setattr(window, "require_disarmed", lambda where: called.append(where))
+    rc = window.main(["--state", str(receipt), "--from", "gates", "--to", "gates"])
+    assert called == []
+    assert rc == 0
+
+
+def test_main_does_not_check_disarm_when_starting_from_disarm(monkeypatch, tmp_path):
+    receipt = _main_fixture(monkeypatch, tmp_path)
+    called: list[str] = []
+    monkeypatch.setattr(window, "require_disarmed", lambda where: called.append(where))
+    rc = window.main(["--state", str(receipt), "--from", "disarm", "--to", "disarm"])
+    assert called == []
+    assert rc == 0
 
 
 def test_judge_writes_the_audit_next_to_the_window_receipt(monkeypatch, tmp_path):
@@ -1263,8 +1591,34 @@ def test_judge_writes_the_audit_next_to_the_window_receipt(monkeypatch, tmp_path
     state: dict = {}
     window.phase_judge(state)
     assert state["verdict"] == "ABORT"
-    assert state["audit_receipt"] == "task35b-audit-20260911-000000.json"
+    assert state["audit_receipt"] == "task35b-window-20260911-000000-audit.json"
     assert (tmp_path / state["audit_receipt"]).is_file()
+    # `_RECEIPT` is the state checkpoint, so save() rewrites it with window
+    # state; the audit must live in its own file, identified by the keys only
+    # the auditor writes.
+    assert "errors" in json.loads((tmp_path / state["audit_receipt"]).read_text())
+    assert "errors" not in json.loads(receipt.read_text())
+
+
+def test_judge_keeps_the_audit_distinct_for_a_custom_receipt_name(monkeypatch, tmp_path):
+    """A receipt without a `-window-` token previously collided: the auditor
+    wrote over the window receipt and the next save() overwrote the audit,
+    destroying both."""
+    receipt = tmp_path / "custom.json"
+    receipt.write_text(json.dumps({"arms": {}, "gates": {}, "probes": {}}))
+    monkeypatch.setattr(window, "_RECEIPT", receipt)
+    state: dict = {"marker": "window-state"}
+    window.phase_judge(state)
+    assert state["audit_receipt"] == "custom-audit.json"
+    assert state["audit_receipt"] != "custom.json"
+    audit_payload = json.loads((tmp_path / "custom-audit.json").read_text())
+    assert audit_payload["verdict"] == "ABORT"
+    assert "errors" in audit_payload
+    # The checkpoint still holds window state and did not become the audit.
+    window_payload = json.loads(receipt.read_text())
+    assert window_payload["marker"] == "window-state"
+    assert window_payload["audit_receipt"] == "custom-audit.json"
+    assert "errors" not in window_payload
 
 
 # --- ISA probe (task 38 item 2) ---------------------------------------------
