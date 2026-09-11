@@ -3483,7 +3483,55 @@ The TODO named one file; the same false claim appeared in three tracked files
 the target-gated wording. Verified on spark1 with ptxas 13.0.88: `.target sm_121`
 rejects `cvt.e2m1x2`, `.target sm_121a` assembles it and lowers to
 `F2FP.SATFINITE.E2M1.F32.PACK_AB_MERGE_C`. The deposed-NVFP4 decision is
-untouched — only its stated reason. Items 2–4 remain open.
+untouched — only its stated reason.
+
+### Task 38 item 2 — silicon probe CLOSED: the instruction executes (2026-09-11)
+
+Upgrades item 1 from toolchain-confirmed to **silicon-confirmed**:
+`SILICON_CONFIRMED` on **both** dies, 12/12 cases matching the PTX ISA on each,
+0 reversed. `scripts/probe_isa_e2m1_silicon.py` (driver JIT via `ctypes`; no
+host compiler, no stopped window). Receipt
+`local/task38-isa-e2m1-silicon-20260911.txt`.
+
+**The item was scoped as "blocked on a stopped maintenance window" and that was
+wrong.** The original probe hit `CUDA_ERROR_OUT_OF_MEMORY` against running
+production, which was attributed to `cuDevicePrimaryCtxRetain`. Measured here:
+primary-context retain, a 1-byte `cuMemAlloc`, a single-thread `cuLaunchKernel`
+and a 1-byte D2H copy **all succeed with production up and healthy**. The
+blocker was the probe's memory footprint, not the primary context. The ISA phase
+was consequently removed from `scripts/run_v149_qualification_window.py`: the
+window must not stop production for a measurement that does not need it.
+
+Three implementation facts were each a silent failure first, and are the reason
+the probe is worth keeping:
+
+- The destination must be `.b8` with `st.global.u8`. `.b32`/`st.global.u32` makes
+  ptxas reject the instruction ("Arguments mismatch for instruction 'cvt'") and
+  the driver then rejects the module with `CUDA_ERROR_INVALID_PTX` (218). The PTX
+  ISA says so directly: "When converting to .e2m1x2 data formats, the destination
+  operand d has .b8 type."
+- The operands must be passed as **kernel parameters**. With
+  `mov.f32 %f1, 0f3F800000` **every case read `0x00`** — a clean, silent, wrong
+  answer that would otherwise have been reported as a hardware result. The
+  immediate form's root cause was never established: `mov.f32` with a valid
+  immediate is legal PTX a conforming ptxas must materialize, so a ptxas defect is
+  a hypothesis, not a finding, and a bug in that earlier probe variant explains
+  the same symptom. Nothing rests on it — the parameter-fed form is correct
+  regardless, and the judge rejects an all-`0x00` result outright.
+- `kernelParams` is an array of pointers, one per parameter; passing a pointer to
+  a whole argument struct segfaults the host process.
+
+The PTX ISA document does **not** list `cvt.rn.satfinite.e2m1x2.f32` for
+`sm_121a` (it lists sm_100a/sm_110a/sm_120a and their family variants), so
+ptxas 13.0.88 accepting `.target sm_121a` is toolchain behaviour beyond the
+documented matrix. These receipts, not the document, are what establish GB10
+behaviour — which is why the silicon probe was worth running.
+
+The recorded `0x42` for `(1.0, 2.0)` is consistent with the original probe having
+been fed `(2.0, 1.0)`; under the spec order that pair encodes as `0x24`. The
+observed table is authoritative and covers saturation and the rounding midpoint.
+
+Only the **optional** TP1 memory measurement remains open from task 38.
 
 ### Task 34 — first arm: FlashKDA prefill, REVERTED (parity gate failed)
 

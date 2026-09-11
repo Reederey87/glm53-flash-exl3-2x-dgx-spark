@@ -1,0 +1,115 @@
+Task 35 §6 harness — cluster validation of the published bytes
+================================================================
+Date: 2026-09-11
+Node: spark1 (head), as user `nvidia`
+
+WHY
+---
+The publication gate requires the exact candidate bytes to be exercised on the
+target cluster, not only under pytest on the Mac. The full A-B-B-A window cannot
+run while the head GPU is pinned at 507 MHz (see
+`spark1-head-clock-post-reboot-20260911.txt`), so the deepest available
+non-destructive boundary was validated instead: `preflight`.
+
+`preflight` does not stop, restart, or reconfigure production. It verifies the
+file layout, records the effective environment, hashes the runner/probe/auditor
+and the two production scripts, waits for the server to go idle (drain), checks
+that both arm images exist on BOTH nodes, and records the image id and the KV
+pool capacity. Its only write is a timestamped `.env` backup, the same artifact
+every window already creates.
+
+TWO RUNS, BECAUSE THE RUNNER CHANGED BETWEEN THEM
+-------------------------------------------------
+A first preflight ran against the runner as of `11dfda1`. Review then found a
+defect in that runner (`phase_rearm` did not attempt the second timer when the
+first start *raised* rather than merely exiting nonzero), so the runner changed
+in `736ac64` and the preflight was re-run. Only the runner differed between the
+two runs; the probe and auditor hashes are identical throughout.
+
+Review flagged the first receipt as stale for claiming it matched HEAD, which
+was true when written and false afterwards. Both runs are recorded here so the
+claim is checkable rather than asserted.
+
+  run   revision   runner_sha256 (first 16)   receipt
+  1     11dfda1    e542c168a87eff2f            local/task35b-preflight-20260911-081509.json
+  2     736ac64    8919aa64f9cfa195            local/task35b-preflight-20260911-081859.json
+
+Run 2 is the published revision.
+
+STALE BYTES FOUND FIRST
+-----------------------
+The head-node checkout `~/GLM-5.3-Flash-EXL3-2x-DGX-Sparks` is NOT a git
+repository, so it does not track the branch. Its `scripts/` held an earlier
+revision of all three harness files:
+
+  file                                  before (stale)     run 1              run 2 (published)
+  audit_v149_qualification.py           e2b1115475a49a92   b0229435ef2935c8   b0229435ef2935c8
+  probe_v149_qualification.py           2ca0838c4179db9b   b6193e20fcd2d4f2   b6193e20fcd2d4f2
+  run_v149_qualification_window.py      6c8df67a9b44d193   e542c168a87eff2f   8919aa64f9cfa195
+  run_decode_profile_window.py          fdd6170d02f87f5c   (unchanged)
+
+The shared helper already matched, which is what made the staleness invisible.
+Each revision was staged to `scripts/.stage-<ts>/` and moved into place with an
+atomic same-filesystem rename (never overwritten in place — see the AGENTS.md
+note about rewriting a script while a reader is walking it).
+
+The stale revision returned `pool_capacity_before = None`; both refreshed runs
+return a real value, so the refresh was not cosmetic.
+
+RESULT (run 2, the published revision)
+--------------------------------------
+  $ python3 scripts/run_v149_qualification_window.py \
+        --from preflight --to preflight \
+        --state local/task35b-preflight-20260911-081859.json
+  [task35b-window] --- phase preflight ---
+  [task35b-window] preflight OK backup=.env.bak-pre-task35b-20260911-081902 \
+      stamp=7b09229c3b6f pool=(EngineCore pid=239) INFO ...
+  [task35b-window] receipt: local/task35b-preflight-20260911-081859.json
+  EXIT=0
+
+Receipt fields (abridged):
+
+  pool_capacity_before = '1396551 tokens; concurrency 1.40x'
+  image_before         = sha256:c9ab369e62a1ed3b7f0e2179425f1976a2ff5b25349a90c5532fef69fe95d06a
+  runner_sha256        = 8919aa64f9cfa19583e27e1bced136f994485c7a410a198bf8e9e58cda9a414a
+  probe_sha256         = b6193e20fcd2d4f2d1b9509059af03b9ab75fc4bfe9be42750e6b8efc63f592d
+  auditor_sha256       = b0229435ef2935c88087baeb2185b9f9b615c4b085dfb28f1878acd1f0f3ed24
+  phases               = [{'phase': 'preflight', 'ok': True}]
+  finished             = 2026-09-11T08:19:03-0400
+
+All three harness hashes equal the published revision `736ac64`, verified
+independently on the Mac and on the head node before the run.
+
+WHAT THIS DOES AND DOES NOT ESTABLISH
+-------------------------------------
+Establishes, on the target cluster with the published bytes:
+
+  - the file layout and imports are correct where they will actually run;
+  - `effective_env_all()` reads the real production `.env` and sees
+    `IMAGE=glm53-selfbuild:e3-w3-zfill-v149`, the expected pre-window state;
+  - `pool_capacity()` returns a parsed capacity (1396551 tokens), not a log
+    line — the round-1 vacuous-gate fix holds against live production;
+  - `jit_stamp()` resolves (7b09229c3b6f) for the user that will run the window;
+  - `/health` is 200 and the server drains to idle;
+  - BOTH arm images are already present on BOTH nodes, so the window will not
+    have to ship a multi-gigabyte image mid-measurement;
+  - `image_id()` and both production-script hashes resolve.
+
+Does NOT establish:
+
+  - the arm switch itself (`disarm` -> `arm_a` -> `measure_a` -> ...), which is
+    the part that stops and restarts production. That needs the window, and the
+    window is blocked on the head clock fault;
+  - any timing, throughput, or correctness number.
+
+So this is a partial pass of the cluster gate, not a completed one. The A-B-B-A
+path itself remains unexercised on hardware, and review approval of the runner
+does not certify that execution.
+
+PRODUCTION AFTER EACH RUN
+-------------------------
+Production was never stopped. After run 2:
+
+  systemctl --user is-active vllm-glm53exl3.service -> active
+  docker ps -> glm53-exl3-head  glm53-selfbuild:e3-w3-zfill-v149  Up
+  /health -> 200

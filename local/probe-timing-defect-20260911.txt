@@ -1,0 +1,56 @@
+Probe streaming-timing defect: decode rates were inflated ~2.8x (2026-09-11)
+==========================================================================
+
+Found by independent final review (finding 3), fixed in commit cc12e74, and
+confirmed against live production here.
+
+THE DEFECT
+  probe_v149_qualification.py read the SSE stream with `resp.read(4096)`, which
+  blocks until 4096 bytes accumulate rather than returning each event as the
+  server flushes it. Two consequences:
+
+  - TTFT was measured as "time until 4096 bytes arrived", not "time to the first
+    token". Each SSE event is ~150 bytes, so the first read returned only after
+    ~27 events had been produced.
+  - decode ended at response EOF rather than at the last content token.
+
+  Both errors compress the measured decode interval, inflating tok/s.
+
+  The probe now reads a line at a time (`resp.readline()`) and spans decode from
+  the first to the last CONTENT token.
+
+MEASURED EFFECT (spark1, production up, 2 runs per lane, 200 tokens)
+
+  lane        before (buggy)   after (fixed)   TTFT before -> after
+  structured  85.4 tok/s       30.1 tok/s      4.86 s -> 0.62 s
+  hashmap     20.3 tok/s       14.7 tok/s      4.19 s -> 0.66 s
+
+  The total wall time is unchanged (~7.2 s structured); only the TTFT/decode
+  split moved, which is what identifies this as a measurement bug rather than a
+  performance change.
+
+WHY THE FIXED NUMBERS ARE THE CREDIBLE ONES
+  Self-consistency (structured, run 1): ttft 0.617 + decode 6.624 = wall 7.242,
+  and (200-1)/6.624 = 30.04 = the reported tok/s exactly.
+
+  The old figure implies 85.4 / 7.0 accepted-per-step = 12.2 forward passes per
+  second. The standing full-clock rate for this stack is ~70 tok/s (~10
+  passes/s), so 12.2 passes/s on a GPU pinned at 507 MHz was never plausible.
+  The corrected 3.77 passes/s is consistent with the 507 MHz clock fault
+  (head matmul 22.9 vs 94.8 TFLOP/s on the worker).
+
+  So this defect was inflating the decode rate by ~2.8x, and the earlier smoke
+  numbers reported for this harness (structured 84.3/85.4, essay 14.9, hashmap
+  20.3) were artifacts and should not be cited.
+
+WHAT IT WOULD HAVE DONE TO THE WINDOW
+  Both arms would have been inflated by roughly the same factor, so the A/B
+  RATIO might have survived — but the absolute rates, the TTFT evidence, and the
+  drift/stability gates would all have been computed from a distorted interval.
+  The pre-registered drift limit is exactly the kind of check a compressed
+  interval breaks, because the compression depends on how many events the server
+  coalesces per flush, which is not constant across arms.
+
+RECEIPTS
+  /tmp/fixed-structured.json, /tmp/fixed-hashmap.json on spark1 (transient).
+  Fixed probe sha256 2ca0838c4179db9b944c0392347a3787a3acae849168df7b7eca8b8a20e93bab.

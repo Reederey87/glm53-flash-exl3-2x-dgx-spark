@@ -42,6 +42,15 @@ carrying `.target sm_121`, so an FP4 intrinsic that only assembles under the
 `a` suffix fails in the default build. Treat "NVFP4 can never compile on GB10"
 as a toolchain claim about the default target, not a hardware fact.
 
+**Silicon-confirmed 2026-09-11.** The instruction does not merely assemble, it
+*executes* correctly on both dies: 12/12 probe cases match the PTX ISA on spark1
+and spark2, with `a` in the upper nibble and `b` in the lower, saturating, and
+round-to-nearest-even on the exact midpoint. The probe
+(`scripts/probe_isa_e2m1_silicon.py`) JITs a one-kernel PTX module through the
+CUDA driver and needs no host compiler and no stopped window — a 1-byte
+allocation and a single-thread launch succeed with production running. Receipt
+`local/task38-isa-e2m1-silicon-20260911.txt`.
+
 The predecessor NVFP4 deployment of this same model ran through Marlin-style
 emulation and was deposed on memory and throughput grounds, not on an ISA
 impossibility. That decision stands; only its stated reason is corrected here.
