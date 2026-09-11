@@ -313,6 +313,53 @@ every block before it runs and the judge rejects a receipt containing a failed
 block, the re-run uses a **fresh state file**; the failed receipt is kept as the
 evidence of this failure.
 
+### A paired two-arm diagnostic instead of a re-run (2026-09-11)
+
+Fixing the probe removed the reason the first attempt failed, but it did **not**
+make the registered window decidable. The head node produces a **transient
+decode stall roughly once in twenty observations** — a ~2.7x drop whose position
+varies between runs — and the registered variability gate is
+`(max - min) / median <= 0.30`, which a single such stall destroys. Arm A's own
+receipts show the shape: the settled decode lanes sit at 0.053 and 0.065 spread
+and the prefill lanes at 0.0038, while the essay lane reached **0.65** off the
+back of a few stalled observations. The head has also accumulated **173 s** of
+`SW Power Capping`. Re-running the registered A-B-B-A would therefore have spent
+about two hours and five boots to return INCONCLUSIVE again.
+
+No regression signal exists for v1.4.9, though the only comparison available is
+**unpaired** (different boots, different times) and is *not* §6 evidence:
+
+| lane | v1.4.7 (arm A, registered protocol) | v1.4.9 (production, same probe) |
+|---|---|---|
+| structured | 64.54 | 67.08 / 67.15 / 67.21 |
+| essay | 24.39 | 24.91 |
+| hashmap | 32.50 | — |
+
+So the question was narrowed to the one the owner needs answered — *is v1.4.9
+slower than v1.4.7 on these lanes?* — and answered with an estimator a couple of
+stalls cannot move. `scripts/diagnose_v149_ab.py` boots arm A (v1.4.7) and arm B
+(v1.4.9), each once, and takes **21 observations per decode lane** (prefill
+keeps the registered 9 and 5, since those lanes are tight and a 240k prefill
+observation costs minutes), comparing **medians**. A median cannot be moved by
+fewer than half the observations, so it is a valid central estimate while fewer
+than half the runs are stalls; the receipt reports that per lane as
+`median_robust` rather than assuming it, and also records each lane's registered
+`(max - min) / median` spread so the receipt shows what the registered gate
+would have concluded.
+
+**This is diagnostic evidence, not §6 qualification.** It does not satisfy the
+pre-registered contract, `audit_v149_qualification.py` does not consume its
+receipt, and the receipt carries an explicit evidence-class label. §6 stays open
+until the registered window completes or the owner records a narrowing.
+
+The diagnostic reuses the reviewed window runner's primitives (`.env` handling,
+both-node arm verification, the MemFree tripwire, the preemption check, the
+disarm/restore/re-arm recovery path, signal and atexit recovery, and the probe
+itself) and imports the bands and arm tags rather than redeclaring them, so the
+two harnesses cannot drift. It deliberately does **not** reuse `phase_measure`,
+because that function's sample sizes *are* the pre-registered §6 contract; the
+§6 harness is left byte-identical.
+
 ### What this harness does NOT cover
 
 This is a **narrowed** contract, and an ADOPT from it is a statement about
@@ -429,8 +476,10 @@ not certify that execution either.
 
 ### Review rounds
 
-Five review rounds ran against the harness and the launcher fixes. Rounds 1–4
-covered the §6 harness; round 5 covered the launcher changes in §4.
+Seven review rounds ran against the harness, the launcher fixes, and the probe's
+replacement coldness proof. Rounds 1–4 covered the §6 harness; round 5 covered
+the launcher changes in §4; rounds 6–7 covered the coldness proof described
+under "The first §6 attempt failed on unavailable cache telemetry".
 
 - **Round 1 — eleven findings.** Two would have aborted a healthy window, two
   would have produced wrong numbers, and the rest were fail-closed or evidence
@@ -454,6 +503,18 @@ covered the §6 harness; round 5 covered the launcher changes in §4.
   `rearm_failures` absent) and covered by three regression tests.
 - **Round 5 — four findings, all against the launcher changes in §4.** See
   "Four defects in the launcher fixes" below. Fixed in `bb61b3f`.
+- **Rounds 6–7 — the replacement coldness proof.** Round 6 rejected the first
+  engine-counter version on three counts: the counters' **lifetime** was not
+  checked, so a server restart between the two samples could make a caught-up
+  counter read as a cold run; the source precedence in the summary was
+  ambiguous; and non-finite telemetry was accepted. Round 7 rejected the fix for
+  the first of those: the lifetime check compared the `created` gauge **map** as
+  a whole, so an unrelated series' gauge could authorise a different series'
+  reset. Each counter now requires **its own** equal
+  `created:<kind>{<labels>}` gauge in both samples. Fixed in `5880578` and
+  `0a73b58`; the reviewer's counterexample became a regression test, and the
+  final verdict was **APPROVED** — "no remaining demonstrated path accepts a
+  warm request as cold".
 
 ### The 507 MHz clock cap CLEARED — and how (2026-09-11)
 
@@ -575,6 +636,66 @@ fail against the pre-fix revision (15 red, 30 green).
 Also validated: `MAX_BOOT_ATTEMPTS=bogus` disabled the retry bound entirely,
 because `[ "$attempt" -ge "bogus" ]` is false. A non-numeric or sub-1 value now
 falls back to 3 with a warning.
+
+### The live checkout was converged to the reviewed bytes (2026-09-11)
+
+The reviewed launcher fixes were committed but the deployed checkout on spark1
+had drifted from them. Three files differed, and one was absent entirely:
+
+| file | live before | repo | action |
+|---|---|---|---|
+| `start.sh` | `560a7ed5…` | `b3c56d3f…` | replaced |
+| `local/prod-start.sh` | `84f6b488…` | `1e208b4f…` | replaced |
+| `overlay/patch_flashkda_prefill.py` | **absent** | `b3423aee…` | added |
+
+`scripts/probe_v149_qualification.py` was also stale and was converged to the
+fixed coldness proof in the same operation; `audit_v149_qualification.py` and
+`run_v149_qualification_window.py` already matched. Every file was staged into
+the destination directory and moved into place with an atomic rename (never an
+in-place write, which would corrupt a script bash is mid-way through reading),
+and the two replaced scripts were backed up to
+`local/backup-pre-launcher-deploy-20260911-114223/`. Post-deploy hashes match the
+repository byte for byte.
+
+**Read-only validation.** `./start.sh validate` returned 0, and
+`./start.sh preflight` — the read-only classifier `prod-start.sh` now depends on
+— resolved both GID indices **from the fabric** rather than from the `.env`
+hint:
+
+```
+RoCE v2 GID resolved from the fabric: head rocep1s0f1 gid3 (192.168.177.10),
+                                        worker rocep1s0f1 gid3 (192.168.177.11)
+```
+
+It then refused, correctly, with `port 8000 is held by glm53-exl3-head`, because
+production was still running. That is the intended answer, and it confirms the
+ordering `prod-start.sh` relies on: it stops the failed attempt *before* calling
+preflight, so the port is free when the classifier runs.
+
+**Production restart through the new launcher.** `systemctl --user restart
+vllm-glm53exl3.service` exercised the new `local/prod-start.sh` and the new
+`start.sh` end to end:
+
+```
+restart rc=0 elapsed=512s
+unit: active          Result=success      NRestarts=0
+head   started 2026-09-11T15:43:11Z image glm53-selfbuild:e3-w3-zfill-v149
+worker started 2026-09-11T15:43:11Z image glm53-selfbuild:e3-w3-zfill-v149
+health=200            exllamav3 Version: 1.4.9
+```
+
+It booted on the **first** attempt, so the retry loop was not needed. This is the
+cluster-validation receipt for the launcher changes; the publication gate is
+satisfied for them.
+
+**The FlashKDA overlay is present but inert.** It is bind-mounted into the
+container at `/opt/glm53/patch_flashkda_prefill.py`, and `start.sh` sets
+`GLM53_KDA_PREFILL_BACKEND=triton` (the stock spelling). The overlay's own
+contract is byte-neutral unless it is armed with `flashkda`, so shipping it
+cannot change production by itself. **It must not be armed:** its task 34
+numeric parity gate failed — see `docs/15-flashkda-prefill-arm.md` and
+`local/task34-parity-gate-20260910.txt`. Adding the file closes a latent gap,
+not a behavior change.
 
 ## 5. What the window broke, and the three fixes it produced
 
