@@ -711,6 +711,92 @@ def test_evidence_from_an_earlier_attempt_is_not_accepted(tmp_path, monkeypatch)
                for p in problems), problems
 
 
+@pytest.mark.parametrize("strip", [
+    lambda s: s.pop("counts"),
+    lambda s: s.update(counts=None),
+    lambda s: s.update(counts={}),
+])
+def test_a_missing_contract_survives_a_report_only_resume(tmp_path, monkeypatch, strip):
+    """The reviewer's repro for the last hole in finding 3.
+
+    `validate_capture` rejects an absent, null or empty `counts`, but `main`
+    replaced all three with the CLI defaults *before* validation, so `--from
+    report` on such a receipt returned rc=0 and NO REGRESSION DETECTED while
+    writing a contract the capture never declared. A run that neither arms nor
+    measures must keep the receipt's own record -- including its absence.
+    """
+    receipt = tmp_path / "diag.json"
+    monkeypatch.setattr(diag.window, "_RECEIPT", receipt)
+    state = _healthy_state(tmp_path)
+    strip(state)
+    # `--from report` needs a prior preflight, i.e. a recorded `.env` backup.
+    state["backup"] = str(tmp_path / "env.bak")
+    receipt.write_text(json.dumps(state))
+    # Rejected when read directly...
+    assert any("no usable observation count" in p
+               for p in diag.validate_capture(state))
+
+    # ...and the real entry point must not manufacture the missing contract.
+    assert diag.main(["--state", str(receipt), "--from", "report", "--to", "report"]) == 1
+    written = json.loads(receipt.read_text())
+    assert written["verdict"] == "INVALID CAPTURE"
+    assert any("no usable observation count" in p
+               for p in written["capture_problems"])
+    # The defaults must not have been written over the receipt's own record.
+    assert not written["counts"]
+
+
+def test_a_measuring_resume_of_a_contract_less_receipt_is_refused(
+        tmp_path, monkeypatch, capsys):
+    """A receipt holding measurements but no contract cannot be added to.
+
+    Its evidence was collected under a contract nobody recorded, so defaulting one
+    from these arguments would certify that evidence against a contract it never
+    had. Refusing is the fail-closed answer.
+
+    `backup` is set and the reason is pinned, so the exit status cannot come from
+    some other precondition: without either, this test passes against a module
+    that has no such guard at all.
+    """
+    receipt = tmp_path / "diag.json"
+    monkeypatch.setattr(diag.window, "_RECEIPT", receipt)
+    monkeypatch.setattr(diag.window, "require_disarmed", lambda *a, **k: None)
+    # Stubbed so the test stays hermetic: if the refusal regresses, the run must
+    # reach a verdict of 0 rather than reaching for the cluster.
+    monkeypatch.setitem(diag.HANDLERS, "measure_b", lambda state: None)
+    state = _healthy_state(tmp_path)
+    state["backup"] = str(tmp_path / "env.bak")
+    state.pop("counts")
+    receipt.write_text(json.dumps(state))
+
+    assert diag.main(["--state", str(receipt), "--from", "measure_b", "--to", "measure_b"]) == 2
+    assert "no usable contract" in capsys.readouterr().err
+    assert json.loads(receipt.read_text()).get("counts") is None
+
+
+def test_an_arm_only_run_still_gets_a_contract(tmp_path, monkeypatch):
+    """`consumes_contract` is wider than `measuring`: `phase_arm` reads counts.
+
+    `--from arm_a --to arm_a` measures nothing, so its contract has to come from
+    the arguments. Blanking it on the same rule would make `phase_arm` fail on
+    `counts[lane]`, so the two conditions are kept distinct.
+    """
+    receipt = tmp_path / "diag.json"
+    monkeypatch.setattr(diag.window, "_RECEIPT", receipt)
+    monkeypatch.setattr(diag.window, "require_disarmed", lambda *a, **k: None)
+    monkeypatch.setitem(diag.HANDLERS, "arm_a", lambda state: None)
+    state = _healthy_state(tmp_path)
+    # Nothing has measured yet, which is what `already_measured` asks.
+    state["phases"] = [e for e in state["phases"]
+                       if not e["phase"].startswith("measure_")]
+    state["backup"] = str(tmp_path / "env.bak")
+    state.pop("counts")
+    receipt.write_text(json.dumps(state))
+
+    assert diag.main(["--state", str(receipt), "--from", "arm_a", "--to", "arm_a"]) == 0
+    assert json.loads(receipt.read_text())["counts"] == diag.DEFAULT_COUNTS
+
+
 @pytest.mark.parametrize("mutate,expect", [
     (lambda s: s["phases"].append({"phase": "rearm", "ok": False, "error": "boom"}),
      "rearm"),

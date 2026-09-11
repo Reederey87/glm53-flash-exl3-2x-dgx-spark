@@ -844,6 +844,24 @@ telemetry"; round 8 covered the diagnostic.
   decided non-inferior, `hashmap` undecided, and **no regression demonstrated —
   not ruled out**. All four are covered by tests verified to fail against the
   pre-fix revision (`554fe86`): 18 red, each mapping to its finding.
+- **Round 11 — the missing-contract bypass survived one entry point.** Round 10's
+  finding 3 was only partly closed. `validate_capture` did reject an absent, null
+  or empty `counts`, but `main` preserved the recorded contract behind
+  `if recorded and recorded != counts`, so a *falsy* contract skipped the guard
+  entirely and the CLI defaults were written over it **before** validation ran.
+  `--from report` on such a receipt therefore returned rc=0 and NO REGRESSION
+  DETECTED while fabricating a 31/31/81/31/11 contract — the same fail-open the
+  round had just closed, reachable through the one entry point the fixtures did
+  not drive (they called `validate_capture` directly).
+  The guard is now keyed on whether the run needs a contract in hand
+  (`consumes_contract`, which is wider than "measures" because `phase_arm` sizes
+  its probe blocks from `counts`) rather than on whether the receipt happens to
+  hold one: a run that neither arms nor measures keeps the receipt's own record
+  **including its absence**, and a measuring resume of a receipt that holds
+  evidence but no usable contract is refused outright rather than defaulted.
+  Four regression tests, verified RED against `3649dc4` — absent, null and empty
+  counts each returned 0 where 1 is required, and the measuring resume returned 0
+  where 2 is required.
 
 ### The 507 MHz clock cap CLEARED — and how (2026-09-11)
 

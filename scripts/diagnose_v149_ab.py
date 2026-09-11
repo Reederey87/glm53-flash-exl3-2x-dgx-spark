@@ -913,6 +913,13 @@ def main(argv: list[str] | None = None) -> int:
     # Fail fast rather than spending the boots: a lane whose sample cannot reach
     # the required coverage can never be decided, so measuring it is wasted time.
     measuring = any(name.startswith("measure_") for name in PHASES[lo:hi + 1])
+    # Phases that READ the contract, which is a wider set than the ones that
+    # produce evidence: `phase_arm` sizes its probe blocks from `counts`, so a run
+    # containing an arm phase needs a usable contract in hand even when it
+    # measures nothing itself.
+    consumes_contract = any(
+        name.startswith(("arm_", "measure_")) for name in PHASES[lo:hi + 1]
+    )
     minimum = min_runs_for_level()
     if measuring:
         too_small = {lane: n for lane, n in counts.items() if n < minimum}
@@ -935,22 +942,45 @@ def main(argv: list[str] | None = None) -> int:
     # `validate_capture` checks each lane file against it. Overwriting it from
     # the current arguments would rewrite history: re-judging a receipt taken
     # with 5 prefill240k observations against a default of 7 would report an
-    # integrity failure that never happened. So preserve it when this invocation
-    # measures nothing, and refuse to mix samples when it does.
+    # integrity failure that never happened.
+    #
+    # The distinction that matters is whether this run needs a contract in hand,
+    # not whether it measures: the arm phases size their probe blocks from
+    # `counts` too.
     recorded = state.get("counts")
-    if recorded and recorded != counts:
-        already_measured = any(
-            str(e.get("phase", "")).startswith("measure_") for e in state.get("phases", [])
-        )
-        if measuring and already_measured:
-            print(
-                f"{receipt} already measured under {recorded}; these arguments "
-                f"({counts}) would mix samples from two contracts",
-                file=sys.stderr,
-            )
+    already_measured = any(
+        str(e.get("phase", "")).startswith("measure_") for e in state.get("phases", [])
+    )
+    if consumes_contract:
+        if already_measured and recorded != counts:
+            # Adding samples under a second contract would make the receipt
+            # describe two different experiments. `recorded` may also be absent
+            # or malformed here: the existing evidence was then collected under a
+            # contract nobody wrote down, and defaulting it from these arguments
+            # would certify that evidence against a contract it never had.
+            if isinstance(recorded, dict):
+                reason = (
+                    f"already measured under {recorded}; these arguments "
+                    f"({counts}) would mix samples from two contracts"
+                )
+            else:
+                reason = (
+                    "already holds measurements but recorded no usable contract "
+                    f"({recorded!r}); re-measuring it under these arguments "
+                    f"({counts}) would certify evidence against a contract it "
+                    "never declared"
+                )
+            print(f"{receipt} {reason}", file=sys.stderr)
             return 2
-        if not measuring:
-            counts = recorded
+    else:
+        # A run that neither arms nor measures keeps the receipt's own contract,
+        # INCLUDING the absence of one. Installing the CLI defaults here is how a
+        # report-only resume used to turn a receipt with no `counts` into one that
+        # passes `validate_capture`'s contract check -- the missing-contract
+        # bypass, reachable through the one entry point the fixtures did not
+        # drive. An unusable contract becomes `{}`, which the check rejects for
+        # every lane.
+        counts = recorded if isinstance(recorded, dict) else {}
     state.update({
         "schema": 1,
         "kind": TAG,
