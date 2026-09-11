@@ -1,0 +1,48 @@
+{
+ "schema": 1,
+ "kind": "structured",
+ "metric": "tok_s",
+ "base": "http://127.0.0.1:8000",
+ "model": "GLM-5.3-Flash-EXL3",
+ "runs": [
+  {
+   "http": 200,
+   "error": null,
+   "ttft_s": 2.1805812480015447,
+   "wall_s": 2.8540503370004444,
+   "decode_s": 0.6733556479994149,
+   "tok_s": 46.038078231174104,
+   "completion_tokens": 32,
+   "prompt_tokens": 34,
+   "finish_reason": "length",
+   "nan": false,
+   "text_head": "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 ",
+   "spec": {
+    "drafts": 4,
+    "draft_tokens": 28,
+    "accepted": 28,
+    "accept_ratio": 1.0,
+    "accepted_per_step": 7.0,
+    "pos": [
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "i": 1
+  }
+ ],
+ "invalid_runs": [],
+ "valid_runs": 1,
+ "tok_s_median": 46.038078231174104,
+ "tok_s_min": 46.038078231174104,
+ "tok_s_max": 46.038078231174104,
+ "ttft_median_s": 2.1805812480015447,
+ "accepted_per_step_median": 7.0,
+ "accept_ratio_median": 1.0,
+ "any_nan": false
+}

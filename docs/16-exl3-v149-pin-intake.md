@@ -360,6 +360,39 @@ two harnesses cannot drift. It deliberately does **not** reuse `phase_measure`,
 because that function's sample sizes *are* the pre-registered §6 contract; the
 §6 harness is left byte-identical.
 
+**Result (2026-09-11, receipt `local/task35b-diag-20260911T1555Z.json`).** Arm A
+ran v1.4.7 and arm B v1.4.9, each with its own verified boot, ~73 minutes total.
+
+| lane | A median | B median | B/A | band | stalls A/B | registered spread A/B | verdict |
+|---|---|---|---|---|---|---|---|
+| structured | 64.34 | 66.71 | 1.0368 | 0.97 | 3/21 vs 1/21 | 0.645 / 0.638 | non-inferior |
+| essay | 24.00 | 25.18 | 1.0490 | 0.95 | 1/21 vs 0/21 | 0.640 / 0.149 | non-inferior |
+| hashmap | 29.49 | 30.61 | 1.0379 | 0.95 | 0/21 vs 0/21 | 0.586 / 0.191 | non-inferior |
+| prefill60k | 1606.58 | 1601.28 | 0.9967 | 0.95 | 0/9 vs 0/9 | 0.164 / 0.127 | non-inferior |
+| prefill240k | 1585.00 | 1584.55 | 0.9997 | 0.95 | 0/5 vs 0/5 | 0.006 / 0.007 | non-inferior |
+
+**NO REGRESSION DETECTED.** v1.4.9 is ~3.7–4.9% *faster* on all three decode
+lanes and identical on prefill within 0.3%. Every lane's median is trustworthy
+on both arms (`median_robust` true throughout; MAD/median between 0.0009 and
+0.073), and no lane is close to its band.
+
+The receipt also shows why the registered window could not answer this: on arm A
+alone the `(max - min) / median` spread was **0.645** (structured), **0.640**
+(essay) and **0.586** (hashmap) — three of five lanes past the 0.30 gate — driven
+by the transient stalls, which were observed in the raw runs (a structured
+observation at 24.73 tok/s against 61–66 for its neighbours, a ~2.6x drop) and
+whose count varied between arms. The medians are unaffected: the stalls are
+visible in `stall_count` and in the registered spread, and the central estimate
+did not move.
+
+Production was restored byte-for-byte (`.env` sha256 identical to the pre-run
+backup, no leftover diagnostic `IMAGE=` line, both nodes back on
+`e3-w3-zfill-v149` at exllamav3 1.4.9, health 200) and both timers were re-armed.
+The diagnostic receipt carries `evidence_class: "diagnostic — NOT §6
+qualification evidence"`, and **§6 remains open**: this result says v1.4.9 is not
+slower on these lanes, which is the decision the pin needed, but it is not the
+registered contract and must not be filed as one.
+
 ### What this harness does NOT cover
 
 This is a **narrowed** contract, and an ADOPT from it is a statement about
