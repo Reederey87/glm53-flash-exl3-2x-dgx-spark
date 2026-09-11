@@ -366,7 +366,11 @@ def timer_states() -> dict[str, str]:
     """
     out: dict[str, str] = {}
     for unit in TIMERS:
-        proc = win.run(["systemctl", "--user", "is-active", unit], timeout=30, check=False)
+        try:
+            proc = win.run(["systemctl", "--user", "is-active", unit], timeout=30, check=False)
+        except Exception as exc:  # noqa: BLE001 — one hung query must not hide the other unit
+            out[unit] = f"unknown(raised {exc!r})"
+            continue
         status = proc.stdout.strip()
         if proc.returncode in (0, 3) and status:
             out[unit] = status
@@ -378,19 +382,34 @@ def timer_states() -> dict[str, str]:
 def phase_disarm(state: dict) -> None:
     state["disarm_attempted"] = True
     save(state)
+    # Attempt both stops before reporting. A raise on the first unit would leave
+    # the second timer running with no record of the attempt, and the window
+    # must not start with a live timer.
+    stop_failures: dict[str, str] = {}
     for unit in TIMERS:
-        proc = win.run(["systemctl", "--user", "stop", unit], timeout=60, check=False)
+        try:
+            proc = win.run(["systemctl", "--user", "stop", unit], timeout=60, check=False)
+        except Exception as exc:  # noqa: BLE001 — a hung stop must not skip the other unit
+            stop_failures[unit] = f"stop raised {exc!r}"
+            continue
         if proc.returncode != 0:
-            raise RuntimeError(f"systemctl stop {unit} exited {proc.returncode}: {proc.stderr.strip()}")
-    win.run(["systemctl", "--user", "reset-failed"], timeout=60, check=False)
+            stop_failures[unit] = f"stop exited {proc.returncode}: {proc.stderr.strip()}"
+    try:
+        win.run(["systemctl", "--user", "reset-failed"], timeout=60, check=False)
+    except Exception as exc:  # noqa: BLE001 — best-effort cleanup, never fatal
+        log(f"reset-failed did not complete: {exc!r}")
     states = timer_states()
     state["timers_after_disarm"] = states
+    state["disarm_stop_failures"] = stop_failures
     # Require a *provable* stop: anything that is not exactly "inactive"
     # (including an `unknown(...)` marker for an absent or unreadable unit)
     # means the timers were not verifiably disarmed, so the window must not run.
     not_stopped = {unit: status for unit, status in states.items() if status != "inactive"}
-    if not_stopped:
-        raise RuntimeError(f"timers not provably stopped after disarm: {not_stopped}")
+    if not_stopped or stop_failures:
+        raise RuntimeError(
+            f"timers not provably stopped after disarm: {not_stopped} "
+            f"stop_failures={stop_failures}"
+        )
     # Stopping a timer does not stop a service it already started, nor cancel a
     # queued restart job. §6 requires waiting for in-flight watchdog/start work:
     # the watchdog can enqueue `systemctl restart --no-block`, and that job
@@ -418,7 +437,11 @@ def _active_services() -> dict[str, str]:
     """
     out: dict[str, str] = {}
     for unit in TIMER_SERVICES:
-        proc = win.run(["systemctl", "--user", "is-active", unit], timeout=30, check=False)
+        try:
+            proc = win.run(["systemctl", "--user", "is-active", unit], timeout=30, check=False)
+        except Exception as exc:  # noqa: BLE001 — one hung query must not hide the other unit
+            out[unit] = f"unknown(raised {exc!r})"
+            continue
         status = proc.stdout.strip()
         if proc.returncode in (0, 3) and status:
             out[unit] = status
@@ -702,10 +725,20 @@ def phase_rearm(state: dict) -> None:
     persistent failure on the watchdog timer would otherwise leave the
     metrics-alert timer permanently down, and recovery retries this same
     ordered loop, so the second unit would never be attempted at all.
+
+    The per-unit guard catches raised exceptions, not just nonzero exit codes:
+    `win.run()` raises `subprocess.TimeoutExpired` when a start hangs, and an
+    unguarded raise would break out of the loop before the second unit was
+    tried -- which is the same one-timer-left-down outcome the ordering fix was
+    meant to prevent.
     """
     failures: dict[str, str] = {}
     for unit in TIMERS:
-        proc = win.run(["systemctl", "--user", "start", unit], timeout=60, check=False)
+        try:
+            proc = win.run(["systemctl", "--user", "start", unit], timeout=60, check=False)
+        except Exception as exc:  # noqa: BLE001 — a hung start must not skip the other unit
+            failures[unit] = f"start raised {exc!r}"
+            continue
         if proc.returncode != 0:
             failures[unit] = f"start exited {proc.returncode}: {proc.stderr.strip()}"
     states = timer_states()
@@ -718,6 +751,10 @@ def phase_rearm(state: dict) -> None:
             failures[unit] = f"{failures[unit]}; {note}" if unit in failures else note
     state["rearm_failures"] = failures
     save(state)
+    # A recorded raise fails the rearm even when the unit reads `active`: a hung
+    # start is not a verified start, and the retry `recover_timers` triggers is
+    # cheap and idempotent, so an unnecessary second attempt costs nothing while
+    # declaring success on an unverified start could hide a dead timer.
     if failures:
         raise RuntimeError(f"timers not restored: {failures}")
     log(f"watchdog + metrics-alert timers re-armed {states}")

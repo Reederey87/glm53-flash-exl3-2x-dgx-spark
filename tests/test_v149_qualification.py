@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import time
 from pathlib import Path
 
@@ -1469,6 +1470,82 @@ def test_rearm_attempts_both_timers_even_when_the_first_fails(monkeypatch):
     assert failure.startswith("start exited 1")
     assert "not active after start" in failure
     assert window.TIMERS[1] not in state["rearm_failures"]
+
+
+def test_rearm_attempts_both_timers_even_when_the_first_start_raises(monkeypatch):
+    """A hung start raises `subprocess.TimeoutExpired` from `win.run()`. An
+    unguarded raise breaks out of the loop and leaves the second timer down --
+    the same one-timer-left-down outcome the ordering fix exists to prevent."""
+    monkeypatch.setattr(window, "save", lambda _s: None)
+    started: list[str] = []
+
+    class Active:
+        returncode, stdout, stderr = 0, "active", ""
+
+    def fake_run(argv, **kwargs):
+        unit = argv[-1]
+        if argv[2] == "start":
+            started.append(unit)
+            if unit == window.TIMERS[0]:
+                raise subprocess.TimeoutExpired(cmd=argv, timeout=60)
+        return Active()
+
+    monkeypatch.setattr(window.win, "run", fake_run)
+    state: dict = {}
+    with pytest.raises(RuntimeError, match="timers not restored"):
+        window.phase_rearm(state)
+    # The second unit was still attempted, and the raise was recorded per-unit.
+    assert started == list(window.TIMERS)
+    assert "raised" in state["rearm_failures"][window.TIMERS[0]]
+    assert window.TIMERS[1] not in state["rearm_failures"]
+
+
+def test_timer_states_marks_a_raising_query_unknown(monkeypatch):
+    """A hung `is-active` must not hide the other unit's real state."""
+    class Inactive:
+        returncode, stdout, stderr = 3, "inactive", ""
+
+    def fake_run(argv, **kwargs):
+        if argv[-1] == window.TIMERS[0]:
+            raise subprocess.TimeoutExpired(cmd=argv, timeout=30)
+        return Inactive()
+
+    monkeypatch.setattr(window.win, "run", fake_run)
+    states = window.timer_states()
+    assert set(states) == set(window.TIMERS)
+    assert "unknown(raised" in states[window.TIMERS[0]]
+    assert states[window.TIMERS[1]] == "inactive"
+
+
+def test_disarm_attempts_both_stops_even_when_the_first_raises(monkeypatch):
+    """Both stops are attempted before the verdict is reported, so a hung first
+    stop cannot leave the second timer running with no record of the attempt."""
+    monkeypatch.setattr(window, "save", lambda _s: None)
+    stopped: list[str] = []
+
+    class Stopped:
+        returncode, stdout, stderr = 0, "", ""
+
+    class Inactive:
+        returncode, stdout, stderr = 3, "inactive", ""
+
+    def fake_run(argv, **kwargs):
+        unit = argv[-1]
+        if argv[2] == "stop":
+            stopped.append(unit)
+            if unit == window.TIMERS[0]:
+                raise subprocess.TimeoutExpired(cmd=argv, timeout=60)
+            return Stopped()
+        return Inactive()
+
+    monkeypatch.setattr(window.win, "run", fake_run)
+    state: dict = {}
+    with pytest.raises(RuntimeError, match="not provably stopped"):
+        window.phase_disarm(state)
+    assert stopped == list(window.TIMERS)
+    # Every unit reports "inactive", so the refusal comes from the recorded
+    # raise alone -- not from the `not_stopped` check.
+    assert "raised" in state["disarm_stop_failures"][window.TIMERS[0]]
 
 
 # --- resume must not skip disarm (review round 3, finding 2) ---------------

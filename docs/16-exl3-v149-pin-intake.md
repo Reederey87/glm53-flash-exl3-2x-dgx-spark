@@ -317,6 +317,71 @@ copies the preflight `.env` backup back and verifies its sha256, so this is part
 of the pre-window baseline and survives the window's restore path. Receipt:
 `local/spark1-gid-fix-20260911.txt`.
 
+### Cluster validation of the harness bytes (2026-09-11)
+
+The publication gate wants the exact candidate bytes exercised on the target
+cluster, not only under pytest on the Mac. The A-B-B-A path cannot run while the
+clock fault holds, so the deepest non-destructive boundary was validated
+instead: `preflight`.
+
+`preflight` stops nothing. It checks the file layout, records the effective
+environment, hashes the runner/probe/auditor and the two production scripts,
+waits for the server to drain, and confirms both arm images already exist on
+BOTH nodes. Its only write is a timestamped `.env` backup, the same artifact
+every window creates.
+
+The head-node checkout `~/GLM-5.3-Flash-EXL3-2x-DGX-Sparks` is **not a git
+repository**, so it does not track the branch, and its `scripts/` held an
+earlier revision of all three harness files. The shared helper
+(`run_decode_profile_window.py`) already matched, which is what made the
+staleness invisible. The three files were staged and moved into place with an
+atomic same-filesystem rename. The stale revision returned
+`pool_capacity_before = None`; the current bytes return a parsed capacity, so
+the refresh was not cosmetic.
+
+Result: `EXIT=0`, with `pool_capacity_before = '1396551 tokens; concurrency
+1.40x'`, `jit_stamp = 7b09229c3b6f`, `/health` 200, and both arm images present
+on both nodes. Production was never stopped.
+
+`preflight` was run **twice**, because review found a defect in the runner after
+the first run (`phase_rearm` did not attempt the second timer when the first
+start *raised* rather than merely exiting nonzero). The first run exercised
+runner `e542c168…` as of `11dfda1`; the second exercised runner `8919aa64…` as of
+`736ac64`, the published revision. Only the runner differed — the probe and
+auditor hashes are identical throughout, and all three matched the published
+revision on both the Mac and the head node before the second run. Receipt:
+`local/task35b-cluster-preflight-20260911.txt`.
+
+This is a **partial** pass: it does not exercise the arm switch (`disarm` →
+`arm_a` → `measure_a` → …), which is the part that stops and restarts
+production, and it produces no timing number. Review approval of the runner does
+not certify that execution either.
+
+### Review rounds
+
+Four review rounds ran against the harness.
+
+- **Round 1 — eleven findings.** Two would have aborted a healthy window, two
+  would have produced wrong numbers, and the rest were fail-closed or evidence
+  gaps. Fixed in `cc12e74`.
+- **Round 2 — two regressions plus six partials.** Both regressions were
+  introduced by the round-1 fixes. Fixed in `97a2c61`.
+- **Round 3 — six findings, plus two live-node defects** that only appeared when
+  the exact bytes were exercised against production: `systemctl is-active`
+  prints `inactive` for a **nonexistent** unit too (rc=4 vs rc=3), so the
+  fail-closed quiescence check could read a wrong-user query as disarmed; and a
+  fixed 5 s poll made a short timeout block for a full interval. Fixed in
+  `11dfda1`.
+- **Round 4 — one finding.** `phase_rearm` attempted both timers independently
+  for a nonzero exit code but not for a raised exception. `win.run()` raises
+  `subprocess.TimeoutExpired` on a hung `systemctl start`, which broke out of
+  the loop and left the second timer down with no per-unit record — the exact
+  one-timer-left-down outcome the ordering fix existed to prevent. The same
+  unguarded-loop shape was fixed in `timer_states()`, `_active_services()`, and
+  `phase_disarm`, where a hung first query or stop hid the second unit.
+  Reproduced against the pre-fix revision (only the watchdog timer attempted,
+  `rearm_failures` absent) and covered by three regression tests.
+
 ## 5. What the window broke, and the three fixes it produced
 
 Items 1 and 2 are defects in `local/prod-start.sh` that only a *new image tag*
