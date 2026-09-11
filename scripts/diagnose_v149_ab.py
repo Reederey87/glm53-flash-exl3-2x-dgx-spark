@@ -19,11 +19,30 @@ boots without deciding anything.
 
 This asks the same question the §6 window asks -- "is v1.4.9 slower than v1.4.7
 on these lanes?" -- with an estimator a couple of stalls cannot move. It takes
-more observations per lane and compares MEDIANS. A median cannot be moved by
-fewer than half the observations, so it is a valid central estimate while fewer
-than half the runs are stalls; that property is reported per lane rather than
-assumed. Each lane's registered `(max - min) / median` spread is also reported,
-so the receipt shows what the registered gate would have concluded.
+more observations per lane and compares MEDIANS, and it reports each median with
+a **distribution-free confidence interval** from the sign test's order
+statistics: the interval depends only on the sample size and the observed order
+statistics, so it assumes nothing about the distribution and nothing about which
+observations are stalls. A lane whose ratio interval spans its band is reported
+inconclusive rather than rounded to whichever side its point estimate fell on.
+Each lane's registered `(max - min) / median` spread is also reported, so the
+receipt shows what the registered gate would have concluded.
+
+An earlier version of this script gated on a `median_robust` flag that counted
+observations below half their own median and called the lane trustworthy when
+fewer than half qualified. That was circular and could not detect majority
+contamination, and the median's 50% breakdown point does not mean replacing a
+minority cannot shift it. It has been removed; `stall_count` survives as a
+descriptive number that is never used to certify the median it was measured
+against. See `median_ci()` for the replacement and `tests/test_v149_diagnostic.py`
+for the regression tests.
+
+The report phase validates the receipt's internal consistency BEFORE issuing a
+verdict, because `--from report` and a resume after a late failure are both
+reachable with every lane file present but the capture rejected. A receipt that
+fails those checks is reported as INVALID CAPTURE and exits non-zero; the
+per-lane numbers are still written as evidence, but they cannot be read as a
+result.
 
 Arms (same tags as the §6 window; one independent variable, the `IMAGE=` tag):
 
@@ -65,6 +84,7 @@ from __future__ import annotations
 import argparse
 import atexit
 import json
+import math
 import signal
 import statistics
 import subprocess
@@ -125,21 +145,85 @@ def log(message: str) -> None:
 
 # --- statistics -------------------------------------------------------------
 
-def lane_stats(values: list[float]) -> dict:
-    """Median and a stall-aware robustness statement for one lane.
+def _binomial_cdf(k: int, n: int) -> float:
+    """P(Bin(n, 1/2) <= k), exactly, as a fraction of 2**n.
 
-    `median_robust` is a property of the estimator, not a chosen tolerance: the
-    median of n values is unchanged by any subset of fewer than ceil(n/2)
-    observations, so a stall count below half the sample cannot move it.
+    Used only to size the distribution-free interval below. Integer arithmetic
+    throughout: the probabilities are exact dyadic rationals, so there is no
+    floating-point drift in the choice of order statistic.
+    """
+    if k < 0:
+        return 0.0
+    if k >= n:
+        return 1.0
+    total = 1 << n
+    return sum(math.comb(n, i) for i in range(k + 1)) / total
+
+
+def median_ci(values: list[float], level: float = 0.95) -> dict:
+    """Distribution-free confidence interval for the median, from order statistics.
+
+    This is the interval justified WITHOUT reference to the data's own spread, so
+    it cannot be circular. The sign test gives
+    `P(x_(k+1) <= median <= x_(n-k)) = 1 - 2*P(Bin(n, 1/2) <= k)`, so picking the
+    largest `k` whose binomial tail is inside `(1 - level)/2` yields an exact
+    interval that assumes nothing about the distribution and nothing about which
+    observations are outliers.
+
+    It replaces an earlier `median_robust` flag that was CIRCULAR: it called a
+    lane robust when fewer than half the observations fell below half the median,
+    but for positive values and odd `n` fewer than half always do, so the flag
+    could not detect majority contamination (11 observations at 30 with 10 at 100
+    gave median 30 and reported "robust"). The median's 50% breakdown point is a
+    statement about how far it can be moved, not a licence to skip measuring how
+    far it was moved, and it does not mean replacing a minority cannot shift it.
+
+    When `n` is too small for the requested level, the widest available interval
+    is returned together with the level it actually achieves, rather than
+    pretending to a precision the sample does not support.
+    """
+    clean = sorted(float(v) for v in values)
+    n = len(clean)
+    if n == 0:
+        return {"low": None, "high": None, "level": None, "n": 0}
+    if n == 1:
+        return {"low": clean[0], "high": clean[0], "level": None, "n": 1}
+    alpha = (1.0 - level) / 2.0
+    k = 0
+    for candidate in range(n):
+        if _binomial_cdf(candidate, n) <= alpha:
+            k = candidate
+        else:
+            break
+    # k is the largest tail index inside alpha; the interval is the (k+1)-th
+    # smallest to the (k+1)-th largest.
+    achieved = 1.0 - 2.0 * _binomial_cdf(k, n)
+    return {
+        "low": clean[k],
+        "high": clean[n - 1 - k],
+        "level": achieved,
+        "n": n,
+        "order_statistic": k + 1,
+    }
+
+
+def lane_stats(values: list[float], level: float = 0.95) -> dict:
+    """Median, its distribution-free interval, and descriptive spread measures.
+
+    `stall_count` is DESCRIPTIVE. It is deliberately not a trustworthiness gate:
+    it is measured against the lane's own median, so it cannot be used to certify
+    that same median. What bounds the median here is `median_ci`, whose width
+    comes from the sample size and the observed order statistics alone.
     """
     clean = sorted(float(v) for v in values)
     n = len(clean)
     if not n:
-        return {"valid_runs": 0, "median": None, "median_robust": False}
+        return {"valid_runs": 0, "median": None, **median_ci([])}
     median = statistics.median(clean)
     if not median:
-        return {"valid_runs": n, "median": None, "median_robust": False}
+        return {"valid_runs": n, "median": None, **median_ci(clean)}
     mad = statistics.median([abs(v - median) for v in clean])
+    ci = median_ci(clean, level=level)
     stalls = [v for v in clean if v < STALL_FRACTION * median]
     return {
         "valid_runs": n,
@@ -151,10 +235,79 @@ def lane_stats(values: list[float]) -> dict:
         "stall_threshold": STALL_FRACTION * median,
         "stall_count": len(stalls),
         "stall_fraction": len(stalls) / n,
-        "median_robust": len(stalls) * 2 < n,
         # What the registered §6 variability gate would have computed.
         "registered_spread": (clean[-1] - clean[0]) / median,
         "registered_settled": (clean[-1] - clean[0]) / median <= audit.VARIABILITY_MAX,
+        **ci,
+    }
+
+
+def _mann_whitney_counts(m: int, n: int) -> list[int]:
+    """Exact counts of the Mann-Whitney U statistic, as `counts[u]`.
+
+    U is the number of pairs (a_i, b_j) with a_i < b_j. Building the merged
+    ordering left to right: appending an `a` adds no such pair (it is last),
+    while appending a `b` adds one for each `a` already placed. The recurrence
+    is therefore `f[i][j][u] = f[i-1][j][u] + f[i][j-1][u-i]`, computed with
+    integer arithmetic so the quantiles are exact.
+    """
+    f = [[[0] * (m * n + 1) for _ in range(n + 1)] for _ in range(m + 1)]
+    f[0][0][0] = 1
+    for i in range(m + 1):
+        for j in range(n + 1):
+            if i == 0 and j == 0:
+                continue
+            for u in range(m * n + 1):
+                total = 0
+                if i:
+                    total += f[i - 1][j][u]
+                if j and u - i >= 0:
+                    total += f[i][j - 1][u - i]
+                f[i][j][u] = total
+    return f[m][n]
+
+
+def hodges_lehmann_ci(a: list[float], b: list[float], level: float = 0.95) -> dict:
+    """Distribution-free CI for the shift `b - a`, plus its point estimate.
+
+    This is the standard two-sample non-parametric comparison, and it is the one
+    that actually answers the question the bands ask: whether `b` sits below `a`
+    by more than the band allows. It is distribution-free (the Mann-Whitney
+    statistic's null distribution depends only on the sample sizes), so like
+    `median_ci` it assumes nothing about which observations are stalls.
+
+    It is also strictly more informative than composing two separate median
+    intervals, which needs a union bound over both and therefore discards the
+    pairing between the two samples' spreads.
+    """
+    m, n = len(a), len(b)
+    if m == 0 or n == 0:
+        return {"shift": None, "low": None, "high": None, "level": None,
+                "n_pairs": 0, "order_statistic": None}
+    diffs = sorted(bj - ai for bj in b for ai in a)
+    shift = statistics.median(diffs)
+    if m < 2 or n < 2:
+        return {"shift": shift, "low": diffs[0], "high": diffs[-1], "level": None,
+                "n_pairs": m * n, "order_statistic": None}
+    counts = _mann_whitney_counts(m, n)
+    total = sum(counts)
+    alpha = (1.0 - level) / 2.0
+    cumulative = 0
+    c = 0
+    for u in range(m * n + 1):
+        cumulative += counts[u]
+        if cumulative / total <= alpha:
+            c = u
+        else:
+            break
+    achieved = 1.0 - 2.0 * (sum(counts[:c + 1]) / total)
+    return {
+        "shift": shift,
+        "low": diffs[c],
+        "high": diffs[m * n - 1 - c],
+        "level": achieved,
+        "n_pairs": m * n,
+        "order_statistic": c + 1,
     }
 
 
@@ -163,7 +316,19 @@ def run_values(kind: str, summary: dict) -> list[float]:
     return [r[key] for r in summary.get("runs", []) if r.get(key) is not None]
 
 
-def compare_lane(lane: str, control: dict, candidate: dict) -> dict:
+def compare_lane(lane: str, control: dict, candidate: dict,
+                 control_values: list[float] | None = None,
+                 candidate_values: list[float] | None = None) -> dict:
+    """Decide one lane from the two medians and a distribution-free shift CI.
+
+    The point ratio answers the question; the shift interval decides whether the
+    sample can answer it at all. The §6 band is a RATIO bound, so the interval is
+    translated into ratio terms against the control's median: a shift of
+    `(band - 1) * control_median` is exactly the band boundary. A lane whose
+    interval spans that boundary is reported inconclusive rather than rounded to
+    whichever side its point estimate fell on, which is what makes a wide or
+    contaminated lane fail closed instead of quietly becoming a pass.
+    """
     band = audit.BANDS[lane]
     a, b = control.get("median"), candidate.get("median")
     row: dict = {"lane": lane, "band": band, "control_median": a, "candidate_median": b}
@@ -174,18 +339,38 @@ def compare_lane(lane: str, control: dict, candidate: dict) -> dict:
     ratio = b / a
     row["ratio"] = ratio
     row["candidate_over_control_percent"] = (ratio - 1.0) * 100.0
-    if not (control.get("median_robust") and candidate.get("median_robust")):
+    if control_values is None or candidate_values is None:
+        row.update({"verdict": "inconclusive",
+                    "reason": "no raw observations available for the shift interval"})
+        return row
+    hl = hodges_lehmann_ci(control_values, candidate_values)
+    row["shift"] = hl["shift"]
+    row["shift_ci_low"] = hl["low"]
+    row["shift_ci_high"] = hl["high"]
+    row["shift_ci_level"] = hl["level"]
+    # The band boundary expressed as a shift of the control's median.
+    boundary = (band - 1.0) * a
+    row["band_boundary_shift"] = boundary
+    row["ratio_ci_low"] = (a + hl["low"]) / a
+    row["ratio_ci_high"] = (a + hl["high"]) / a
+    if hl["low"] >= boundary:
+        row["verdict"] = "non-inferior"
+        row["reason"] = (
+            f"shift interval [{hl['low']:.4f}, {hl['high']:.4f}] lies at or above the "
+            f"band boundary {boundary:.4f}"
+        )
+    elif hl["high"] < boundary:
+        row["verdict"] = "REGRESSED"
+        row["reason"] = (
+            f"shift interval [{hl['low']:.4f}, {hl['high']:.4f}] lies below the "
+            f"band boundary {boundary:.4f}"
+        )
+    else:
         row["verdict"] = "inconclusive"
         row["reason"] = (
-            f"too many stalls to trust the median "
-            f"(control {control.get('stall_count')}/{control.get('valid_runs')}, "
-            f"candidate {candidate.get('stall_count')}/{candidate.get('valid_runs')})"
+            f"shift interval [{hl['low']:.4f}, {hl['high']:.4f}] spans the band "
+            f"boundary {boundary:.4f}; the sample cannot decide this lane"
         )
-    elif ratio >= band:
-        row["verdict"] = "non-inferior"
-    else:
-        row["verdict"] = "REGRESSED"
-        row["reason"] = f"median ratio {ratio:.4f} below band {band:.2f}"
     return row
 
 
@@ -195,8 +380,7 @@ def overall_verdict(rows: list[dict]) -> tuple[str, str]:
     if any(r["verdict"] in ("inconclusive", "unmeasurable") for r in rows):
         return "INCONCLUSIVE", "at least one lane could not be decided"
     return "NO REGRESSION DETECTED", (
-        "every lane's median is at or above its pre-registered band, with the "
-        "median trustworthy on both arms"
+        "every lane's shift interval lies at or above its pre-registered band boundary"
     )
 
 
@@ -370,11 +554,25 @@ def phase_rearm(state: dict) -> None:
     window.phase_rearm(state)
 
 
+def _evidence_dir() -> Path | None:
+    """Directory holding the evidence files, or None when no receipt is set.
+
+    The window runner owns `_RECEIPT`; the report and its validation read the
+    lane files relative to it. Resolved through this helper so the dependency is
+    explicit and a caller without a receipt gets a clear failure rather than an
+    `AttributeError` on None.
+    """
+    return window._RECEIPT.parent if window._RECEIPT is not None else None
+
+
 def _load_lane(state: dict, arm: str, lane: str) -> dict | None:
     name = state.get("probes", {}).get(arm, {}).get(lane)
     if not name:
         return None
-    path = window._RECEIPT.parent / name
+    base = _evidence_dir()
+    if base is None:
+        return None
+    path = base / name
     if not path.is_file():
         return None
     try:
@@ -383,50 +581,226 @@ def _load_lane(state: dict, arm: str, lane: str) -> dict | None:
         return None
 
 
+# The phases that must have completed for the numbers to mean anything. `report`
+# is excluded because it is the phase being run; `judge` is not a diagnostic
+# phase.
+REQUIRED_PHASES = ("preflight", "disarm", "arm_a", "measure_a", "arm_b",
+                   "measure_b", "restore", "rearm")
+EXPECTED_LANES = (*DECODE_LANES, *PREFILL_LANES)
+
+
+def validate_capture(state: dict) -> list[str]:
+    """Every reason this receipt must NOT be read as a passing verdict.
+
+    The report phase is reachable by `--from report`, and by a resume after a
+    failure late in the run — in both cases the lane files can all be present
+    while the capture itself was rejected. Reading those files and printing
+    NO REGRESSION DETECTED would launder a failed run into a pass, so the
+    receipt is checked for internal consistency BEFORE any verdict is issued.
+
+    Checks are deliberately independent: each returns its own message, and one
+    failure does not stop the others from being reported.
+    """
+    problems: list[str] = []
+    phases = {p.get("phase"): p for p in state.get("phases", [])}
+
+    for name in REQUIRED_PHASES:
+        entry = phases.get(name)
+        if entry is None:
+            problems.append(f"phase {name} never ran")
+        elif not entry.get("ok"):
+            problems.append(f"phase {name} failed: {entry.get('error')}")
+    for name, entry in phases.items():
+        if entry.get("ok") is False and name not in REQUIRED_PHASES:
+            problems.append(f"phase {name} failed: {entry.get('error')}")
+    if state.get("phase_in_progress"):
+        problems.append(
+            f"the run aborted inside phase {state['phase_in_progress']!r} "
+            "(phase_in_progress was not cleared)"
+        )
+
+    counts = state.get("counts") or {}
+    blocks = state.get("probe_blocks") or []
+    for arm in ("a", "b"):
+        record = (state.get("arms") or {}).get(arm) or {}
+        expected = window.ARMS[arm]
+        if record.get("measure_verified_image") != expected["tag"]:
+            problems.append(
+                f"arm {arm}: measured image {record.get('measure_verified_image')!r} "
+                f"is not the arm's tag {expected['tag']!r}"
+            )
+        if record.get("measure_verified_exllamav3") != expected["exllamav3"]:
+            problems.append(
+                f"arm {arm}: measured exllamav3 {record.get('measure_verified_exllamav3')!r} "
+                f"is not {expected['exllamav3']!r}"
+            )
+        # Boot binding: the arm phase's boot must be the one that was measured.
+        boot = record.get("container_started_at")
+        measured_boot = record.get("measure_container_started_at")
+        if not boot or not measured_boot:
+            problems.append(f"arm {arm}: missing container boot identity")
+        elif boot != measured_boot:
+            problems.append(
+                f"arm {arm}: the container restarted between arming and measuring "
+                f"({boot} -> {measured_boot})"
+            )
+        delta = record.get("preemptions_delta")
+        if delta is None:
+            problems.append(f"arm {arm}: preemption delta unreadable (not 'no preemptions')")
+        elif delta != 0:
+            problems.append(f"arm {arm}: {delta} preemptions during measurement")
+
+    # The two arms must be different boots, or the comparison is not two arms.
+    boots = {
+        arm: ((state.get("arms") or {}).get(arm) or {}).get("container_started_at")
+        for arm in ("a", "b")
+    }
+    if boots["a"] and boots["a"] == boots["b"]:
+        problems.append("both arms report the same container boot identity")
+
+    for arm in ("a", "b"):
+        for lane in EXPECTED_LANES:
+            want = counts.get(lane)
+            matching = [b for b in blocks
+                        if b.get("arm") == arm and b.get("lane") == lane]
+            ok_blocks = [b for b in matching if b.get("ok") is True]
+            if not matching:
+                problems.append(f"arm {arm} lane {lane}: no probe block was registered")
+            elif not ok_blocks:
+                problems.append(
+                    f"arm {arm} lane {lane}: every registered block failed "
+                    f"({matching[-1].get('error')})"
+                )
+            selected = (state.get("probes") or {}).get(arm, {}).get(lane)
+            if not selected:
+                problems.append(f"arm {arm} lane {lane}: no evidence file was selected")
+                continue
+            if ok_blocks and ok_blocks[-1].get("path") != selected:
+                problems.append(
+                    f"arm {arm} lane {lane}: the selected file {selected!r} is not the "
+                    f"one the successful block wrote ({ok_blocks[-1].get('path')!r})"
+                )
+            summary = _load_lane(state, arm, lane)
+            if summary is None:
+                problems.append(f"arm {arm} lane {lane}: evidence file missing or unreadable")
+                continue
+            if summary.get("kind") != lane:
+                problems.append(
+                    f"arm {arm} lane {lane}: evidence file reports kind "
+                    f"{summary.get('kind')!r}"
+                )
+            invalid = summary.get("invalid_runs") or []
+            if invalid:
+                problems.append(
+                    f"arm {arm} lane {lane}: {len(invalid)} invalid run(s) in the evidence"
+                )
+            values = run_values(lane, summary)
+            if want is not None and len(values) != want:
+                problems.append(
+                    f"arm {arm} lane {lane}: {len(values)} valid observation(s), expected {want}"
+                )
+            bad = [v for v in values if not math.isfinite(v) or v <= 0]
+            if bad:
+                problems.append(
+                    f"arm {arm} lane {lane}: {len(bad)} non-finite or non-positive value(s)"
+                )
+            # The probe's own coldness flag. A prefill lane that hit the cache
+            # did not measure what this lane claims to measure.
+            if lane.startswith("prefill") and summary.get("any_cache_hit"):
+                problems.append(f"arm {arm} lane {lane}: any_cache_hit is true")
+    return problems
+
+
 def phase_report(state: dict) -> None:
-    lanes = (*DECODE_LANES, *PREFILL_LANES)
+    lanes = list(EXPECTED_LANES)
+    problems = validate_capture(state)
     stats: dict[str, dict] = {}
     rows: list[dict] = []
     for lane in lanes:
         pair: dict[str, dict] = {}
+        values_by_arm: dict[str, list[float]] = {}
         for arm in ("a", "b"):
             summary = _load_lane(state, arm, lane)
             if summary is None:
-                pair[arm] = {"valid_runs": 0, "median": None, "median_robust": False}
+                pair[arm] = {"valid_runs": 0, "median": None}
+                values_by_arm[arm] = []
                 continue
             values = run_values(lane, summary)
+            values_by_arm[arm] = values
             entry = lane_stats(values)
             entry["invalid_runs"] = len(summary.get("invalid_runs", []))
             pair[arm] = entry
         stats[lane] = pair
-        rows.append(compare_lane(lane, pair["a"], pair["b"]))
-    verdict, reason = overall_verdict(rows)
+        rows.append(compare_lane(lane, pair["a"], pair["b"],
+                                 values_by_arm["a"], values_by_arm["b"]))
     state["stats"] = stats
     state["comparison"] = rows
+    state["capture_problems"] = problems
+
+    if problems:
+        # A rejected capture outranks every lane result. The per-lane numbers are
+        # still written, because they are the evidence of what was captured, but
+        # they must never be readable as a verdict.
+        verdict = "INVALID CAPTURE"
+        reason = (
+            f"{len(problems)} integrity problem(s) in the receipt; the comparison "
+            "below is NOT a verdict. First: " + problems[0]
+        )
+    else:
+        verdict, reason = overall_verdict(rows)
     state["verdict"] = verdict
     state["verdict_reason"] = reason
     state["evidence_class"] = EVIDENCE_CLASS
+    state["method"] = {
+        "point_estimate": "median of each arm's observations",
+        "decision": "Hodges-Lehmann shift (median of all pairwise B-A differences) "
+                    "with its exact distribution-free Mann-Whitney confidence interval",
+        "band_boundary": "(band - 1) x control median, i.e. the ratio band expressed "
+                         "as a shift",
+        "median_interval": "distribution-free sign-test order statistics (reported "
+                           "per arm for transparency; not the decision rule)",
+        "stall_count": "descriptive only; never used to certify the median it was "
+                       "measured against",
+        "fail_closed": "a lane whose shift interval spans its band boundary is "
+                       "inconclusive; a receipt failing validate_capture() is "
+                       "INVALID CAPTURE and cannot be read as a result",
+    }
     window.save(state)
 
     print()
     print(f"{'lane':<12} {'A median':>10} {'B median':>10} {'B/A':>7} {'band':>5}  "
-          f"{'stalls A/B':>10}  {'spread A/B (registered)':>26}  verdict")
+          f"{'shift CI (95%)':>24}  {'stalls A/B':>10}  verdict")
     for row in rows:
         lane = row["lane"]
         a, b = stats[lane]["a"], stats[lane]["b"]
         ratio = f"{row['ratio']:.4f}" if row.get("ratio") else "n/a"
         stalls = f"{a.get('stall_count', 0)}/{a.get('valid_runs', 0)} vs " \
                  f"{b.get('stall_count', 0)}/{b.get('valid_runs', 0)}"
-        spread = f"{a.get('registered_spread', float('nan')):.3f} / " \
-                 f"{b.get('registered_spread', float('nan')):.3f}"
+        if row.get("shift_ci_low") is not None:
+            interval = f"[{row['shift_ci_low']:+.2f}, {row['shift_ci_high']:+.2f}]"
+        else:
+            interval = "n/a"
         print(f"{lane:<12} {a.get('median') or float('nan'):>10.2f} "
               f"{b.get('median') or float('nan'):>10.2f} {ratio:>7} "
-              f"{row['band']:>5.2f}  {stalls:>10}  {spread:>26}  {row['verdict']}")
+              f"{row['band']:>5.2f}  {interval:>24}  {stalls:>10}  {row['verdict']}")
     print()
+    print("shift = B - A in the lane's own units; a positive shift means v1.4.9 is faster.")
+    print("The band boundary is a shift of (band - 1) x A median, shown per lane below.")
+    for row in rows:
+        if row.get("band_boundary_shift") is not None:
+            print(f"  {row['lane']:<12} boundary {row['band_boundary_shift']:+.4f}  "
+                  f"point shift {row['shift']:+.4f}  -> {row['verdict']}")
+    print()
+    if problems:
+        print("CAPTURE PROBLEMS (the verdict below is not a result):")
+        for problem in problems:
+            print(f"  - {problem}")
+        print()
     print(f"VERDICT: {verdict} — {reason}")
     print(f"evidence class: {EVIDENCE_CLASS}")
     settled = sum(1 for r in rows if stats[r["lane"]]["a"].get("registered_settled"))
     print(f"registered §6 variability gate would have been satisfied on {settled}/{len(rows)} arms")
+    print()
     print()
 
 
@@ -538,7 +912,16 @@ def main(argv: list[str] | None = None) -> int:
             log(f"could not write the final receipt: {exc!r}")
 
     log(f"receipt: {receipt}")
-    return 1 if failure is not None else 0
+    if failure is not None:
+        return 1
+    # A run that completed without a passing verdict is not a success. Without
+    # this, `--from report` on a damaged receipt would exit 0 while printing
+    # INVALID CAPTURE, and a caller checking only the exit status would read the
+    # failure as a pass.
+    if state.get("verdict") and state["verdict"] != "NO REGRESSION DETECTED":
+        log(f"verdict {state['verdict']!r} is not a pass; exiting 1")
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

@@ -449,9 +449,13 @@
     "stall_threshold": 32.17017034378116,
     "stall_count": 3,
     "stall_fraction": 0.14285714285714285,
-    "median_robust": true,
     "registered_spread": 0.6450032118596402,
     "registered_settled": false,
+    "low": 63.784442176451,
+    "high": 65.02424515895508,
+    "level": 0.9733963012695312,
+    "n": 21,
+    "order_statistic": 6,
     "invalid_runs": 0
    },
    "b": {
@@ -464,9 +468,13 @@
     "stall_threshold": 33.35425127602471,
     "stall_count": 1,
     "stall_fraction": 0.047619047619047616,
-    "median_robust": true,
     "registered_spread": 0.6378820207362359,
     "registered_settled": false,
+    "low": 66.34524588760456,
+    "high": 66.92454581958063,
+    "level": 0.9733963012695312,
+    "n": 21,
+    "order_statistic": 6,
     "invalid_runs": 0
    }
   },
@@ -481,9 +489,13 @@
     "stall_threshold": 12.000157880589326,
     "stall_count": 1,
     "stall_fraction": 0.047619047619047616,
-    "median_robust": true,
     "registered_spread": 0.6398021717571557,
     "registered_settled": false,
+    "low": 22.628332730322512,
+    "high": 25.031247043420006,
+    "level": 0.9733963012695312,
+    "n": 21,
+    "order_statistic": 6,
     "invalid_runs": 0
    },
    "b": {
@@ -496,9 +508,13 @@
     "stall_threshold": 12.587877302982536,
     "stall_count": 0,
     "stall_fraction": 0.0,
-    "median_robust": true,
     "registered_spread": 0.14897737488776341,
     "registered_settled": true,
+    "low": 24.87105289550975,
+    "high": 26.320128518459487,
+    "level": 0.9733963012695312,
+    "n": 21,
+    "order_statistic": 6,
     "invalid_runs": 0
    }
   },
@@ -513,9 +529,13 @@
     "stall_threshold": 14.747422188173218,
     "stall_count": 0,
     "stall_fraction": 0.0,
-    "median_robust": true,
     "registered_spread": 0.5856423431531428,
     "registered_settled": false,
+    "low": 26.813495282835735,
+    "high": 31.19494761888112,
+    "level": 0.9733963012695312,
+    "n": 21,
+    "order_statistic": 6,
     "invalid_runs": 0
    },
    "b": {
@@ -528,9 +548,13 @@
     "stall_threshold": 15.306524240925588,
     "stall_count": 0,
     "stall_fraction": 0.0,
-    "median_robust": true,
     "registered_spread": 0.1906268839141465,
     "registered_settled": true,
+    "low": 29.28846629708183,
+    "high": 32.930085576490065,
+    "level": 0.9733963012695312,
+    "n": 21,
+    "order_statistic": 6,
     "invalid_runs": 0
    }
   },
@@ -545,9 +569,13 @@
     "stall_threshold": 803.2915502127142,
     "stall_count": 0,
     "stall_fraction": 0.0,
-    "median_robust": true,
     "registered_spread": 0.16371695279632503,
     "registered_settled": true,
+    "low": 1417.2984895872792,
+    "high": 1611.9828534924159,
+    "level": 0.9609375,
+    "n": 9,
+    "order_statistic": 2,
     "invalid_runs": 0
    },
    "b": {
@@ -560,9 +588,13 @@
     "stall_threshold": 800.6385621390411,
     "stall_count": 0,
     "stall_fraction": 0.0,
-    "median_robust": true,
     "registered_spread": 0.12713629390048334,
     "registered_settled": true,
+    "low": 1597.1867372043498,
+    "high": 1609.1516010986068,
+    "level": 0.9609375,
+    "n": 9,
+    "order_statistic": 2,
     "invalid_runs": 0
    }
   },
@@ -577,9 +609,13 @@
     "stall_threshold": 792.5021499986132,
     "stall_count": 0,
     "stall_fraction": 0.0,
-    "median_robust": true,
     "registered_spread": 0.006322571732464025,
     "registered_settled": true,
+    "low": 1583.5863933817045,
+    "high": 1593.607696764701,
+    "level": 0.9375,
+    "n": 5,
+    "order_statistic": 1,
     "invalid_runs": 0
    },
    "b": {
@@ -592,9 +628,13 @@
     "stall_threshold": 792.2731622528512,
     "stall_count": 0,
     "stall_fraction": 0.0,
-    "median_robust": true,
     "registered_spread": 0.007178486842608007,
     "registered_settled": true,
+    "low": 1582.0158028904948,
+    "high": 1593.3904478324619,
+    "level": 0.9375,
+    "n": 5,
+    "order_statistic": 1,
     "invalid_runs": 0
    }
   }
@@ -607,7 +647,15 @@
    "candidate_median": 66.70850255204942,
    "ratio": 1.0368067970915313,
    "candidate_over_control_percent": 3.680679709153134,
-   "verdict": "non-inferior"
+   "shift": 2.1988622030027187,
+   "shift_ci_low": 1.6407779301135577,
+   "shift_ci_high": 2.759635522555925,
+   "shift_ci_level": 0.9509911221652911,
+   "band_boundary_shift": -1.9302102206268712,
+   "ratio_ci_low": 1.0255015424627794,
+   "ratio_ci_high": 1.0428912171285625,
+   "verdict": "non-inferior",
+   "reason": "shift interval [1.6408, 2.7596] lies at or above the band boundary -1.9302"
   },
   {
    "lane": "essay",
@@ -616,7 +664,15 @@
    "candidate_median": 25.17575460596507,
    "ratio": 1.0489759741697955,
    "candidate_over_control_percent": 4.897597416979549,
-   "verdict": "non-inferior"
+   "shift": 1.4923495840208822,
+   "shift_ci_low": 0.5438831834847342,
+   "shift_ci_high": 2.600686287132259,
+   "shift_ci_level": 0.9509911221652911,
+   "band_boundary_shift": -1.2000157880589337,
+   "ratio_ci_low": 1.0226615011609341,
+   "ratio_ci_high": 1.108360502962172,
+   "verdict": "non-inferior",
+   "reason": "shift interval [0.5439, 2.6007] lies at or above the band boundary -1.2000"
   },
   {
    "lane": "hashmap",
@@ -625,7 +681,15 @@
    "candidate_median": 30.613048481851177,
    "ratio": 1.037911849651985,
    "candidate_over_control_percent": 3.791184965198502,
-   "verdict": "non-inferior"
+   "shift": 1.6544298830509874,
+   "shift_ci_low": -0.14527413380476872,
+   "shift_ci_high": 3.2752943524706453,
+   "shift_ci_level": 0.9509911221652911,
+   "band_boundary_shift": -1.4747422188173231,
+   "ratio_ci_low": 0.9950745922931103,
+   "ratio_ci_high": 1.1110463344264088,
+   "verdict": "non-inferior",
+   "reason": "shift interval [-0.1453, 3.2753] lies at or above the band boundary -1.4747"
   },
   {
    "lane": "prefill60k",
@@ -634,7 +698,15 @@
    "candidate_median": 1601.2771242780823,
    "ratio": 0.9966973534416358,
    "candidate_over_control_percent": -0.33026465583642084,
-   "verdict": "non-inferior"
+   "shift": -2.4779252232694944,
+   "shift_ci_low": -10.52866361614133,
+   "shift_ci_high": 16.796976655323988,
+   "shift_ci_level": 0.9600164541341012,
+   "band_boundary_shift": -80.32915502127149,
+   "ratio_ci_low": 0.9934465490061776,
+   "ratio_ci_high": 1.0104550935777155,
+   "verdict": "non-inferior",
+   "reason": "shift interval [-10.5287, 16.7970] lies at or above the band boundary -80.3292"
   },
   {
    "lane": "prefill240k",
@@ -643,10 +715,27 @@
    "candidate_median": 1584.5463245057024,
    "ratio": 0.9997110572561066,
    "candidate_over_control_percent": -0.028894274389335006,
-   "verdict": "non-inferior"
+   "shift": -0.47685043311025765,
+   "shift_ci_low": -9.061372258998517,
+   "shift_ci_high": 8.386147835235533,
+   "shift_ci_level": 0.9682539682539683,
+   "band_boundary_shift": -79.25021499986138,
+   "ratio_ci_low": 0.994283061403042,
+   "ratio_ci_high": 1.0052909306525226,
+   "verdict": "non-inferior",
+   "reason": "shift interval [-9.0614, 8.3861] lies at or above the band boundary -79.2502"
   }
  ],
  "verdict": "NO REGRESSION DETECTED",
- "verdict_reason": "every lane's median is at or above its pre-registered band, with the median trustworthy on both arms",
- "finished": "2026-09-11T13:18:14-0400"
+ "verdict_reason": "every lane's ratio interval lies at or above its pre-registered band",
+ "finished": "2026-09-11T13:18:14-0400",
+ "capture_problems": [],
+ "method": {
+  "point_estimate": "median of each arm's observations",
+  "decision": "Hodges-Lehmann shift (median of all pairwise B-A differences) with its exact distribution-free Mann-Whitney confidence interval",
+  "band_boundary": "(band - 1) x control median, i.e. the ratio band expressed as a shift",
+  "median_interval": "distribution-free sign-test order statistics (reported per arm for transparency; not the decision rule)",
+  "stall_count": "descriptive only; never used to certify the median it was measured against",
+  "fail_closed": "a lane whose shift interval spans its band boundary is inconclusive; a receipt failing validate_capture() is INVALID CAPTURE and cannot be read as a result"
+ }
 }

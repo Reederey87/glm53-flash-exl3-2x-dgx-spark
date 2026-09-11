@@ -340,12 +340,49 @@ slower than v1.4.7 on these lanes?* — and answered with an estimator a couple 
 stalls cannot move. `scripts/diagnose_v149_ab.py` boots arm A (v1.4.7) and arm B
 (v1.4.9), each once, and takes **21 observations per decode lane** (prefill
 keeps the registered 9 and 5, since those lanes are tight and a 240k prefill
-observation costs minutes), comparing **medians**. A median cannot be moved by
-fewer than half the observations, so it is a valid central estimate while fewer
-than half the runs are stalls; the receipt reports that per lane as
-`median_robust` rather than assuming it, and also records each lane's registered
-`(max - min) / median` spread so the receipt shows what the registered gate
-would have concluded.
+observation costs minutes), comparing **medians**. The receipt also records each
+lane's registered `(max - min) / median` spread, so it shows what the registered
+gate would have concluded.
+
+**How a lane is decided.** The point estimate is the median ratio, but the
+verdict comes from a **Hodges-Lehmann shift interval**: the median of all
+pairwise `B - A` differences, with its exact distribution-free Mann-Whitney
+confidence interval. The null distribution of the Mann-Whitney `U` statistic
+depends only on the two sample sizes, so nothing is assumed about the shape of
+the distribution and nothing about which observations are stalls. The §6 band is
+a ratio bound, so the interval is translated into shift terms: a shift of
+`(band - 1) x A median` is exactly the band boundary. A lane whose interval
+**spans** that boundary is reported inconclusive rather than rounded to whichever
+side its point estimate fell on, which is what makes a wide or contaminated lane
+fail closed instead of quietly becoming a pass.
+
+**A first attempt at this was circular, and review caught it.** That version
+gated on a `median_robust` flag which counted observations below half their own
+median and called the lane trustworthy when fewer than half qualified. For
+positive values and odd `n` — including every default count — fewer than half
+*always* qualify, so the flag could not detect majority contamination: eleven
+observations at 30 with ten at 100 gave a median of 30 and still reported
+"robust". The accompanying invariance claim was wrong too, because the median's
+50% breakdown point bounds how far it can be *moved*, not whether replacing a
+minority can move it: replacing three of twenty-one observations in
+`[90]x10 + [100]x11` moves the median from 100 to 90. The flag has been removed
+entirely. `stall_count` survives as a descriptive number, never used to certify
+the median it was measured against, and both counterexamples are now regression
+tests. (A near-50/50 bimodal arm still yields inconclusive rather than a verdict,
+which is the honest answer: such a sample genuinely cannot say where its centre
+is.)
+
+**The report validates the capture before issuing a verdict.** `--from report`
+and a resume after a late failure are both reachable with every lane file present
+but the capture rejected, so reading those files and printing a verdict would
+launder a failed run into a pass. `validate_capture()` requires the completed
+phases, no failed phase, no phase left in progress, the measured image and
+exllamav3 version to match the arm, the measured boot to be the armed boot, zero
+preemption deltas, a registered successful block per lane whose path is the
+selected evidence file, the requested observation count, no invalid runs, finite
+positive values, and `any_cache_hit` false on prefill lanes. Any failure yields
+**INVALID CAPTURE** and a non-zero exit; the per-lane numbers are still written
+as evidence, but they cannot be read as a result.
 
 **This is diagnostic evidence, not §6 qualification.** It does not satisfy the
 pre-registered contract, `audit_v149_qualification.py` does not consume its
@@ -363,27 +400,32 @@ because that function's sample sizes *are* the pre-registered §6 contract; the
 **Result (2026-09-11, receipt `local/task35b-diag-20260911T1555Z.json`).** Arm A
 ran v1.4.7 and arm B v1.4.9, each with its own verified boot, ~73 minutes total.
 
-| lane | A median | B median | B/A | band | stalls A/B | registered spread A/B | verdict |
-|---|---|---|---|---|---|---|---|
-| structured | 64.34 | 66.71 | 1.0368 | 0.97 | 3/21 vs 1/21 | 0.645 / 0.638 | non-inferior |
-| essay | 24.00 | 25.18 | 1.0490 | 0.95 | 1/21 vs 0/21 | 0.640 / 0.149 | non-inferior |
-| hashmap | 29.49 | 30.61 | 1.0379 | 0.95 | 0/21 vs 0/21 | 0.586 / 0.191 | non-inferior |
-| prefill60k | 1606.58 | 1601.28 | 0.9967 | 0.95 | 0/9 vs 0/9 | 0.164 / 0.127 | non-inferior |
-| prefill240k | 1585.00 | 1584.55 | 0.9997 | 0.95 | 0/5 vs 0/5 | 0.006 / 0.007 | non-inferior |
+| lane | A median | B median | B/A | band | shift CI (95%) | stalls A/B | registered spread A/B | verdict |
+|---|---|---|---|---|---|---|---|---|
+| structured | 64.34 | 66.71 | 1.0368 | 0.97 | [+1.64, +2.76] | 3/21 vs 1/21 | 0.645 / 0.638 | non-inferior |
+| essay | 24.00 | 25.18 | 1.0490 | 0.95 | [+0.54, +2.60] | 1/21 vs 0/21 | 0.640 / 0.149 | non-inferior |
+| hashmap | 29.49 | 30.61 | 1.0379 | 0.95 | [-0.15, +3.28] | 0/21 vs 0/21 | 0.586 / 0.191 | non-inferior |
+| prefill60k | 1606.58 | 1601.28 | 0.9967 | 0.95 | [-10.53, +16.80] | 0/9 vs 0/9 | 0.164 / 0.127 | non-inferior |
+| prefill240k | 1585.00 | 1584.55 | 0.9997 | 0.95 | [-9.06, +8.39] | 0/5 vs 0/5 | 0.006 / 0.007 | non-inferior |
+
+The shift is `B - A` in the lane's own units, so a positive shift means v1.4.9 is
+faster; the band boundary is the same quantity expressed as
+`(band - 1) x A median`. Every lane's interval clears its boundary:
+structured +1.64 against -1.93, essay +0.54 against -1.20, hashmap -0.15 against
+-1.47, prefill60k -10.53 against -80.33, prefill240k -9.06 against -79.25.
 
 **NO REGRESSION DETECTED.** v1.4.9 is ~3.7–4.9% *faster* on all three decode
-lanes and identical on prefill within 0.3%. Every lane's median is trustworthy
-on both arms (`median_robust` true throughout; MAD/median between 0.0009 and
-0.073), and no lane is close to its band.
+lanes and identical on prefill within 0.3%. No lane's interval comes near its
+boundary, and `validate_capture()` returned zero problems, so this is a decided
+result rather than one rescued from a damaged receipt.
 
 The receipt also shows why the registered window could not answer this: on arm A
 alone the `(max - min) / median` spread was **0.645** (structured), **0.640**
 (essay) and **0.586** (hashmap) — three of five lanes past the 0.30 gate — driven
 by the transient stalls, which were observed in the raw runs (a structured
 observation at 24.73 tok/s against 61–66 for its neighbours, a ~2.6x drop) and
-whose count varied between arms. The medians are unaffected: the stalls are
-visible in `stall_count` and in the registered spread, and the central estimate
-did not move.
+whose count varied between arms. Those stalls are visible in `stall_count` and in
+the registered spread; the shift interval absorbed them without moving.
 
 Production was restored byte-for-byte (`.env` sha256 identical to the pre-run
 backup, no leftover diagnostic `IMAGE=` line, both nodes back on
@@ -509,10 +551,11 @@ not certify that execution either.
 
 ### Review rounds
 
-Seven review rounds ran against the harness, the launcher fixes, and the probe's
-replacement coldness proof. Rounds 1–4 covered the §6 harness; round 5 covered
-the launcher changes in §4; rounds 6–7 covered the coldness proof described
-under "The first §6 attempt failed on unavailable cache telemetry".
+Eight review rounds ran against the harness, the launcher fixes, the probe's
+replacement coldness proof, and the paired diagnostic. Rounds 1–4 covered the §6
+harness; round 5 covered the launcher changes in §4; rounds 6–7 covered the
+coldness proof described under "The first §6 attempt failed on unavailable cache
+telemetry"; round 8 covered the diagnostic.
 
 - **Round 1 — eleven findings.** Two would have aborted a healthy window, two
   would have produced wrong numbers, and the rest were fail-closed or evidence
@@ -548,6 +591,19 @@ under "The first §6 attempt failed on unavailable cache telemetry".
   `0a73b58`; the reviewer's counterexample became a regression test, and the
   final verdict was **APPROVED** — "no remaining demonstrated path accepts a
   warm request as cold".
+- **Round 8 — two findings against the paired diagnostic, both real.** The first
+  was the circular `median_robust` gate and its false invariance claim, with two
+  worked counterexamples (see "A first attempt at this was circular" above); the
+  fix replaces it with a distribution-free Hodges-Lehmann shift interval. The
+  second was that `phase_report` ignored failed phases, registered blocks,
+  preemption deltas, requested counts, and correctness flags, so `--from report`
+  on a rejected capture printed NO REGRESSION DETECTED — the reviewer reached
+  that verdict after a failed preemption check, and offline with 1/9 prefill
+  observations, an invalid run, and `any_cache_hit=True`. The fix adds
+  `validate_capture()`, which yields INVALID CAPTURE and a non-zero exit. Both
+  defects were reproduced against the pre-fix revision before the fixes landed,
+  and the counterexamples are now regression tests (34 of the new tests failed
+  pre-fix).
 
 ### The 507 MHz clock cap CLEARED — and how (2026-09-11)
 
