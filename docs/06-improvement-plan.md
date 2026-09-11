@@ -3507,13 +3507,25 @@ the probe is worth keeping:
 
 - The destination must be `.b8` with `st.global.u8`. `.b32`/`st.global.u32` makes
   ptxas reject the instruction ("Arguments mismatch for instruction 'cvt'") and
-  the driver then rejects the module with `CUDA_ERROR_INVALID_PTX` (218).
+  the driver then rejects the module with `CUDA_ERROR_INVALID_PTX` (218). The PTX
+  ISA says so directly: "When converting to .e2m1x2 data formats, the destination
+  operand d has .b8 type."
 - The operands must be passed as **kernel parameters**. With
-  `mov.f32 %f1, 0f3F800000` ptxas materializes only the top byte of each constant
-  and **every case reads `0x00`** — a clean, silent, wrong answer that would have
-  been reported as a hardware result.
+  `mov.f32 %f1, 0f3F800000` **every case read `0x00`** — a clean, silent, wrong
+  answer that would otherwise have been reported as a hardware result. The
+  immediate form's root cause was never established: `mov.f32` with a valid
+  immediate is legal PTX a conforming ptxas must materialize, so a ptxas defect is
+  a hypothesis, not a finding, and a bug in that earlier probe variant explains
+  the same symptom. Nothing rests on it — the parameter-fed form is correct
+  regardless, and the judge rejects an all-`0x00` result outright.
 - `kernelParams` is an array of pointers, one per parameter; passing a pointer to
   a whole argument struct segfaults the host process.
+
+The PTX ISA document does **not** list `cvt.rn.satfinite.e2m1x2.f32` for
+`sm_121a` (it lists sm_100a/sm_110a/sm_120a and their family variants), so
+ptxas 13.0.88 accepting `.target sm_121a` is toolchain behaviour beyond the
+documented matrix. These receipts, not the document, are what establish GB10
+behaviour — which is why the silicon probe was worth running.
 
 The recorded `0x42` for `(1.0, 2.0)` is consistent with the original probe having
 been fed `(2.0, 1.0)`; under the spec order that pair encodes as `0x24`. The

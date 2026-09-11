@@ -7,42 +7,75 @@ alongside production.
 Probe: scripts/probe_isa_e2m1_silicon.py (driver-JIT, no host compiler needed)
 Images/containers: throwaway `glm53-selfbuild:e3-w3-zfill-v149` runs, --gpus all,
 production `glm53-exl3-head` left up and healthy (health 200) throughout.
-Receipts: local/isa-probe-spark1-20260911.json, local/isa-probe-spark2-20260911.json
+Receipts (authoritative): local/isa-probe-spark1-20260911.json,
+local/isa-probe-spark2-20260911.json. The two case lists are identical.
 
 VERDICT
   spark1 (head):   SILICON_CONFIRMED  12/12 cases match the PTX ISA, 0 reversed
   spark2 (worker): SILICON_CONFIRMED  12/12 cases match the PTX ISA, 0 reversed
   ptxas re-check:  rc=0 for -arch=sm_121a (item 1's toolchain half re-confirmed)
 
-  a       b       observed   expected (a -> high nibble, b -> low)
-  1.0     2.0     0x24       0x24
-  6.0     6.0     0x77       0x77
-  0.5     0.5     0x11       0x11
-  4.0     1.0     0x62       0x62
-  -1.0    -6.0    0xaf       0xaf
-  3.0     5.0     0x56       0x56
-  100.0   1e30    0x77       0x77   (saturates)
-  -100.0  -1e30   0xff       0xff   (saturates)
-  0.4     1.2     0x12       0x12   (rounds down)
-  0.6     2.7     0x15       0x15   (rounds up)
-  0.25    0.75    0x02       0x02   (tie -> nearest even; recorded, not gated)
-  2.0     1.0     0x42       0x42   (the value recorded in the task 38 note)
+Case table, transcribed from the receipts (a -> upper nibble, b -> lower):
 
-  The 0x42 recorded against "(1.0, 2.0)" is consistent with the operand order
-  (2.0, 1.0). With the spec order it would be 0x24. Nothing depends on which it
-  was; the observed table is authoritative.
+  case                      a        b       observed   tie
+  recorded-reversed-2.0-1.0 2.0      1.0     0x42       -
+  zero                      0.0      0.0     0x00       -
+  half                      0.5      0.5     0x11       -
+  distinct-1.0-2.0          1.0      2.0     0x24       -
+  distinct-4.0-1.0          4.0      1.0     0x62       -
+  top-of-range              6.0      6.0     0x77       -
+  negative                 -1.0     -6.0     0xaf       -
+  saturate-high           100.0      1e30    0x77       -
+  saturate-low           -100.0     -1e30    0xff       -
+  round-down                0.4      1.2     0x12       -
+  round-up                  0.6      2.7     0x15       -
+  tie-0.25-0.75             0.25     0.75    0x02       yes
 
-FOUR FINDINGS THAT MADE THE PROBE WORK (all were failures first)
+  All twelve match the PTX-specified encoding. The tie case is recorded but not
+  gated (see the rounding note below).
+
+  The 0x42 recorded in the original task 38 note against "(1.0, 2.0)" is
+  consistent with the operand order (2.0, 1.0). Under the spec order that pair
+  encodes as 0x24, and both appear in the table above, so the two orders are
+  distinguished on silicon rather than assumed. Nothing depends on which the
+  original probe used; this table is authoritative.
+
+FOUR FINDINGS THAT MADE THE PROBE WORK (each was a failure first)
   1. Destination is .b8 with `st.global.u8`. Declaring .b32 / st.global.u32 makes
      ptxas reject the instruction ("Arguments mismatch for instruction 'cvt'"),
      and the driver then rejects the module with CUDA_ERROR_INVALID_PTX (218).
+     The PTX ISA states this directly: "When converting to .e2m1x2 data formats,
+     the destination operand d has .b8 type."
   2. Operands must come from memory, NOT immediates. With
-     `mov.f32 %f1, 0f3F800000` ptxas materializes only the top byte of the
-     constant and EVERY case reads 0x00 — a clean, silent, wrong answer. Passing
-     the two floats as kernel parameters is correct.
+     `mov.f32 %f1, 0f3F800000` the observed result was 0x00 for EVERY case — a
+     clean, silent, wrong answer. Passing the two floats as kernel parameters
+     produces correct values. NOTE: the immediate form was observed on the
+     cluster but not root-caused. `mov.f32` with a valid immediate is legal PTX
+     that a conforming ptxas must materialize, so "ptxas drops the low bytes" is
+     a hypothesis, not an established fact; a latent bug in the earlier probe
+     variant would explain the same symptom. The parameter-fed form is correct
+     regardless, and the judge rejects the all-0x00 failure mode outright, so
+     nothing here rests on the root cause. (Cheap confirmation if ever wanted:
+     nvdisasm the immediate variant on the cluster.)
   3. kernelParams is an array of POINTERS, one per kernel parameter. Passing a
      pointer to a whole argument struct segfaults the host process.
-  4. a -> upper nibble, b -> lower nibble, per PTX ISA and confirmed on silicon.
+  4. a -> upper nibble, b -> lower nibble, per PTX ISA ("the value converted from
+     input a is stored in the upper 4 bits of d and the value converted from
+     input b is stored in the lower 4 bits of d") and confirmed on silicon.
+
+ROUNDING NOTE
+  cvt.rn is round-to-nearest-even. The reference encoder implements that, but
+  the exact-midpoint case is RECORDED AND EXCLUDED from the gate: a hand-written
+  reference is least entitled to assume the tie rule. On silicon the one
+  midpoint pair run (0.25, 0.75) returned 0x02, which is the RNE answer, so the
+  tie rule is corroborated rather than merely assumed.
+
+PTX ISA DOC GAP (why the silicon evidence is the only authority)
+  The current PTX ISA document lists cvt.rn.satfinite.e2m1x2.f32 for
+  sm_100a/sm_110a/sm_120a and their family variants, and does NOT list sm_121a —
+  unlike, for example, .s2f6x2 cvt, which does list it. ptxas 13.0.88 accepting
+  .target sm_121a is therefore toolchain behaviour beyond the documented matrix.
+  The probe's receipts, not the document, are what establish GB10 behaviour.
 
 NO WINDOW REQUIRED (this supersedes the task 38 item 2 framing)
   The item was scoped as "blocked on a stopped maintenance window" because the
@@ -53,3 +86,8 @@ NO WINDOW REQUIRED (this supersedes the task 38 item 2 framing)
   not the primary context. Hence the ISA phase was removed from
   scripts/run_v149_qualification_window.py — the window must not stop production
   for this.
+
+NOT IN SCOPE
+  Hardware NaN behaviour under satfinite is untested: the reference encoder
+  raises on NaN by design and no NaN case is run. Nothing in this task claims
+  otherwise.

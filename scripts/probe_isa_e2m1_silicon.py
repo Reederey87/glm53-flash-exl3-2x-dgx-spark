@@ -21,11 +21,16 @@ Three measured facts are load-bearing and are asserted by the tests:
 1. **The destination is `.b8` and the store is `st.global.u8`.** Declaring
    `.b32`/`st.global.u32` makes ptxas reject the instruction ("Arguments
    mismatch for instruction 'cvt'"), and the driver JIT then rejects the module
-   with `CUDA_ERROR_INVALID_PTX` (218).
+   with `CUDA_ERROR_INVALID_PTX` (218). The PTX ISA states this directly: "When
+   converting to .e2m1x2 data formats, the destination operand d has .b8 type."
 2. **The operands must come from memory, not immediates.** With `mov.f32 %f1,
-   0f3F800000` ptxas materializes only the top byte of each constant and every
-   case reads `0x00`; passing the two floats as kernel *parameters* produces the
-   correct values. The probe therefore passes them as parameters.
+   0f3F800000` every case read `0x00`; passing the two floats as kernel
+   *parameters* produces the correct values. The immediate form's root cause was
+   never established — `mov.f32` with a valid immediate is legal PTX that a
+   conforming ptxas must materialize, so "ptxas drops the low bytes" is a
+   hypothesis, not a fact, and a bug in that earlier probe variant would explain
+   the same symptom. Nothing here depends on it: the parameter-fed form is
+   unambiguously correct, and `judge` rejects an all-`0x00` result outright.
 3. **`a` lands in the upper nibble and `b` in the lower**, matching the PTX ISA
    ("the value converted from input a is stored in the upper 4 bits of d and the
    value converted from input b is stored in the lower 4 bits of d").
@@ -41,13 +46,12 @@ from __future__ import annotations
 import argparse
 import ctypes
 import json
-import struct
 import subprocess
 import sys
 from pathlib import Path
 
-# One kernel, three parameters. Immediates are deliberately not used: ptxas
-# mis-materializes them for this instruction (see the module docstring).
+# One kernel, three parameters. Immediates are deliberately not used: they read
+# back as 0x00 for this instruction (see the module docstring).
 PTX = """.version 9.0
 .target sm_121a
 .address_size 64
