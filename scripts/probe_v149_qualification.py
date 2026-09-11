@@ -90,10 +90,17 @@ TASK = "Reply with OK."
 PREFILL_TARGET_TOLERANCE = 0.05
 NAN_RE = re.compile(r"\bnan\b|locklock", re.I)
 SPEC_RE = re.compile(r"^(vllm:spec_decode_[a-zA-Z0-9_]+)\{([^}]*)\}\s+(\S+)$")
-# Engine-side prefix-cache counters. These carry label sets, so the value is
-# summed across them; `_created` gauges are excluded by the `_total` anchor.
+# Engine-side prefix-cache counters, kept per label set rather than summed.
 PREFIX_CACHE_RE = re.compile(
     r"^vllm:prefix_cache_(queries|hits)_total\{([^}]*)\}\s+(\S+)$"
+)
+# The matching `_created` gauges: each records the epoch second at which its
+# counter series was created, i.e. the counter's LIFETIME. This is the only
+# evidence that can expose a reset which catch-up traffic has already hidden —
+# two samples alone cannot, because a reset counter can climb back above its
+# earlier value while the lifetime underneath it has changed.
+PREFIX_CACHE_CREATED_RE = re.compile(
+    r"^vllm:prefix_cache_(queries|hits)_created\{([^}]*)\}\s+(\S+)$"
 )
 
 
@@ -152,12 +159,16 @@ def spec_snapshot() -> dict[str, float]:
 
 
 def prefix_cache_snapshot() -> dict[str, float]:
-    """Engine-side prefix-cache counters, summed over their label sets.
+    """Engine-side prefix-cache counters, keyed by their FULL label set.
 
-    Returns an EMPTY dict when /metrics is unreadable or the counters are
-    absent. The caller must treat that as "cannot prove cold" — never as zero,
-    which is the whole point of sampling the engine instead of trusting a
-    client-visible field.
+    Kept per-series rather than summed so a counter reset can be detected: a
+    reset masked by catch-up traffic nets to a plausible positive delta, which
+    is exactly the case aggregate subtraction cannot see.
+
+    Returns an EMPTY dict when /metrics is unreadable, the counters are absent,
+    or any sample is malformed / non-finite / negative. The caller must treat
+    that as "cannot prove cold" — never as zero, which is the whole point of
+    sampling the engine instead of trusting a client-visible field.
     """
     out: dict[str, float] = {}
     try:
@@ -166,18 +177,64 @@ def prefix_cache_snapshot() -> dict[str, float]:
         return {}
     for line in body.splitlines():
         match = PREFIX_CACHE_RE.match(line)
+        prefix = ""
+        if not match:
+            match = PREFIX_CACHE_CREATED_RE.match(line)
+            prefix = "created:"
         if not match:
             continue
-        out[match.group(1)] = out.get(match.group(1), 0.0) + float(match.group(3))
+        kind, labels, raw = match.group(1), match.group(2), match.group(3)
+        try:
+            value = float(raw)
+        except ValueError:
+            return {}  # one malformed sample invalidates the whole snapshot
+        if not math.isfinite(value) or value < 0:
+            return {}
+        out[f"{prefix}{kind}{{{labels}}}"] = value
     return out
 
 
 def prefix_cache_delta(before: dict[str, float], after: dict[str, float]) -> dict:
-    """Per-request prefix-cache deltas; None when either sample is unusable."""
-    out: dict[str, float | None] = {"queries_delta": None, "hits_delta": None}
-    for key, field in (("queries", "queries_delta"), ("hits", "hits_delta")):
-        if key in before and key in after:
-            out[field] = after[key] - before[key]
+    """Per-request prefix-cache deltas; None when the samples are not comparable.
+
+    A delta is only reported when the two snapshots describe the SAME counter
+    lifetime, proved three ways:
+
+    1. identical ``_created`` gauges, and at least one present — this is the
+       lifetime evidence, and the only thing that catches a reset which
+       catch-up traffic has already masked;
+    2. identical series membership;
+    3. every series non-decreasing, with a finite non-negative result.
+
+    Any failure withholds BOTH deltas, so the caller reads "cannot prove cold"
+    rather than a netted-out number.
+    """
+    none: dict[str, float | None] = {"queries_delta": None, "hits_delta": None}
+    if not before or not after:
+        return none
+    before_life = {k: v for k, v in before.items() if k.startswith("created:")}
+    after_life = {k: v for k, v in after.items() if k.startswith("created:")}
+    if not before_life or before_life != after_life:
+        return none
+    before_series = {k: v for k, v in before.items() if not k.startswith("created:")}
+    after_series = {k: v for k, v in after.items() if not k.startswith("created:")}
+    if not before_series or set(before_series) != set(after_series):
+        return none
+    sums = {"queries": 0.0, "hits": 0.0}
+    seen = {"queries": False, "hits": False}
+    for key, earlier in before_series.items():
+        later = after_series[key]
+        if not math.isfinite(earlier) or not math.isfinite(later) or later < earlier:
+            return none  # reset, or unusable sample: not attributable
+        kind = key.split("{", 1)[0]
+        if kind in sums:
+            sums[kind] += later - earlier
+            seen[kind] = True
+    out: dict[str, float | None] = dict(none)
+    for kind in ("queries", "hits"):
+        total = sums[kind]
+        if seen[kind] and math.isfinite(total) and total >= 0:
+            out[f"{kind}_delta"] = total
     return out
 
 
@@ -435,6 +492,11 @@ def prefill_run_invalid(run: dict) -> str | None:
         hits_delta = run.get("cache_hits_delta")
         if queries_delta is None or hits_delta is None:
             return "no prefix-cache telemetry (cannot prove the run was cold)"
+        # `NaN < prompt_tokens` is False, so a non-finite delta would slip past
+        # the attribution guard below and be accepted with no evidence. Checked
+        # here as well as in the sampler, because this is the decision boundary.
+        if not (math.isfinite(queries_delta) and math.isfinite(hits_delta)):
+            return "non-finite prefix-cache telemetry (cannot prove the run was cold)"
         if queries_delta < run["prompt_tokens"]:
             # The counters did not account for this run's tokens, so either they
             # are frozen or the run was not the only traffic. Either way the
@@ -448,6 +510,22 @@ def prefill_run_invalid(run: dict) -> str | None:
     if run["nan"]:
         return "NaN/locklock marker in output"
     return None
+
+
+def cache_hit_observed(run: dict) -> bool:
+    """Did this run show a cache hit? Same source precedence as validation.
+
+    The per-request field is authoritative when the server emits it; the engine
+    counters are consulted only when it does not. Consulting BOTH here would let
+    another client's aggregate hits mark a run warm that the per-request field
+    proved cold — and the auditor turns `any_cache_hit` into an ABORT, so that
+    would reject a correctly measured observation.
+    """
+    cached = run.get("cached_tokens")
+    if cached is not None:
+        return cached != 0
+    hits = run.get("cache_hits_delta")
+    return bool(hits) and hits != 0
 
 
 def summarize(kind: str, runs: list[dict], invalid: list[dict]) -> dict:
@@ -485,15 +563,11 @@ def summarize(kind: str, runs: list[dict], invalid: list[dict]) -> dict:
         out["accept_ratio_median"] = statistics.median(ratios) if ratios else None
         out["any_nan"] = any(r["nan"] for r in runs)
     else:
-        # Every accepted prefill run proved zero cache hits, from the
-        # per-request field or from the engine counters, so this can only be
-        # true for a run that was rejected as warm. Kept as an explicit
-        # self-check over both lists rather than a tautology over `runs`.
-        out["any_cache_hit"] = any(
-            (r.get("cached_tokens") or 0) != 0
-            or (r.get("cache_hits_delta") or 0) != 0
-            for r in runs + invalid
-        )
+        # Every accepted prefill run proved zero cache hits from whichever
+        # source was authoritative for it, so this can only be true for a run
+        # that was rejected as warm. Kept as an explicit self-check over both
+        # lists rather than a tautology over `runs`.
+        out["any_cache_hit"] = any(cache_hit_observed(r) for r in runs + invalid)
     return out
 
 

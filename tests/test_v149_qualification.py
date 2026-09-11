@@ -164,16 +164,18 @@ def test_prefill_run_invalid_rejects(kwargs, needle):
     assert reason is not None and needle in reason
 
 
-def test_prefix_cache_snapshot_sums_label_sets_and_fails_closed():
-    """Counters carry label sets and are summed; an unreadable /metrics returns
-    an empty dict, which the caller must read as "unknown", never as zero."""
+def test_prefix_cache_snapshot_keeps_series_identity_and_fails_closed():
+    """Counters are kept per label set, not summed: summing before subtracting
+    hides a reset inside one series. The `_created` lifetime gauges are captured
+    too. An unreadable or malformed /metrics returns an empty dict, which the
+    caller must read as "unknown", never as zero."""
     body = "\n".join([
         '# HELP vllm:prefix_cache_hits_total hits',
         'vllm:prefix_cache_hits_total{engine="0",model_name="m"} 66176.0',
         'vllm:prefix_cache_hits_total{engine="1",model_name="m"} 24.0',
         'vllm:prefix_cache_queries_total{engine="0",model_name="m"} 133594.0',
-        # A `_created` gauge must not be mistaken for the counter.
-        'vllm:prefix_cache_hits_created{engine="0"} 1.789e+09',
+        'vllm:prefix_cache_hits_created{engine="0",model_name="m"} 1.7891368802472744e+09',
+        'vllm:prefix_cache_queries_created{engine="0",model_name="m"} 1.7891368802460744e+09',
     ])
     real_get = probe._get
     probe._get = lambda *a, **k: body
@@ -181,7 +183,22 @@ def test_prefix_cache_snapshot_sums_label_sets_and_fails_closed():
         snap = probe.prefix_cache_snapshot()
     finally:
         probe._get = real_get
-    assert snap == {"hits": 66200.0, "queries": 133594.0}
+    assert snap == {
+        'hits{engine="0",model_name="m"}': 66176.0,
+        'hits{engine="1",model_name="m"}': 24.0,
+        'queries{engine="0",model_name="m"}': 133594.0,
+        'created:hits{engine="0",model_name="m"}': 1.7891368802472744e9,
+        'created:queries{engine="0",model_name="m"}': 1.7891368802460744e9,
+    }
+
+    for bad in ("NaN", "inf", "-1", "not-a-number"):
+        probe._get = lambda *a, **k: (
+            'vllm:prefix_cache_queries_total{engine="0"} ' + bad
+        )
+        try:
+            assert probe.prefix_cache_snapshot() == {}, bad
+        finally:
+            probe._get = real_get
 
     def boom(*a, **k):
         raise OSError("metrics down")
@@ -193,18 +210,103 @@ def test_prefix_cache_snapshot_sums_label_sets_and_fails_closed():
         probe._get = real_get
 
 
-def test_prefix_cache_delta_is_none_when_either_sample_is_unusable():
-    assert probe.prefix_cache_delta({}, {"hits": 1.0, "queries": 2.0}) == {
+LIFE = {'created:queries{engine="0"}': 1.789e9, 'created:hits{engine="0"}': 1.789e9}
+
+
+def test_prefix_cache_delta_rejects_a_reset_hidden_by_catch_up():
+    """Review finding: subtracting aggregated totals cannot see a counter reset
+    followed by enough new traffic. before (queries=60000, hits=512) and after a
+    reset (queries=120000, hits=512) net to (60000, 0) — an accepted cold run
+    even though the new lifetime contains 512 hits. Nothing DECREASED between
+    the samples, so a no-decrease rule alone cannot catch it either: the reset
+    is visible only in the `_created` lifetime gauges."""
+    before = {'queries{engine="0"}': 60000.0, 'hits{engine="0"}': 512.0, **LIFE}
+    after_same_lifetime = {'queries{engine="0"}': 120000.0, 'hits{engine="0"}': 512.0, **LIFE}
+    # Same lifetime and a genuine increase: reported.
+    assert probe.prefix_cache_delta(before, after_same_lifetime) == {
+        "queries_delta": 60000.0,
+        "hits_delta": 0.0,
+    }
+    # THE REPRO: same numbers, but the counters were recreated in between.
+    after_reset = {
+        'queries{engine="0"}': 120000.0,
+        'hits{engine="0"}': 512.0,
+        'created:queries{engine="0"}': 1.789e9 + 42,
+        'created:hits{engine="0"}': 1.789e9 + 42,
+    }
+    assert probe.prefix_cache_delta(before, after_reset) == {
         "queries_delta": None,
         "hits_delta": None,
     }
-    assert probe.prefix_cache_delta({"hits": 5.0}, {"hits": 5.0, "queries": 9.0}) == {
-        "queries_delta": None,
-        "hits_delta": 0.0,
-    }
+    # Lifetime evidence missing entirely is not evidence of a stable lifetime.
     assert probe.prefix_cache_delta(
-        {"hits": 5.0, "queries": 100.0}, {"hits": 5.0, "queries": 160.0}
+        {'queries{engine="0"}': 1.0}, {'queries{engine="0"}': 2.0}
+    ) == {"queries_delta": None, "hits_delta": None}
+    # A reset in ONE series is enough, even when the total still rises.
+    multi_before = {'hits{engine="0"}': 500.0, 'hits{engine="1"}': 500.0, **LIFE}
+    multi_after = {'hits{engine="0"}': 0.0, 'hits{engine="1"}': 1200.0, **LIFE}
+    assert probe.prefix_cache_delta(multi_before, multi_after)["hits_delta"] is None
+    # Membership changes are a lifetime change too.
+    assert probe.prefix_cache_delta(
+        {'hits{engine="0"}': 1.0, **LIFE},
+        {'hits{engine="0"}': 1.0, 'hits{engine="1"}': 0.0, **LIFE},
+    )["hits_delta"] is None
+    # A genuine monotonic increase is still reported.
+    assert probe.prefix_cache_delta(
+        {'queries{engine="0"}': 100.0, 'hits{engine="0"}': 5.0, **LIFE},
+        {'queries{engine="0"}': 160.0, 'hits{engine="0"}': 5.0, **LIFE},
     ) == {"queries_delta": 60.0, "hits_delta": 0.0}
+
+
+def test_prefix_cache_delta_is_none_when_either_sample_is_unusable():
+    assert probe.prefix_cache_delta({}, {"hits{e}": 1.0, "queries{e}": 2.0}) == {
+        "queries_delta": None,
+        "hits_delta": None,
+    }
+    assert probe.prefix_cache_delta({"hits{e}": 5.0}, {}) == {
+        "queries_delta": None,
+        "hits_delta": None,
+    }
+    # Membership change (a series appeared): both withheld, not just the new one.
+    assert probe.prefix_cache_delta(
+        {"hits{e}": 5.0, **LIFE}, {"hits{e}": 5.0, "queries{e}": 9.0, **LIFE}
+    ) == {"queries_delta": None, "hits_delta": None}
+    assert probe.prefix_cache_delta(
+        {"hits{e}": 5.0, "queries{e}": 100.0, **LIFE},
+        {"hits{e}": 5.0, "queries{e}": 160.0, **LIFE},
+    ) == {"queries_delta": 60.0, "hits_delta": 0.0}
+
+
+def test_a_non_finite_delta_is_rejected_at_the_decision_boundary():
+    """Review finding: `NaN < prompt_tokens` is False, so a non-finite delta
+    slipped past the attribution guard and was accepted with no evidence."""
+    nan = float("nan")
+    for bad in (nan, float("inf"), float("-inf")):
+        run = _prefill_run(cached_tokens=None, queries_delta=bad, hits_delta=0.0)
+        reason = probe.prefill_run_invalid(run)
+        assert reason is not None and "non-finite" in reason, (bad, reason)
+
+
+def test_summary_uses_the_same_source_precedence_as_validation():
+    """Review finding: `summarize` consulted BOTH sources, so another client's
+    aggregate hits marked a run warm that the per-request field had proved cold
+    — and the auditor turns `any_cache_hit` into an ABORT, killing a correctly
+    measured observation."""
+    run = _prefill_run(cached_tokens=0, queries_delta=9999.0, hits_delta=777.0)
+    assert probe.prefill_run_invalid(run) is None, "the per-request field is authoritative"
+    summary = probe.summarize("prefill60k", [run], [])
+    assert summary["any_cache_hit"] is False, summary
+    # Without the field, the counters ARE the authority and a hit must flag.
+    fallback = _prefill_run(cached_tokens=None, hits_delta=777.0)
+    assert probe.summarize("prefill60k", [fallback], [])["any_cache_hit"] is True
+
+
+def test_cache_hit_observed_follows_precedence():
+    assert probe.cache_hit_observed({"cached_tokens": 0, "cache_hits_delta": 500.0}) is False
+    assert probe.cache_hit_observed({"cached_tokens": 12, "cache_hits_delta": 0.0}) is True
+    assert probe.cache_hit_observed({"cached_tokens": None, "cache_hits_delta": 500.0}) is True
+    assert probe.cache_hit_observed({"cached_tokens": None, "cache_hits_delta": 0.0}) is False
+    assert probe.cache_hit_observed({"cached_tokens": None, "cache_hits_delta": None}) is False
 
 
 def test_summarize_reports_median_and_flags_nan_and_cache_hits():
