@@ -9,6 +9,13 @@ in the build. Replace it with an ABI-compatible aarch64 stub before compile.
 v1.4.7 `cpu/moe_handoff.cu` and `parallel/all_reduce_cpu.cu` still compile
 on aarch64 except for `__builtin_ia32_pause` / `_mm_pause`. Rewrite those
 to `std::this_thread::yield()` and fail closed if any leftover remains.
+
+v1.4.9 adds an AVX-512BW CPU-MoE tier and registers a new probe
+(`exl3_moe_cpu_has_avx512_bw`) in `bindings.cpp`. That probe is defined only in
+`cpu/moe_mul1.cpp`, which this installer replaces wholesale, so the stub must
+carry it. Rather than hard-code the growing list, `check_pybind_cpu_contract`
+reads the registered `exl3_moe_cpu_*` names out of `bindings.cpp` and fails
+closed unless every one of them has a definition site in the stubbed tree.
 """
 
 from pathlib import Path
@@ -28,6 +35,9 @@ MOE_MUL1_STUB = """\
 void exl3_moe_cpu_set_prof(bool) {}
 
 bool exl3_moe_cpu_has_avx2() { return false; }
+/* v1.4.9 adds the AVX-512BW CPU-MoE tier; bindings.cpp registers the probe,
+   so the aarch64 stub must define it or the extension fails to link. */
+bool exl3_moe_cpu_has_avx512_bw() { return false; }
 bool exl3_moe_cpu_has_avx512_vnni() { return false; }
 bool exl3_moe_cpu_has_avx512_vbmi() { return false; }
 
@@ -251,6 +261,52 @@ def rewrite_x86_pauses(root: Path) -> list[str]:
     return rewritten
 
 
+def check_pybind_cpu_contract(root: Path) -> list[str]:
+    """Fail closed unless every registered `exl3_moe_cpu_*` symbol is defined.
+
+    The stub replaces `cpu/moe_mul1.cpp`, which is the only definition site for
+    the AVX-tier probes. A version bump that adds a probe to `bindings.cpp`
+    would otherwise fail at link time inside a long image build. Read the
+    contract from `bindings.cpp` instead of hard-coding it, and require a
+    definition site in a translation unit (headers do not count).
+
+    A tree with no `bindings.cpp` is a synthetic fixture, not a buildable
+    extension: the guard is inapplicable there and is skipped with a note.
+    """
+    import re
+
+    bindings = root / "bindings.cpp"
+    if not bindings.is_file():
+        print(
+            f"aarch64 stub: no bindings.cpp under {root} — synthetic tree, "
+            "skipping the pybind CPU-symbol contract check"
+        )
+        return []
+    registered = sorted(
+        set(re.findall(r'm\.def\(\s*"(exl3_moe_cpu_[A-Za-z0-9_]+)"', bindings.read_text()))
+    )
+    if not registered:
+        raise SystemExit(
+            "aarch64 stub FATAL: no exl3_moe_cpu_* bindings found in bindings.cpp — "
+            "anchor drifted, refusing"
+        )
+    tus = [
+        path
+        for path in root.rglob("*")
+        if path.suffix in {".c", ".cpp", ".cu"}
+        and path.is_file()
+        and path != bindings  # the registration site is not a definition site
+    ]
+    blob = "\n".join(path.read_text(errors="replace") for path in tus)
+    missing = [name for name in registered if name not in blob]
+    if missing:
+        raise SystemExit(
+            "aarch64 stub FATAL: registered pybind symbols have no definition site "
+            "in the stubbed tree: " + ", ".join(missing)
+        )
+    return registered
+
+
 def main() -> int:
     root = Path(sys.argv[1] if len(sys.argv) > 1 else "/tmp/exllamav3/exllamav3/exllamav3_ext")
     stub_avx_cpu_targets(root)
@@ -273,9 +329,11 @@ def main() -> int:
     if "is_f16c_supported" not in avx2_h or "bool is_f16c_supported() { return false; }" not in avx2_cpp:
         raise SystemExit("aarch64 stub FATAL: is_f16c_supported missing from AVX2 stubs")
     pause_note = ",".join(pauses) if pauses else "none"
+    cpu_symbols = check_pybind_cpu_contract(root)
     print(
         f"aarch64 EXL3 CPU-target stubs written in {root} "
-        f"(cpu_moe={moe_state}, x86_pause={pause_note}, f16c=stubbed)"
+        f"(cpu_moe={moe_state}, x86_pause={pause_note}, f16c=stubbed, "
+        f"cpu_pybind_symbols={len(cpu_symbols)})"
     )
     return 0
 

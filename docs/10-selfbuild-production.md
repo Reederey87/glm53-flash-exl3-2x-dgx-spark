@@ -27,7 +27,7 @@ upstream's).
 | Base image | `vllm/vllm-openai:glm53-flash-arm64-cu130` @ `sha256:905c0293…` (day-0 GLM-5.3 **preview** image, digest-pinned `FROM`) |
 | vLLM inside | `0.1.dev20051+g487ecf187` — pre-release dev build from the official enablement lineage, cut **before** #53906 merged and before vLLM's native DFlash2 |
 | Attention/CUDA stack | FlashInfer 0.6.17 (`FLASHINFER_MLA_SPARSE_SM120`), CUDA 13, CUDA graphs on (token-batch capture sizes 1–32 to cover k=7 verify) |
-| Quantization | EXL3 4 bpw (`--quantization exl3`, fused `exl3_moe`), `exllamav3` built in-image at **v1.4.7 `ca13bdd`** for aarch64/sm_121 — weights load **82 GiB/node packed**. Cutover used `c5d9c657` (0.0.43); the ticket scheduler was later cherry-picked as S2a. Task 16 adopted the native v1.4.7 pin (`glm53-selfbuild:ca13bdd-v147`); rollback is `b5ab8091-s2b`. |
+| Quantization | EXL3 4 bpw (`--quantization exl3`, fused `exl3_moe`), `exllamav3` built in-image at **v1.4.9 `5be8865`** for aarch64/sm_121 — weights load **82 GiB/node packed**. Cutover used `c5d9c657` (0.0.43); the ticket scheduler was later cherry-picked as S2a. Task 16 adopted the native v1.4.7 pin (`glm53-selfbuild:ca13bdd-v147`); task 35 advanced it to v1.4.9 (`glm53-selfbuild:e3-w3-zfill-v149`, parity gate passes identically, pool unchanged — `docs/16`); rollback is `b5ab8091-s2b`. |
 | Weights | `brandonmusic/GLM-5.3-Flash-tr3-4bpw`, snapshot `1ae6d704…` (~164 GiB, 120 shards) |
 | Drafter | `incoai/GLM-5.3-Flash-DFlash2`, snapshot `7d74cdd8…`, BF16, k=7, draft TP=1, **#54282 noise salt applied**. Task 28 (2026-09-09) A/B'd compatible `cfontes` TR3-v3 `45f7e139` and **REVERTED** it as a wash; keep this pin. |
 | Topology | TP=2 across two GB10 nodes (`--nnodes 2`), single RoCE rail, MTU 9000 |

@@ -1,7 +1,9 @@
-"""Host fixtures for the ExLlamaV3 v1.4.7 image-qualification blockers.
+"""Host fixtures for the ExLlamaV3 image-qualification blockers.
 
-Task 16: aarch64 CPU-MoE stub, native ticket-scheduler skip, NullConfig
-namespace, plus the existing fat-kernel binding anchors. No torch, no CUDA.
+Task 16 introduced these for the v1.4.7 pin (aarch64 CPU-MoE stub, native
+ticket-scheduler skip, NullConfig namespace, plus the existing fat-kernel
+binding anchors); task 35 carried them to v1.4.9, which adds the
+`exl3_moe_cpu_has_avx512_bw` probe. No torch, no CUDA.
 """
 
 from __future__ import annotations
@@ -29,7 +31,41 @@ FILES = (
     "exl3_moe_common.cuh",
     "exl3_moe_kernel.cuh",
 )
-PIN = "ca13bdd83a1f4a74fd817b88f49509e0f22a9b07"
+PIN = "5be886578ec80324c2c715269387be2058724b6e"
+PIN_VERSION = "1.4.9"
+
+# The CPU-MoE pybind surface as registered at v1.4.9. `has_avx512_bw` is the
+# symbol v1.4.9 adds; `set_memops`/`worker_run` live in cpu/moe_handoff.cu,
+# every other name is defined by the aarch64 stub that replaces moe_mul1.cpp.
+V149_CPU_BINDINGS = """\
+#include <torch/extension.h>
+#include <pybind11/pybind11.h>
+#include "cpu/moe_mul1.h"
+#include "cpu/moe_handoff.h"
+PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
+{
+    m.def("exl3_moe_cpu_set_prof", &exl3_moe_cpu_set_prof, "exl3_moe_cpu_set_prof");
+    m.def("exl3_moe_cpu_make_layer", &exl3_moe_cpu_make_layer, "exl3_moe_cpu_make_layer");
+    m.def("exl3_moe_cpu_free_layer", &exl3_moe_cpu_free_layer, "exl3_moe_cpu_free_layer");
+    m.def("exl3_moe_cpu_forward", &exl3_moe_cpu_forward, "exl3_moe_cpu_forward");
+    m.def("exl3_moe_cpu_forward_raw", &exl3_moe_cpu_forward_raw, "exl3_moe_cpu_forward_raw");
+    m.def("exl3_moe_cpu_stage_experts", &exl3_moe_cpu_stage_experts, "exl3_moe_cpu_stage_experts");
+    m.def("exl3_moe_cpu_pool_stress", &exl3_moe_cpu_pool_stress, "exl3_moe_cpu_pool_stress");
+    m.def("exl3_moe_cpu_set_memops", &exl3_moe_cpu_set_memops, "exl3_moe_cpu_set_memops");
+    m.def("exl3_moe_cpu_worker_run", &exl3_moe_cpu_worker_run, "exl3_moe_cpu_worker_run");
+    m.def("exl3_moe_cpu_has_avx2", &exl3_moe_cpu_has_avx2, "exl3_moe_cpu_has_avx2");
+    m.def("exl3_moe_cpu_has_avx512_bw", &exl3_moe_cpu_has_avx512_bw, "exl3_moe_cpu_has_avx512_bw");
+    m.def("exl3_moe_cpu_has_avx512_vnni", &exl3_moe_cpu_has_avx512_vnni, "exl3_moe_cpu_has_avx512_vnni");
+    m.def("exl3_moe_cpu_has_avx512_vbmi", &exl3_moe_cpu_has_avx512_vbmi, "exl3_moe_cpu_has_avx512_vbmi");
+}
+"""
+
+V149_CPU_SYMBOL_COUNT = 13
+
+HANDOFF_SYMBOLS = (
+    "void exl3_moe_cpu_set_memops() {}\n"
+    "void exl3_moe_cpu_worker_run() {}\n"
+)
 
 
 def _load(path: Path, name: str):
@@ -66,7 +102,7 @@ def test_pin_constants_match_v147():
     overlay = (KIT_ROOT / "overlay" / "exl3.py").read_text()
     dockerfile = (KIT_ROOT / "Dockerfile").read_text()
     assert f'EXLLAMAV3_COMMIT = "{PIN}"' in overlay
-    assert 'EXLLAMAV3_VERSION = "1.4.7"' in overlay
+    assert f'EXLLAMAV3_VERSION = "{PIN_VERSION}"' in overlay
     assert f"ARG EXLLAMAV3_COMMIT={PIN}" in dockerfile
     assert dockerfile.split("ARG EXLLAMAV3_COMMIT=")[1].startswith(PIN)
     assert "COPY overlay/exl3_namespace.py" in dockerfile
@@ -75,7 +111,10 @@ def test_pin_constants_match_v147():
     assert "b'__builtin_ia32_pause'" in dockerfile
     assert "GLM53_AARCH64_CPU_PAUSE_STUB" in dockerfile
     assert "is_f16c_supported" in dockerfile
-    assert "'1.4.7' in ver" in dockerfile
+    # The version assert is parameterized so the pin can move without editing
+    # the fail-closed check itself; keep it in lockstep with the commit ARG.
+    assert f"ARG EXLLAMAV3_VERSION={PIN_VERSION}" in dockerfile
+    assert "'${EXLLAMAV3_VERSION}' in ver" in dockerfile
     assert "python3 /opt/glm53/patch_exl3_ticket_scheduler.py" in dockerfile
     fat_pos = dockerfile.index("patch_exl3_fat_kernel.py /tmp/exllamav3")
     ticket_pos = dockerfile.index("patch_exl3_ticket_scheduler.py /tmp/exllamav3")
@@ -105,6 +144,9 @@ def test_aarch64_stubs_x86_cpu_moe(tmp_path):
     assert "<immintrin.h>" not in stub
     assert "exl3_moe_cpu_make_layer" in stub
     assert "exl3_moe_cpu_forward_raw" in stub
+    # v1.4.9 adds this probe; bindings.cpp registers it and the stub is its
+    # only definition site, so it must survive the wholesale replacement.
+    assert "bool exl3_moe_cpu_has_avx512_bw() { return false; }" in stub
     leftover = [
         p for p in ext.rglob("*")
         if p.suffix in {".c", ".cpp", ".h", ".hpp", ".cu", ".cuh"}
@@ -147,6 +189,55 @@ def test_aarch64_refuses_unknown_cpu_moe(tmp_path):
     r = _run(AARCH64, str(ext))
     assert r.returncode != 0
     assert "refusing" in (r.stderr + r.stdout)
+
+
+def test_aarch64_contract_accepts_v149_cpu_bindings(tmp_path):
+    """Every symbol v1.4.9 registers must have a definition site in the tree."""
+    ext = tmp_path / "ext"
+    (ext / "cpu").mkdir(parents=True)
+    (ext / "parallel").mkdir(parents=True)
+    shutil.copyfile(FIXTURES / "moe_mul1.cpp", ext / "cpu" / "moe_mul1.cpp")
+    (ext / "cpu" / "moe_handoff.cu").write_text(HANDOFF_SYMBOLS)
+    (ext / "bindings.cpp").write_text(V149_CPU_BINDINGS)
+    r = _run(AARCH64, str(ext))
+    assert r.returncode == 0, r.stderr + r.stdout
+    assert f"cpu_pybind_symbols={V149_CPU_SYMBOL_COUNT}" in r.stdout
+
+
+def test_aarch64_contract_rejects_legacy_stub_without_v149_probe(tmp_path):
+    """Negative control: a v1.4.7-era stub lacks has_avx512_bw and must be refused.
+
+    Without this check the miss only surfaces as an undefined symbol inside a
+    long aarch64 image build.
+    """
+    ext = tmp_path / "ext"
+    (ext / "cpu").mkdir(parents=True)
+    (ext / "parallel").mkdir(parents=True)
+    shutil.copyfile(FIXTURES / "moe_mul1.cpp", ext / "cpu" / "moe_mul1.cpp")
+    r = _run(AARCH64, str(ext))
+    assert r.returncode == 0, r.stderr + r.stdout
+    stub_path = ext / "cpu" / "moe_mul1.cpp"
+    legacy = stub_path.read_text().replace(
+        "bool exl3_moe_cpu_has_avx512_bw() { return false; }", ""
+    )
+    assert "exl3_moe_cpu_has_avx512_bw" not in legacy
+    stub_path.write_text(legacy)
+    (ext / "cpu" / "moe_handoff.cu").write_text(HANDOFF_SYMBOLS)
+    (ext / "bindings.cpp").write_text(V149_CPU_BINDINGS)
+    r2 = _run(AARCH64, str(ext))
+    assert r2.returncode != 0
+    assert "exl3_moe_cpu_has_avx512_bw" in (r2.stderr + r2.stdout)
+
+
+def test_aarch64_contract_skips_synthetic_tree_without_bindings(tmp_path):
+    """Fixture trees have no bindings.cpp; the guard is inapplicable, not failed."""
+    ext = tmp_path / "ext"
+    (ext / "cpu").mkdir(parents=True)
+    (ext / "parallel").mkdir(parents=True)
+    shutil.copyfile(FIXTURES / "moe_mul1.cpp", ext / "cpu" / "moe_mul1.cpp")
+    r = _run(AARCH64, str(ext))
+    assert r.returncode == 0, r.stderr + r.stdout
+    assert "skipping the pybind CPU-symbol contract check" in r.stdout
 
 
 def test_ticket_installer_skips_native_v147(tmp_path):

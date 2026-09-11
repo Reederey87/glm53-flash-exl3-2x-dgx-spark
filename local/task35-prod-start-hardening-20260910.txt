@@ -1,0 +1,64 @@
+TASK35 prod-start.sh hardening - cluster-validated 2026-09-10
+target: /home/nvidia/GLM-5.3-Flash-EXL3-2x-DGX-Sparks/local/prod-start.sh
+sha256: 84f6b488cb08f449  (was b32b6b9d6d750bc8; see FIX 3)
+backup: local/prod-start.sh.bak-pre-task35-20260910 (8a6c366bfb9fe66d)
+        local/prod-start.sh.bak-pre-rcfix-20260910  (b32b6b9d6d750bc8)
+
+FIX 1 - worker JIT wipe resolved an image the worker did not have yet.
+  pre-fix evidence (r1 boot log): 'WARN: worker cache wipe failed' + 'JIT cache wipe incomplete'
+  root cause: start.sh ships the new tag to the worker AFTER this block, so
+  'docker run <new tag>' on the worker died with 'pull access denied for glm53-selfbuild'.
+  fix: wipe_image_for() prefers the requested tag but falls back to any locally
+  present glm53-selfbuild image (the wipe only needs /bin/bash + rm).
+  validated on the cluster:
+    requested tag present on both nodes  -> head [glm53-selfbuild:e3-w3-zfill-v149] worker [same]
+    requested tag ABSENT (the failure)   -> head [glm53-selfbuild:e3-w3-zfill-v149] worker [same]  (fallback)
+    wipe container runs with the resolved image on BOTH nodes: HEAD_WIPE_CONTAINER_OK / WORKER_WIPE_CONTAINER_OK
+  note: the half-wipe self-healed on the retry boot (r2 shows no wipe WARN), so the
+  task-35 A/B ran with both nodes' Triton/TileLang caches wiped and rebuilt.
+
+FIX 2 - the settle gate is below vLLM's own demand, so the first boot raced a near miss.
+  r1: gate PASSED at head 115 GiB / worker 114 GiB, yet vLLM then saw 103.09 GiB
+  against a 0.85 x 121.69 = 103.44 GiB requirement and exited 1.
+  Raising NEED_GIB cannot fix this: free memory DROPS during the boot (page cache
+  from the 21 GB image ship and the weight read), and idle MemFree is only 93-97 GiB.
+  fix: bounded retry (MAX_BOOT_ATTEMPTS=3) around start.sh, re-running settle_wait()
+  between attempts. Lowering the gate instead would turn a clean pre-check failure
+  into a real OOM.
+  validated: r2 cleared the same boot on the next attempt (health 200).
+
+static: bash -n clean, shellcheck -S warning clean (both run on the Mac before install).
+
+FIX 3 - the retry loop reported success when every attempt failed (found by review).
+  The loop read `rc=$?` AFTER the completed `if ./start.sh start; then ... fi`.
+  An `if` whose condition fails and which has no `else` branch exits 0, so `rc`
+  was always 0: after three failed boots the launcher logged the error and then
+  exited 0 with production down, hiding the failure from any supervisor.
+  fix: capture the status in the `else` branch, where `$?` is the failed
+  condition's status.
+  Defect class: arrived WITH the retry loop written in this window; the previous
+  `exec ./start.sh start` propagated the status correctly, so no earlier shipped
+  launcher had it.
+
+  Reproduced on the Mac and on the cluster. Cluster run, retry block extracted
+  verbatim from each launcher, driven by a fake start.sh in a scratch temp dir:
+
+    CANDIDATE (84f6b488), every attempt exits 17:
+      attempt 1/3 -> rc=17, retrying
+      attempt 2/3 -> rc=17, retrying
+      attempt 3/3 -> ERROR: start failed after 3 attempt(s) - production left down
+      process exit = 17                              <- correct
+    CANDIDATE, first attempt fails then succeeds:
+      attempt 1/3 -> rc=1, retrying
+      attempt 2/3 -> success
+      process exit = 0, attempts = 2                 <- stops at the first success
+    INSTALLED PRE-FIX (b32b6b9d), every attempt exits 17:
+      attempt 1/3 -> rc=0 (!)  attempt 2/3 -> rc=0 (!)  attempt 3/3 -> ERROR
+      process exit = 0                               <- THE DEFECT: success reported
+                                                        with production down
+
+  The loop is bounded by MAX_BOOT_ATTEMPTS, so it cannot spin forever, and a
+  settle timeout is not treated as success.
+  Installed atomically (mv) with prod-start.sh.bak-pre-rcfix-20260910 as backup;
+  bash -n clean on the node; production untouched throughout (health 200,
+  glm53-selfbuild:e3-w3-zfill-v149 up).

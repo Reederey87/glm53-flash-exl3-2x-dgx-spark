@@ -1,0 +1,578 @@
+{
+  "tokens": 7168,
+  "iters": 3,
+  "hidden": 4096,
+  "intermediate": 2048,
+  "n_exp": 288,
+  "topk": 8,
+  "device": "NVIDIA GB10",
+  "capability": [
+    12,
+    1
+  ],
+  "scales": "random-normal*0.5 (shared gate/up suh), random K4 trellis",
+  "cases": [
+    {
+      "tier": "E2",
+      "cap": 256,
+      "routing": {
+        "skew": 0.5,
+        "max_rows": 1615,
+        "mean_rows": 199.11111450195312,
+        "n_gt_256": 49,
+        "n_gt_128": 199,
+        "n_gt_64": 288,
+        "n_gt_32": 288
+      },
+      "times_ms": [
+        154.3462371826172,
+        160.67674255371094,
+        153.75315856933594
+      ],
+      "median_ms": 154.3462371826172,
+      "tflops": 18.69963321164173,
+      "last_fat_fallback": "kernel",
+      "mem_allocated_before": 3992683520,
+      "peak_allocated": 4305022464,
+      "diag_grouped_scratch_bytes": 100663296
+    },
+    {
+      "tier": "E2",
+      "cap": 32,
+      "routing": {
+        "skew": 0.5,
+        "max_rows": 1615,
+        "mean_rows": 199.11111450195312,
+        "n_gt_256": 49,
+        "n_gt_128": 199,
+        "n_gt_64": 288,
+        "n_gt_32": 288
+      },
+      "times_ms": [
+        131.4365692138672,
+        132.2277069091797,
+        129.0202178955078
+      ],
+      "median_ms": 131.4365692138672,
+      "tflops": 21.959018256294307,
+      "last_fat_fallback": "kernel",
+      "mem_allocated_before": 4026762240,
+      "peak_allocated": 4305022464,
+      "diag_grouped_scratch_bytes": 100663296
+    },
+    {
+      "tier": "E3",
+      "cap": 32,
+      "routing": {
+        "skew": 0.5,
+        "max_rows": 1615,
+        "mean_rows": 199.11111450195312,
+        "n_gt_256": 49,
+        "n_gt_128": 199,
+        "n_gt_64": 288,
+        "n_gt_32": 288
+      },
+      "times_ms": [
+        55.637184143066406,
+        55.905086517333984,
+        55.4400634765625
+      ],
+      "median_ms": 55.637184143066406,
+      "tflops": 51.875702686360434,
+      "last_fat_fallback": "grouped",
+      "mem_allocated_before": 4026762240,
+      "peak_allocated": 4850798080,
+      "diag_grouped_scratch_bytes": 704643072
+    },
+    {
+      "tier": "E3",
+      "cap": 64,
+      "routing": {
+        "skew": 0.5,
+        "max_rows": 1615,
+        "mean_rows": 199.11111450195312,
+        "n_gt_256": 49,
+        "n_gt_128": 199,
+        "n_gt_64": 288,
+        "n_gt_32": 288
+      },
+      "times_ms": [
+        54.957759857177734,
+        55.08591842651367,
+        55.93180847167969
+      ],
+      "median_ms": 55.08591842651367,
+      "tflops": 52.39484255422381,
+      "last_fat_fallback": "grouped",
+      "mem_allocated_before": 4635329536,
+      "peak_allocated": 4850798080,
+      "diag_grouped_scratch_bytes": 704643072
+    },
+    {
+      "tier": "E3",
+      "cap": 128,
+      "routing": {
+        "skew": 0.5,
+        "max_rows": 1615,
+        "mean_rows": 199.11111450195312,
+        "n_gt_256": 49,
+        "n_gt_128": 199,
+        "n_gt_64": 288,
+        "n_gt_32": 288
+      },
+      "times_ms": [
+        80.61724853515625,
+        80.5864028930664,
+        80.97148895263672
+      ],
+      "median_ms": 80.61724853515625,
+      "tflops": 35.80149503183991,
+      "last_fat_fallback": "grouped",
+      "mem_allocated_before": 4644897792,
+      "peak_allocated": 4850798080,
+      "diag_grouped_scratch_bytes": 704643072
+    },
+    {
+      "tier": "E2",
+      "cap": 256,
+      "routing": {
+        "skew": 1.0,
+        "max_rows": 5556,
+        "mean_rows": 199.11111450195312,
+        "n_gt_256": 43,
+        "n_gt_128": 83,
+        "n_gt_64": 169,
+        "n_gt_32": 283
+      },
+      "times_ms": [
+        128.89511108398438,
+        129.36647033691406,
+        126.87152099609375
+      ],
+      "median_ms": 128.89511108398438,
+      "tflops": 22.39198987951857,
+      "last_fat_fallback": "kernel",
+      "mem_allocated_before": 4663772160,
+      "peak_allocated": 5512982016,
+      "diag_grouped_scratch_bytes": 704643072
+    },
+    {
+      "tier": "E2",
+      "cap": 32,
+      "routing": {
+        "skew": 1.0,
+        "max_rows": 5556,
+        "mean_rows": 199.11111450195312,
+        "n_gt_256": 43,
+        "n_gt_128": 83,
+        "n_gt_64": 169,
+        "n_gt_32": 283
+      },
+      "times_ms": [
+        136.18246459960938,
+        135.3516845703125,
+        136.9344940185547
+      ],
+      "median_ms": 136.18246459960938,
+      "tflops": 21.193756710144594,
+      "last_fat_fallback": "kernel",
+      "mem_allocated_before": 5032346624,
+      "peak_allocated": 5512982016,
+      "diag_grouped_scratch_bytes": 704643072
+    },
+    {
+      "tier": "E3",
+      "cap": 32,
+      "routing": {
+        "skew": 1.0,
+        "max_rows": 5556,
+        "mean_rows": 199.11111450195312,
+        "n_gt_256": 43,
+        "n_gt_128": 83,
+        "n_gt_64": 169,
+        "n_gt_32": 283
+      },
+      "times_ms": [
+        56.47030258178711,
+        56.00035095214844,
+        55.71500778198242
+      ],
+      "median_ms": 56.00035095214844,
+      "tflops": 51.53928455516708,
+      "last_fat_fallback": "grouped",
+      "mem_allocated_before": 5032346624,
+      "peak_allocated": 5512982016,
+      "diag_grouped_scratch_bytes": 704643072
+    },
+    {
+      "tier": "E3",
+      "cap": 64,
+      "routing": {
+        "skew": 1.0,
+        "max_rows": 5556,
+        "mean_rows": 199.11111450195312,
+        "n_gt_256": 43,
+        "n_gt_128": 83,
+        "n_gt_64": 169,
+        "n_gt_32": 283
+      },
+      "times_ms": [
+        69.69161224365234,
+        69.39328002929688,
+        70.5857925415039
+      ],
+      "median_ms": 69.69161224365234,
+      "tflops": 41.41413765578199,
+      "last_fat_fallback": "grouped",
+      "mem_allocated_before": 5037982720,
+      "peak_allocated": 5512982016,
+      "diag_grouped_scratch_bytes": 704643072
+    },
+    {
+      "tier": "E3",
+      "cap": 128,
+      "routing": {
+        "skew": 1.0,
+        "max_rows": 5556,
+        "mean_rows": 199.11111450195312,
+        "n_gt_256": 43,
+        "n_gt_128": 83,
+        "n_gt_64": 169,
+        "n_gt_32": 283
+      },
+      "times_ms": [
+        88.67536163330078,
+        87.7044448852539,
+        88.27190399169922
+      ],
+      "median_ms": 88.27190399169922,
+      "tflops": 32.696904591334174,
+      "last_fat_fallback": "grouped",
+      "mem_allocated_before": 5046502400,
+      "peak_allocated": 5512982016,
+      "diag_grouped_scratch_bytes": 704643072
+    },
+    {
+      "tier": "E2",
+      "cap": 256,
+      "routing": {
+        "skew": 1.5,
+        "max_rows": 7132,
+        "mean_rows": 199.11111450195312,
+        "n_gt_256": 30,
+        "n_gt_128": 50,
+        "n_gt_64": 81,
+        "n_gt_32": 121
+      },
+      "times_ms": [
+        114.92316436767578,
+        113.65948486328125,
+        112.7511978149414
+      ],
+      "median_ms": 113.65948486328125,
+      "tflops": 25.39355185696798,
+      "last_fat_fallback": "kernel",
+      "mem_allocated_before": 5066294272,
+      "peak_allocated": 5512982016,
+      "diag_grouped_scratch_bytes": 704643072
+    },
+    {
+      "tier": "E2",
+      "cap": 32,
+      "routing": {
+        "skew": 1.5,
+        "max_rows": 7132,
+        "mean_rows": 199.11111450195312,
+        "n_gt_256": 30,
+        "n_gt_128": 50,
+        "n_gt_64": 81,
+        "n_gt_32": 121
+      },
+      "times_ms": [
+        113.4808349609375,
+        114.57523345947266,
+        113.283203125
+      ],
+      "median_ms": 113.4808349609375,
+      "tflops": 25.433528259688053,
+      "last_fat_fallback": "kernel",
+      "mem_allocated_before": 5032346624,
+      "peak_allocated": 5512982016,
+      "diag_grouped_scratch_bytes": 704643072
+    },
+    {
+      "tier": "E3",
+      "cap": 32,
+      "routing": {
+        "skew": 1.5,
+        "max_rows": 7132,
+        "mean_rows": 199.11111450195312,
+        "n_gt_256": 30,
+        "n_gt_128": 50,
+        "n_gt_64": 81,
+        "n_gt_32": 121
+      },
+      "times_ms": [
+        63.17878341674805,
+        63.38604736328125,
+        63.126590728759766
+      ],
+      "median_ms": 63.17878341674805,
+      "tflops": 45.68334283795172,
+      "last_fat_fallback": "grouped",
+      "mem_allocated_before": 5032346624,
+      "peak_allocated": 5512982016,
+      "diag_grouped_scratch_bytes": 704643072
+    },
+    {
+      "tier": "E3",
+      "cap": 64,
+      "routing": {
+        "skew": 1.5,
+        "max_rows": 7132,
+        "mean_rows": 199.11111450195312,
+        "n_gt_256": 30,
+        "n_gt_128": 50,
+        "n_gt_64": 81,
+        "n_gt_32": 121
+      },
+      "times_ms": [
+        67.56867218017578,
+        68.7176284790039,
+        66.94364929199219
+      ],
+      "median_ms": 67.56867218017578,
+      "tflops": 42.71532841752066,
+      "last_fat_fallback": "grouped",
+      "mem_allocated_before": 5037982720,
+      "peak_allocated": 5512982016,
+      "diag_grouped_scratch_bytes": 704643072
+    },
+    {
+      "tier": "E3",
+      "cap": 128,
+      "routing": {
+        "skew": 1.5,
+        "max_rows": 7132,
+        "mean_rows": 199.11111450195312,
+        "n_gt_256": 30,
+        "n_gt_128": 50,
+        "n_gt_64": 81,
+        "n_gt_32": 121
+      },
+      "times_ms": [
+        73.81836700439453,
+        74.58332824707031,
+        75.01407623291016
+      ],
+      "median_ms": 74.58332824707031,
+      "tflops": 38.69789791829748,
+      "last_fat_fallback": "grouped",
+      "mem_allocated_before": 5046502400,
+      "peak_allocated": 5512982016,
+      "diag_grouped_scratch_bytes": 704643072
+    },
+    {
+      "tier": "E2",
+      "cap": 256,
+      "routing": {
+        "skew": 0.0,
+        "max_rows": 236,
+        "mean_rows": 199.11111450195312,
+        "n_gt_256": 0,
+        "n_gt_128": 288,
+        "n_gt_64": 288,
+        "n_gt_32": 288
+      },
+      "times_ms": [
+        190.35385131835938,
+        191.17059326171875,
+        197.0049591064453
+      ],
+      "median_ms": 191.17059326171875,
+      "tflops": 15.097604572271603,
+      "last_fat_fallback": "none",
+      "mem_allocated_before": 5065376768,
+      "peak_allocated": 5512982016,
+      "diag_grouped_scratch_bytes": 704643072
+    },
+    {
+      "tier": "E2",
+      "cap": 32,
+      "routing": {
+        "skew": 0.0,
+        "max_rows": 236,
+        "mean_rows": 199.11111450195312,
+        "n_gt_256": 0,
+        "n_gt_128": 288,
+        "n_gt_64": 288,
+        "n_gt_32": 288
+      },
+      "times_ms": [
+        129.04147338867188,
+        130.02175903320312,
+        128.75418090820312
+      ],
+      "median_ms": 129.04147338867188,
+      "tflops": 22.366592283232343,
+      "last_fat_fallback": "kernel",
+      "mem_allocated_before": 5033395200,
+      "peak_allocated": 5512982016,
+      "diag_grouped_scratch_bytes": 704643072
+    },
+    {
+      "tier": "E3",
+      "cap": 32,
+      "routing": {
+        "skew": 0.0,
+        "max_rows": 236,
+        "mean_rows": 199.11111450195312,
+        "n_gt_256": 0,
+        "n_gt_128": 288,
+        "n_gt_64": 288,
+        "n_gt_32": 288
+      },
+      "times_ms": [
+        57.315486907958984,
+        57.06959915161133,
+        56.12928009033203
+      ],
+      "median_ms": 57.06959915161133,
+      "tflops": 50.57365157313374,
+      "last_fat_fallback": "grouped",
+      "mem_allocated_before": 5032346624,
+      "peak_allocated": 5512982016,
+      "diag_grouped_scratch_bytes": 704643072
+    },
+    {
+      "tier": "E3",
+      "cap": 64,
+      "routing": {
+        "skew": 0.0,
+        "max_rows": 236,
+        "mean_rows": 199.11111450195312,
+        "n_gt_256": 0,
+        "n_gt_128": 288,
+        "n_gt_64": 288,
+        "n_gt_32": 288
+      },
+      "times_ms": [
+        56.11289596557617,
+        56.90982437133789,
+        56.65711975097656
+      ],
+      "median_ms": 56.65711975097656,
+      "tflops": 50.941841653753535,
+      "last_fat_fallback": "grouped",
+      "mem_allocated_before": 5037982720,
+      "peak_allocated": 5512982016,
+      "diag_grouped_scratch_bytes": 704643072
+    },
+    {
+      "tier": "E3",
+      "cap": 128,
+      "routing": {
+        "skew": 0.0,
+        "max_rows": 236,
+        "mean_rows": 199.11111450195312,
+        "n_gt_256": 0,
+        "n_gt_128": 288,
+        "n_gt_64": 288,
+        "n_gt_32": 288
+      },
+      "times_ms": [
+        56.781471252441406,
+        56.90358352661133,
+        55.90591812133789
+      ],
+      "median_ms": 56.781471252441406,
+      "tflops": 50.83027894927789,
+      "last_fat_fallback": "grouped",
+      "mem_allocated_before": 5046502400,
+      "peak_allocated": 5512982016,
+      "diag_grouped_scratch_bytes": 704643072
+    }
+  ],
+  "parity": {
+    "tokens": 1024,
+    "cap": 32,
+    "fat_experts": 45,
+    "max_rows": 781,
+    "e2_vs_loop": {
+      "maxabs": 1.2227783203125,
+      "nrmse": 0.0006377782004473016,
+      "meanabs": 0.06796145439147949
+    },
+    "e2_repeat": {
+      "maxabs": 0.0,
+      "nrmse": 0.0,
+      "meanabs": 0.0
+    },
+    "e3_vs_loop": {
+      "maxabs": 1.2227783203125,
+      "nrmse": 0.0006377823705004222,
+      "meanabs": 0.06796209514141083
+    },
+    "e3_repeat": {
+      "maxabs": 0.125,
+      "nrmse": 4.553903547797828e-07,
+      "meanabs": 4.661342245526612e-08
+    },
+    "e3_vs_e2": {
+      "maxabs": 0.5,
+      "nrmse": 1.0015582442784307e-05,
+      "meanabs": 1.7828086129156873e-05
+    },
+    "ok": true
+  },
+  "summary": [
+    {
+      "skew": 0.5,
+      "best_e2": {
+        "cap": 32,
+        "ms": 131.4365692138672
+      },
+      "best_e3": {
+        "cap": 64,
+        "ms": 55.08591842651367
+      },
+      "speedup": 2.38602846186921
+    },
+    {
+      "skew": 1.0,
+      "best_e2": {
+        "cap": 256,
+        "ms": 128.89511108398438
+      },
+      "best_e3": {
+        "cap": 32,
+        "ms": 56.00035095214844
+      },
+      "speedup": 2.3016839875543558
+    },
+    {
+      "skew": 1.5,
+      "best_e2": {
+        "cap": 32,
+        "ms": 113.4808349609375
+      },
+      "best_e3": {
+        "cap": 32,
+        "ms": 63.17878341674805
+      },
+      "speedup": 1.7961858209959596
+    },
+    {
+      "skew": 0.0,
+      "best_e2": {
+        "cap": 32,
+        "ms": 129.04147338867188
+      },
+      "best_e3": {
+        "cap": 64,
+        "ms": 56.65711975097656
+      },
+      "speedup": 2.2775861878585464
+    }
+  ]
+}

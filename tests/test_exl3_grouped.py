@@ -129,7 +129,10 @@ def test_schema_keys_include_grouped() -> None:
     assert "row_tile" in src
     assert "EXL3_FAT_GROUPED" in src
     assert src.count("EXLLAMAV3_COMMIT = ") == 1
-    assert "ca13bdd83a1f4a74fd817b88f49509e0f22a9b07" in src
+    # The exact revision is pinned by tests/test_exl3_v147_qualification.py;
+    # here only that a revision is recorded at all.
+    recorded = src.split("EXLLAMAV3_COMMIT = ")[1].split("\n")[0].strip('"')
+    assert len(recorded) == 40 and all(c in "0123456789abcdef" for c in recorded)
 
 
 def test_grouped_off_is_kernel_without_e3_symbols(monkeypatch) -> None:

@@ -199,8 +199,8 @@ def test_dockerfile_wiring():
     assert "inspect.signature(exllamav3_ext.exl3_moe)" not in dockerfile
     assert "'num_active' in doc or 'arg29' in doc" in dockerfile
     assert 'if [ "${GLM53_EXL3_TICKET_SCHEDULER}" = "1" ]' in dockerfile
-    assert "ARG EXLLAMAV3_COMMIT=ca13bdd83a1f4a74fd817b88f49509e0f22a9b07" in dockerfile
-    assert "v1.4.7 already contains the d5e4361 ticket scheduler" in dockerfile
+    assert "ARG EXLLAMAV3_COMMIT=5be886578ec80324c2c715269387be2058724b6e" in dockerfile
+    assert "v1.4.9, like v1.4.7, already contains the d5e4361 ticket scheduler" in dockerfile
 
 
 def _read_all_of(source_dir: Path) -> dict[str, bytes]:

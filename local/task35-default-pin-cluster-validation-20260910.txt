@@ -1,0 +1,63 @@
+TASK35 PIN FLIP IN THE TRACKED DEFAULTS - CLUSTER VALIDATION - 2026-09-10
+Purpose: the ADOPTED pin must live in the tracked defaults, so that a bare
+`docker build .` reproduces production. Validated on spark1 (head).
+
+== what changed (candidate bytes) ==
+Dockerfile:380  ARG EXLLAMAV3_COMMIT=ca13bdd83a1f4a74fd817b88f49509e0f22a9b07
+             -> ARG EXLLAMAV3_COMMIT=5be886578ec80324c2c715269387be2058724b6e
+Dockerfile:389  ARG EXLLAMAV3_VERSION=1.4.7 -> 1.4.9
+overlay/exl3.py:47-48  recorded EXLLAMAV3_COMMIT/EXLLAMAV3_VERSION -> 5be8865 / 1.4.9
+tests: test_exl3_v147_qualification.py (PIN, PIN_VERSION), test_exl3_ticket_scheduler.py,
+       test_exl3_grouped.py (now asserts a 40-hex revision is recorded, not a literal)
+overlay-w4/ deliberately UNCHANGED: it is a historical snapshot consumed only by the
+reverted Dockerfile.e3-w4-layer, so it keeps its version-matched v1.4.7 constants.
+
+== 1. bare `docker build .` with NO build args reproduces the deployed extension ==
+Build context: /home/nvidia/glm53-task35-default (candidate tree, synced).
+Command:       docker build -t glm53-selfbuild:noargs-v149 .
+Result:        completed; every layer cache-HIT, i.e. the resolved ARG values are
+               identical to the explicit-args build that produced the deployed image.
+
+extension SHA-256 (python3: import torch, exllamav3_ext; sha256 of __file__):
+  glm53-selfbuild:5be8865-v149       cfda5469202f2389e57dd620de4bfcea91ab62978a67cb87284410d1e7152727
+  glm53-selfbuild:noargs-v149        cfda5469202f2389e57dd620de4bfcea91ab62978a67cb87284410d1e7152727
+  glm53-selfbuild:e3-w3-zfill-v149   cfda5469202f2389e57dd620de4bfcea91ab62978a67cb87284410d1e7152727
+  -> IDENTICAL. The no-arg default path produces the deployed artifact byte-for-byte.
+
+exllamav3 version in all three: __version__ = "1.4.9"
+
+== 2. the new fail-closed pybind contract check runs on a REAL v1.4.9 tree ==
+Throwaway container on the deployed image, candidate overlay/ mounted read-only,
+fresh tarball of 5be886578ec80324c2c715269387be2058724b6e:
+  candidate overlay/patch_exl3_ext_aarch64.py
+    sha256 a2b3216f2d3ee0b3e3fe643bc7e186799350fab7e470df7158d4170813c16c59
+  candidate overlay/patch_exl3_ticket_scheduler.py
+    sha256 1a43223de732b62a61679e88e955749c3ae71ba07f30757aed40b4f8326de634
+
+  aarch64 installer, first run:
+    aarch64 EXL3 CPU-target stubs written (cpu_moe=stubbed,
+      x86_pause=parallel/all_reduce_cpu.cu,cpu/moe_handoff.cu, f16c=stubbed,
+      cpu_pybind_symbols=11)
+  aarch64 installer, idempotent re-run:
+    (cpu_moe=already, x86_pause=none, f16c=stubbed, cpu_pybind_symbols=11)
+  ticket-scheduler installer:
+    ticket-scheduler: native quant set present (v1.4.7 ca13bdd bytes, which v1.4.9
+      also ships byte-identically), including shared historical exl3_moe.cuh
+      - skipping byte-exact installer
+    ticket-scheduler: done (native=1, patched=0, already=0, total=6)
+
+cpu_pybind_symbols=11 is the contract check's verdict: all 11 registered
+`exl3_moe_cpu_*` names have a definition site (9 in the aarch64 stub, 2 in
+cpu/moe_handoff.cu). v1.4.9's new probe `exl3_moe_cpu_has_avx512_bw` is among
+them; without the stub the extension fails to LINK.
+
+== 3. local gates on the same bytes ==
+pytest tests/ -q  ->  526 passed, 1 skipped, 18 subtests
+compileall overlay scripts tests -> OK
+
+== conclusion ==
+The tracked default now resolves to the validated, deployed revision, and the
+resulting extension bytes are identical to production. No new image, restart or
+.env change was needed: production already runs these exact extension bytes.
+Production state unchanged and healthy throughout: health=200, container
+glm53-selfbuild:e3-w3-zfill-v149 up.

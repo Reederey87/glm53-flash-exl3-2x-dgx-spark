@@ -1,0 +1,100 @@
+TASK35 ExLlamaV3 v1.4.7 (ca13bdd) -> v1.4.9 (5be8865) PIN INTAKE - 2026-09-10
+VERDICT: DEPLOYED on the correctness gates; docs/13 section 6 performance
+         qualification PENDING. The delta is inert on our serving path, the
+         parity gate returns the same verdict as the control, and every boot and
+         correctness gate is green - but the window did not meet the section 6
+         observation contract, so the throughput comparison is INCONCLUSIVE and
+         is NOT part of the basis (see the A/B section). Closing the
+         qualification needs the full A-B-B-A sequence on a quiet node or an
+         explicit owner-approved exception for a currency bump on which no
+         performance claim is made. Do not cite this task as a completed
+         performance qualification.
+
+== independent variable ==
+exllamav3 revision only: ca13bdd83a1f4a74fd817b88f49509e0f22a9b07 (1.4.7) -> 5be886578ec80324c2c715269387be2058724b6e (1.4.9)
+delta: 69 commits (29 to v1.4.8, 40 to v1.4.9)
+
+== images ==
+control   A = glm53-selfbuild:e3-w3-zfill      (exllamav3 1.4.7)
+candidate B = glm53-selfbuild:e3-w3-zfill-v149 (exllamav3 1.4.9)
+
+== scope finding: the delta does NOT touch the fused MoE kernels ==
+All six quant/MoE files are byte-identical between v1.4.7 and v1.4.9, so the
+ticket-scheduler native-set skip still holds:
+  exl3_devctx.cu         545e1909873b2bd8
+  exl3_devctx.cuh        effb1827e9b6c61b
+  exl3_moe.cu            ce394daf0cebafd6
+  exl3_moe.cuh           96f4fc2473474986
+  exl3_moe_common.cuh    b3c4e2399b8cf5a9
+  exl3_moe_kernel.cuh    6f58cfa0f66557c8
+
+0431122 MGEMM sliced mode is additive and defaulted, and our path never calls
+exl3_mgemm (task 37 closed NOT_REACHABLE). The one reachable shared-kernel edit
+(exl3_gemm_kernel_inner size_n_stride) is a no-op whenever size_n % TILESIZE_N == 0,
+which every shape the v1.4.7 kernel handled correctly satisfies.
+
+== correctness gate (mandatory, run BEFORE any speed claim) ==
+harness: tests/bench_e3_microbench.py in throwaway containers on the deployed
+image; production NOT stopped (GPU reachable alongside it).
+  parity control  : ok=True  e2_vs_loop maxabs=1.22278 nrmse=0.000637778
+  parity candidate: ok=True  e2_vs_loop maxabs=1.22278 nrmse=0.000637778
+  e2_repeat: control 0/0, candidate 0/0 (E2 deterministic within an image)
+  e3_repeat: control maxabs 0.125 / nrmse 4.99e-07, candidate maxabs 0.125 /
+             nrmse 4.55e-07 -> the grouped E3 path is NOT run-to-run
+             deterministic, on EITHER revision (pre-existing property)
+  microbench worst |delta| across 20 cells = 2.2% (medians of 3,
+  ambient production traffic present)
+
+  CORRECTION 2026-09-10 (final review): an earlier revision of this receipt
+  called the parity result "BIT-IDENTICAL". That was overstated. The harness
+  compares each fused kernel against a reference loop WITHIN one image; it never
+  compares the candidate's tensors against the control's, so it cannot establish
+  cross-image bit identity. What it establishes is that both revisions pass the
+  same tolerance-based parity gate with identical aggregate error statistics on
+  the E2 path. A bit-identity claim is not even well-posed for the grouped path,
+  which is non-deterministic run to run on both revisions (e3_repeat above).
+
+== e2e A/B (guarded window; production restarted onto the candidate) ==
+   PERFORMANCE COMPARISON: INCONCLUSIVE. This window ran one three-observation
+   structured run per arm; docs/13 section 6 requires a predeclared warmup plus
+   an A-B-B-A sequence with at least nine measured observations per arm for
+   noisy prose, and requires INCONCLUSIVE (not "rerun until it wins") when
+   traffic prevents a decision. These numbers therefore do NOT decide throughput
+   and must not be reported as a no-regression result. Adoption rests on the
+   inertness analysis and the parity gate above.
+A (v1.4.7, live 22h-warm production) structured median 67.089 tok/s  min 25.093 max 68.381 accept 1.0000/7.0
+   NOTE: the A run is CONTAMINATED - its min of 25.09 tok/s is an ambient-load
+   outlier, so 67.09 is not a clean control and is not used as one.
+B (v1.4.9, candidate)               structured median 69.798 tok/s  min 69.431 max 69.978 accept 1.0000/7.0
+   B sits inside the established 69-70 tok/s band for this stack (task 16
+   A 70.077 / B 70.03; PR #60 69.10). That is a compatibility check, not a
+   measurement of any effect.
+
+== candidate boot gates (all green) ==
+health=200   container=glm53-selfbuild:e3-w3-zfill-v149 Up   exllamav3_in_container=1.4.9
+pool=1,396,551 tokens (IDENTICAL to the v1.4.7 baseline; byte pin unchanged)
+acceptance=7/7   serving=6/6 (from the Mac through the :18000 tunnel)
+any_nan=false    accepted_per_step=7.0
+
+== deviations found and fixed on the cluster ==
+1. BUILD: v1.4.9 registers exl3_moe_cpu_has_avx512_bw in bindings.cpp, whose
+   only definition site is cpu/moe_mul1.cpp - the file the aarch64 stub
+   replaces - so v1.4.9 would fail to LINK. The stub now defines it, and
+   check_pybind_cpu_contract() reads the registered set out of bindings.cpp and
+   fails closed on any symbol with no definition site.
+2. Dockerfile: the version assert was hard-coded to 1.4.7; now ARG EXLLAMAV3_VERSION.
+3. prod-start.sh: the worker JIT wipe ran BEFORE the image is shipped to the
+   worker, so every new tag hit "pull access denied for glm53-selfbuild" and
+   left a half-wipe. (fixed in this PR)
+4. prod-start.sh: the settle gate (90 GiB) is below vLLM's own 0.85 * 121.69 =
+   103.44 GiB demand, so the first candidate boot raced a near miss on the
+   worker (103.09 vs 103.44) and exited 1. (fixed in this PR)
+
+== rollback ==
+last-wins IMAGE=glm53-selfbuild:e3-w3-zfill
+restore .env.bak-pre-task35-v149-20260910
+backup sha256=46331ceef1361269
+
+=== final state ===
+active IMAGE=glm53-selfbuild:e3-w3-zfill-v149
+health=200

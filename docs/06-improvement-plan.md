@@ -22,13 +22,14 @@ fusions, and all of EXL3 — zero EXL3 code exists in vLLM mainline). Consequenc
 
 ## Current queue (research refresh, 2026-09-05)
 
-The S1/S2 kernel program is closed. Production is `glm53-selfbuild:e3-w3-zfill`
-(ExLlamaV3 v1.4.7 native pin, E2 fat GEMM pipelined, E3 grouped fat-expert
-MoE on, W3 zero-fill A-pad). Rollback remains `glm53-selfbuild:ca13bdd-v147` with
-`EXL3_FAT_GROUPED=0`. The initial contended **+0.3%**
-end-to-end result is superseded by PR #32's powered re-window:
-**+5.3–5.6% cold prefill**. Further kernel work needs a new current-stack
-profile, not extrapolation from the isolated +41% kernel result.
+The S1/S2 kernel program is closed. Production is
+`glm53-selfbuild:e3-w3-zfill-v149` (ExLlamaV3 v1.4.9 native pin, task 35,
+2026-09-10; E2 fat GEMM pipelined, E3 grouped fat-expert MoE on, W3 zero-fill
+A-pad). Rollback remains `glm53-selfbuild:e3-w3-zfill` with `EXL3_FAT_GROUPED=1`,
+or `glm53-selfbuild:ca13bdd-v147` with `EXL3_FAT_GROUPED=0`. The initial
+contended **+0.3%** end-to-end result is superseded by PR #32's powered
+re-window: **+5.3–5.6% cold prefill**. Further kernel work needs a new
+current-stack profile, not extrapolation from the isolated +41% kernel result.
 
 **Current research and proposed windows:**
 [docs/13-upstream-review-20260905.md](13-upstream-review-20260905.md).
@@ -37,6 +38,83 @@ implementation below still made no runtime/config change or performance claim.
 Mainline GLM support (#53906) has merged, so model resolution is no longer the
 mainline blocker described in the historical section above; EXL3 integration
 and overlay compatibility still block a stock-image replacement.
+
+### 2026-09-10: task 35 — ExLlamaV3 v1.4.7 → v1.4.9 pin intake — DEPLOYED, §6 qualification PENDING
+
+The pin moved from `ca13bdd` (v1.4.7) to `5be8865` (v1.4.9): 69 commits. Full
+write-up in [docs/16](16-exl3-v149-pin-intake.md); receipts
+`local/task35-v149-verdict-20260910.txt` and
+`local/task35-prod-start-hardening-20260910.txt`.
+
+The intake turned on reachability, not on the changelog. Our serving path drives
+`exllamav3_ext` directly, so ExLlamaV3's own Python stack, its `libtorch/*`
+native model stack, and the FLA/startup items are all off-path. The six
+quant/MoE files are **byte-identical** across the two tags, which is why the E3/W3
+cubin contract and the ticket-scheduler native skip both survive. `0431122`'s
+MGEMM sliced mode is additive and defaulted, and task 37 already closed
+`exl3_mgemm` as `NOT_REACHABLE`. The one reachable shared-kernel edit
+(`exl3_gemm_kernel_inner`'s `size_n_stride`) is a no-op whenever
+`size_n % TILESIZE_N == 0`, which every shape the v1.4.7 kernel handled correctly
+satisfies. The single reachable *behavioural* consequence is
+`COOP_AUTOTUNE_VERSION` 3 → 4, which re-tunes on first boot.
+
+**Correctness gate (mandatory, run before any speed claim): PASSED.** In
+throwaway containers alongside live production, `e2_vs_loop` (fused `exl3_moe`
+against the reference loop) reports `maxabs 1.22278 / nrmse 0.000637778` on
+**both** images, `e2_repeat` is exactly 0/0 on both, and the microbench's worst
+delta across 20 cells is 2.2% — inside run-to-run noise. The harness compares
+each kernel against a reference loop *within* an image, so this is **not** a
+cross-image bit-identity proof; the defensible claim is that the candidate is
+indistinguishable from the control under the same parity gate. Note also that the
+grouped E3 path is not deterministic run to run on **either** revision
+(`e3_repeat` maxabs 0.125 / nrmse ≈5e-7), so bit-identity is not well-posed
+there. This is the gate task 34 failed (its fused kernel was *uncorrelated* with
+the path it replaced).
+
+**Guarded A/B: deployed on the correctness gates; §6 performance qualification
+PENDING.** Candidate booted to health 200 with the pool at **1,396,551 tokens,
+identical** to the control; acceptance **7/7**; serving **6/6** from the Mac
+through the tunnel; structured decode **69.798 tok/s** at 1.0000/7.0 with no NaN.
+The control run (67.089) is contaminated — its 25.09 minimum is an ambient-load
+outlier — and the window ran one three-observation structured run per arm, so it
+does **not** meet `docs/13` §6's A-B-B-A / nine-observations contract. The
+throughput comparison is recorded as INCONCLUSIVE and **adoption qualification is
+incomplete**: closing it needs the full §6 sequence on a quiet node or an
+explicit owner-approved exception for a currency bump on which no performance
+claim is made. The deployment itself rests on the inertness analysis and the
+parity gate; the candidate's 69.798 merely sits inside the established 69–70 band
+(task 16: A 70.077 / B 70.03; PR #60: 69.10). Do not cite task 35 as a completed
+performance qualification.
+
+**Two `local/prod-start.sh` defects surfaced, both fixed.** (1) The worker JIT
+wipe resolved the *new* tag, which `start.sh` does not ship to the worker until
+later, so it always died with `pull access denied for glm53-selfbuild` and left a
+half-wipe; `wipe_image_for()` now falls back to any locally present
+`glm53-selfbuild` image, since the wipe only needs `/bin/bash` and `rm`.
+(2) The settle gate (`NEED_GIB=90`) sits below vLLM's own `0.85 × 121.69 =
+103.44 GiB` demand, and free memory *drops during the boot* as page cache fills,
+so the first candidate boot passed the gate at 114 GiB and then failed vLLM's
+check at 103.09; a bounded `MAX_BOOT_ATTEMPTS=3` retry now covers it (raising the
+threshold cannot — idle MemFree is only 93–97 GiB). Both were cluster-validated;
+the revised launcher is installed. **(3) Review then found that the new retry
+loop read `rc=$?` after the completed `if`, which is always 0 when the condition
+failed and no branch ran — so exhausting the retries exited 0 with production
+down.** Fixed by capturing the status in the `else` branch, with regression tests
+for both exhaustion and first-attempt success; the defect arrived with the retry
+loop in this window, so no previously shipped launcher had it.
+
+**Build changes the bump required.** v1.4.9 registers a new CPU-MoE probe
+(`exl3_moe_cpu_has_avx512_bw`) whose only definition site is `cpu/moe_mul1.cpp` —
+the file the aarch64 stub replaces — so the extension would have failed to
+**link**. The stub now defines it, and `check_pybind_cpu_contract()` reads the
+registered set out of `bindings.cpp` and fails closed on any symbol without a
+definition site. The Dockerfile's version assert is now `ARG
+EXLLAMAV3_VERSION` instead of a hard-coded `'1.4.7'`. **The pin also moved in the
+tracked defaults** — `Dockerfile`'s `ARG EXLLAMAV3_COMMIT` and
+`overlay/exl3.py`'s recorded constants now name `5be8865` / `1.4.9`, as task 16
+established for v1.4.7 — so a bare `docker build .` reproduces production rather
+than the superseded revision. `overlay-w4/` keeps its version-matched v1.4.7
+constants because only the reverted `Dockerfile.e3-w4-layer` consumes it.
 
 ### 2026-09-09: task 24 W5 occupancy — STOP by measurement; counter lane unblocked without a reboot
 

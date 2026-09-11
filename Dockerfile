@@ -377,9 +377,18 @@ COPY overlay/exl3_fat_moe.cuh /opt/glm53/exl3-fat-kernel/exl3_fat_moe.cuh
 COPY overlay/patch_exl3_ticket_scheduler.py /opt/glm53/patch_exl3_ticket_scheduler.py
 COPY overlay/exl3-ticket/ /opt/glm53/exl3-ticket/
 
-ARG EXLLAMAV3_COMMIT=ca13bdd83a1f4a74fd817b88f49509e0f22a9b07
-# v1.4.7 already contains the d5e4361 ticket scheduler. The installer is
-# retained for the historical c5d9c657 pin and skips native v1.4.7 trees.
+ARG EXLLAMAV3_COMMIT=5be886578ec80324c2c715269387be2058724b6e
+# The version string asserted against the fetched tarball. Keep it in lockstep
+# with EXLLAMAV3_COMMIT: it is the fail-closed check that the pin actually
+# resolved to the revision this recipe was validated against. The v1.4.7 ->
+# v1.4.9 delta leaves the six quant/MoE files byte-identical, so the
+# ticket-scheduler installer's native-set skip holds for both.
+# Rollback to the previous pin (docs/16):
+#   --build-arg EXLLAMAV3_COMMIT=ca13bdd83a1f4a74fd817b88f49509e0f22a9b07
+#   --build-arg EXLLAMAV3_VERSION=1.4.7
+ARG EXLLAMAV3_VERSION=1.4.9
+# v1.4.9, like v1.4.7, already contains the d5e4361 ticket scheduler. The
+# installer is retained for the historical c5d9c657 pin and skips native trees.
 # --build-arg GLM53_EXL3_TICKET_SCHEDULER=0 still skips the overlay.
 # Rollback at runtime = previous image tag + .env IMAGE= flip (the scheduler
 # is compile-time, not a runtime knob).
@@ -430,7 +439,7 @@ RUN set -eux; \
     mkdir -p /tmp/exllamav3; \
     curl -fsSL "https://github.com/turboderp-org/exllamav3/archive/${EXLLAMAV3_COMMIT}.tar.gz" \
       | tar -xz -C /tmp/exllamav3 --strip-components=1; \
-    python3 -c "from pathlib import Path; p = Path('/tmp/exllamav3'); assert (p/'exllamav3/modules/quant/exl3.py').is_file(); ver = (p/'exllamav3/version.py').read_text(); assert '1.4.7' in ver, ver"; \
+    python3 -c "from pathlib import Path; p = Path('/tmp/exllamav3'); assert (p/'exllamav3/modules/quant/exl3.py').is_file(); ver = (p/'exllamav3/version.py').read_text(); assert '${EXLLAMAV3_VERSION}' in ver, ver"; \
     python3 /opt/glm53/patch_exl3_ext_aarch64.py /tmp/exllamav3/exllamav3/exllamav3_ext; \
     python3 /opt/glm53/patch_exl3_fat_kernel.py /tmp/exllamav3/exllamav3/exllamav3_ext /opt/glm53/exl3-fat-kernel; \
     python3 /opt/glm53/patch_exl3_ticket_scheduler.py /tmp/exllamav3/exllamav3/exllamav3_ext; \

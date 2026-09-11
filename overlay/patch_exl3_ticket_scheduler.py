@@ -64,6 +64,9 @@ NATIVE_TICKET_MARKERS = (
 
 # Exact v1.4.7 (ca13bdd) ext/quant SHA256. exl3_moe.cuh is shared with the
 # historical patched header (96f4fc24…); the other five files are not.
+# Verified 2026-09-10: v1.4.9 (5be8865) ships all six files byte-identical, so
+# the native skip below applies unchanged when the pin moves to v1.4.9 — the
+# 0431122 MGEMM sliced-mode work does not touch the fused MoE kernels.
 NATIVE_V147_SHA256 = {
     "exl3_devctx.cu": "545e1909873b2bd8f6cf598edce0c7772519e2d6e4b473fc72019e678379a34a",
     "exl3_devctx.cuh": "effb1827e9b6c61ba95287ccfa5d6a0b6ccef103c0d588d992359be9291834c0",
@@ -113,8 +116,9 @@ def main() -> int:
 
     if tree_is_native_v147(quant):
         print(
-            "ticket-scheduler: native v1.4.7 (ca13bdd) quant set present, "
-            "including shared historical exl3_moe.cuh — skipping byte-exact installer"
+            "ticket-scheduler: native quant set present (v1.4.7 ca13bdd bytes, "
+            "which v1.4.9 also ships byte-identically), including shared "
+            "historical exl3_moe.cuh — skipping byte-exact installer"
         )
         print("ticket-scheduler: done (native=1, patched=0, already=0, total=6)")
         return 0
