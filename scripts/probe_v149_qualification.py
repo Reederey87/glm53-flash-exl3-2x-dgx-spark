@@ -154,9 +154,18 @@ def spec_delta(before: dict[str, float], after: dict[str, float]) -> dict:
 
 
 def _stream(body: dict, timeout: float) -> dict:
-    """Drive one streaming completion and return raw timing + text."""
+    """Drive one streaming completion and return raw timing + text.
+
+    Reads the SSE stream **a line at a time**. A buffered `resp.read(4096)`
+    blocks until 4096 bytes accumulate, which folds several token arrivals into
+    one and destroys both the TTFT and the decode interval — a server flushing
+    two tokens 250 ms apart was measured at ~6.2M tok/s because both landed in
+    a single read and the interval collapsed to ~32 us. `readline()` returns
+    each event as soon as the server flushes it.
+    """
     started = time.perf_counter()
     first = None
+    last = None
     chunks: list[str] = []
     usage = None
     finish = None
@@ -165,42 +174,40 @@ def _stream(body: dict, timeout: float) -> dict:
     try:
         with _post("/v1/chat/completions", body, timeout=timeout) as resp:
             http = resp.status
-            buf = b""
             while True:
-                piece = resp.read(4096)
-                if not piece:
+                raw_line = resp.readline()
+                if not raw_line:
                     break
-                buf += piece
-                while b"\n" in buf:
-                    line, buf = buf.split(b"\n", 1)
-                    line = line.strip()
-                    if not line.startswith(b"data:"):
-                        continue
-                    payload = line[5:].strip()
-                    if payload == b"[DONE]":
-                        continue
-                    try:
-                        obj = json.loads(payload)
-                    except json.JSONDecodeError:
-                        continue
-                    if obj.get("usage"):
-                        usage = obj["usage"]
-                    choices = obj.get("choices") or []
-                    if not choices:
-                        continue
-                    delta = choices[0].get("delta") or {}
-                    content = (
-                        delta.get("content")
-                        or delta.get("reasoning")
-                        or delta.get("reasoning_content")
-                        or ""
-                    )
-                    if content:
-                        if first is None:
-                            first = time.perf_counter()
-                        chunks.append(content)
-                    if choices[0].get("finish_reason"):
-                        finish = choices[0]["finish_reason"]
+                line = raw_line.strip()
+                if not line.startswith(b"data:"):
+                    continue
+                payload = line[5:].strip()
+                if payload == b"[DONE]":
+                    continue
+                try:
+                    obj = json.loads(payload)
+                except json.JSONDecodeError:
+                    continue
+                if obj.get("usage"):
+                    usage = obj["usage"]
+                choices = obj.get("choices") or []
+                if not choices:
+                    continue
+                delta = choices[0].get("delta") or {}
+                content = (
+                    delta.get("content")
+                    or delta.get("reasoning")
+                    or delta.get("reasoning_content")
+                    or ""
+                )
+                if content:
+                    now = time.perf_counter()
+                    if first is None:
+                        first = now
+                    last = now
+                    chunks.append(content)
+                if choices[0].get("finish_reason"):
+                    finish = choices[0]["finish_reason"]
     except Exception as exc:  # noqa: BLE001  (a broken run is a recorded invalid run)
         error = f"{type(exc).__name__}: {exc}"
     ended = time.perf_counter()
@@ -208,6 +215,7 @@ def _stream(body: dict, timeout: float) -> dict:
         "http": http,
         "error": error,
         "first_s": first,
+        "last_s": last,
         "ended_s": ended,
         "started_s": started,
         "text": "".join(chunks),
@@ -234,7 +242,14 @@ def decode_run(prompt: str, max_tokens: int, timeout: float) -> dict:
     completion_tokens = int(usage.get("completion_tokens") or 0)
     prompt_tokens = int(usage.get("prompt_tokens") or 0)
     ttft = None if raw["first_s"] is None else raw["first_s"] - raw["started_s"]
-    decode_s = None if raw["first_s"] is None else raw["ended_s"] - raw["first_s"]
+    # First-to-last CONTENT token, not first-token-to-EOF. The usage chunk and
+    # the connection close arrive after the final token; ending the interval at
+    # EOF would charge that tail to decode.
+    decode_s = (
+        None
+        if raw["first_s"] is None or raw["last_s"] is None
+        else raw["last_s"] - raw["first_s"]
+    )
     tok_s = None
     if decode_s and decode_s > 0 and completion_tokens > 1:
         tok_s = (completion_tokens - 1) / decode_s
@@ -391,6 +406,14 @@ def summarize(kind: str, runs: list[dict], invalid: list[dict]) -> dict:
     return out
 
 
+def write_receipt(path: Path, payload: dict) -> None:
+    """Write the receipt atomically, so a reader never sees a partial file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=1, default=str) + "\n")
+    tmp.replace(path)
+
+
 MODEL = DEFAULT_MODEL
 
 
@@ -438,10 +461,12 @@ def main(argv: list[str] | None = None) -> int:
         }
         print(f"[probe] {args.kind} run {index + 1}/{args.runs}: {json.dumps(shown)}"
               + (f" INVALID {reason}" if reason else ""), flush=True)
+        # Persist after every observation: a crash in a later run must not
+        # discard the observations already taken.
+        write_receipt(args.out, summarize(args.kind, runs, invalid))
 
     summary = summarize(args.kind, runs, invalid)
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(summary, indent=1, default=str) + "\n")
+    write_receipt(args.out, summary)
     headline = {k: v for k, v in summary.items() if k not in ("runs", "invalid_runs")}
     print(json.dumps(headline, indent=1, default=str), flush=True)
     print(f"[probe] wrote {args.out}", flush=True)

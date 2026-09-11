@@ -68,6 +68,9 @@ WORKER_CONTAINER = "glm53-exl3-worker"
 WORKER = os.environ.get("WORKER_SSH", "nvidia@192.168.177.11")
 TAG = "task35b"
 TIMERS = ("vllm-glm53exl3-watchdog.timer", "glm53exl3-metrics-alert.timer")
+# The services those timers trigger. Stopping a timer does not stop a service it
+# already started, so disarm must wait for these to go inactive too.
+TIMER_SERVICES = ("vllm-glm53exl3-watchdog.service", "glm53exl3-metrics-alert.service")
 
 # Pre-registered arms. `tag` is the last-wins IMAGE= value; `exllamav3` is what
 # the running container must report, checked in-container on both nodes.
@@ -151,15 +154,18 @@ def jit_stamp() -> str:
     return win.STAMP.read_text().strip() if win.STAMP.is_file() else ""
 
 
-def pool_line() -> str:
-    """The canonical KV-capacity line from the head container's log.
+POOL_CAPACITY_RE = re.compile(r"GPU KV cache size:\s*([\d,]+)\s*tokens")
+POOL_CONCURRENCY_RE = re.compile(r"Maximum concurrency[^:]*:\s*([\d.]+)x")
+
+
+def pool_line_raw() -> str:
+    """The raw KV-capacity log line, for the audit trail.
 
     Deliberately more specific than the shared `win.pool_line()`, which returns
     the first line containing `kv_cache`. In this container the *first* such line
     is a startup patch message carrying the file path `kv_cache_utils.py`
     (`[patch_glm5_drafter_group] ... kv_cache_utils.py: already patched`), which
-    is identical on every arm. Comparing that would make the auditor's
-    pool-unchanged gate vacuous: it would pass even if the real pool moved.
+    is identical on every arm, so comparing it would make the pool gate vacuous.
 
     `grep -m1` exits at the first match, so the pipeline stops early rather than
     streaming the whole log.
@@ -173,6 +179,27 @@ def pool_line() -> str:
         if line:
             return line
     return ""
+
+
+def pool_capacity() -> str:
+    """The KV pool's identity: token count and concurrency, NOT the log line.
+
+    The raw line carries a timestamp, a PID and a source-location prefix
+    (`(EngineCore pid=237) INFO 09-11 09:21:22 [kv_cache_utils.py:2598] ...`)
+    that differ on every boot even when the pool is byte-identical, so comparing
+    raw lines would abort a healthy window. Compare the parsed capacity instead.
+    Returns "" when no capacity line is found, which the auditor rejects.
+    """
+    raw = pool_line_raw()
+    if not raw:
+        return ""
+    match = POOL_CAPACITY_RE.search(raw)
+    if not match:
+        return ""
+    tokens = match.group(1).replace(",", "")
+    concurrency = POOL_CONCURRENCY_RE.search(raw)
+    suffix = f"; concurrency {concurrency.group(1)}x" if concurrency else ""
+    return f"{tokens} tokens{suffix}"
 
 
 # --- container identity -----------------------------------------------------
@@ -196,6 +223,14 @@ def exllamav3_version(container: str = HEAD_CONTAINER, host: str | None = None) 
         if match:
             return match.group(1)
     return ""
+
+
+def container_started_at(container: str = HEAD_CONTAINER, host: str | None = None) -> str:
+    """The container's start time, used as a per-boot identity token."""
+    argv = ["docker", "inspect", "-f", "{{.State.StartedAt}}", container]
+    if host:
+        argv = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, " ".join(argv)]
+    return win.run(argv, timeout=60, check=False).stdout.strip()
 
 
 def preemptions() -> float:
@@ -284,7 +319,8 @@ def phase_preflight(state: dict) -> None:
             "start_sha256": win.sha256(ROOT / "start.sh"),
             "env_effective_before": env,
             "image_before": win.image_id(),
-            "pool_line_before": pool_line(),
+            "pool_line_before": pool_line_raw(),
+            "pool_capacity_before": pool_capacity(),
             "jit_stamp_before": stamp_before,
             "arm_image_presence": presence,
             "contract": {"arms": ARMS, "lanes": {k: v[0] for k, v in LANES.items()}},
@@ -314,7 +350,53 @@ def phase_disarm(state: dict) -> None:
     bad = {unit: status for unit, status in states.items() if status == "active"}
     if bad:
         raise RuntimeError(f"timers still active after disarm: {bad}")
-    log(f"watchdog + metrics-alert timers disarmed {states}")
+    # Stopping a timer does not stop a service it already started, nor cancel a
+    # queued restart job. §6 requires waiting for in-flight watchdog/start work:
+    # the watchdog can enqueue `systemctl restart --no-block`, and that job
+    # would tear down the boot this runner is about to perform.
+    quiescent = wait_quiescent()
+    state["quiescent_after_disarm"] = quiescent
+    save(state)
+    if not quiescent:
+        raise RuntimeError(
+            "watchdog/metrics services or queued jobs still active after disarm; "
+            "refusing to start the window"
+        )
+    log(f"watchdog + metrics-alert timers disarmed and quiescent {states}")
+
+
+def _active_services() -> dict[str, str]:
+    out: dict[str, str] = {}
+    for unit in TIMER_SERVICES:
+        proc = win.run(["systemctl", "--user", "is-active", unit], timeout=30, check=False)
+        out[unit] = proc.stdout.strip() or "unknown"
+    return out
+
+
+def _pending_jobs() -> int:
+    proc = win.run(["systemctl", "--user", "list-jobs"], timeout=30, check=False)
+    lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
+    # The header line ("No jobs running." or a column header) is not a job.
+    return len([ln for ln in lines if "No jobs running" not in ln and not ln.startswith("JOB")])
+
+
+def wait_quiescent(timeout: float = 300.0) -> bool:
+    """Wait until the timer services are inactive and no jobs are queued."""
+    deadline = time.monotonic() + timeout
+    while True:
+        busy = {
+            unit: status
+            for unit, status in _active_services().items()
+            if status in ("active", "activating", "reloading", "deactivating")
+        }
+        jobs = _pending_jobs()
+        if not busy and jobs == 0:
+            return True
+        if time.monotonic() >= deadline:
+            log(f"quiescence timed out: services={busy} jobs={jobs}")
+            return False
+        log(f"waiting for quiescence: services={busy} jobs={jobs}")
+        time.sleep(5)
 
 
 def phase_arm(state: dict, arm: str) -> None:
@@ -344,7 +426,8 @@ def phase_arm(state: dict, arm: str) -> None:
         "worker_exllamav3_version": worker["exllamav3_version"],
         "health": 200,
         "jit_stamp": jit_stamp(),
-        "pool_line": pool_line(),
+        "pool_line": pool_line_raw(),
+        "container_started_at": container_started_at(),
         "memfree_head_gib": head_mem,
         "memfree_worker_gib": worker_mem,
         "preemptions_before": preemptions(),
@@ -358,9 +441,38 @@ def phase_arm(state: dict, arm: str) -> None:
 
 
 def phase_measure(state: dict, arm: str) -> None:
+    # Revalidate the running arm before measuring. A resume with `--from
+    # measure_a` after an automatic recovery would otherwise measure whatever is
+    # actually running (the restored production image) and file it under arm A.
+    # `verify_arm` raises on any image or `exllamav3` mismatch.
+    head_now = verify_arm(arm, HEAD_CONTAINER)
+    worker_now = verify_arm(arm, WORKER_CONTAINER, host=WORKER)
+    record = state.setdefault("arms", {}).setdefault(arm, {})
+    boot_now = container_started_at()
+    recorded_boot = record.get("container_started_at")
+    if recorded_boot and boot_now and boot_now != recorded_boot:
+        raise RuntimeError(
+            f"arm {arm}: the head container restarted since the arm phase "
+            f"({recorded_boot} -> {boot_now}); the observations would not belong "
+            "to the verified boot"
+        )
+    record["measure_verified_image"] = head_now["image_tag"]
+    record["measure_verified_worker_image"] = worker_now["image_tag"]
+    record["measure_verified_exllamav3"] = head_now["exllamav3_version"]
+    record["measure_container_started_at"] = boot_now
+    # A fresh attempt tag per invocation: a retry after a failed block writes new
+    # files instead of overwriting the evidence an earlier receipt points at.
+    attempt = time.strftime("%Y%m%d-%H%M%S")
+    record["measure_attempt"] = attempt
+    save(state)
+
     state.setdefault("probes", {}).setdefault(arm, {})
     for lane, (runs, timeout) in LANES.items():
-        out = _RECEIPT.parent / f"{TAG}-{arm}-{lane}.json"
+        # Window-, arm- and attempt-specific path, so no run of this harness can
+        # ever clobber another's evidence.
+        out = _RECEIPT.parent / (
+            f"{_RECEIPT.stem}-{arm}-{lane}-{attempt}.json"
+        )
         head_before, worker_before = check_tripwire(f"arm {arm} {lane} before")
         started = time.time()
         proc = subprocess.run(
@@ -397,16 +509,24 @@ def phase_restore(state: dict) -> None:
     shutil.copy2(backup, ENV_FILE)
     if win.sha256(ENV_FILE) != state["env_sha256"]:
         raise RuntimeError("restored .env does not match the pre-window hash")
-    state["env_touched"] = False
     save(state)
     win.guarded_start()
     if not win.wait_health():
         raise RuntimeError("production did not become healthy after restore")
     record = verify_arm("b", HEAD_CONTAINER)
+    worker_record = verify_arm("b", WORKER_CONTAINER, host=WORKER)
     state["restored_image_tag"] = record["image_tag"]
     state["restored_exllamav3_version"] = record["exllamav3_version"]
+    # Recovery intent is cleared ONLY once production is verified healthy and
+    # running the expected image on both nodes. Clearing it earlier (right after
+    # copying the backup) would make `needs_env_restore` report "production was
+    # never moved" if `guarded_start` then failed, leaving production down with
+    # no automatic retry.
+    state["env_touched"] = False
+    state["restored_worker_image_tag"] = worker_record["image_tag"]
     save(state)
-    log(f"production restored: {record['image_tag']} exllamav3={record['exllamav3_version']}")
+    log(f"production restored: {record['image_tag']} exllamav3={record['exllamav3_version']} "
+        f"worker={worker_record['image_tag']}")
 
 
 def phase_gates(state: dict) -> None:
@@ -420,9 +540,16 @@ def phase_gates(state: dict) -> None:
         "acceptance_tail": (acc.stdout or "").strip().splitlines()[-6:],
         "memfree_head_gib": head,
         "memfree_worker_gib": worker,
-        "pool_line": pool_line(),
-        "pool_line_before": state.get("pool_line_before", ""),
+        "pool_line": pool_line_raw(),
+        "pool_capacity": pool_capacity(),
+        "pool_capacity_before": state.get("pool_capacity_before", ""),
         "jit_stamp": jit_stamp(),
+        # The pre-window stamp, NOT arm B's: `prod-start.sh` hashes every raw
+        # `IMAGE=` line including overridden ones, so arm B's `.env` (original
+        # line + appended A + appended B) and the restored `.env` (original line
+        # only) hash differently even though both run B. Comparing against arm
+        # B's stamp would deterministically abort a successful window.
+        "jit_stamp_before": state.get("jit_stamp_before", ""),
         "jit_stamp_arm_b": (state.get("arms", {}).get("b", {}) or {}).get("jit_stamp", ""),
     }
     save(state)
@@ -521,6 +648,13 @@ def restore_production(state: dict) -> None:
         log(f"AUTO-RESTORE FAILED: {exc} — operator action required")
 
 
+def _recovery_ok(state: dict) -> bool:
+    """True when recovery left nothing outstanding, so atexit need not retry."""
+    return not str(state.get("auto_restore", "")).startswith("FAILED") and not str(
+        state.get("timer_restore", "")
+    ).startswith("FAILED")
+
+
 def emergency_restore() -> None:
     global _RESTORE_DONE
     state = _ACTIVE
@@ -590,13 +724,27 @@ def main(argv: list[str] | None = None) -> int:
             state["phases"].append({"phase": name, "ok": True})
             state["phase_in_progress"] = None
             save(state)
+    except (Exception, KeyboardInterrupt) as exc:  # noqa: BLE001
+        # Anything raised outside a phase handler — a `save()` failure, or a
+        # SIGTERM landing between phases — must still trigger recovery. Without
+        # this the `finally` would see failure=None, skip the restore, and set
+        # _RESTORE_DONE, which disables the atexit handler as well.
+        failure = failure or exc
+        log(f"window aborted outside a phase handler: {exc!r}")
     finally:
         if failure is not None and not args.keep_armed:
             restore_production(state)
             recover_timers(state)
-        _RESTORE_DONE = True
+            # Only disarm the atexit safety net once recovery actually
+            # succeeded, so a failed restore gets a second attempt at exit.
+            _RESTORE_DONE = _recovery_ok(state)
+        else:
+            _RESTORE_DONE = True
         state["finished"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
-        save(state)
+        try:
+            save(state)
+        except OSError as exc:  # the receipt write must not mask the real failure
+            log(f"could not write the final receipt: {exc!r}")
 
     log(f"receipt: {receipt}")
     return 1 if failure is not None else 0

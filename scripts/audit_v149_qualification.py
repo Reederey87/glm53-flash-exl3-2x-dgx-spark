@@ -132,44 +132,70 @@ def judge(receipt: dict, base_dir: Path) -> dict:
         result["verdict"] = "ABORT"
         return result
 
-    # --- KV pool identity ---------------------------------------------------
+    # --- KV pool and preemption identity ------------------------------------
     # Every arm must reserve the same pool. Checking this per arm, rather than
     # only before-and-after, localizes a divergence to the boot that caused it.
-    pool_before = receipt.get("pool_line_before") or ""
-    if not pool_before:
-        errors.append("pre-window KV pool line missing from the receipt")
+    capacity_before = receipt.get("pool_capacity_before") or ""
+    if not capacity_before:
+        errors.append("pre-window KV pool capacity missing from the receipt")
     for arm in ARMS:
         record = arms.get(arm) or {}
-        if not record.get("pool_line"):
-            errors.append(f"arm {arm} recorded no KV pool line")
-        elif record["pool_line"] != pool_before:
+        capacity = record.get("pool_capacity")
+        if not capacity:
+            errors.append(f"arm {arm} recorded no KV pool capacity")
+        elif capacity_before and capacity != capacity_before:
             errors.append(
-                f"arm {arm} KV pool differs from the pre-window pool: "
-                f"{record['pool_line']!r} vs {pool_before!r}"
+                f"arm {arm} KV pool capacity differs from the pre-window pool: "
+                f"{capacity!r} vs {capacity_before!r}"
             )
+        # A preemption during an arm means the measurement was disturbed.
+        delta = record.get("preemptions_delta")
+        if delta is None:
+            errors.append(f"arm {arm} recorded no preemption delta")
+        elif delta != 0:
+            errors.append(f"arm {arm} saw {delta} preemptions during measurement")
     if errors:
         result["verdict"] = "ABORT"
         return result
 
-    # --- correctness gates --------------------------------------------------
+    # --- correctness and safety gates ---------------------------------------
     gates = receipt.get("gates") or {}
     if gates.get("acceptance_rc") != 0:
         errors.append(f"acceptance battery rc={gates.get('acceptance_rc')!r} after restore")
     for node in ("memfree_head_gib", "memfree_worker_gib"):
         value = gates.get(node)
-        if not isinstance(value, (int, float)) or value < 2.5:
+        # `NaN < 2.5` is False, so a plain comparison would let a NaN memory
+        # reading through as "not below the tripwire". Require a finite number.
+        if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+            errors.append(f"{node}={value!r} is not a finite memory reading")
+        elif value < 2.5:
             errors.append(f"{node}={value!r} is below the 2.5 GiB tripwire")
-    if not gates.get("pool_line"):
-        errors.append("KV pool line missing after restore")
-    elif gates.get("pool_line") != gates.get("pool_line_before"):
+    # Compare the PARSED capacity, not the raw line: the line carries a
+    # timestamp, PID and source prefix that differ every boot.
+    capacity_before = gates.get("pool_capacity_before") or ""
+    capacity_after = gates.get("pool_capacity") or ""
+    if not capacity_before:
+        errors.append("pre-window KV pool capacity was not recorded")
+    if not capacity_after:
+        errors.append("KV pool capacity missing after restore")
+    elif capacity_before and capacity_after != capacity_before:
         errors.append(
-            "KV pool changed across the window: "
-            f"{gates.get('pool_line_before')!r} -> {gates.get('pool_line')!r}"
+            f"KV pool capacity changed across the window: {capacity_before!r} -> {capacity_after!r}"
         )
-    if gates.get("jit_stamp") != gates.get("jit_stamp_arm_b"):
+    # The restored stamp is compared against the PRE-WINDOW stamp, not arm B's.
+    # `prod-start.sh` hashes every raw `IMAGE=` line including overridden ones,
+    # so arm B's `.env` (original + appended A + appended B) and the restored
+    # `.env` (original only) hash differently even though both run B.
+    stamp_before = gates.get("jit_stamp_before") or ""
+    stamp_after = gates.get("jit_stamp") or ""
+    if not stamp_before:
+        errors.append("pre-window JIT shape stamp was not recorded")
+    if not stamp_after:
+        errors.append("JIT shape stamp missing after restore")
+    elif stamp_before and stamp_after != stamp_before:
         errors.append(
-            "final JIT shape stamp does not match the candidate arm's "
-            f"({gates.get('jit_stamp')!r} vs {gates.get('jit_stamp_arm_b')!r})"
+            f"restored JIT shape stamp differs from the pre-window stamp "
+            f"({stamp_before!r} -> {stamp_after!r})"
         )
 
     # --- per-lane evidence --------------------------------------------------
@@ -199,6 +225,16 @@ def judge(receipt: dict, base_dir: Path) -> dict:
             if probe.get("any_cache_hit"):
                 errors.append(f"arm {arm} lane {lane}: a cold-prefill run hit the prefix cache")
                 continue
+            # An EXCLUDED run that was excluded for a correctness reason is
+            # still evidence: a NaN-corrupted output must not be silently
+            # dropped into the exclusion list and then ignored.
+            for bad in probe.get("invalid_runs") or []:
+                reason = str(bad.get("invalid_reason") or "")
+                if "NaN" in reason or "locklock" in reason:
+                    errors.append(
+                        f"arm {arm} lane {lane}: an excluded run was corrupted "
+                        f"({reason})"
+                    )
             valid = int(probe.get("valid_runs") or 0)
             if valid < REQUIRED_RUNS[lane]:
                 errors.append(
@@ -229,7 +265,11 @@ def judge(receipt: dict, base_dir: Path) -> dict:
         drift = abs(a_first - a_last) / max(a_first, a_last)
         b_drift = abs(per_arm["b"] - per_arm["b2"]) / max(per_arm["b"], per_arm["b2"])
         ratio = candidate / control
-        if drift > DRIFT_MAX:
+        # §6: report INCONCLUSIVE when variance prevents a decision. Candidate
+        # instability is as disqualifying as control drift — a lane whose two
+        # candidate arms disagree wildly has no settled number to compare, so
+        # gating only the control would let a 75%-drift candidate pass as ADOPT.
+        if drift > DRIFT_MAX or b_drift > DRIFT_MAX:
             lane_verdict = "INCONCLUSIVE"
         elif ratio < BANDS[lane]:
             lane_verdict = "FAIL"
@@ -253,8 +293,34 @@ def judge(receipt: dict, base_dir: Path) -> dict:
     if worst == "REVERT":
         errors.append("a lane regressed beyond its pre-registered band")
     elif worst == "INCONCLUSIVE":
-        errors.append("the window drifted beyond its band; the comparison cannot decide")
+        errors.append(
+            "the window drifted beyond its band (control or candidate); "
+            "the comparison cannot decide"
+        )
     result["verdict"] = worst
+    # Be explicit about what an ADOPT does and does not certify. This harness
+    # measures throughput and the correctness gates it collects; it does NOT
+    # cover every §6 evidence requirement, so ADOPT is not a statement that the
+    # full §6 qualification is complete.
+    result["scope"] = {
+        "covers": [
+            "A-B-B-A ordering with the pre-registered per-lane observation counts",
+            "decode (structured/essay/hashmap) and cold-prefill (60k/240k) throughput",
+            "arm identity on both nodes (image tag + in-container exllamav3 version)",
+            "KV pool capacity unchanged, per arm and across the window",
+            "memory tripwire, preemption count, JIT shape stamp, NaN/cache-hit validity",
+            "post-restore acceptance battery rc",
+        ],
+        "does_not_cover": [
+            "temp-1 production cells (this harness runs temp-0 cells only)",
+            "the §6 serving / toolcall / thinking-SSE / long-form / mixed-cache soak gates",
+            "the prescribed drained-APC reset and cache-counter traffic audit for cold rounds",
+        ],
+        "adopt_means": (
+            "no throughput regression beyond the pre-registered bands on the "
+            "lanes measured; NOT that the full docs/13 §6 qualification is complete"
+        ),
+    }
     return result
 
 

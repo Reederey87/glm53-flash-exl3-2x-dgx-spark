@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -155,6 +156,113 @@ def test_probe_exits_nonzero_when_a_run_is_invalid(monkeypatch, tmp_path):
     assert payload["valid_runs"] == 0 and len(payload["invalid_runs"]) == 3
 
 
+def test_probe_keeps_completed_observations_when_a_later_run_fails(monkeypatch, tmp_path):
+    """A crash mid-block must not discard the observations already taken."""
+    monkeypatch.setattr(probe, "health", lambda: 200)
+    monkeypatch.setattr(probe, "served_model", lambda: "GLM-5.3-Flash-EXL3")
+    monkeypatch.setattr(probe, "spec_snapshot", lambda: {})
+    calls = {"n": 0}
+
+    def flaky(*_a, **_k):
+        calls["n"] += 1
+        if calls["n"] == 3:
+            raise RuntimeError("connection reset")
+        return _decode_run(tok_s=70.0 + calls["n"])
+
+    monkeypatch.setattr(probe, "decode_run", flaky)
+    out = tmp_path / "o.json"
+    with pytest.raises(RuntimeError, match="connection reset"):
+        probe.main(["--kind", "structured", "--runs", "5", "--out", str(out)])
+    payload = json.loads(out.read_text())
+    assert payload["valid_runs"] == 2
+    assert [r["tok_s"] for r in payload["runs"]] == [71.0, 72.0]
+
+
+def test_probe_receipt_write_is_atomic(monkeypatch, tmp_path):
+    out = tmp_path / "o.json"
+    probe.write_receipt(out, {"a": 1})
+    assert json.loads(out.read_text()) == {"a": 1}
+    assert not (tmp_path / "o.json.tmp").exists()
+
+
+class _FakeStream:
+    """A minimal SSE response that records how it was read."""
+
+    def __init__(self, lines, *, status=200, delay=0.0):
+        self._lines = list(lines)
+        self.status = status
+        self._delay = delay
+        self.read_calls = 0
+
+    def readline(self):
+        if not self._lines:
+            return b""
+        if self._delay:
+            time.sleep(self._delay)
+        return self._lines.pop(0)
+
+    def read(self, *_a):  # pragma: no cover - must never be reached
+        self.read_calls += 1
+        raise AssertionError("the stream must be read line-by-line, not buffered")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_a):
+        return False
+
+
+def _sse(*contents, usage=None):
+    lines = [
+        b'data: {"choices":[{"delta":{"content":"' + c.encode() + b'"}}]}\n'
+        for c in contents
+    ]
+    if usage:
+        lines.append(
+            b'data: {"choices":[],"usage":' + json.dumps(usage).encode() + b"}\n"
+        )
+    lines.append(b"data: [DONE]\n")
+    return lines
+
+
+def test_stream_reads_line_by_line_not_in_buffered_blocks(monkeypatch):
+    """`read(4096)` blocks until 4096 bytes accumulate, folding several token
+    arrivals into one and collapsing the measured decode interval."""
+    fake = _FakeStream(_sse("a", "b"))
+    monkeypatch.setattr(probe, "_post", lambda *a, **k: fake)
+    probe._stream({"model": "m"}, 5.0)
+    assert fake.read_calls == 0
+
+
+def test_stream_timing_spans_first_to_last_content(monkeypatch):
+    """Decode must end at the last content token, not at EOF: the usage chunk and
+    the connection close arrive afterwards and would be charged to decode."""
+    fake = _FakeStream(_sse("a", "b", usage={"completion_tokens": 3}), delay=0.05)
+    monkeypatch.setattr(probe, "_post", lambda *a, **k: fake)
+    raw = probe._stream({"model": "m"}, 5.0)
+    assert raw["first_s"] is not None and raw["last_s"] is not None
+    content_span = raw["last_s"] - raw["first_s"]
+    to_eof = raw["ended_s"] - raw["first_s"]
+    assert content_span > 0.02
+    assert to_eof > content_span  # the usage line and EOF come after the last token
+    assert raw["usage"]["completion_tokens"] == 3
+
+
+def test_decode_run_uses_the_content_span_for_the_rate(monkeypatch):
+    fake = _FakeStream(
+        _sse("a", "b", "c", usage={"completion_tokens": 3, "prompt_tokens": 11}),
+        delay=0.05,
+    )
+    monkeypatch.setattr(probe, "_post", lambda *a, **k: fake)
+    monkeypatch.setattr(probe, "spec_snapshot", lambda: {})
+    run = probe.decode_run("p", 3, 5.0)
+    assert run["completion_tokens"] == 3
+    assert run["ttft_s"] > 0.02
+    # (3 - 1) tokens over a ~0.1 s content span, not over the longer EOF span.
+    assert 10 < run["tok_s"] < 40
+    assert run["decode_s"] < run["wall_s"] - run["ttft_s"]
+
+
 # --- auditor ----------------------------------------------------------------
 
 def _probe_receipt(kind, values, *, valid=None, any_nan=False, any_cache_hit=False):
@@ -200,21 +308,25 @@ def _window_receipt(tmp_path, arm_values, *, gates_ok=True, write_probes=True):
             "worker_exllamav3_version": audit.ARM_EXLLAMAV3[arm],
             "jit_stamp": "stamp-b" if arm in ("b", "b2") else "stamp-a",
             "pool_line": "GPU KV cache size: 1,396,551 tokens",
+            "pool_capacity": "1396551 tokens; concurrency 1.40x",
+            "preemptions_delta": 0,
         }
     gates = {
         "acceptance_rc": 0,
         "memfree_head_gib": 4.1,
         "memfree_worker_gib": 3.3,
         "pool_line": "GPU KV cache size: 1,396,551 tokens",
-        "pool_line_before": "GPU KV cache size: 1,396,551 tokens",
-        "jit_stamp": "stamp-b",
+        "pool_capacity": "1396551 tokens; concurrency 1.40x",
+        "pool_capacity_before": "1396551 tokens; concurrency 1.40x",
+        "jit_stamp": "stamp-original",
+        "jit_stamp_before": "stamp-original",
         "jit_stamp_arm_b": "stamp-b",
     }
     if not gates_ok:
         gates["acceptance_rc"] = 1
     return {
         "schema": 1, "window": "task35b", "arms": arms, "gates": gates, "probes": probes,
-        "pool_line_before": "GPU KV cache size: 1,396,551 tokens",
+        "pool_capacity_before": "1396551 tokens; concurrency 1.40x",
     }
 
 
@@ -337,43 +449,6 @@ def test_auditor_aborts_on_a_failed_acceptance_battery(tmp_path):
     assert any("acceptance battery" in message for message in result["errors"])
 
 
-def test_auditor_aborts_when_the_kv_pool_moved(tmp_path):
-    values = _values_with({})
-    receipt = _window_receipt(tmp_path, values)
-    receipt["gates"]["pool_line"] = "GPU KV cache size: 1,200,000 tokens"
-    result = audit.judge(receipt, tmp_path)
-    assert result["verdict"] == "ABORT"
-    assert any("KV pool changed" in message for message in result["errors"])
-
-
-def test_auditor_aborts_when_one_arm_reserved_a_different_pool(tmp_path):
-    """The per-arm pool check localizes a divergence to the boot that caused it."""
-    values = _values_with({})
-    receipt = _window_receipt(tmp_path, values)
-    receipt["arms"]["b2"]["pool_line"] = "GPU KV cache size: 1,200,000 tokens"
-    result = audit.judge(receipt, tmp_path)
-    assert result["verdict"] == "ABORT"
-    assert any("arm b2 KV pool differs" in message for message in result["errors"])
-
-
-def test_auditor_aborts_when_an_arm_recorded_no_pool_line(tmp_path):
-    values = _values_with({})
-    receipt = _window_receipt(tmp_path, values)
-    del receipt["arms"]["a"]["pool_line"]
-    result = audit.judge(receipt, tmp_path)
-    assert result["verdict"] == "ABORT"
-    assert any("arm a recorded no KV pool line" in message for message in result["errors"])
-
-
-def test_auditor_aborts_when_the_pre_window_pool_line_is_missing(tmp_path):
-    values = _values_with({})
-    receipt = _window_receipt(tmp_path, values)
-    receipt["pool_line_before"] = ""
-    result = audit.judge(receipt, tmp_path)
-    assert result["verdict"] == "ABORT"
-    assert any("pre-window KV pool line missing" in message for message in result["errors"])
-
-
 def test_window_pool_line_prefers_the_canonical_capacity_line(monkeypatch):
     """A bare `kv_cache` match would hit the startup patch message instead, whose
     value is constant across arms and would make the pool gate vacuous."""
@@ -388,13 +463,50 @@ def test_window_pool_line_prefers_the_canonical_capacity_line(monkeypatch):
         seen.append(command)
         if "GPU KV cache size:" in command:
             return Fake("(EngineCore pid=237) INFO [kv_cache_utils.py:2598] "
-                        "GPU KV cache size: 1,396,551 tokens\n")
+                        "GPU KV cache size: 1,396,551 tokens, "
+                        "Maximum concurrency for 1,000,000 tokens per request: 1.40x\n")
         return Fake("")
 
     monkeypatch.setattr(window.win, "run", fake_run)
-    line = window.pool_line()
-    assert line.endswith("GPU KV cache size: 1,396,551 tokens")
+    raw = window.pool_line_raw()
+    assert "GPU KV cache size:" in raw
     assert "GPU KV cache size:" in seen[0]
+    # The parsed capacity is what the gate compares, and it carries no PID or
+    # timestamp.
+    assert window.pool_capacity() == "1396551 tokens; concurrency 1.40x"
+
+
+def test_pool_capacity_ignores_boot_specific_prefixes(monkeypatch):
+    """Two boots reserve an identical pool but log it with different PIDs and
+    timestamps. Comparing raw lines would abort a healthy window; comparing the
+    parsed capacity must not."""
+    boot_a = ("(EngineCore pid=237) INFO 09-11 09:21:22 [kv_cache_utils.py:2598] "
+              "GPU KV cache size: 1,396,551 tokens, Maximum concurrency for "
+              "1,000,000 tokens per request: 1.40x")
+    boot_b = ("(EngineCore pid=91) INFO 09-12 14:02:07 [kv_cache_utils.py:2598] "
+              "GPU KV cache size: 1,396,551 tokens, Maximum concurrency for "
+              "1,000,000 tokens per request: 1.40x")
+    assert boot_a != boot_b
+    monkeypatch.setattr(window, "pool_line_raw", lambda: boot_a)
+    first = window.pool_capacity()
+    monkeypatch.setattr(window, "pool_line_raw", lambda: boot_b)
+    assert window.pool_capacity() == first
+
+
+def test_pool_capacity_distinguishes_a_real_change(monkeypatch):
+    monkeypatch.setattr(
+        window, "pool_line_raw",
+        lambda: "GPU KV cache size: 1,200,000 tokens, "
+                "Maximum concurrency for 1,000,000 tokens per request: 1.20x",
+    )
+    assert window.pool_capacity() == "1200000 tokens; concurrency 1.20x"
+
+
+def test_pool_capacity_is_empty_when_unparseable(monkeypatch):
+    monkeypatch.setattr(window, "pool_line_raw", lambda: "[glm53-kv-capacity-log] 566 ids")
+    assert window.pool_capacity() == ""
+    monkeypatch.setattr(window, "pool_line_raw", lambda: "")
+    assert window.pool_capacity() == ""
 
 
 def test_window_pool_line_falls_back_to_the_local_capacity_marker(monkeypatch):
@@ -408,7 +520,7 @@ def test_window_pool_line_falls_back_to_the_local_capacity_marker(monkeypatch):
         return Fake("")
 
     monkeypatch.setattr(window.win, "run", fake_run)
-    assert "glm53-kv-capacity-log" in window.pool_line()
+    assert "glm53-kv-capacity-log" in window.pool_line_raw()
 
 
 def test_window_pool_line_is_empty_when_neither_line_exists(monkeypatch):
@@ -416,7 +528,137 @@ def test_window_pool_line_is_empty_when_neither_line_exists(monkeypatch):
         stdout = ""
 
     monkeypatch.setattr(window.win, "run", lambda *_a, **_k: Fake())
-    assert window.pool_line() == ""
+    assert window.pool_line_raw() == ""
+    assert window.pool_capacity() == ""
+
+
+# --- review regressions -----------------------------------------------------
+
+def test_auditor_aborts_when_the_kv_pool_capacity_moved(tmp_path):
+    values = _values_with({})
+    receipt = _window_receipt(tmp_path, values)
+    receipt["gates"]["pool_capacity"] = "1200000 tokens; concurrency 1.20x"
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "ABORT"
+    assert any("KV pool capacity changed" in message for message in result["errors"])
+
+
+def test_auditor_aborts_when_one_arm_reserved_a_different_pool(tmp_path):
+    """The per-arm check localizes a divergence to the boot that caused it."""
+    values = _values_with({})
+    receipt = _window_receipt(tmp_path, values)
+    receipt["arms"]["b2"]["pool_capacity"] = "1200000 tokens; concurrency 1.20x"
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "ABORT"
+    assert any("arm b2 KV pool capacity differs" in message for message in result["errors"])
+
+
+def test_auditor_aborts_when_an_arm_recorded_no_pool_capacity(tmp_path):
+    values = _values_with({})
+    receipt = _window_receipt(tmp_path, values)
+    del receipt["arms"]["a"]["pool_capacity"]
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "ABORT"
+    assert any("arm a recorded no KV pool capacity" in message for message in result["errors"])
+
+
+def test_auditor_aborts_when_an_arm_saw_a_preemption(tmp_path):
+    values = _values_with({})
+    receipt = _window_receipt(tmp_path, values)
+    receipt["arms"]["b"]["preemptions_delta"] = 1
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "ABORT"
+    assert any("arm b saw 1 preemptions" in message for message in result["errors"])
+
+
+def test_auditor_aborts_when_the_preemption_delta_is_missing(tmp_path):
+    values = _values_with({})
+    receipt = _window_receipt(tmp_path, values)
+    del receipt["arms"]["a2"]["preemptions_delta"]
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "ABORT"
+    assert any("arm a2 recorded no preemption delta" in message for message in result["errors"])
+
+
+def test_auditor_rejects_a_nan_memory_reading(tmp_path):
+    """`NaN < 2.5` is False, so a plain comparison would pass a NaN reading."""
+    values = _values_with({})
+    receipt = _window_receipt(tmp_path, values)
+    receipt["gates"]["memfree_worker_gib"] = float("nan")
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "ABORT"
+    assert any("not a finite memory reading" in message for message in result["errors"])
+
+
+def test_auditor_rejects_empty_jit_stamps(tmp_path):
+    """Two empty stamps must not compare equal and pass."""
+    values = _values_with({})
+    receipt = _window_receipt(tmp_path, values)
+    receipt["gates"]["jit_stamp"] = ""
+    receipt["gates"]["jit_stamp_before"] = ""
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "ABORT"
+    assert any("JIT shape stamp was not recorded" in message for message in result["errors"])
+
+
+def test_auditor_rejects_a_corrupted_excluded_run(tmp_path):
+    """A NaN-corrupted observation must not be laundered through the exclusion
+    list and then ignored."""
+    values = _values_with({})
+    receipt = _window_receipt(tmp_path, values)
+    path = tmp_path / receipt["probes"]["a"]["structured"]
+    payload = json.loads(path.read_text())
+    payload["invalid_runs"] = [{"i": 1, "invalid_reason": "NaN/locklock marker in output"}]
+    path.write_text(json.dumps(payload))
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "ABORT"
+    assert any("excluded run was corrupted" in message for message in result["errors"])
+
+
+def test_auditor_aborts_when_the_pre_window_jit_stamp_is_missing(tmp_path):
+    values = _values_with({})
+    receipt = _window_receipt(tmp_path, values)
+    receipt["gates"]["jit_stamp_before"] = ""
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "ABORT"
+    assert any("pre-window JIT shape stamp was not recorded" in message
+               for message in result["errors"])
+
+
+def test_auditor_accepts_a_restored_stamp_equal_to_the_pre_window_stamp(tmp_path):
+    """Arm B's stamp legitimately differs from the restored one (prod-start.sh
+    hashes every raw IMAGE= line), so the restored stamp must be checked against
+    the pre-window stamp instead."""
+    values = _values_with({})
+    receipt = _window_receipt(tmp_path, values)
+    assert receipt["gates"]["jit_stamp"] == receipt["gates"]["jit_stamp_before"]
+    assert receipt["gates"]["jit_stamp"] != receipt["gates"]["jit_stamp_arm_b"]
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "ADOPT"
+
+
+def test_auditor_is_inconclusive_when_the_candidate_is_unstable(tmp_path):
+    """A candidate whose two arms disagree wildly has no settled number to
+    compare, even when the control is rock steady."""
+    values = _values_with({})
+    values["b"]["structured"] = [10.0] * 9
+    values["b2"]["structured"] = [40.0] * 9
+    receipt = _window_receipt(tmp_path, values)
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "INCONCLUSIVE"
+    row = result["lanes"]["structured"]
+    assert row["candidate_drift"] > audit.DRIFT_MAX
+    assert row["verdict"] == "INCONCLUSIVE"
+
+
+def test_audit_scope_states_what_adopt_does_not_cover(tmp_path):
+    values = _values_with({})
+    receipt = _window_receipt(tmp_path, values)
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "ADOPT"
+    scope = result["scope"]
+    assert any("temp-1" in item for item in scope["does_not_cover"])
+    assert "NOT that the full docs/13" in scope["adopt_means"]
 
 
 def test_auditor_aborts_when_the_final_jit_stamp_is_not_the_candidate_stamp(tmp_path):
@@ -495,6 +737,221 @@ def test_needs_env_restore_tracks_the_touched_flag_and_the_live_image(monkeypatc
     assert window.needs_env_restore({"backup": "x", "env_touched": True}) is True
     env.write_text("IMAGE=glm53-selfbuild:e3-w3-zfill\n")
     assert window.needs_env_restore({"backup": "x"}) is True
+
+
+def test_restore_keeps_recovery_intent_until_production_is_verified(monkeypatch, tmp_path):
+    """If `guarded_start` fails after the .env is copied back, recovery must
+    still believe production needs restoring — otherwise the window leaves
+    production down and reports "production was never moved"."""
+    env = tmp_path / ".env"
+    backup = tmp_path / "backup.env"
+    env.write_text("IMAGE=armed\n")
+    backup.write_text(f"IMAGE={window.PRODUCTION_IMAGE}\n")
+    monkeypatch.setattr(window, "ENV_FILE", env)
+    monkeypatch.setattr(window, "save", lambda _s: None)
+    monkeypatch.setattr(window.win, "guarded_start", lambda: None)
+    monkeypatch.setattr(window.win, "wait_health", lambda timeout=0: False)
+    state = {"backup": str(backup), "env_touched": True,
+             "env_sha256": window.win.sha256(backup)}
+    with pytest.raises(RuntimeError, match="did not become healthy"):
+        window.phase_restore(state)
+    # The .env is back, but production never came up, so recovery must still act.
+    assert state.get("env_touched") is not False
+    assert window.needs_env_restore(state) is True
+
+
+def test_restore_clears_recovery_intent_once_both_nodes_are_verified(monkeypatch, tmp_path):
+    env = tmp_path / ".env"
+    backup = tmp_path / "backup.env"
+    env.write_text("IMAGE=armed\n")
+    backup.write_text(f"IMAGE={window.PRODUCTION_IMAGE}\n")
+    monkeypatch.setattr(window, "ENV_FILE", env)
+    monkeypatch.setattr(window, "save", lambda _s: None)
+    monkeypatch.setattr(window.win, "guarded_start", lambda: None)
+    monkeypatch.setattr(window.win, "wait_health", lambda timeout=0: True)
+    monkeypatch.setattr(window, "verify_arm", lambda arm, container, host=None: {
+        "image_tag": window.PRODUCTION_IMAGE, "exllamav3_version": "1.4.9",
+    })
+    state = {"backup": str(backup), "env_touched": True,
+             "env_sha256": window.win.sha256(backup)}
+    window.phase_restore(state)
+    assert state["env_touched"] is False
+    assert state["restored_image_tag"] == window.PRODUCTION_IMAGE
+
+
+def test_restore_rejects_a_backup_that_does_not_round_trip(monkeypatch, tmp_path):
+    env = tmp_path / ".env"
+    backup = tmp_path / "backup.env"
+    env.write_text("IMAGE=armed\n")
+    backup.write_text(f"IMAGE={window.PRODUCTION_IMAGE}\n")
+    monkeypatch.setattr(window, "ENV_FILE", env)
+    monkeypatch.setattr(window, "save", lambda _s: None)
+    state = {"backup": str(backup), "env_touched": True, "env_sha256": "not-the-hash"}
+    with pytest.raises(RuntimeError, match="does not match the pre-window hash"):
+        window.phase_restore(state)
+    assert state["env_touched"] is True
+
+
+def test_recovery_ok_reports_a_failed_restore():
+    assert window._recovery_ok({}) is True
+    assert window._recovery_ok({"auto_restore": "ok"}) is True
+    assert window._recovery_ok({"auto_restore": "FAILED: boom"}) is False
+    assert window._recovery_ok({"timer_restore": "FAILED: boom"}) is False
+
+
+def test_emergency_restore_stays_armed_after_a_failed_restore(monkeypatch, tmp_path):
+    """A failed automatic restore must leave the atexit safety net armed."""
+    monkeypatch.setattr(window, "_RESTORE_DONE", False)
+    monkeypatch.setattr(window, "_KEEP_ARMED", False)
+    monkeypatch.setattr(window, "_ACTIVE", {"backup": "x", "env_touched": True})
+    calls: list[str] = []
+    monkeypatch.setattr(window, "restore_production", lambda s: calls.append("env"))
+    monkeypatch.setattr(window, "recover_timers", lambda s: calls.append("timers"))
+    monkeypatch.setattr(window, "save", lambda _s: None)
+    window.emergency_restore()
+    assert calls == ["env", "timers"]
+
+
+def test_main_recovers_when_a_save_between_phases_raises(monkeypatch, tmp_path):
+    """A SIGTERM landing between phases (or a save() failure) must still trigger
+    recovery. Previously the finally-block saw failure=None, skipped the
+    restore, and disabled the atexit handler as well."""
+    receipt = tmp_path / "w.json"
+    saved: list[dict] = []
+    real_save = window.save
+
+    def flaky_save(state):
+        saved.append(dict(state))
+        # Explode on the phase-boundary save of the second phase.
+        if len(saved) == 3:
+            raise OSError("disk full")
+        real_save(state)
+
+    restored: list[str] = []
+    monkeypatch.setattr(window, "_RECEIPT", receipt)
+    monkeypatch.setattr(window, "save", flaky_save)
+    monkeypatch.setattr(window, "restore_production", lambda s: restored.append("env"))
+    monkeypatch.setattr(window, "recover_timers", lambda s: restored.append("timers"))
+    monkeypatch.setattr(window, "HANDLERS", {
+        "preflight": lambda s: None,
+        "disarm": lambda s: None,
+    })
+    monkeypatch.setattr(window, "PHASES", ("preflight", "disarm"))
+    monkeypatch.setattr(window, "_RESTORE_DONE", True)
+    rc = window.main(["--state", str(receipt)])
+    assert rc == 1
+    assert restored == ["env", "timers"]
+
+
+def test_main_recovers_on_a_signal_between_phases(monkeypatch, tmp_path):
+    receipt = tmp_path / "w.json"
+    monkeypatch.setattr(window, "_RECEIPT", receipt)
+    monkeypatch.setattr(window, "save", lambda _s: None)
+    restored: list[str] = []
+    monkeypatch.setattr(window, "restore_production", lambda s: restored.append("env"))
+    monkeypatch.setattr(window, "recover_timers", lambda s: restored.append("timers"))
+
+    def interrupted(_state):
+        raise KeyboardInterrupt("signal 15")
+
+    monkeypatch.setattr(window, "HANDLERS", {"preflight": interrupted})
+    monkeypatch.setattr(window, "PHASES", ("preflight",))
+    assert window.main(["--state", str(receipt)]) == 1
+    assert restored == ["env", "timers"]
+
+
+def test_measure_revalidates_the_running_arm(monkeypatch, tmp_path):
+    """A resume with --from measure_a after an automatic recovery would otherwise
+    measure the restored production image and file it under arm A."""
+    monkeypatch.setattr(window, "save", lambda _s: None)
+    monkeypatch.setattr(window, "_RECEIPT", tmp_path / "w.json")
+    monkeypatch.setattr(window.win, "memfree_gib", lambda host=None: 4.0)
+    probed: list[str] = []
+    monkeypatch.setattr(window.subprocess, "run",
+                        lambda *a, **k: probed.append("probe") or type(
+                            "P", (), {"returncode": 0, "stdout": "", "stderr": ""})())
+
+    def wrong_arm(arm, container, host=None):
+        raise RuntimeError(f"arm {arm}: {container} runs 'x', expected 'y'")
+
+    monkeypatch.setattr(window, "verify_arm", wrong_arm)
+    with pytest.raises(RuntimeError, match="runs 'x', expected 'y'"):
+        window.phase_measure({}, "a")
+    assert probed == []  # nothing was measured under the wrong label
+
+
+def test_measure_rejects_a_boot_that_restarted_since_the_arm_phase(monkeypatch, tmp_path):
+    monkeypatch.setattr(window, "save", lambda _s: None)
+    monkeypatch.setattr(window, "_RECEIPT", tmp_path / "w.json")
+    monkeypatch.setattr(window, "verify_arm", lambda arm, container, host=None: {
+        "image_tag": window.ARMS[arm]["tag"], "exllamav3_version": window.ARMS[arm]["exllamav3"],
+    })
+    monkeypatch.setattr(window, "container_started_at", lambda *a, **k: "2026-09-11T10:00:00Z")
+    state = {"arms": {"a": {"container_started_at": "2026-09-11T09:00:00Z"}}}
+    with pytest.raises(RuntimeError, match="restarted since the arm phase"):
+        window.phase_measure(state, "a")
+
+
+def test_measure_probe_paths_are_attempt_specific(monkeypatch, tmp_path):
+    monkeypatch.setattr(window, "_RECEIPT", tmp_path / "task35b-window-20260911.json")
+    monkeypatch.setattr(window, "verify_arm", lambda arm, container, host=None: {
+        "image_tag": window.ARMS[arm]["tag"], "exllamav3_version": window.ARMS[arm]["exllamav3"],
+    })
+    monkeypatch.setattr(window, "container_started_at", lambda *a, **k: "boot")
+    monkeypatch.setattr(window.win, "memfree_gib", lambda host=None: 4.0)
+    monkeypatch.setattr(window, "preemptions", lambda: 0.0)
+    monkeypatch.setattr(window, "save", lambda _s: None)
+    seen: list[list[str]] = []
+
+    class Done:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setattr(window.subprocess, "run",
+                        lambda argv, **k: seen.append(argv) or Done())
+    window.phase_measure({}, "a")
+    outs = [argv[argv.index("--out") + 1] for argv in seen]
+    assert len(outs) == len(window.LANES)
+    assert len(set(outs)) == len(outs)  # one distinct file per lane
+    for out in outs:
+        assert "task35b-window-20260911-a-" in Path(out).name
+        assert Path(out).name != "task35b-a-structured.json"
+
+
+def test_disarm_waits_for_quiescence(monkeypatch, tmp_path):
+    monkeypatch.setattr(window, "save", lambda _s: None)
+    monkeypatch.setattr(window.win, "run", lambda *a, **k: type(
+        "P", (), {"returncode": 0, "stdout": "inactive\n", "stderr": ""})())
+    monkeypatch.setattr(window, "timer_states", lambda: {u: "inactive" for u in window.TIMERS})
+    monkeypatch.setattr(window, "_active_services",
+                        lambda: {u: "inactive" for u in window.TIMER_SERVICES})
+    monkeypatch.setattr(window, "_pending_jobs", lambda: 0)
+    state: dict = {}
+    window.phase_disarm(state)
+    assert state["quiescent_after_disarm"] is True
+
+
+def test_disarm_refuses_when_the_watchdog_is_still_running(monkeypatch):
+    monkeypatch.setattr(window, "save", lambda _s: None)
+    monkeypatch.setattr(window.win, "run", lambda *a, **k: type(
+        "P", (), {"returncode": 0, "stdout": "inactive\n", "stderr": ""})())
+    monkeypatch.setattr(window, "timer_states", lambda: {u: "inactive" for u in window.TIMERS})
+    monkeypatch.setattr(window, "_active_services",
+                        lambda: {"vllm-glm53exl3-watchdog.service": "active"})
+    monkeypatch.setattr(window, "_pending_jobs", lambda: 0)
+    monkeypatch.setattr(window, "wait_quiescent", lambda timeout=0: False)
+    with pytest.raises(RuntimeError, match="still active after disarm"):
+        window.phase_disarm({})
+
+
+def test_quiescence_needs_no_pending_jobs(monkeypatch):
+    monkeypatch.setattr(window, "_active_services",
+                        lambda: {u: "inactive" for u in window.TIMER_SERVICES})
+    monkeypatch.setattr(window, "_pending_jobs", lambda: 1)
+    assert window.wait_quiescent(timeout=0.01) is False
+    monkeypatch.setattr(window, "_pending_jobs", lambda: 0)
+    assert window.wait_quiescent(timeout=1.0) is True
 
 
 def test_judge_writes_the_audit_next_to_the_window_receipt(monkeypatch, tmp_path):
