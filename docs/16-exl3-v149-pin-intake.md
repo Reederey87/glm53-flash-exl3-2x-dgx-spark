@@ -384,6 +384,20 @@ positive values, and `any_cache_hit` false on prefill lanes. Any failure yields
 **INVALID CAPTURE** and a non-zero exit; the per-lane numbers are still written
 as evidence, but they cannot be read as a result.
 
+**The cluster caught one more defect in that validation.** `main` records
+`phase_in_progress` *before* calling a phase's handler and clears it afterwards,
+so a receipt read from inside the report phase legitimately has it set to
+`"report"`. `validate_capture` treated any non-empty value as evidence that an
+earlier run had died mid-phase, so running the report through the real entry
+point returned INVALID CAPTURE and exit 1 on a healthy receipt. The tests missed
+it because they called `phase_report(state)` directly, which never sets the
+field; exercising the committed bytes on the cluster is what surfaced it, which
+is precisely what the publication gate is for. The check now ignores the phase
+executing right now and flags only a different leftover value, and the regression
+test drives the real entry point (`main --from report --to report`) so the
+interaction stays covered. Re-validated on the cluster with the fixed bytes
+(`sha256 bb66d679…`): rc=0, NO REGRESSION DETECTED, no capture problems.
+
 **This is diagnostic evidence, not §6 qualification.** It does not satisfy the
 pre-registered contract, `audit_v149_qualification.py` does not consume its
 receipt, and the receipt carries an explicit evidence-class label. §6 stays open
