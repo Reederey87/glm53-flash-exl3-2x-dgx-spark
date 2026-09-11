@@ -233,15 +233,22 @@ change here, oldest first:
   kernels and the E3/W3 cubin contract are untouched; the MGEMM sliced-mode work
   is additive and off our path. Kernel parity returns the same verdict as the
   control and the microbench shows no delta. The reachable consequence is the
-  autotune-cache bump, which re-tunes on first boot. **Throughput: no
-  regression.** A paired two-arm run (2026-09-11, v1.4.7 vs v1.4.9, 21
-  observations per decode lane on a dedicated boot each) puts v1.4.9 ~3.7–4.9%
-  *faster* on all three decode lanes — structured 64.34 → 66.71, essay 24.00 →
-  25.18, hashmap 29.49 → 30.61 — and identical on prefill within 0.3% (60k
-  1606.6 → 1601.3, 240k 1585.0 → 1584.6), with every lane's distribution-free
-  shift interval clear of its pre-registered band. `docs/16` records the method
-  and the fact that this is a diagnostic, **not** the registered `docs/13` §6
-  qualification, which remains formally open.
+  autotune-cache bump, which re-tunes on first boot. **Throughput: no regression
+  observed, not yet certified.** A paired two-arm run (2026-09-11, v1.4.7 vs
+  v1.4.9, one dedicated boot per arm) puts v1.4.9 ~3.7–4.9% *faster* on all
+  three decode lanes — structured 64.34 → 66.71, essay 24.00 → 25.18, hashmap
+  29.49 → 30.61 — and identical on prefill within 0.3% (60k 1606.6 → 1601.3,
+  240k 1585.0 → 1584.6). **No lane shows a regression**, and that reading is
+  robust across every estimator tried. The pass was originally reported as a
+  clean NO REGRESSION DETECTED, but review found its decision rule was bounding
+  the wrong quantity (the median of pairwise differences, not the ratio of
+  medians the bands are written in), so the verdict is **withdrawn and the pass
+  re-judges as INCONCLUSIVE**: three of five lanes are undecided on that capture
+  because the corrected exact interval needs more observations than the pass
+  took. A second pass sized per lane from the measured spread is running.
+  `docs/16` records the method, both review rounds, and the fact that this is a
+  diagnostic, **not** the registered `docs/13` §6 qualification, which remains
+  formally open.
 
 Measured and reverted, with numbers: W1 lazy grouped scratch (PR #54), W4 fused
 gather (PR #57, 60k −10.7%), the W4 successor persistent A-cache (PR #65), and W5

@@ -338,23 +338,43 @@ No regression signal exists for v1.4.9, though the only comparison available is
 So the question was narrowed to the one the owner needs answered — *is v1.4.9
 slower than v1.4.7 on these lanes?* — and answered with an estimator a couple of
 stalls cannot move. `scripts/diagnose_v149_ab.py` boots arm A (v1.4.7) and arm B
-(v1.4.9), each once, and takes **21 observations per decode lane** (prefill
-keeps the registered 9 and 5, since those lanes are tight and a 240k prefill
-observation costs minutes), comparing **medians**. The receipt also records each
+(v1.4.9), each once, and compares **medians**. The receipt also records each
 lane's registered `(max - min) / median` spread, so it shows what the registered
 gate would have concluded.
 
-**How a lane is decided.** The point estimate is the median ratio, but the
-verdict comes from a **Hodges-Lehmann shift interval**: the median of all
-pairwise `B - A` differences, with its exact distribution-free Mann-Whitney
-confidence interval. The null distribution of the Mann-Whitney `U` statistic
-depends only on the two sample sizes, so nothing is assumed about the shape of
-the distribution and nothing about which observations are stalls. The §6 band is
-a ratio bound, so the interval is translated into shift terms: a shift of
-`(band - 1) x A median` is exactly the band boundary. A lane whose interval
-**spans** that boundary is reported inconclusive rather than rounded to whichever
-side its point estimate fell on, which is what makes a wide or contaminated lane
-fail closed instead of quietly becoming a pass.
+**Sample sizes are set per lane from measured spread, not from symmetry.** The
+first pass used 21 observations per decode lane and the registered 9 and 5 on
+prefill (receipt `local/task35b-diag-20260911T1555Z.json`). When the decision
+rule was corrected to bound the median ratio exactly (see below), that pass
+turned out to be underpowered: the exact composition is roughly 2.5x wider than
+the shift interval it replaced, so 21 observations cannot resolve a 5% band
+against this host's spread. A resampling estimate of each lane's power, taken
+from the pilot's own empirical distribution, sized the second pass:
+
+| lane | pilot n | re-run n | why |
+|---|---|---|---|
+| structured | 21 | 31 | power 0.97 → 1.00; ~3.8 s per observation |
+| essay | 21 | 31 | power 0.99 → 1.00; ~9.1 s per observation |
+| hashmap | 21 | **81** | the binding lane: power 0.19 → 0.94. Its clean values genuinely span 26–33 tok/s around a 29.5 median, so a 5% band on the median needs roughly four times the sample |
+| prefill60k | 9 | 31 | power 0.91 → 0.99; ~38.5 s per observation |
+| prefill240k | 5 | 11 | power 1.00 even at 7, since its spread is only 0.006 relative, but 7 gives order statistic k=0 (both extremes inside the interval, so one stall breaks the lane). 11 buys k=1. Each observation costs ~152 s, so this lane is kept near the coverage minimum rather than matched to the decode count |
+
+That is ~2h05m of measurement plus ~22 min of fixed preflight/arm/restore
+overhead, against the pilot's ~51 min of measurement. Every default count is
+checked against the coverage requirement at startup, and `validate_capture`
+checks the delivered files against the count the receipt recorded.
+
+**How a lane is decided.** The point estimate is the median ratio `B_median /
+A_median`, and the verdict comes from a **conservative composed interval for that
+same ratio**. Each arm's median gets a distribution-free sign-test interval from
+its own order statistics, at 0.975 per arm; pairing the candidate's low bound
+with the control's high bound (and the reverse) covers the ratio at `2 x 0.975 -
+1 = 0.95` by the union bound. Nothing is assumed about the shape of either
+distribution and nothing about which observations are stalls. The §6 band is a
+ratio bound, so the interval is compared with the band directly. A lane whose
+interval **spans** its band is reported inconclusive rather than rounded to
+whichever side its point estimate fell on, which is what makes a wide or
+contaminated lane fail closed instead of quietly becoming a pass.
 
 **A first attempt at this was circular, and review caught it.** That version
 gated on a `median_robust` flag which counted observations below half their own
@@ -372,17 +392,54 @@ tests. (A near-50/50 bimodal arm still yields inconclusive rather than a verdict
 which is the honest answer: such a sample genuinely cannot say where its centre
 is.)
 
+**A second attempt targeted the wrong quantity, and review caught that too.** The
+replacement was a **Hodges-Lehmann shift interval** — the median of all pairwise
+`B - A` differences with its exact Mann-Whitney confidence interval. It is
+distribution-free and it is the standard two-sample non-parametric comparison,
+but it estimates the **median of the pairwise differences**, which equals the
+difference of the two medians only under a location-shift model. Two differently
+shaped arms can therefore have a median ratio below the band while the shift
+interval sits comfortably above the boundary. The reviewer's counterexample: ten
+observations near 90 with eleven near 100 against eleven near 96 with ten near
+110 gives a median ratio of `96 / 100 = 0.96`, below `structured`'s 0.97 band, yet
+the HL point estimate is `+10` against a boundary of `-3`, so it returned
+non-inferior. The rule now bounds the median ratio directly, which is the
+quantity the bands are written in; the counterexample is a regression test.
+
+**A lane must reach the coverage it claims.** The composed interval's width is
+set by the sample sizes alone, so whether a lane can be decided at all is known
+before the run starts. One, two and three observations support levels of None,
+0.0 and 0.5 respectively — an earlier version reported them at a claimed 95%.
+`compare_lane` now marks any lane below `MIN_LEVEL = 0.95` inconclusive, and
+`main` refuses to start a measurement whose lane counts cannot reach it
+(`min_runs_for_level()` is 7). This is why `prefill240k` moved from the
+registered 5 to 7: five observations reach only 0.875 composed coverage.
+
 **The report validates the capture before issuing a verdict.** `--from report`
 and a resume after a late failure are both reachable with every lane file present
 but the capture rejected, so reading those files and printing a verdict would
 launder a failed run into a pass. `validate_capture()` requires the completed
-phases, no failed phase, no phase left in progress, the measured image and
-exllamav3 version to match the arm, the measured boot to be the armed boot, zero
-preemption deltas, a registered successful block per lane whose path is the
-selected evidence file, the requested observation count, no invalid runs, finite
+phases, **every** phase entry to have succeeded (a phase that failed and then
+succeeded on retry still fails the capture), no phase left in progress, the
+measured image and exllamav3 version to match the arm, the measured boot to be
+the armed boot, zero preemption deltas, **every** registered probe attempt to
+have succeeded, the selected evidence file to belong to the arm's *current*
+measurement attempt, the requested observation count, no invalid runs, finite
 positive values, and `any_cache_hit` false on prefill lanes. Any failure yields
 **INVALID CAPTURE** and a non-zero exit; the per-lane numbers are still written
 as evidence, but they cannot be read as a result.
+
+**A retry must not erase the failure that preceded it.** An earlier version kept
+only the latest entry per phase name and accepted *any* successful block, so a
+lane whose retry worked after an earlier attempt failed read as clean. A kill
+during a phase was also invisible, because `main` overwrote `phase_in_progress`
+before every phase. Both paths are closed: the phase list is scanned entry by
+entry, every block for a lane must have succeeded, and a leftover
+`phase_in_progress` is moved into `interrupted_phases` before the loop overwrites
+it and is checked by `validate_capture`. The one leftover that is *not* evidence
+of a crash is the phase this invocation is about to run, since `main` sets the
+field before calling the handler; a resumed phase is caught by its own block
+record instead, which is registered before the block runs.
 
 **The cluster caught one more defect in that validation.** `main` records
 `phase_in_progress` *before* calling a phase's handler and clears it afterwards,
@@ -411,10 +468,13 @@ two harnesses cannot drift. It deliberately does **not** reuse `phase_measure`,
 because that function's sample sizes *are* the pre-registered §6 contract; the
 §6 harness is left byte-identical.
 
-**Result (2026-09-11, receipt `local/task35b-diag-20260911T1555Z.json`).** Arm A
-ran v1.4.7 and arm B v1.4.9, each with its own verified boot, ~73 minutes total.
+**First pass (2026-09-11, receipt `local/task35b-diag-20260911T1555Z.json`).**
+Arm A ran v1.4.7 and arm B v1.4.9, each with its own verified boot, ~73 minutes
+total. This pass used the sample sizes in the table above's "pilot n" column and
+the **Hodges-Lehmann shift** rule that the final review rejected; the intervals
+below are that rule's, kept here because they are what the receipt recorded.
 
-| lane | A median | B median | B/A | band | shift CI (95%) | stalls A/B | registered spread A/B | verdict |
+| lane | A median | B median | B/A | band | shift CI (95%) | stalls A/B | registered spread A/B | verdict under HL |
 |---|---|---|---|---|---|---|---|---|
 | structured | 64.34 | 66.71 | 1.0368 | 0.97 | [+1.64, +2.76] | 3/21 vs 1/21 | 0.645 / 0.638 | non-inferior |
 | essay | 24.00 | 25.18 | 1.0490 | 0.95 | [+0.54, +2.60] | 1/21 vs 0/21 | 0.640 / 0.149 | non-inferior |
@@ -422,16 +482,34 @@ ran v1.4.7 and arm B v1.4.9, each with its own verified boot, ~73 minutes total.
 | prefill60k | 1606.58 | 1601.28 | 0.9967 | 0.95 | [-10.53, +16.80] | 0/9 vs 0/9 | 0.164 / 0.127 | non-inferior |
 | prefill240k | 1585.00 | 1584.55 | 0.9997 | 0.95 | [-9.06, +8.39] | 0/5 vs 0/5 | 0.006 / 0.007 | non-inferior |
 
-The shift is `B - A` in the lane's own units, so a positive shift means v1.4.9 is
-faster; the band boundary is the same quantity expressed as
-`(band - 1) x A median`. Every lane's interval clears its boundary:
-structured +1.64 against -1.93, essay +0.54 against -1.20, hashmap -0.15 against
--1.47, prefill60k -10.53 against -80.33, prefill240k -9.06 against -79.25.
+**Re-judged under the corrected rule, that pass is INCONCLUSIVE.** The raw
+observations are unchanged, so every point estimate above stands; what changed is
+the interval. Because the shift rule was measuring the wrong quantity, its
+"non-inferior" verdicts cannot be carried over. Applying the exact composed
+median-ratio interval to the same 73-minute capture gives:
 
-**NO REGRESSION DETECTED.** v1.4.9 is ~3.7–4.9% *faster* on all three decode
-lanes and identical on prefill within 0.3%. No lane's interval comes near its
-boundary, and `validate_capture()` returned zero problems, so this is a decided
-result rather than one rescued from a damaged receipt.
+| lane | B/A | band | median-ratio CI | coverage | verdict |
+|---|---|---|---|---|---|
+| structured | 1.0368 | 0.97 | [1.0159, 1.0536] | 0.9856 | non-inferior |
+| essay | 1.0490 | 0.95 | [0.9755, 1.7196] | 0.9856 | non-inferior |
+| hashmap | 1.0379 | 0.95 | [0.9284, 1.2541] | 0.9856 | **inconclusive** |
+| prefill60k | 0.9967 | 0.95 | [0.8722, 1.1928] | 0.9922 | **inconclusive** |
+| prefill240k | 0.9997 | 0.95 | [0.9927, 1.0062] | 0.8750 | **inconclusive** (coverage) |
+
+**INCONCLUSIVE — at least one lane could not be decided.** Two of five lanes are
+decided non-inferior, and no lane shows a regression: every point estimate is at
+or above 0.9967 and three of five are ~4–5% *faster*. But three lanes are
+undecidable on this capture — `hashmap` and `prefill60k` because the interval
+spans the band at 21 and 9 observations respectively, and `prefill240k` because 5
+observations reach only 0.875 coverage, below the 0.95 the rule requires. An
+earlier revision of this document reported NO REGRESSION DETECTED on this same
+capture; that verdict came from the shift rule and is withdrawn.
+
+Note what the corrected rule does *not* do: it does not turn any measured
+improvement into a regression, and it does not doubt the point estimates. The
+lane medians are the same numbers. It refuses to certify them at a precision
+this sample does not buy, which is exactly the failure mode the review found in
+the rule it replaced.
 
 The receipt also shows why the registered window could not answer this: on arm A
 alone the `(max - min) / median` spread was **0.645** (structured), **0.640**
@@ -439,15 +517,24 @@ alone the `(max - min) / median` spread was **0.645** (structured), **0.640**
 by the transient stalls, which were observed in the raw runs (a structured
 observation at 24.73 tok/s against 61–66 for its neighbours, a ~2.6x drop) and
 whose count varied between arms. Those stalls are visible in `stall_count` and in
-the registered spread; the shift interval absorbed them without moving.
+the registered spread.
+
+The stalls also explain the width of the corrected interval, and they are the
+reason the pilot was underpowered rather than any property of v1.4.9. A
+distribution-free interval for a median is built from order statistics, so the
+observations it discards are set by the sample size alone: at 21 observations and
+0.975 per arm, k=4, and on arm A `hashmap`'s four lowest values are genuine but
+its *spread* among the rest still spans 26–33 around a 29.5 median. Composing two
+such intervals for the ratio costs a further union bound. The remedy is sample
+size, and the second pass sizes it per lane from that measured spread.
 
 Production was restored byte-for-byte (`.env` sha256 identical to the pre-run
 backup, no leftover diagnostic `IMAGE=` line, both nodes back on
 `e3-w3-zfill-v149` at exllamav3 1.4.9, health 200) and both timers were re-armed.
 The diagnostic receipt carries `evidence_class: "diagnostic — NOT §6
-qualification evidence"`, and **§6 remains open**: this result says v1.4.9 is not
-slower on these lanes, which is the decision the pin needed, but it is not the
-registered contract and must not be filed as one.
+qualification evidence"`, and **§6 remains open**: this pass says no lane
+regressed and two lanes are non-inferior, but it is neither the registered
+contract nor, on three lanes, a decided answer, and must not be filed as either.
 
 ### What this harness does NOT cover
 
@@ -608,7 +695,7 @@ telemetry"; round 8 covered the diagnostic.
 - **Round 8 — two findings against the paired diagnostic, both real.** The first
   was the circular `median_robust` gate and its false invariance claim, with two
   worked counterexamples (see "A first attempt at this was circular" above); the
-  fix replaces it with a distribution-free Hodges-Lehmann shift interval. The
+  fix replaced it with a distribution-free Hodges-Lehmann shift interval. The
   second was that `phase_report` ignored failed phases, registered blocks,
   preemption deltas, requested counts, and correctness flags, so `--from report`
   on a rejected capture printed NO REGRESSION DETECTED — the reviewer reached
@@ -618,6 +705,29 @@ telemetry"; round 8 covered the diagnostic.
   defects were reproduced against the pre-fix revision before the fixes landed,
   and the counterexamples are now regression tests (34 of the new tests failed
   pre-fix).
+- **Round 9 — three more findings, all real, and the first one invalidates the
+  round-8 estimator.** (1) The Hodges-Lehmann interval estimates the median of
+  the pairwise differences, which equals the difference of the two medians only
+  under a location-shift model. The reviewer's counterexample: ten observations
+  near 90 with eleven near 100 against eleven near 96 with ten near 110 gives a
+  median ratio of 0.96, below `structured`'s 0.97 band, yet HL reported
+  non-inferior because its point estimate is `+10` against a boundary of `-3`.
+  The remedy is to bound the median ratio itself, which is what the bands are
+  written in. (2) Retry history was fail-open: only the latest phase entry was
+  kept, any successful block for a lane was accepted, and `main` overwrote
+  `phase_in_progress` before each phase, so a lane whose retry worked after a
+  failure — and a run killed mid-phase — both read as clean captures. (3) The
+  achieved coverage level was ignored: arms of one, two and three observations
+  passed at levels of None, 0.0 and 0.5 while the receipt claimed 95%.
+  All three were reproduced before the fixes, and 18 of the new tests fail
+  against the pre-fix revision.
+  The corrected rule is the **composed median-ratio interval** described above.
+  Its consequence is recorded rather than hidden: it is ~2.5x wider than the
+  shift interval it replaced, so the round-8 capture is **INCONCLUSIVE** and the
+  second pass resizes every lane (see "Sample sizes are set per lane" above).
+  The owner chose the exact composition over a tighter asymptotic alternative
+  (a bootstrap interval for the same estimand decides all five lanes on the same
+  capture, but is not exact) and chose to re-run rather than record a narrowing.
 
 ### The 507 MHz clock cap CLEARED — and how (2026-09-11)
 

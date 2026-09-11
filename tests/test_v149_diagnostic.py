@@ -1,7 +1,7 @@
 """CPU-only tests for the paired two-arm v1.4.9-vs-v1.4.7 diagnostic.
 
 No cluster, no torch, no HTTP. These pin the properties that make the
-diagnostic's answer trustworthy, and they are the regression tests for two
+diagnostic's answer trustworthy, and they are the regression tests for the
 review findings:
 
 1. The decision rule must not certify its own central estimate. An earlier
@@ -10,22 +10,32 @@ review findings:
    qualified. That was circular: for positive values and odd n, fewer than half
    always qualify, so it could not detect majority contamination, and the
    median's 50% breakdown point does not mean replacing a minority cannot shift
-   it. The flag is gone; the decision now uses a distribution-free shift
-   interval. See `test_majority_contamination_is_not_certified_as_robust` and
+   it. See `test_majority_contamination_is_not_certified_as_robust` and
    `test_a_minority_shift_moves_the_median_and_is_not_hidden`.
 
-2. The report phase must validate the capture before issuing a verdict, because
+2. The decision rule must bound the quantity the bands are written in. A
+   Hodges-Lehmann shift estimates the MEDIAN OF PAIRWISE DIFFERENCES, which
+   equals the difference of medians only under a location-shift model. Two
+   differently shaped arms can have a median ratio below the band while the
+   shift interval sits comfortably inside it. The rule now composes the two
+   arms' distribution-free median intervals into an interval for the median
+   ratio. See `test_a_differing_shape_cannot_pass_on_the_shift_estimand`.
+
+3. A lane whose sample cannot reach the required coverage must be inconclusive
+   rather than reported at a level it never achieved. See the
+   `test_*coverage*` tests.
+
+4. The report phase must validate the capture before issuing a verdict, because
    `--from report` and a resume after a late failure are both reachable with
-   every lane file present but the capture rejected. See the
-   `test_report_*` tests.
+   every lane file present but the capture rejected. A retry that eventually
+   succeeded must not erase the record of the attempt that failed first. See the
+   `test_report_*` and `test_an_interrupted_retry_*` tests.
 """
 
 from __future__ import annotations
 
 import importlib.util
 import json
-import math
-import statistics
 from pathlib import Path
 
 import pytest
@@ -70,7 +80,7 @@ def stalled(median: float, n: int = 21, count: int = 2) -> list[float]:
 
 def decide(lane_name: str, control: list[float], candidate: list[float]) -> dict:
     return diag.compare_lane(lane_name, diag.lane_stats(control),
-                             diag.lane_stats(candidate), control, candidate)
+                             diag.lane_stats(candidate))
 
 
 # --- contract ---------------------------------------------------------------
@@ -91,11 +101,39 @@ def test_diagnostic_uses_the_same_arms_as_the_registered_window():
     assert window.PRODUCTION_IMAGE == window.ARMS["b"]["tag"]
 
 
+def test_every_lane_gets_at_least_the_coverage_minimum():
+    """A default that cannot reach MIN_LEVEL would be refused at startup anyway."""
+    minimum = diag.min_runs_for_level()
+    for name, n in diag.DEFAULT_COUNTS.items():
+        assert n >= minimum, (name, n)
+
+
+def test_every_default_count_can_reach_the_required_coverage():
+    """The composed coverage a default count buys must clear MIN_LEVEL."""
+    for name, n in diag.DEFAULT_COUNTS.items():
+        ci = diag.median_ci([float(i) for i in range(n)], level=diag.ARM_LEVEL)
+        assert 2.0 * ci["level"] - 1.0 >= diag.MIN_LEVEL, (name, n, ci["level"])
+
+
 def test_decode_lanes_get_more_observations_than_the_registered_contract():
     """The larger sample is the entire reason this diagnostic exists."""
     registered = window.LANES["structured"][0]
     for name in diag.DECODE_LANES:
         assert diag.DEFAULT_COUNTS[name] > registered
+    # The binding lane is the one with the widest genuine spread on this host.
+    assert diag.DEFAULT_COUNTS["hashmap"] >= max(
+        diag.DEFAULT_COUNTS[name] for name in diag.DECODE_LANES
+    )
+
+
+def test_the_expensive_prefill_lane_is_not_padded_to_the_decode_count():
+    """prefill240k costs ~152 s per observation, so its count is set by need."""
+    assert diag.DEFAULT_COUNTS["prefill240k"] < diag.DEFAULT_COUNTS["hashmap"]
+    # ...but it still buys at least one order statistic, so one stall cannot
+    # widen the interval to the extremes.
+    ci = diag.median_ci([float(i) for i in range(diag.DEFAULT_COUNTS["prefill240k"])],
+                        level=diag.ARM_LEVEL)
+    assert ci["order_statistic"] >= 2
 
 
 def test_receipt_is_labelled_as_not_section_6_evidence():
@@ -150,9 +188,13 @@ def test_a_minority_shift_moves_the_median_and_is_not_hidden():
     assert diag.lane_stats(shifted)["median"] == 90.0
 
     # Compared against a candidate at 96, the shifted arm must not be read as
-    # comfortably non-inferior on the strength of its median alone.
+    # comfortably non-inferior on the strength of its median alone: the point
+    # ratio flatters it (1.067), while the interval's lower bound sits below the
+    # 0.97 band because the shift widened the control's own interval.
     row = decide("structured", shifted, [96.0] * 21)
-    assert row["shift_ci_low"] < row["band_boundary_shift"], row
+    assert row["ratio"] > row["band"], row
+    assert row["ratio_ci_low"] < row["band"], row
+    assert row["verdict"] == "inconclusive", row
 
 
 def test_stall_count_is_descriptive_and_never_a_gate():
@@ -190,33 +232,57 @@ def test_stall_detector_does_not_flag_ordinary_spread():
 
 # --- statistics -------------------------------------------------------------
 
-def test_mann_whitney_distribution_sums_to_the_binomial_coefficient():
-    """The exact U distribution must be a proper probability distribution."""
-    for m, n in ((2, 2), (5, 5), (9, 9), (21, 21)):
-        counts = diag._mann_whitney_counts(m, n)
-        assert sum(counts) == math.comb(m + n, m), (m, n)
-        assert len(counts) == m * n + 1
+def test_median_interval_is_not_circular_and_widens_as_the_sample_shrinks():
+    """The interval must come from the sample size, not from the sample's own spread.
+
+    Both samples here are drawn from the same fixed range, so the only thing that
+    differs is how many observations pin the median down.
+    """
+    spread = [100.0 + (i % 7 - 3) * 0.01 for i in range(21)]
+    small = diag.median_ci(spread[:7], level=0.975)
+    large = diag.median_ci(spread, level=0.975)
+    assert (large["high"] - large["low"]) < (small["high"] - small["low"])
+    assert small["low"] <= 100.0 <= small["high"]
+    assert large["low"] <= 100.0 <= large["high"]
 
 
-def test_shift_interval_is_symmetric_and_contains_the_point_estimate():
-    hl = diag.hodges_lehmann_ci(steady(100.0), steady(101.0))
-    assert hl["low"] <= hl["shift"] <= hl["high"]
-    assert hl["level"] is not None and hl["level"] >= 0.95
-    # A symmetric two-sample construction: the index mirrors around the middle.
-    assert hl["order_statistic"] * 2 <= hl["n_pairs"] + 1
+def test_median_interval_level_never_exceeds_what_the_sample_supports():
+    """The reported level is the ACHIEVED one, so it cannot overstate the sample."""
+    for n in (1, 2, 3, 5, 7, 9, 21):
+        ci = diag.median_ci(steady(100.0, n=n), level=0.975)
+        if n == 1:
+            assert ci["level"] is None
+        else:
+            assert 0.0 < ci["level"] <= 1.0
+    assert diag.median_ci(steady(100.0, n=21), level=0.975)["level"] >= 0.975
 
 
-def test_shift_interval_widens_with_spread():
-    tight = diag.hodges_lehmann_ci(steady(100.0), steady(101.0))
-    wide = diag.hodges_lehmann_ci(stalled(100.0, count=3), stalled(101.0, count=3))
-    assert (wide["high"] - wide["low"]) > (tight["high"] - tight["low"])
+def test_min_runs_for_level_is_the_smallest_sample_that_reaches_the_requirement():
+    minimum = diag.min_runs_for_level()
+    assert minimum == 7
+    assert minimum == diag.min_runs_for_level(diag.MIN_LEVEL)
+    # One fewer cannot, which is what makes it the minimum.
+    for n in range(2, minimum):
+        ci = diag.median_ci(steady(100.0, n=n), level=diag.ARM_LEVEL)
+        composed = 2.0 * ci["level"] - 1.0 if ci["level"] is not None else 0.0
+        assert composed < diag.MIN_LEVEL, n
+    for n in range(minimum, minimum + 4):
+        ci = diag.median_ci(steady(100.0, n=n), level=diag.ARM_LEVEL)
+        assert 2.0 * ci["level"] - 1.0 >= diag.MIN_LEVEL, n
 
 
-def test_shift_interval_on_identical_samples_contains_zero():
-    same = steady(100.0)
-    hl = diag.hodges_lehmann_ci(same, same)
-    assert hl["shift"] == 0.0
-    assert hl["low"] <= 0.0 <= hl["high"]
+def test_the_composed_interval_is_conservative_for_the_ratio():
+    """lo pairs the candidate's low with the control's high, and vice versa."""
+    control = diag.lane_stats(steady(100.0))
+    candidate = diag.lane_stats(steady(110.0))
+    row = diag.compare_lane("essay", control, candidate)
+    assert row["ratio_ci_low"] == pytest.approx(candidate["low"] / control["high"])
+    assert row["ratio_ci_high"] == pytest.approx(candidate["high"] / control["low"])
+    # The composition costs coverage, and the cost is reported rather than hidden.
+    assert row["ratio_ci_level"] == pytest.approx(
+        2.0 * min(control["level"], candidate["level"]) - 1.0
+    )
+    assert row["ratio_ci_low"] <= row["ratio"] <= row["ratio_ci_high"]
 
 
 def test_degenerate_samples_do_not_raise():
@@ -225,8 +291,7 @@ def test_degenerate_samples_do_not_raise():
         assert s["median"] is None
     assert diag.median_ci([])["low"] is None
     assert diag.median_ci([5.0])["low"] == 5.0
-    assert diag.hodges_lehmann_ci([], [1.0])["shift"] is None
-    assert diag.hodges_lehmann_ci([1.0], [2.0])["shift"] == 1.0
+    assert diag.median_ci([5.0])["level"] is None
 
 
 def test_run_values_reads_the_lane_specific_key_and_skips_nulls():
@@ -281,16 +346,66 @@ def test_a_wide_lane_is_inconclusive_rather_than_rounded_to_a_pass():
 
 def test_an_unmeasurable_lane_cannot_read_as_a_pass():
     row = diag.compare_lane("essay", {"valid_runs": 0, "median": None},
-                            {"valid_runs": 0, "median": None}, [], [])
+                            {"valid_runs": 0, "median": None})
     assert row["verdict"] == "unmeasurable"
     assert diag.overall_verdict([row])[0] == "INCONCLUSIVE"
 
 
-def test_missing_raw_values_are_inconclusive_not_a_pass():
-    """The decision needs the observations, not just the medians."""
-    row = diag.compare_lane("essay", diag.lane_stats(steady(100.0)),
-                            diag.lane_stats(steady(101.0)), None, None)
+def test_a_lane_without_an_interval_is_inconclusive_not_a_pass():
+    """The decision needs the distribution-free intervals, not just the medians."""
+    row = diag.compare_lane("essay", {"median": 100.0, "valid_runs": 21},
+                            {"median": 101.0, "valid_runs": 21})
     assert row["verdict"] == "inconclusive"
+    assert row["ratio_ci_low"] is None
+
+
+def test_a_differing_shape_cannot_pass_on_the_shift_estimand():
+    """The reviewer's counterexample, which a Hodges-Lehmann shift got wrong.
+
+    Ten observations near 90 and eleven near 100 against eleven near 96 and ten
+    near 110. The median ratio is 96/100 = 0.96, below structured's 0.97 band, so
+    the lane is not non-inferior. A Hodges-Lehmann shift reported the median of
+    the pairwise differences -- 100.0 - 90.0 = +10, comfortably above the
+    boundary of -3.0 -- and so returned non-inferior while the ratio the band is
+    actually written in sat below the band. The composed ratio interval puts its
+    lower bound at 0.96, so it cannot certify the lane.
+    """
+    control = [90.0] * 10 + [100.0] * 11
+    candidate = [96.0] * 11 + [110.0] * 10
+    row = decide("structured", control, candidate)
+    assert row["ratio"] == pytest.approx(0.96, abs=1e-9)
+    assert row["band"] == 0.97
+    assert row["ratio_ci_low"] < row["band"], row
+    assert row["verdict"] != "non-inferior", row
+    assert row["verdict"] == "inconclusive", row
+    # And the shift-style estimand that produced the false pass is not consulted.
+    assert "shift" not in row
+
+
+def test_a_sample_below_the_coverage_requirement_is_inconclusive():
+    """1, 2 and 3 observations cannot support the claimed 95% interval.
+
+    An earlier version reported a pass at the claimed level for all three; the
+    level it actually achieved was None, 0.0 and 0.5.
+    """
+    for n in (1, 2, 3, 5, 6):
+        control = steady(100.0, n=n)
+        candidate = steady(103.0, n=n)
+        row = decide("essay", control, candidate)
+        assert row["ratio"] > 0.95, n
+        assert row["verdict"] == "inconclusive", (n, row)
+        if n == 1:
+            # A single observation supports no interval at all, which is itself
+            # reported as None rather than as a level.
+            assert row["ratio_ci_level"] is None
+        else:
+            assert row["ratio_ci_level"] < diag.MIN_LEVEL, (n, row)
+
+
+def test_the_minimum_supported_sample_is_decided():
+    """At exactly the minimum sample the lane is decided, not deferred."""
+    n = diag.min_runs_for_level()
+    assert decide("essay", steady(100.0, n=n), steady(103.0, n=n))["verdict"] == "non-inferior"
 
 
 def test_overall_verdict_precedence():
@@ -341,6 +456,7 @@ def _healthy_state(directory: Path, counts: dict | None = None) -> dict:
             "measure_verified_image": window.ARMS[arm]["tag"],
             "measure_verified_exllamav3": window.ARMS[arm]["exllamav3"],
             "preemptions_delta": 0,
+            "measure_attempt": f"{arm}-attempt-1",
         }
     for arm, scale in (("a", 1.0), ("b", 1.01)):
         for lane_name in ALL_LANES:
@@ -352,6 +468,7 @@ def _healthy_state(directory: Path, counts: dict | None = None) -> dict:
             state["probe_blocks"].append({
                 "arm": arm, "lane": lane_name, "runs": n, "ok": True,
                 "returncode": 0, "path": name, "error": None,
+                "attempt": state["arms"][arm]["measure_attempt"],
             })
     return state
 
@@ -370,7 +487,8 @@ def test_a_healthy_receipt_validates_and_passes(tmp_path, monkeypatch):
     for row in written["comparison"]:
         assert row["band"] == audit.BANDS[row["lane"]]
     # The method is recorded so the receipt is self-describing.
-    assert "Hodges-Lehmann" in written["method"]["decision"]
+    assert "median ratio" in written["method"]["decision"].lower()
+    assert "Hodges-Lehmann" in written["method"]["why_not_a_shift_interval"]
 
 
 def test_the_running_phase_is_not_mistaken_for_a_crashed_one(tmp_path, monkeypatch):
@@ -429,6 +547,90 @@ def test_report_resumption_on_a_failed_receipt_is_not_a_pass(tmp_path, monkeypat
     assert written["comparison"]
 
 
+def test_a_later_failure_is_not_erased_by_an_earlier_success(tmp_path, monkeypatch):
+    """The reviewer's retry-history repro.
+
+    An earlier attempt wrote a usable file and a later retry of the same lane
+    failed. The old check kept only the latest entry per phase and accepted any
+    successful block, so it read this lane as clean. Every registered attempt
+    must have succeeded, because a capture that contained a failure is not a
+    clean capture however the retry ended.
+    """
+    receipt = tmp_path / "diag.json"
+    monkeypatch.setattr(diag.window, "_RECEIPT", receipt)
+    state = _healthy_state(tmp_path)
+    good = state["probes"]["a"]["essay"]
+    state["probe_blocks"].append({
+        "arm": "a", "lane": "essay", "runs": 21, "ok": False,
+        "returncode": 1, "path": good, "error": "probe died on the retry",
+        "attempt": state["arms"]["a"]["measure_attempt"],
+    })
+
+    problems = diag.validate_capture(state)
+    assert any("did not succeed" in p for p in problems), problems
+    diag.phase_report(state)
+    assert json.loads(receipt.read_text())["verdict"] == "INVALID CAPTURE"
+
+
+def test_a_failed_phase_is_not_erased_by_a_successful_retry(tmp_path, monkeypatch):
+    """A phase that failed and then succeeded on retry must still be flagged."""
+    receipt = tmp_path / "diag.json"
+    monkeypatch.setattr(diag.window, "_RECEIPT", receipt)
+    state = _healthy_state(tmp_path)
+    state["phases"].append({"phase": "measure_b", "ok": False, "error": "died"})
+    state["phases"].append({"phase": "measure_b", "ok": True})
+
+    problems = diag.validate_capture(state)
+    assert any("measure_b failed" in p for p in problems), problems
+
+
+def test_main_preserves_a_leftover_phase_instead_of_overwriting_it(tmp_path, monkeypatch):
+    """End to end through the real entry point, on a receipt a killed run left.
+
+    `main` sets `phase_in_progress` before each phase, so resuming with
+    `--from report` overwrote the leftover `measure_a` and the interrupted retry
+    read as a clean capture. It must be preserved and the run must fail closed.
+    """
+    receipt = tmp_path / "diag.json"
+    monkeypatch.setattr(diag.window, "_RECEIPT", receipt)
+    state = _healthy_state(tmp_path)
+    state["phase_in_progress"] = "measure_a"
+    state["backup"] = str(tmp_path / "env.bak")
+    receipt.write_text(json.dumps(state))
+
+    assert diag.main(["--state", str(receipt), "--from", "report", "--to", "report"]) == 1
+    written = json.loads(receipt.read_text())
+    assert written["verdict"] == "INVALID CAPTURE"
+    assert "measure_a" in written["interrupted_phases"]
+    assert any("interrupted inside phase 'measure_a'" in p
+               for p in written["capture_problems"])
+
+
+def test_an_interrupted_phase_recorded_by_main_blocks_the_verdict(tmp_path, monkeypatch):
+    """`main` overwrites `phase_in_progress`; the prior value must survive."""
+    receipt = tmp_path / "diag.json"
+    monkeypatch.setattr(diag.window, "_RECEIPT", receipt)
+    state = _healthy_state(tmp_path)
+    state["interrupted_phases"] = ["measure_b"]
+
+    problems = diag.validate_capture(state)
+    assert any("interrupted inside phase 'measure_b'" in p for p in problems)
+    diag.phase_report(state)
+    assert json.loads(receipt.read_text())["verdict"] == "INVALID CAPTURE"
+
+
+def test_evidence_from_an_earlier_attempt_is_not_accepted(tmp_path, monkeypatch):
+    """The selected file must belong to the attempt being judged."""
+    receipt = tmp_path / "diag.json"
+    monkeypatch.setattr(diag.window, "_RECEIPT", receipt)
+    state = _healthy_state(tmp_path)
+    state["arms"]["a"]["measure_attempt"] = "a-attempt-2"
+
+    problems = diag.validate_capture(state)
+    assert any("does not belong to the current measurement attempt" in p
+               for p in problems), problems
+
+
 @pytest.mark.parametrize("mutate,expect", [
     (lambda s: s["phases"].append({"phase": "rearm", "ok": False, "error": "boom"}),
      "rearm"),
@@ -442,7 +644,7 @@ def test_report_resumption_on_a_failed_receipt_is_not_a_pass(tmp_path, monkeypat
     (lambda s: s["probes"]["a"].pop("hashmap"), "no evidence file was selected"),
     (lambda s: [b.update(ok=False, error="probe died")
                 for b in s["probe_blocks"] if b["arm"] == "a" and b["lane"] == "essay"],
-     "every registered block failed"),
+     "did not succeed"),
     (lambda s: s["probe_blocks"].pop(0), "no probe block was registered"),
 ])
 def test_capture_integrity_violations_block_the_verdict(tmp_path, monkeypatch, mutate, expect):
@@ -463,7 +665,8 @@ def test_damaged_lane_evidence_blocks_the_verdict(tmp_path, monkeypatch):
     monkeypatch.setattr(diag.window, "_RECEIPT", receipt)
 
     for label, lane_name, extra, expect in (
-        ("short sample", "structured", {}, "expected 21"),
+        ("short sample", "structured", {},
+         f"expected {diag.DEFAULT_COUNTS['structured']}"),
         ("invalid run", "structured", {"invalid_runs": [{"reason": "no cached_tokens"}]},
          "invalid run"),
         # The coldness flag only means anything on a prefill lane.

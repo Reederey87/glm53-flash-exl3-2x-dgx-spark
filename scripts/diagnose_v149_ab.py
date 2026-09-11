@@ -102,17 +102,26 @@ PROBE = window.PROBE
 TAG = "task35b-diag"
 EVIDENCE_CLASS = "diagnostic — NOT §6 qualification evidence"
 
-# Decode lanes are the ones the stall affects; they get the larger sample. The
-# prefill lanes are kept at the §6 counts because a 240k prefill observation
-# costs minutes, and prefill showed a tight settled distribution (0.0038 spread).
+# Decode lanes are the ones the stall affects, so they get the larger sample.
+# The counts are set per lane from the pilot's own measured spread, not padded:
+# `hashmap` has the widest genuine spread on this host (clean values span 26-33
+# tok/s around a 29.5 median), so a 5% band on its median needs roughly four
+# times the pilot's sample, while `structured` and `essay` clear their bands at
+# 31 with power ~1.0. `prefill240k` is the opposite case -- its distribution is
+# so tight (0.006 relative spread) that the interval decides even at its
+# coverage minimum, but each observation costs ~152 s, so it stays near that
+# minimum rather than matching the decode lanes.
 DECODE_LANES = ("structured", "essay", "hashmap")
 PREFILL_LANES = ("prefill60k", "prefill240k")
 DEFAULT_COUNTS = {
-    "structured": 21,
-    "essay": 21,
-    "hashmap": 21,
-    "prefill60k": 9,
-    "prefill240k": 5,
+    "structured": 31,
+    "essay": 31,
+    "hashmap": 81,
+    "prefill60k": 31,
+    # 11 rather than the 7-observation coverage minimum: at 7 the order
+    # statistic is k=0, so the interval includes both extremes and one stall
+    # would break the lane. 11 buys k=1.
+    "prefill240k": 11,
 }
 LANE_TIMEOUTS = {
     "structured": 3600.0,
@@ -144,6 +153,23 @@ def log(message: str) -> None:
 
 
 # --- statistics -------------------------------------------------------------
+
+# The decision is about the RATIO of the two arms' medians, so the uncertainty
+# has to be an interval for that ratio. Each arm's median interval is built at
+# ARM_LEVEL so that the composition reaches MIN_LEVEL by the union bound:
+# coverage >= 1 - (1 - ARM_LEVEL) - (1 - ARM_LEVEL) = 2 * ARM_LEVEL - 1.
+MIN_LEVEL = 0.95
+ARM_LEVEL = 1.0 - (1.0 - MIN_LEVEL) / 2.0
+
+# An earlier version decided with a Hodges-Lehmann shift interval. That estimates
+# the median of pairwise `B - A` DIFFERENCES, which equals the difference of
+# medians only under a location-shift model, so across differently shaped arms it
+# does not bound the median ratio at all: with A = ten near 90 and eleven near
+# 100, and B = eleven near 96 and ten near 110, the median ratio is 0.9610 --
+# below structured's 0.97 band -- while the shift interval reported [1.060,
+# 1.100] and called it non-inferior. The composed median intervals below target
+# the ratio itself and assume nothing about either arm's shape.
+
 
 def _binomial_cdf(k: int, n: int) -> float:
     """P(Bin(n, 1/2) <= k), exactly, as a fraction of 2**n.
@@ -207,7 +233,23 @@ def median_ci(values: list[float], level: float = 0.95) -> dict:
     }
 
 
-def lane_stats(values: list[float], level: float = 0.95) -> dict:
+def min_runs_for_level(level: float = MIN_LEVEL) -> int:
+    """Smallest sample size whose composed median-ratio interval reaches `level`.
+
+    The composed interval's coverage depends only on `n` and the order-statistic
+    rule, never on the observed values, so the requirement can be checked before
+    a run starts rather than discovered afterwards. With `level=0.95` this is 7:
+    a 5- or 6-observation arm cannot support it.
+    """
+    arm_level = 1.0 - (1.0 - level) / 2.0
+    for n in range(2, 128):
+        ci = median_ci([float(i) for i in range(n)], level=arm_level)
+        if ci["level"] is not None and 2.0 * ci["level"] - 1.0 >= level:
+            return n
+    return 128
+
+
+def lane_stats(values: list[float], level: float = ARM_LEVEL) -> dict:
     """Median, its distribution-free interval, and descriptive spread measures.
 
     `stall_count` is DESCRIPTIVE. It is deliberately not a trustworthiness gate:
@@ -242,92 +284,24 @@ def lane_stats(values: list[float], level: float = 0.95) -> dict:
     }
 
 
-def _mann_whitney_counts(m: int, n: int) -> list[int]:
-    """Exact counts of the Mann-Whitney U statistic, as `counts[u]`.
-
-    U is the number of pairs (a_i, b_j) with a_i < b_j. Building the merged
-    ordering left to right: appending an `a` adds no such pair (it is last),
-    while appending a `b` adds one for each `a` already placed. The recurrence
-    is therefore `f[i][j][u] = f[i-1][j][u] + f[i][j-1][u-i]`, computed with
-    integer arithmetic so the quantiles are exact.
-    """
-    f = [[[0] * (m * n + 1) for _ in range(n + 1)] for _ in range(m + 1)]
-    f[0][0][0] = 1
-    for i in range(m + 1):
-        for j in range(n + 1):
-            if i == 0 and j == 0:
-                continue
-            for u in range(m * n + 1):
-                total = 0
-                if i:
-                    total += f[i - 1][j][u]
-                if j and u - i >= 0:
-                    total += f[i][j - 1][u - i]
-                f[i][j][u] = total
-    return f[m][n]
-
-
-def hodges_lehmann_ci(a: list[float], b: list[float], level: float = 0.95) -> dict:
-    """Distribution-free CI for the shift `b - a`, plus its point estimate.
-
-    This is the standard two-sample non-parametric comparison, and it is the one
-    that actually answers the question the bands ask: whether `b` sits below `a`
-    by more than the band allows. It is distribution-free (the Mann-Whitney
-    statistic's null distribution depends only on the sample sizes), so like
-    `median_ci` it assumes nothing about which observations are stalls.
-
-    It is also strictly more informative than composing two separate median
-    intervals, which needs a union bound over both and therefore discards the
-    pairing between the two samples' spreads.
-    """
-    m, n = len(a), len(b)
-    if m == 0 or n == 0:
-        return {"shift": None, "low": None, "high": None, "level": None,
-                "n_pairs": 0, "order_statistic": None}
-    diffs = sorted(bj - ai for bj in b for ai in a)
-    shift = statistics.median(diffs)
-    if m < 2 or n < 2:
-        return {"shift": shift, "low": diffs[0], "high": diffs[-1], "level": None,
-                "n_pairs": m * n, "order_statistic": None}
-    counts = _mann_whitney_counts(m, n)
-    total = sum(counts)
-    alpha = (1.0 - level) / 2.0
-    cumulative = 0
-    c = 0
-    for u in range(m * n + 1):
-        cumulative += counts[u]
-        if cumulative / total <= alpha:
-            c = u
-        else:
-            break
-    achieved = 1.0 - 2.0 * (sum(counts[:c + 1]) / total)
-    return {
-        "shift": shift,
-        "low": diffs[c],
-        "high": diffs[m * n - 1 - c],
-        "level": achieved,
-        "n_pairs": m * n,
-        "order_statistic": c + 1,
-    }
-
-
 def run_values(kind: str, summary: dict) -> list[float]:
     key = "prefill_tok_s" if kind.startswith("prefill") else "tok_s"
     return [r[key] for r in summary.get("runs", []) if r.get(key) is not None]
 
 
-def compare_lane(lane: str, control: dict, candidate: dict,
-                 control_values: list[float] | None = None,
-                 candidate_values: list[float] | None = None) -> dict:
-    """Decide one lane from the two medians and a distribution-free shift CI.
+def compare_lane(lane: str, control: dict, candidate: dict) -> dict:
+    """Decide one lane from a distribution-free interval for the MEDIAN RATIO.
 
-    The point ratio answers the question; the shift interval decides whether the
-    sample can answer it at all. The §6 band is a RATIO bound, so the interval is
-    translated into ratio terms against the control's median: a shift of
-    `(band - 1) * control_median` is exactly the band boundary. A lane whose
-    interval spans that boundary is reported inconclusive rather than rounded to
-    whichever side its point estimate fell on, which is what makes a wide or
-    contaminated lane fail closed instead of quietly becoming a pass.
+    Each arm's `median_ci` is a valid interval for that arm's own median at
+    `ARM_LEVEL`, so pairing the candidate's low bound with the control's high
+    bound (and vice versa) gives a valid, conservative interval for the ratio
+    `B_median / A_median` at `2 * ARM_LEVEL - 1` by the union bound. That is the
+    quantity the §6 bands are written in, so no shape or location-shift
+    assumption is needed and no different estimand is silently substituted.
+
+    Two ways a lane fails closed: its coverage cannot reach `MIN_LEVEL` at this
+    sample size, or its interval spans the band. Either yields `inconclusive`
+    rather than being rounded to whichever side the point estimate fell on.
     """
     band = audit.BANDS[lane]
     a, b = control.get("median"), candidate.get("median")
@@ -339,37 +313,47 @@ def compare_lane(lane: str, control: dict, candidate: dict,
     ratio = b / a
     row["ratio"] = ratio
     row["candidate_over_control_percent"] = (ratio - 1.0) * 100.0
-    if control_values is None or candidate_values is None:
-        row.update({"verdict": "inconclusive",
-                    "reason": "no raw observations available for the shift interval"})
+
+    levels = [control.get("level"), candidate.get("level")]
+    bounds = [control.get("low"), control.get("high"),
+              candidate.get("low"), candidate.get("high")]
+    if any(v is None for v in levels + bounds):
+        row.update({"ratio_ci_low": None, "ratio_ci_high": None, "ratio_ci_level": None,
+                    "verdict": "inconclusive",
+                    "reason": "no distribution-free median interval is available for "
+                              "this lane"})
         return row
-    hl = hodges_lehmann_ci(control_values, candidate_values)
-    row["shift"] = hl["shift"]
-    row["shift_ci_low"] = hl["low"]
-    row["shift_ci_high"] = hl["high"]
-    row["shift_ci_level"] = hl["level"]
-    # The band boundary expressed as a shift of the control's median.
-    boundary = (band - 1.0) * a
-    row["band_boundary_shift"] = boundary
-    row["ratio_ci_low"] = (a + hl["low"]) / a
-    row["ratio_ci_high"] = (a + hl["high"]) / a
-    if hl["low"] >= boundary:
+    composed = 2.0 * min(levels) - 1.0
+    # The ratio is smallest when the candidate is at its low bound and the
+    # control at its high bound, and largest the other way round.
+    lo = candidate["low"] / control["high"]
+    hi = candidate["high"] / control["low"]
+    row.update({"ratio_ci_low": lo, "ratio_ci_high": hi, "ratio_ci_level": composed})
+
+    if composed < MIN_LEVEL:
+        row["verdict"] = "inconclusive"
+        row["reason"] = (
+            f"this sample supports only {composed:.4f} coverage for the median ratio "
+            f"({control.get('valid_runs')} vs {candidate.get('valid_runs')} observations); "
+            f"the requested {MIN_LEVEL:.2f} cannot be achieved, so the lane is not decided"
+        )
+    elif lo >= band:
         row["verdict"] = "non-inferior"
         row["reason"] = (
-            f"shift interval [{hl['low']:.4f}, {hl['high']:.4f}] lies at or above the "
-            f"band boundary {boundary:.4f}"
+            f"median-ratio interval [{lo:.4f}, {hi:.4f}] at {composed:.4f} coverage lies "
+            f"at or above band {band:.2f}"
         )
-    elif hl["high"] < boundary:
+    elif hi < band:
         row["verdict"] = "REGRESSED"
         row["reason"] = (
-            f"shift interval [{hl['low']:.4f}, {hl['high']:.4f}] lies below the "
-            f"band boundary {boundary:.4f}"
+            f"median-ratio interval [{lo:.4f}, {hi:.4f}] at {composed:.4f} coverage lies "
+            f"below band {band:.2f}"
         )
     else:
         row["verdict"] = "inconclusive"
         row["reason"] = (
-            f"shift interval [{hl['low']:.4f}, {hl['high']:.4f}] spans the band "
-            f"boundary {boundary:.4f}; the sample cannot decide this lane"
+            f"median-ratio interval [{lo:.4f}, {hi:.4f}] spans band {band:.2f}; the "
+            "sample cannot decide this lane"
         )
     return row
 
@@ -607,22 +591,29 @@ def validate_capture(state: dict, current_phase: str | None = None) -> list[str]
     failure does not stop the others from being reported.
     """
     problems: list[str] = []
-    phases = {p.get("phase"): p for p in state.get("phases", [])}
+    entries = state.get("phases", [])
+    seen = {e.get("phase") for e in entries}
 
     for name in REQUIRED_PHASES:
-        entry = phases.get(name)
-        if entry is None:
+        if name not in seen:
             problems.append(f"phase {name} never ran")
-        elif not entry.get("ok"):
-            problems.append(f"phase {name} failed: {entry.get('error')}")
-    for name, entry in phases.items():
-        if entry.get("ok") is False and name not in REQUIRED_PHASES:
-            problems.append(f"phase {name} failed: {entry.get('error')}")
+    # Iterate every entry, not the latest per phase: a retry that succeeded must
+    # not erase the record of the attempt that failed before it.
+    for entry in entries:
+        if entry.get("ok") is False:
+            problems.append(f"phase {entry.get('phase')} failed: {entry.get('error')}")
     in_progress = state.get("phase_in_progress")
     if in_progress and in_progress != current_phase:
         problems.append(
             f"the run aborted inside phase {in_progress!r} "
             "(phase_in_progress was not cleared)"
+        )
+    # `main` records the phase it is about to run, so a leftover value from an
+    # earlier run is overwritten and lost. It preserves them here instead.
+    for leftover in state.get("interrupted_phases") or []:
+        problems.append(
+            f"an earlier attempt was interrupted inside phase {leftover!r}; "
+            "the capture is incomplete"
         )
 
     counts = state.get("counts") or {}
@@ -665,27 +656,39 @@ def validate_capture(state: dict, current_phase: str | None = None) -> list[str]
         problems.append("both arms report the same container boot identity")
 
     for arm in ("a", "b"):
+        attempt = ((state.get("arms") or {}).get(arm) or {}).get("measure_attempt")
         for lane in EXPECTED_LANES:
             want = counts.get(lane)
             matching = [b for b in blocks
                         if b.get("arm") == arm and b.get("lane") == lane]
-            ok_blocks = [b for b in matching if b.get("ok") is True]
+            # EVERY registered attempt must have succeeded. A retry that
+            # eventually worked still means the capture contained a failure, and
+            # accepting the later success would hide it -- the same reason the §6
+            # judge rejects any receipt carrying a failed block.
+            failed = [b for b in matching if b.get("ok") is not True]
             if not matching:
                 problems.append(f"arm {arm} lane {lane}: no probe block was registered")
-            elif not ok_blocks:
+            elif failed:
                 problems.append(
-                    f"arm {arm} lane {lane}: every registered block failed "
-                    f"({matching[-1].get('error')})"
+                    f"arm {arm} lane {lane}: {len(failed)} of {len(matching)} registered "
+                    f"attempt(s) did not succeed (last: {failed[-1].get('error')!r})"
                 )
             selected = (state.get("probes") or {}).get(arm, {}).get(lane)
             if not selected:
                 problems.append(f"arm {arm} lane {lane}: no evidence file was selected")
                 continue
-            if ok_blocks and ok_blocks[-1].get("path") != selected:
-                problems.append(
-                    f"arm {arm} lane {lane}: the selected file {selected!r} is not the "
-                    f"one the successful block wrote ({ok_blocks[-1].get('path')!r})"
-                )
+            # Bind the selected evidence to the CURRENT measurement attempt, so a
+            # stale file from an earlier attempt cannot be judged as this one's.
+            if not attempt:
+                problems.append(f"arm {arm} lane {lane}: the arm recorded no measurement attempt")
+            else:
+                chosen = [b for b in matching
+                          if b.get("attempt") == attempt and b.get("path") == selected]
+                if not chosen:
+                    problems.append(
+                        f"arm {arm} lane {lane}: the selected file {selected!r} does not "
+                        f"belong to the current measurement attempt {attempt!r}"
+                    )
             summary = _load_lane(state, arm, lane)
             if summary is None:
                 problems.append(f"arm {arm} lane {lane}: evidence file missing or unreadable")
@@ -724,21 +727,17 @@ def phase_report(state: dict) -> None:
     rows: list[dict] = []
     for lane in lanes:
         pair: dict[str, dict] = {}
-        values_by_arm: dict[str, list[float]] = {}
         for arm in ("a", "b"):
             summary = _load_lane(state, arm, lane)
             if summary is None:
-                pair[arm] = {"valid_runs": 0, "median": None}
-                values_by_arm[arm] = []
+                pair[arm] = {"valid_runs": 0, "median": None, "level": None,
+                             "low": None, "high": None}
                 continue
-            values = run_values(lane, summary)
-            values_by_arm[arm] = values
-            entry = lane_stats(values)
+            entry = lane_stats(run_values(lane, summary))
             entry["invalid_runs"] = len(summary.get("invalid_runs", []))
             pair[arm] = entry
         stats[lane] = pair
-        rows.append(compare_lane(lane, pair["a"], pair["b"],
-                                 values_by_arm["a"], values_by_arm["b"]))
+        rows.append(compare_lane(lane, pair["a"], pair["b"]))
     state["stats"] = stats
     state["comparison"] = rows
     state["capture_problems"] = problems
@@ -758,44 +757,50 @@ def phase_report(state: dict) -> None:
     state["verdict_reason"] = reason
     state["evidence_class"] = EVIDENCE_CLASS
     state["method"] = {
-        "point_estimate": "median of each arm's observations",
-        "decision": "Hodges-Lehmann shift (median of all pairwise B-A differences) "
-                    "with its exact distribution-free Mann-Whitney confidence interval",
-        "band_boundary": "(band - 1) x control median, i.e. the ratio band expressed "
-                         "as a shift",
-        "median_interval": "distribution-free sign-test order statistics (reported "
-                           "per arm for transparency; not the decision rule)",
+        "point_estimate": "median of each arm's observations; the ratio B_median/A_median",
+        "decision": "conservative composed interval for the MEDIAN RATIO: each arm's "
+                    "distribution-free sign-test order-statistic interval at "
+                    f"{ARM_LEVEL:.4f}, paired across arms so the ratio is covered at "
+                    f"{MIN_LEVEL:.2f} by the union bound",
+        "why_not_a_shift_interval": "a Hodges-Lehmann shift estimates the median of "
+                                    "pairwise differences, which equals the difference "
+                                    "of medians only under a location-shift model; it "
+                                    "does not bound the median ratio across differently "
+                                    "shaped arms",
+        "coverage_requirement": f"a lane below {MIN_LEVEL:.2f} coverage is inconclusive; "
+                                f"the minimum sample supporting it is "
+                                f"{min_runs_for_level()} observations per arm",
         "stall_count": "descriptive only; never used to certify the median it was "
                        "measured against",
-        "fail_closed": "a lane whose shift interval spans its band boundary is "
-                       "inconclusive; a receipt failing validate_capture() is "
-                       "INVALID CAPTURE and cannot be read as a result",
+        "fail_closed": "a lane whose ratio interval spans its band is inconclusive; a "
+                       "receipt failing validate_capture() is INVALID CAPTURE and cannot "
+                       "be read as a result",
     }
     window.save(state)
 
     print()
     print(f"{'lane':<12} {'A median':>10} {'B median':>10} {'B/A':>7} {'band':>5}  "
-          f"{'shift CI (95%)':>24}  {'stalls A/B':>10}  verdict")
+          f"{'median-ratio CI':>22}  {'cov':>6}  stalls A/B  verdict")
     for row in rows:
         lane = row["lane"]
         a, b = stats[lane]["a"], stats[lane]["b"]
         ratio = f"{row['ratio']:.4f}" if row.get("ratio") else "n/a"
         stalls = f"{a.get('stall_count', 0)}/{a.get('valid_runs', 0)} vs " \
                  f"{b.get('stall_count', 0)}/{b.get('valid_runs', 0)}"
-        if row.get("shift_ci_low") is not None:
-            interval = f"[{row['shift_ci_low']:+.2f}, {row['shift_ci_high']:+.2f}]"
+        if row.get("ratio_ci_low") is not None:
+            interval = f"[{row['ratio_ci_low']:.4f}, {row['ratio_ci_high']:.4f}]"
         else:
             interval = "n/a"
+        cov = f"{row['ratio_ci_level']:.4f}" if row.get("ratio_ci_level") else "n/a"
         print(f"{lane:<12} {a.get('median') or float('nan'):>10.2f} "
               f"{b.get('median') or float('nan'):>10.2f} {ratio:>7} "
-              f"{row['band']:>5.2f}  {interval:>24}  {stalls:>10}  {row['verdict']}")
+              f"{row['band']:>5.2f}  {interval:>22}  {cov:>6}  {stalls}  {row['verdict']}")
     print()
-    print("shift = B - A in the lane's own units; a positive shift means v1.4.9 is faster.")
-    print("The band boundary is a shift of (band - 1) x A median, shown per lane below.")
-    for row in rows:
-        if row.get("band_boundary_shift") is not None:
-            print(f"  {row['lane']:<12} boundary {row['band_boundary_shift']:+.4f}  "
-                  f"point shift {row['shift']:+.4f}  -> {row['verdict']}")
+    print("The interval covers the MEDIAN RATIO B_median/A_median at the stated coverage,")
+    print(f"composed from two {ARM_LEVEL:.4f} per-arm intervals by the union bound.")
+    print(f"A lane below {MIN_LEVEL:.2f} coverage, or whose interval spans its band, is")
+    print(f"inconclusive. The minimum sample that supports {MIN_LEVEL:.2f} is")
+    print(f"{min_runs_for_level()} observations per arm.")
     print()
     if problems:
         print("CAPTURE PROBLEMS (the verdict below is not a result):")
@@ -828,7 +833,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--from", dest="first", choices=PHASES, default=PHASES[0])
     ap.add_argument("--to", dest="last", choices=PHASES, default=PHASES[-1])
     ap.add_argument("--state", type=Path, help="receipt/checkpoint file")
-    ap.add_argument("--decode-runs", type=int, default=DEFAULT_COUNTS["structured"])
+    ap.add_argument("--decode-runs", type=int,
+                    help="set all three decode lanes to the same count")
+    ap.add_argument("--structured-runs", type=int, default=DEFAULT_COUNTS["structured"])
+    ap.add_argument("--essay-runs", type=int, default=DEFAULT_COUNTS["essay"])
+    ap.add_argument("--hashmap-runs", type=int, default=DEFAULT_COUNTS["hashmap"])
     ap.add_argument("--prefill60k-runs", type=int, default=DEFAULT_COUNTS["prefill60k"])
     ap.add_argument("--prefill240k-runs", type=int, default=DEFAULT_COUNTS["prefill240k"])
     ap.add_argument("--keep-armed", action="store_true",
@@ -839,15 +848,29 @@ def main(argv: list[str] | None = None) -> int:
         print("--from must not come after --to", file=sys.stderr)
         return 2
     counts = {
-        "structured": args.decode_runs,
-        "essay": args.decode_runs,
-        "hashmap": args.decode_runs,
+        "structured": args.decode_runs or args.structured_runs,
+        "essay": args.decode_runs or args.essay_runs,
+        "hashmap": args.decode_runs or args.hashmap_runs,
         "prefill60k": args.prefill60k_runs,
         "prefill240k": args.prefill240k_runs,
     }
     if any(n < 1 for n in counts.values()):
         print("every lane needs at least one run", file=sys.stderr)
         return 2
+    # Fail fast rather than spending the boots: a lane whose sample cannot reach
+    # the required coverage can never be decided, so measuring it is wasted time.
+    measuring = any(name.startswith("measure_") for name in PHASES[lo:hi + 1])
+    minimum = min_runs_for_level()
+    if measuring:
+        too_small = {lane: n for lane, n in counts.items() if n < minimum}
+        if too_small:
+            print(
+                f"these lane counts cannot support {MIN_LEVEL:.2f} coverage for the "
+                f"median ratio (minimum {minimum} observations per arm): "
+                + ", ".join(f"{lane}={n}" for lane, n in sorted(too_small.items())),
+                file=sys.stderr,
+            )
+            return 2
     receipt = args.state or (ROOT / "local" / f"{TAG}-{time.strftime('%Y%m%d-%H%M%S')}.json")
     state: dict = {}
     if receipt.is_file():
@@ -855,6 +878,26 @@ def main(argv: list[str] | None = None) -> int:
             state = json.loads(receipt.read_text())
         except json.JSONDecodeError:
             state = {}
+    # `counts` is the contract the evidence was collected under, and
+    # `validate_capture` checks each lane file against it. Overwriting it from
+    # the current arguments would rewrite history: re-judging a receipt taken
+    # with 5 prefill240k observations against a default of 7 would report an
+    # integrity failure that never happened. So preserve it when this invocation
+    # measures nothing, and refuse to mix samples when it does.
+    recorded = state.get("counts")
+    if recorded and recorded != counts:
+        already_measured = any(
+            str(e.get("phase", "")).startswith("measure_") for e in state.get("phases", [])
+        )
+        if measuring and already_measured:
+            print(
+                f"{receipt} already measured under {recorded}; these arguments "
+                f"({counts}) would mix samples from two contracts",
+                file=sys.stderr,
+            )
+            return 2
+        if not measuring:
+            counts = recorded
     state.update({
         "schema": 1,
         "kind": TAG,
@@ -881,6 +924,22 @@ def main(argv: list[str] | None = None) -> int:
     for sig in (signal.SIGTERM, signal.SIGHUP):
         signal.signal(sig, window._on_signal)
     atexit.register(window.emergency_restore)
+    # A leftover `phase_in_progress` can mean an earlier attempt died inside that
+    # phase without clearing it. The loop below overwrites this field before
+    # every phase, so the signal would be lost and a later success would read as
+    # a clean capture. Preserve it for `validate_capture` instead.
+    #
+    # The one value that is NOT evidence of a crash is the phase this invocation
+    # is about to run: `main` sets `phase_in_progress` before calling the
+    # handler, so resuming the phase that was interrupted looks identical to
+    # starting it. A resumed phase is caught by its own block records instead --
+    # a killed attempt's block is registered before it runs, so it stays in
+    # `probe_blocks` as a failure.
+    leftover = state.get("phase_in_progress")
+    if leftover and leftover != PHASES[lo]:
+        state.setdefault("interrupted_phases", []).append(leftover)
+        state["phase_in_progress"] = None
+        log(f"an earlier attempt was interrupted inside phase {leftover!r}")
     window.save(state)
 
     failure: BaseException | None = None
