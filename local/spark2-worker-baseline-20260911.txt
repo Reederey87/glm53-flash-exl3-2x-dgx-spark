@@ -1,0 +1,113 @@
+Worker GPU healthy baseline (control) — power is the discriminator
+==================================================================
+Date: 2026-09-11
+Node: spark2 (worker), user `reederey`
+Method: identical to the head receipts — bf16 8192^3 matmul inside a container
+from the same image, `nvidia-smi` sampled every 0.5 s during a sustained load.
+
+WHY
+---
+The head GPU was pinned at 507 MHz under load while the worker reached ~2400 MHz.
+Both nodes run byte-identical software, so a software cause was already
+implausible. This captures the worker as a **control** so the head can be compared
+against a known-good measurement of the same hardware and the same command.
+
+The head is currently powered off, so its comparison numbers come from the
+pre-reboot receipt `spark1-head-clock-post-reboot-20260911.txt`.
+
+MEASUREMENT (worker, sustained ~12 s load)
+------------------------------------------
+  RESULT sustained: 1991 iters, 12.70 ms each -> 86.6 TFLOP/s
+  clock_sm under load: 2288 MHz
+
+Sampled telemetry during the load (each line one 0.5 s sample):
+
+  clocks.sm   power.draw   temp   util
+  2418 MHz      25.24 W     62 C   96 %   <- ramp
+  2392 MHz      88.42 W     65 C   96 %
+  2372 MHz      74.06 W     63 C   96 %
+  2353 MHz      91.11 W     66 C   96 %
+  2340 MHz      91.84 W     66 C   96 %
+  2340 MHz      86.00 W     66 C   96 %
+  2320 MHz      92.23 W     65 C   96 %
+  2301 MHz      92.41 W     65 C   96 %
+  2301 MHz      92.19 W     64 C   96 %
+  2301 MHz      89.65 W     70 C   96 %
+  2301 MHz      88.63 W     70 C   96 %
+  2301 MHz      87.97 W     70 C   96 %
+  2301 MHz      87.85 W     71 C   96 %
+  2288 MHz      91.73 W     66 C   96 %
+
+Steady state: ~2288-2340 MHz at ~86-92 W, 96 % utilisation, 62-71 C.
+
+IDLE (for completeness — idle clock is NOT a discriminator)
+----------------------------------------------------------
+  208 MHz, ~4.8 W, 45 C, P8   (5 samples, stable)
+
+IMPORTANT CORRECTION TO AN EARLIER NOTE
+---------------------------------------
+An intermediate reading in this session showed the worker at "2411 MHz, 12.1 W"
+and I described that as the worker's idle state. That was wrong: a subsequent
+idle sample set shows **208 MHz / 4.8 W**, matching the head's idle reading of
+208 MHz. Both nodes park at 208 MHz when idle, so an idle clock reading tells us
+nothing about the fault — exactly as the head receipt already warned. The
+discriminator is the clock **under load**, and nothing else.
+
+THE COMPARISON — SAME UTILISATION, 7x THE POWER
+-----------------------------------------------
+                      spark1 (head, faulty)   spark2 (worker, control)
+  clock under load    507 MHz                 2288-2340 MHz
+  TFLOP/s             23.8                    86.6
+  power under load    ~12.1 W                 74-92 W
+  utilisation         96 %                    96 %
+  temperature         41-44 C                 62-71 C
+
+Both GPUs report **96 % utilisation**, but the head draws ~12 W where the worker
+draws ~88 W. Throughput and clock track power almost exactly:
+
+  clock ratio  2288 / 507   = 4.5x
+  power ratio    88 / 12.1  = 7.3x
+  speedup       86.6 / 23.8 = 3.6x
+
+A GPU that is 96 % busy yet drawing 12 W is not thermally or thermally-software
+limited — it is **starved of power**. This is the strongest evidence yet that the
+head's fault is power delivery, not software, and it lines up with the earlier
+observation that throughput tracked clock exactly (23.8 x 2431/507 = 114 TFLOP/s),
+i.e. the GPU computes correctly and simply never gets the power to raise its clock.
+
+SUPPORTING COUNTER
+------------------
+`nvidia-smi -q -d PERFORMANCE` accumulated counter, both nodes, same uptime order:
+
+  head   SW Power Capping: 110034847 us  (~110 s)
+  worker SW Power Capping:   4000187 us  (~4 s)
+
+The head has accumulated ~27x more power-capping time than the worker. Treat with
+caution: it is not established from this data whether the counter resets at driver
+load or accumulates over the machine's life, so it is corroborating rather than
+conclusive. It is recorded because it points the same way as the power comparison.
+
+WHAT REMAINS UNPROVEN
+---------------------
+This does not identify *why* the head is power-starved. Candidates, none
+established: an under-delivering 240 W USB-C PD supply or cable; a PD negotiation
+failure; a failing VRM or power stage on the head's board; or a firmware power
+limit that is not exposed through the standard interfaces. GB10 exposes **no**
+`/sys/class/power_supply` class on either node, and `nvidia-smi` reports
+Current/Requested/Default/Min/Max Power Limit as **N/A** on both, so the supply
+and any PD contract cannot be inspected from software. That is why this needs
+physical access.
+
+Also unresolved: whether the head's hard power-off during model load is the same
+fault progressing. It is consistent with a marginal supply collapsing under a
+sustained high-power demand (model load drives both GPU and memory hard), but that
+is a hypothesis, not a measurement.
+
+UNBLOCK CHECK for task 35 section 6 (unchanged)
+-----------------------------------------------
+Re-run the load measurement on the head and require >= 2000 MHz and >= 80 TFLOP/s.
+The worker control above is what a healthy GB10 on this kit looks like: ~2300 MHz
+and ~87 TFLOP/s. An idle reading proves nothing.
+
+Files: this file; `spark1-head-down-and-clock-fault-20260911.txt`;
+`spark1-head-clock-post-reboot-20260911.txt`.

@@ -37,6 +37,10 @@
 #   ./start.sh stop               stop both nodes
 #   ./start.sh restart            stop + start
 #   ./start.sh validate           validate start/restart configuration only
+#   ./start.sh preflight          read-only environment check (docker, fabric IP,
+#                                 worker ssh, RDMA ports, RoCE v2 GID resolution)
+#                                 — changes nothing; used by prod-start.sh to tell
+#                                 a deterministic failure from a transient one
 #   ./start.sh status             containers + API health
 #   ./start.sh logs               follow head logs
 #   ./start.sh logs worker        follow worker container logs
@@ -145,9 +149,15 @@ HEAD_CX7_IB="${HEAD_CX7_IB:-rocep1s0f1}"
 WORKER_CX7_IB="${WORKER_CX7_IB:-rocep1s0f0}"
 NCCL_DEBUG="${NCCL_DEBUG:-WARN}"
 NCCL_IB_GID_INDEX="${NCCL_IB_GID_INDEX:-3}"
-# The RoCEv2 GID index is per-NIC: the usable entry is the one whose GID matches
-# that node's own fabric IP. Most pairs share a good index; some do not (this kit
-# needs head=4, worker=3). Unset, both inherit NCCL_IB_GID_INDEX -> unchanged.
+# The RoCE v2 GID index is per-NIC: the usable entry is the one whose GID matches
+# that node's own fabric IP. These values are only a HINT — preflight re-resolves
+# each rank's index from the fabric itself, because the index is a runtime table
+# SLOT, not a stable property of the address. It has already drifted across
+# reboots on this kit (the worker's entry moved 4 -> 3) and each drift took
+# production down until .env was hand-edited. A configured value that disagrees
+# with the fabric is reported as stale and overridden by the resolved one.
+HEAD_GID_CONFIGURED="${HEAD_GID:-}"
+WORKER_GID_CONFIGURED="${WORKER_GID:-}"
 HEAD_GID="${HEAD_GID:-$NCCL_IB_GID_INDEX}"
 WORKER_GID="${WORKER_GID:-$NCCL_IB_GID_INDEX}"
 # vLLM subtracts a CUDA-graph memory ESTIMATE from the KV pool. On this kit the
@@ -777,6 +787,106 @@ check_port_free() {
 
 trap 'warn "interrupted — containers keep running ('"'"'./start.sh logs'"'"' to watch, '"'"'./start.sh stop'"'"' to stop)"; exit 130' INT
 
+# ------------------------- RoCE v2 GID resolution ---------------------------
+# A GID index is a runtime table slot, NOT a stable identity for an IP address:
+# address/interface (re)registration can move it. This kit has already been taken
+# down twice by a stale hardcoded index (the worker's RoCE v2 entry moved 4 -> 3),
+# so resolve each rank's index from the fabric itself — match the node's OWN
+# fabric IP against the RoCE v2 type — and treat HEAD_GID/WORKER_GID as a hint.
+
+# The kernel renders an IPv4-mapped RoCE GID as ::ffff:<hex of the four octets>:
+#   192.168.177.10 -> 0000:0000:0000:0000:0000:ffff:c0a8:b10a
+ipv4_mapped_gid() {
+    local ip="$1" o n hex=""
+    local -a octets=()
+    IFS=. read -r -a octets <<<"$ip"
+    [ "${#octets[@]}" -eq 4 ] || return 1
+    for o in "${octets[@]}"; do
+        case "$o" in ''|*[!0-9]*) return 1 ;; esac
+        # 10# forces decimal: a bare leading-zero octet would otherwise be read
+        # as octal by printf/arithmetic ("010" -> 8 instead of 10).
+        n=$((10#$o))
+        [ "$n" -le 255 ] || return 1
+        printf -v o '%02x' "$n"
+        hex+="$o"
+    done
+    [ "${#hex}" -eq 8 ] || return 1
+    printf '0000:0000:0000:0000:0000:ffff:%s:%s' "${hex:0:4}" "${hex:4:4}"
+}
+
+# "index<TAB>gid<TAB>type" for every POPULATED GID on the local port.
+gid_table() {
+    local ib_dev="$1" idx gid type
+    for idx in $(seq 0 15); do
+        gid="$(cat "/sys/class/infiniband/${ib_dev}/ports/1/gids/${idx}" 2>/dev/null)" || continue
+        [ -n "$gid" ] || continue
+        [ "$gid" != "0000:0000:0000:0000:0000:0000:0000:0000" ] || continue
+        type="$(cat "/sys/class/infiniband/${ib_dev}/ports/1/gid_attrs/types/${idx}" 2>/dev/null)" || continue
+        printf '%s\t%s\t%s\n' "$idx" "$gid" "$type"
+    done
+}
+
+# The same table from the worker, in one ssh round trip. Matching happens locally
+# so the selection logic lives in exactly one place.
+worker_gid_table() {
+    local ib_dev="$1"
+    worker_ssh "for i in \$(seq 0 15); do g=\$(cat /sys/class/infiniband/${ib_dev}/ports/1/gids/\$i 2>/dev/null); [ -n \"\$g\" ] || continue; [ \"\$g\" = 0000:0000:0000:0000:0000:0000:0000:0000 ] && continue; t=\$(cat /sys/class/infiniband/${ib_dev}/ports/1/gid_attrs/types/\$i 2>/dev/null); printf '%s\t%s\t%s\n' \"\$i\" \"\$g\" \"\$t\"; done"
+}
+
+# Echo the single RoCE v2 index whose GID is $ip; on failure echo the reason and
+# return 1. Requiring exactly one match matters: a POPULATED entry for the wrong
+# address or the wrong RoCE version passes a naive "is it zero" check and then
+# kills that rank ~60 s in with ibv_modify_qp errno 61 "No data available".
+gid_index_for_ip() {
+    local table="$1" ip="$2" want matches count
+    want="$(ipv4_mapped_gid "$ip")" || { printf 'cannot parse fabric IP %s' "$ip"; return 1; }
+    matches="$(printf '%s\n' "$table" | awk -F'\t' -v w="$want" '$2 == w && $3 ~ /RoCE v2/ { print $1 }')"
+    if [ -z "$matches" ]; then
+        printf 'no RoCE v2 GID matches %s (%s)' "$ip" "$want"
+        return 1
+    fi
+    count="$(printf '%s\n' "$matches" | wc -l | tr -d ' ')"
+    if [ "$count" -ne 1 ]; then
+        printf 'ambiguous: %s RoCE v2 GIDs match %s: %s' "$count" "$ip" "$(printf '%s' "$matches" | tr '\n' ' ')"
+        return 1
+    fi
+    printf '%s' "$matches"
+}
+
+# Re-verify, immediately before launch, that $idx still names the RoCE v2 GID for
+# $ip. Image/weight preparation takes minutes and the table can change under us.
+require_gid_index() {
+    local where="$1" ib_dev="$2" idx="$3" ip="$4" want got type
+    want="$(ipv4_mapped_gid "$ip")"
+    if [ "$where" = head ]; then
+        got="$(cat "/sys/class/infiniband/${ib_dev}/ports/1/gids/${idx}" 2>/dev/null || true)"
+        type="$(cat "/sys/class/infiniband/${ib_dev}/ports/1/gid_attrs/types/${idx}" 2>/dev/null || true)"
+    else
+        got="$(worker_ssh "cat /sys/class/infiniband/${ib_dev}/ports/1/gids/${idx} 2>/dev/null" 2>/dev/null || true)"
+        type="$(worker_ssh "cat /sys/class/infiniband/${ib_dev}/ports/1/gid_attrs/types/${idx} 2>/dev/null" 2>/dev/null || true)"
+    fi
+    # Explicit if/return rather than `[ ... ] || die`: `die` exits today, but a
+    # trailing `case` would otherwise make this function report success whenever
+    # a non-exiting die was substituted.
+    if [ "$got" != "$want" ]; then
+        die "${where} gid${idx} on ${ib_dev} is now '${got:-empty}', expected ${want} (${ip}) — the GID table changed; re-run"
+        return 1
+    fi
+    case "$type" in
+        *"RoCE v2"*) ;;
+        *) die "${where} gid${idx} on ${ib_dev} has type '${type:-unreadable}', not RoCE v2"; return 1 ;;
+    esac
+}
+
+# Both tables, for the failure path.
+dump_gid_tables() {
+    local head_table="$1" worker_table="$2"
+    warn "head ${HEAD_CX7_IB} (want ${HEAD_IP}):"
+    printf '%s\n' "$head_table" | sed 's/^/    head   gid/' >&2
+    warn "worker ${WORKER_CX7_IB} (want ${WORKER_IP}):"
+    printf '%s\n' "$worker_table" | sed 's/^/    worker gid/' >&2
+}
+
 # ------------------------------ preflight ----------------------------------
 preflight() {
     command -v docker  >/dev/null 2>&1 || die "docker not found on head"
@@ -795,33 +905,47 @@ preflight() {
     worker_ssh "nvidia-smi -L 2>/dev/null | grep -q GB10" \
         || warn "no GB10 GPU visible on worker"
 
-    # Each rank's GID index must name a populated entry on ITS OWN CX7 device.
-    # An empty (all-zero) entry passes every earlier check and then kills that
-    # rank ~60 s in with ibv_modify_qp errno 61 "No data available". The index is
-    # per-NIC, so validate head and worker separately: some pairs share one good
-    # index, others need different ones (HEAD_GID / WORKER_GID).
-    local gid_head gid_worker gid_path
-    gid_path="/sys/class/infiniband/${HEAD_CX7_IB}/ports/1/gids/${HEAD_GID}"
-    gid_head=$(tr -d ':0' < "$gid_path" 2>/dev/null || true)
-    gid_path="/sys/class/infiniband/${WORKER_CX7_IB}/ports/1/gids/${WORKER_GID}"
-    gid_worker=$(worker_ssh "cat '$gid_path' 2>/dev/null" | tr -d ':0' || true)
-    if [ -z "$gid_head" ] || [ -z "$gid_worker" ]; then
-        if [ -z "$gid_head" ]; then
-            warn "head GID index ${HEAD_GID} is EMPTY on ${HEAD_CX7_IB}"
-        fi
-        if [ -z "$gid_worker" ]; then
-            warn "worker GID index ${WORKER_GID} is EMPTY on ${WORKER_CX7_IB}"
-        fi
-        warn "GID tables — pick each node's ::ffff:<ip> entry whose type is RoCE v2;"
-        warn "the two indices need not match, and a v1 entry at the same index will not work:"
-        for i in 0 1 2 3 4 5 6 7; do
-            printf '    head   gid%s: %-40s %s\n' "$i" \
-                "$(cat "/sys/class/infiniband/${HEAD_CX7_IB}/ports/1/gids/$i" 2>/dev/null)" \
-                "$(cat "/sys/class/infiniband/${HEAD_CX7_IB}/ports/1/gid_attrs/types/$i" 2>/dev/null)" >&2
-        done
-        worker_ssh "for i in 0 1 2 3 4 5 6 7; do printf '    worker gid%s: %-40s %s\n' \"\$i\" \"\$(cat /sys/class/infiniband/${WORKER_CX7_IB}/ports/1/gids/\$i 2>/dev/null)\" \"\$(cat /sys/class/infiniband/${WORKER_CX7_IB}/ports/1/gid_attrs/types/\$i 2>/dev/null)\"; done" >&2 || true
-        die "set NCCL_IB_GID_INDEX (same index both ranks) or HEAD_GID/WORKER_GID (per rank) in .env to populated indices"
+    # Each rank's GID index is RESOLVED from its own fabric IP, not trusted from
+    # .env. The index is a table slot that has already drifted on this kit; a
+    # hardcoded value that happens to be right today is a latent outage.
+    local head_state worker_state head_table worker_table gid_head gid_worker
+    head_state="$(cat "/sys/class/infiniband/${HEAD_CX7_IB}/ports/1/state" 2>/dev/null || true)"
+    worker_state="$(worker_ssh "cat /sys/class/infiniband/${WORKER_CX7_IB}/ports/1/state 2>/dev/null" 2>/dev/null || true)"
+    case "$head_state" in
+        *ACTIVE*) ;;
+        *) die "head RDMA port ${HEAD_CX7_IB} is not ACTIVE (${head_state:-unreadable}) — check the QSFP link" ;;
+    esac
+    case "$worker_state" in
+        *ACTIVE*) ;;
+        *) die "worker RDMA port ${WORKER_CX7_IB} is not ACTIVE (${worker_state:-unreadable}) — check the QSFP link" ;;
+    esac
+
+    head_table="$(gid_table "$HEAD_CX7_IB")"
+    worker_table="$(worker_gid_table "$WORKER_CX7_IB")"
+
+    if ! gid_head="$(gid_index_for_ip "$head_table" "$HEAD_IP" 2>&1)"; then
+        warn "head GID resolution failed: ${gid_head}"
+        dump_gid_tables "$head_table" "$worker_table"
+        die "cannot resolve a RoCE v2 GID index for head ${HEAD_IP} on ${HEAD_CX7_IB}"
     fi
+    if ! gid_worker="$(gid_index_for_ip "$worker_table" "$WORKER_IP" 2>&1)"; then
+        warn "worker GID resolution failed: ${gid_worker}"
+        dump_gid_tables "$head_table" "$worker_table"
+        die "cannot resolve a RoCE v2 GID index for worker ${WORKER_IP} on ${WORKER_CX7_IB}"
+    fi
+
+    # A configured override that disagrees with the fabric is stale. Say so
+    # loudly, then use the resolved index — obeying the override is what caused
+    # the two outages, so it must not stay authoritative.
+    if [ -n "$HEAD_GID_CONFIGURED" ] && [ "$HEAD_GID_CONFIGURED" != "$gid_head" ]; then
+        warn "HEAD_GID=${HEAD_GID_CONFIGURED} in .env is STALE — ${HEAD_CX7_IB} has ${HEAD_IP} at gid${gid_head}; using gid${gid_head}"
+    fi
+    if [ -n "$WORKER_GID_CONFIGURED" ] && [ "$WORKER_GID_CONFIGURED" != "$gid_worker" ]; then
+        warn "WORKER_GID=${WORKER_GID_CONFIGURED} in .env is STALE — ${WORKER_CX7_IB} has ${WORKER_IP} at gid${gid_worker}; using gid${gid_worker}"
+    fi
+    HEAD_GID="$gid_head"
+    WORKER_GID="$gid_worker"
+    log "RoCE v2 GID resolved from the fabric: head ${HEAD_CX7_IB} gid${HEAD_GID} (${HEAD_IP}), worker ${WORKER_CX7_IB} gid${WORKER_GID} (${WORKER_IP})"
 
     [ "$TP" = "2" ] || warn "TP=${TP} on a 2×1-GPU cluster — expected TP=2"
     [ "$NNODES" = "2" ] || warn "NNODES=${NNODES} — expected 2"
@@ -1595,6 +1719,13 @@ launch_cluster() {
     docker rm -f "$CONTAINER_HEAD" >/dev/null 2>&1 || true
     worker_ssh "docker rm -f '$CONTAINER_WORKER'" >/dev/null 2>&1 || true
 
+    # Re-check the resolved GID indices here, not only in preflight: image and
+    # weight preparation takes minutes, and the table can move under us. A stale
+    # index kills the rank ~60 s in with a bare NCCL errno 61, which is much
+    # harder to read than this failure.
+    require_gid_index head   "$HEAD_CX7_IB"   "$HEAD_GID"   "$HEAD_IP"
+    require_gid_index worker "$WORKER_CX7_IB" "$WORKER_GID" "$WORKER_IP"
+
     mkdir -p "$CACHE_ROOT" "$TRITON_HOST_CACHE" "$TILELANG_HOST_CACHE"
     worker_ssh "mkdir -p '$WORKER_VLLM_CACHE' '$WORKER_TRITON_CACHE' '$WORKER_TILELANG_CACHE'"
     scp -q -o BatchMode=yes "$WORKER_SCRIPT" "${WORKER_SSH}:/tmp/${CONTAINER_WORKER}.sh"
@@ -2102,6 +2233,14 @@ main() {
         stop)     stop ;;
         restart)  stop; start ;;
         validate) log "configuration valid" ;;
+        preflight)
+            # Read-only environment check: docker reachability, the fabric IP,
+            # worker ssh/docker, both RDMA ports ACTIVE, and RoCE v2 GID
+            # resolution. Exposed so a supervisor (local/prod-start.sh) can tell
+            # a DETERMINISTIC environment/config failure — retrying it is futile
+            # and leaves partial containers behind — from a transient one.
+            # Mutates nothing.
+            preflight && log "preflight OK" ;;
         status)   status ;;
         logs)     shift || true; logs "$@" ;;
         -h|--help|help) usage ;;

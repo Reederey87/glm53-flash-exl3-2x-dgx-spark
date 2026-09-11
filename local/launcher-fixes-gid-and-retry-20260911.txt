@@ -1,0 +1,139 @@
+Launcher fixes for the two 2026-09-11 unattended-reboot failures
+================================================================
+Date: 2026-09-11
+Base: `642fd26` (PR #73 merged as `161cd9c`)
+Scope: `start.sh`, `local/prod-start.sh`, two test files.
+
+Both fixes come from the independent review of the reboot incident
+(`spark1-head-down-and-clock-fault-20260911.txt`). Both are launcher-level, not
+task-35-harness level.
+
+FINDING 1 — hardcoded RoCE v2 GID indices are a latent outage (P1)
+-----------------------------------------------------------------
+`start.sh` validated ONE configured index per rank and only rejected an EMPTY
+entry. The index is a runtime table slot, not a stable property of the address:
+it has now drifted twice on this kit (the worker's RoCE v2 entry moved 4 -> 3),
+and each drift took production down until `.env` was hand-edited. A populated
+entry for the WRONG address or the wrong RoCE version also passed that check and
+would have killed the rank ~60 s in with a bare `ibv_modify_qp errno 61`.
+
+Fix — resolve each rank's index from the fabric, treat `.env` as a hint:
+
+- `ipv4_mapped_gid()` renders an address the way the kernel does
+  (`192.168.177.10` -> `0000:0000:0000:0000:0000:ffff:c0a8:b10a`). Octets are
+  parsed with `10#` so a leading-zero octet is decimal, not octal.
+- `gid_table()` / `worker_gid_table()` enumerate POPULATED entries as
+  `index<TAB>gid<TAB>type`; matching happens locally so the selection logic
+  exists once.
+- `gid_index_for_ip()` requires exactly ONE entry matching the node's own
+  fabric IP with type `RoCE v2`. Zero matches, a v1-only table, a wrong-address
+  entry, and an ambiguous table all fail closed.
+- `preflight()` now requires both RDMA ports ACTIVE, resolves both indices,
+  and reports a configured override that disagrees with the fabric as STALE
+  before overriding it. Obeying the stale hint is what caused the outages, so
+  it must not stay authoritative.
+- `launch_cluster()` re-checks both resolved indices immediately before the
+  containers start, because image/weight preparation takes minutes and the
+  table can move under us. A moved entry now aborts with a clear message
+  instead of surfacing later as errno 61.
+
+FINDING 2 — the retry loop retried deterministic failures and leaked containers (P2)
+-----------------------------------------------------------------------------------
+`local/prod-start.sh` stopped the pair ONCE, before its retry loop. Two problems:
+
+1. A failed attempt can leave a PARTIAL launch behind. `start.sh start` only
+   removes containers inside `launch_cluster()`, so a failure before that point
+   (preflight, `ensure_image`, weight download/sync) leaks whatever the previous
+   attempt started — holding unified memory and the API/master ports. Waiting for
+   memory cannot recover that.
+2. A DETERMINISTIC failure (unresolvable GID, RDMA port down, wrong fabric IP,
+   worker unreachable) fails identically every time, so burning all three
+   attempts produced a confusing "3 attempts failed" report from a single
+   configuration problem.
+
+Fix — tear down, then classify:
+
+- Every retry first runs `./start.sh stop` (the same idempotent cleanup already
+  used before the loop). A non-zero cleanup is reported, not fatal, since the
+  retry may still succeed.
+- A new read-only `./start.sh preflight` subcommand exposes the existing
+  `preflight()` so the retry loop can tell a deterministic environment failure
+  from a transient one WITHOUT duplicating the fabric/GID logic. If preflight
+  still fails, the loop aborts immediately with that reason and does not retry.
+
+REGRESSION PROOF
+----------------
+The four new retry tests were run against the PRE-change `local/prod-start.sh`
+and fail exactly as the reviewer described:
+
+  test_each_retry_cleans_up_the_partial_launch_first   AssertionError: ['start','start']
+  test_a_deterministic_failure_is_not_retried          ran 3 attempts instead of aborting after 1
+  test_cleanup_still_runs_before_the_deterministic_abort  ValueError: 'stop' is not in list
+  test_cleanup_failure_does_not_abort_the_retry        no cleanup message
+
+`['start', 'start']` is the leak: no teardown between attempts.
+
+A code-fragility fix came out of this work too: `require_gid_index` used
+`[ ... ] || die` followed by a `case`. `die` exits today, but a trailing `case`
+would make the function report SUCCESS if a non-exiting `die` were ever
+substituted. It now uses an explicit `if`/`return`.
+
+CLUSTER VALIDATION (read-only, exact bytes)
+-------------------------------------------
+The resolver block was extracted verbatim from the working `start.sh`, staged to a
+scratch directory on the head node, and run against the REAL fabric. The live
+`start.sh` was NOT overwritten (hash unchanged at `560a7ed5…`).
+
+  head port state   : 4: ACTIVE
+  worker port state : 4: ACTIVE
+
+  head   table: gid2 ::ffff:c0a8:b10a IB/RoCE v1
+               gid3 ::ffff:c0a8:b10a RoCE v2
+  worker table: gid2 ::ffff:c0a8:b10b IB/RoCE v1
+               gid3 ::ffff:c0a8:b10b RoCE v2
+
+  RESOLVED head   -> gid3
+  RESOLVED worker -> gid3
+  head   recheck OK
+  worker recheck OK
+
+`.env` currently says `HEAD_GID=3` / `WORKER_GID=3`, which agrees with the
+fabric — so the resolver is a no-op today and only takes over when the fabric
+moves again. Production was never stopped (health 200 throughout).
+
+FOUND WHILE VALIDATING — the live start.sh is OLDER than the repo's
+-------------------------------------------------------------------
+`diff` of the repo's `start.sh` against the live one is 36 lines, all of it the
+task-34 track-A FlashKDA wiring that the repo has and live does NOT:
+
+  FLASHKDA_PREFILL_PATCH_HOST / GLM53_KDA_PREFILL_BACKEND, the matching
+  `[ -f "$FLASHKDA_PREFILL_PATCH_HOST" ] || die` guard, the mount, and the
+  in-container patch invocation.
+
+Live `start.sh` hash `560a7ed5…`; repo HEAD `9abb832a…`; repo working tree
+`f3e8195f…` (mine). The matching overlay file
+`overlay/patch_flashkda_prefill.py` is ALSO absent from the live checkout.
+
+**Consequence — do not deploy the repo `start.sh` to live as-is.** It would
+`die` at preflight on the missing FlashKDA overlay. Converging live to the repo
+means shipping `start.sh` AND `overlay/patch_flashkda_prefill.py` together (the
+knob defaults to `triton`, the stock spelling, and the overlay self-gates, so it
+should be byte-neutral for serving — but that is a deployment to validate, not an
+assumption). Until then the live copy is a separate, older revision and any
+launcher fix has to be applied to it deliberately.
+
+NOT DONE — recorded for the owner
+---------------------------------
+The unit `vllm-glm53exl3.service` has `ExecStop=` but no `ExecStopPost=`, so
+systemd does not clean up when a START fails (it runs ExecStop only after a
+successful start). The unit's own comment already describes this gap. The
+retry-level cleanup above covers the measured failure; the residual hole is a
+`prod-start.sh` killed by `TimeoutStartSec`/SIGTERM mid-start. The unit is NOT
+tracked in this repo, so this was left for a deliberate production edit:
+
+  ExecStopPost=/home/nvidia/GLM-5.3-Flash-EXL3-2x-DGX-Sparks/start.sh stop
+
+Separately: production is currently running from a MANUAL launch (`prod-start.sh`
+and `start.sh start` are live processes; `systemctl --user is-active` reports
+`inactive`). It serves correctly but is not under systemd supervision and would
+not return after a reboot.

@@ -382,6 +382,79 @@ Four review rounds ran against the harness.
   Reproduced against the pre-fix revision (only the watchdog timer attempted,
   `rearm_failures` absent) and covered by three regression tests.
 
+### The 507 MHz clock cap CLEARED — and how (2026-09-11)
+
+**Resolved.** A **cold power cycle** (power off, unplug from the wall, wait,
+reconnect) cleared the fault. A warm reboot did **not** — that was measured
+earlier the same day, and the fault survived it intact. This matches the
+community RCA material for this platform, where firmware-level stuck state clears
+only when power is removed, because the relevant initialization happens at
+power-on rather than at warm reset.
+
+| | head before | head after | worker (control) |
+|---|---|---|---|
+| bf16 8192³ | 23.8 TFLOP/s | **95.1 TFLOP/s** | 86.6 TFLOP/s |
+| clock under load | 507 MHz | **2216–2496 MHz** | 2288–2340 MHz |
+| power under load | ~12 W | **42–92 W** | 74–92 W |
+| utilisation | 96 % | 94–96 % | 96 % |
+
+The mechanism is now confirmed by contrast. Before, the GPU was 96 % busy while
+drawing ~12 W — it cannot run at full clock on 12 W, so it sat at its floor.
+After the cold cycle the same utilisation draws 42–92 W and the clock rises
+proportionally. Power → clock → throughput.
+
+A real serving-load test agrees: four concurrent 15001-token prefills all
+returned HTTP 200 at ~1376 tok/s aggregate, against ~582 tok/s while faulty and
+the standing ~1454 tok/s receipt. Receipts:
+`local/spark1-clock-fault-RESOLVED-20260911.txt`,
+`local/spark2-worker-baseline-20260911.txt`.
+
+**The blocker on §6 is therefore cleared.** The head exceeds the required
+threshold (≥ 2000 MHz and ≥ 80 TFLOP/s: measured 2216–2496 MHz and
+95.1 TFLOP/s).
+
+Two cautions. First, **the original root cause is still unidentified**: the cold
+cycle cleared the state without explaining how the head entered it, and GB10
+exposes no power-supply telemetry, so the 240 W USB-C PD supply or cable remains
+the prime suspect if it recurs. Second, an **idle** clock reading is
+uninformative — both nodes park at 208 MHz idle — so only a load measurement
+counts.
+
+### Two launcher failures the same incident exposed (fixed)
+
+The reboot also surfaced two independent, recurring failure modes. Both are
+launcher-level and both are fixed in the branch that follows PR #73.
+
+1. **Hardcoded RoCE v2 GID indices are a latent outage.** `start.sh` validated
+   one configured index per rank and only rejected an EMPTY entry. The index is a
+   runtime table slot, not a stable property of the address: it drifted twice on
+   this kit (the worker's RoCE v2 entry moved 4 → 3), and each drift took
+   production down until `.env` was hand-edited. A populated entry for the wrong
+   address or the wrong RoCE version also passed and would have killed the rank
+   ~60 s in with a bare `ibv_modify_qp errno 61`. `start.sh` now **resolves** each
+   rank's index from the fabric (own IP + `RoCE v2` type, exactly one match,
+   fail-closed otherwise), treats `.env` as a hint, reports a stale override, and
+   re-checks the resolved index immediately before launching. Validated
+   read-only against the real fabric on both nodes.
+
+2. **The retry loop retried deterministic failures and leaked containers.**
+   `local/prod-start.sh` stopped the pair once, before its loop. A failure before
+   `launch_cluster()` leaves containers holding unified memory and the API/master
+   ports, which the next attempt then trips over; and a deterministic failure
+   (unresolvable GID, RDMA port down) fails identically every time, so three
+   attempts produced a misleading "3 attempts failed" from one configuration
+   problem. Every retry now tears the pair down first and re-runs a new read-only
+   `start.sh preflight`; if that still fails, it aborts immediately with the real
+   reason instead of retrying.
+
+Receipt: `local/launcher-fixes-gid-and-retry-20260911.txt`.
+
+**Note for whoever deploys the launcher:** the live `start.sh` on the head node
+is an OLDER revision than the repo's — it lacks the task-34 track-A FlashKDA
+wiring, and the matching `overlay/patch_flashkda_prefill.py` is absent from the
+live checkout too. Deploying the repo `start.sh` as-is would `die` at preflight on
+the missing overlay, so the two must be shipped together.
+
 ## 5. What the window broke, and the three fixes it produced
 
 Items 1 and 2 are defects in `local/prod-start.sh` that only a *new image tag*
