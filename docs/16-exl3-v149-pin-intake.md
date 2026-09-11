@@ -148,7 +148,8 @@ is a statement about *compatibility*, not a completed qualification. The task's
 prescribed procedure is the §6 measurement contract, and it was not met, so
 **adoption qualification stays PENDING** until either the full §6 sequence runs
 on a quiet node or the owner grants an explicit exception for this currency
-bump. The remaining gap is bookkeeping-grade, not a suspected defect.
+bump. Qualification evidence remains outstanding; nothing found so far suggests
+a defect.
 
 Note that `IMAGE` is part of `prod-start.sh`'s JIT shape hash, so the window
 wiped and rebuilt the Triton/TileLang caches on both nodes. The candidate's
