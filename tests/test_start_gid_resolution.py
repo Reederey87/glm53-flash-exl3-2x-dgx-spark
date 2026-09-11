@@ -100,6 +100,53 @@ def test_malformed_addresses_are_rejected():
         assert "REJECTED" in r.stdout, bad
 
 
+def test_malformed_addresses_that_a_loose_parser_would_accept():
+    """Review round five. Each of these survived the original `read -a` +
+    per-octet loop and resolved to a PLAUSIBLE gid, so a bad HEAD_IP/WORKER_IP
+    in .env would have silently matched the wrong fabric address instead of
+    failing closed."""
+    cases = [
+        # Trailing dot: `read -a` yields four fields and drops the empty fifth,
+        # so the count check passed.
+        "192.168.177.11.",
+        # 20-digit octet: `$((10#$o))` overflows 64-bit and WRAPS to a small
+        # value, so the <=255 check passed. 18446744073709551627 -> 11, i.e.
+        # the real worker address.
+        "192.168.177.18446744073709551627",
+        # Embedded newline: `read` consumes only the first line and discards
+        # the rest, so this passed as 192.168.177.11.
+        "192.168.177.11\nignored",
+        # Five groups, leading/trailing space, sign prefixes, non-digits.
+        "192.168.177.11.12",
+        " 192.168.177.11",
+        "192.168.177.11 ",
+        "192.168.177.+11",
+        "192.168.177.1a",
+        "192.168.177.",
+        "192.168.177.11;id",
+        "192.168.177.11/24",
+    ]
+    for bad in cases:
+        lit = "$'" + bad.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n") + "'"
+        r = run_bash(
+            f"V={lit}\n"
+            'ipv4_mapped_gid "$V" >/dev/null 2>&1 && echo ACCEPTED || echo REJECTED'
+        )
+        assert "REJECTED" in r.stdout, f"accepted {bad!r}: {r.stdout!r}"
+        assert "ACCEPTED" not in r.stdout, f"accepted {bad!r}"
+
+
+def test_the_overflowing_octet_is_not_silently_wrapped():
+    """Pin the exact wrap the loose parser produced, so the digit-count bound
+    cannot be relaxed back to a value-only check."""
+    r = run_bash(
+        "V='192.168.177.18446744073709551627'\n"
+        'ipv4_mapped_gid "$V" 2>/dev/null; echo "|rc=$?"'
+    )
+    assert "c0a8:b10b" not in r.stdout, "wrapped to the real worker address"
+    assert "|rc=1" in r.stdout
+
+
 # --- index selection ---------------------------------------------------------
 
 def test_resolver_picks_the_roce_v2_entry_on_both_real_tables():

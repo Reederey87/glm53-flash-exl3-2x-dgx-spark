@@ -188,6 +188,19 @@ fi
 # So: tear down, then re-check the deterministic preconditions. If they now
 # fail, abort immediately with that reason. Otherwise wait and retry.
 MAX_BOOT_ATTEMPTS="${MAX_BOOT_ATTEMPTS:-3}"
+# Validate the bound. `[ "$attempt" -ge "$MAX_BOOT_ATTEMPTS" ]` is false for a
+# non-numeric value, so a typo'd MAX_BOOT_ATTEMPTS would disable the bound
+# entirely and spin forever on a persistent failure that still passes preflight.
+case "$MAX_BOOT_ATTEMPTS" in
+    ''|*[!0-9]*)
+        log "WARN: MAX_BOOT_ATTEMPTS='$MAX_BOOT_ATTEMPTS' is not a positive integer — using 3"
+        MAX_BOOT_ATTEMPTS=3 ;;
+    *)
+        [ "$MAX_BOOT_ATTEMPTS" -ge 1 ] || {
+            log "WARN: MAX_BOOT_ATTEMPTS=$MAX_BOOT_ATTEMPTS is below 1 — using 3"
+            MAX_BOOT_ATTEMPTS=3
+        } ;;
+esac
 attempt=0
 while :; do
     attempt=$((attempt + 1))
@@ -202,17 +215,20 @@ while :; do
         # supervisor.
         rc=$?
     fi
+
+    # Tear down whatever the failed attempt left running BEFORE deciding
+    # anything else. This must happen on the FINAL attempt too: start.sh only
+    # removes containers inside launch_cluster(), so a failure earlier in the
+    # boot leaks them, and they hold unified memory plus the API/master ports.
+    # Exiting without cleanup reported "production left down" while leaving the
+    # wreckage in place, which is what made the next manual start fail.
+    log "start failed (rc=$rc) — cleaning up any partial launch"
+    ./start.sh stop || log "WARN: cleanup stop returned non-zero; continuing"
+
     if [ "$attempt" -ge "$MAX_BOOT_ATTEMPTS" ]; then
         log "ERROR: start failed after ${attempt} attempt(s) — production left down, see the log above"
         exit "$rc"
     fi
-
-    # Tear down whatever the failed attempt left running before doing anything
-    # else. `stop` is idempotent and already used above, so this is the same
-    # verified cleanup path. Failure here is reported but not fatal: the retry
-    # below may still succeed, and the final state is reported either way.
-    log "start failed (rc=$rc) — cleaning up any partial launch"
-    ./start.sh stop || log "WARN: cleanup stop returned non-zero; continuing"
 
     # Deterministic failure? A read-only preflight re-check answers this without
     # duplicating the fabric/GID logic here. If the environment is still bad,

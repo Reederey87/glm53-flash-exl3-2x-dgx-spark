@@ -37,7 +37,11 @@ def retry_block() -> str:
 
 
 def run_retry(
-    tmp: Path, fail_count: int, rc: int = 17, preflight_ok: bool = True
+    tmp: Path,
+    fail_count: int,
+    rc: int = 17,
+    preflight_ok: bool = True,
+    max_attempts: str | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], int, list[str]]:
     """Run the bounded boot-retry loop with a fake start.sh.
 
@@ -64,10 +68,15 @@ def run_retry(
         "esac\n"
     )
     start.chmod(start.stat().st_mode | stat.S_IEXEC)
+    bind = ""
+    if max_attempts is not None:
+        # Single-quoted so a hostile value (spaces, globs, `$(...)`) reaches the
+        # loop as data rather than being expanded by the outer shell.
+        bind = f"MAX_BOOT_ATTEMPTS='{max_attempts}'\n"
     script = (
         "set -uo pipefail\n"
         "log() { printf '[prod-start] %s\\n' \"$*\"; }\n"
-        "settle_wait() { :; }\n" + retry_block()
+        "settle_wait() { :; }\n" + bind + retry_block()
     )
     r = subprocess.run(
         ["bash", "-c", script], cwd=work, capture_output=True, text=True
@@ -344,6 +353,40 @@ def test_cleanup_failure_does_not_abort_the_retry() -> None:
         assert "cleanup stop returned non-zero" in r.stdout
 
 
+def test_exhaustion_still_cleans_up_the_partial_launch() -> None:
+    """Regression (review round five): the exhaustion branch exited BEFORE the
+    cleanup, so the last failed attempt's containers were left running. The
+    report said "production left down" while the wreckage held unified memory
+    and the API/master ports, which is what made the next manual start fail."""
+    with tempfile.TemporaryDirectory() as t:
+        r, n, order = run_retry(Path(t), fail_count=99, rc=17, max_attempts="1")
+        assert n == 1, n
+        assert order == ["start", "stop"], order
+        assert r.returncode == 17, (r.returncode, r.stdout)
+        assert "cleaning up any partial launch" in r.stdout
+        assert "production left down" in r.stdout
+
+
+def test_a_non_numeric_max_boot_attempts_does_not_disable_the_bound() -> None:
+    """Regression (review round five): `[ "$attempt" -ge "$MAX_BOOT_ATTEMPTS" ]`
+    is false for a non-numeric right-hand side, so `MAX_BOOT_ATTEMPTS=bogus`
+    removed the bound entirely and spun forever on a failure that still passed
+    preflight. A bad value now falls back to the default of 3."""
+    with tempfile.TemporaryDirectory() as t:
+        r, n, _ = run_retry(Path(t), fail_count=99, rc=17, max_attempts="bogus")
+        assert n == 3, f"expected the default of 3 attempts, ran {n}"
+        assert r.returncode == 17
+        assert "not a positive integer" in r.stdout
+
+
+def test_a_sub_one_max_boot_attempts_falls_back_to_the_default() -> None:
+    with tempfile.TemporaryDirectory() as t:
+        r, n, _ = run_retry(Path(t), fail_count=99, rc=17, max_attempts="0")
+        assert n == 3, n
+        assert r.returncode == 17
+        assert "below 1" in r.stdout
+
+
 def test_hash_tracks_revision_and_launcher_default() -> None:
     with tempfile.TemporaryDirectory() as t:
         _, s1, _ = run_guard(Path(t), ENV, 0, 0)
@@ -382,5 +425,8 @@ if __name__ == "__main__":
     test_a_deterministic_failure_is_not_retried()
     test_cleanup_still_runs_before_the_deterministic_abort()
     test_cleanup_failure_does_not_abort_the_retry()
+    test_exhaustion_still_cleans_up_the_partial_launch()
+    test_a_non_numeric_max_boot_attempts_does_not_disable_the_bound()
+    test_a_sub_one_max_boot_attempts_falls_back_to_the_default()
     test_hash_tracks_revision_and_launcher_default()
     print("prod-start guard tests OK")

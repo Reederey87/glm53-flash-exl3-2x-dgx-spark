@@ -52,8 +52,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 
-if [ ! -f "$SCRIPT_DIR/.env" ] && [ "${1:-start}" = validate ]; then
-    echo "ERROR: missing .env; validation does not create configuration files" >&2
+# `validate` and `preflight` are read-only diagnostics: neither may create
+# configuration. `preflight` in particular is used by prod-start.sh to decide
+# whether a failed start is worth retrying, so writing .env there would both
+# mutate state and change the answer on the next call.
+case "${1:-start}" in
+    validate|preflight) _readonly_cmd=1 ;;
+    *)                  _readonly_cmd=0 ;;
+esac
+if [ ! -f "$SCRIPT_DIR/.env" ] && [ "$_readonly_cmd" = 1 ]; then
+    echo "ERROR: missing .env; $1 does not create configuration files" >&2
     exit 1
 elif [ ! -f "$SCRIPT_DIR/.env" ]; then
     [ -f "$SCRIPT_DIR/env.example" ] || {
@@ -63,6 +71,10 @@ elif [ ! -f "$SCRIPT_DIR/.env" ]; then
     cp "$SCRIPT_DIR/env.example" "$SCRIPT_DIR/.env"
     printf '\033[1;36m[glm53-exl3]\033[0m wrote .env from env.example — edit HEAD_IP / WORKER_IP if needed\n'
 fi
+# Set to 1 by `main` for the read-only `preflight` subcommand: it suppresses the
+# cache-directory creation inside preflight() so the classifier prod-start.sh
+# relies on cannot mutate local or remote state.
+READ_ONLY="${READ_ONLY:-0}"
 # Caller exports must win over .env for every key .env defines: remember each
 # caller's non-empty exported value, source .env, then re-apply it. The scanner
 # is lexical and accepts `[export ]NAME[+]=VALUE`. Empty caller values retain
@@ -799,12 +811,20 @@ trap 'warn "interrupted — containers keep running ('"'"'./start.sh logs'"'"' t
 ipv4_mapped_gid() {
     local ip="$1" o n hex=""
     local -a octets=()
+    # Reject anything that is not EXACTLY four dot-separated digit groups. The
+    # pattern is anchored and forbids embedded whitespace, newlines and trailing
+    # text: `read` alone would silently discard "192.168.177.11\nignored" after
+    # the first line and accept a trailing-dot form as a shorter address.
+    [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
     IFS=. read -r -a octets <<<"$ip"
     [ "${#octets[@]}" -eq 4 ] || return 1
     for o in "${octets[@]}"; do
-        case "$o" in ''|*[!0-9]*) return 1 ;; esac
+        # Bound the DIGIT COUNT before any arithmetic. `$((10#$o))` on a
+        # 20-digit octet overflows and wraps to a plausible small value
+        # (…09551627 wrapped to 11 and matched the real worker address).
+        [ "${#o}" -le 3 ] || return 1
         # 10# forces decimal: a bare leading-zero octet would otherwise be read
-        # as octal by printf/arithmetic ("010" -> 8 instead of 10).
+        # as octal by arithmetic ("010" -> 8 instead of 10).
         n=$((10#$o))
         [ "$n" -le 255 ] || return 1
         printf -v o '%02x' "$n"
@@ -920,8 +940,14 @@ preflight() {
         *) die "worker RDMA port ${WORKER_CX7_IB} is not ACTIVE (${worker_state:-unreadable}) — check the QSFP link" ;;
     esac
 
-    head_table="$(gid_table "$HEAD_CX7_IB")"
-    worker_table="$(worker_gid_table "$WORKER_CX7_IB")"
+    # Explicit `|| die` on these reads rather than relying on `set -e`: a command
+    # substitution that prints a usable row and THEN returns non-zero would
+    # otherwise be swallowed, and the classifier below would accept an
+    # incomplete check as a pass.
+    head_table="$(gid_table "$HEAD_CX7_IB")" \
+        || die "failed to read the GID table on head ${HEAD_CX7_IB}"
+    worker_table="$(worker_gid_table "$WORKER_CX7_IB")" \
+        || die "failed to read the GID table on worker ${WORKER_CX7_IB} (ssh or sysfs error)"
 
     if ! gid_head="$(gid_index_for_ip "$head_table" "$HEAD_IP" 2>&1)"; then
         warn "head GID resolution failed: ${gid_head}"
@@ -983,7 +1009,14 @@ preflight() {
     [ -f "$FLASHKDA_PREFILL_PATCH_HOST" ] || die "$FLASHKDA_PREFILL_PATCH_HOST missing"  # LOCAL: task 34
 
     local need_kb=$((180 * 1024 * 1024)) avail
-    mkdir -p "$HF_CACHE_DIR"
+    # Creating the cache directories is preparation, not checking. Under
+    # READ_ONLY (the `preflight` subcommand) report what is there and change
+    # nothing — including nothing on the worker.
+    if [ "$READ_ONLY" = 1 ]; then
+        [ -d "$HF_CACHE_DIR" ] || warn "head HF cache $HF_CACHE_DIR does not exist yet (would be created on start)"
+    else
+        mkdir -p "$HF_CACHE_DIR"
+    fi
     avail=$(df -Pk "$HF_CACHE_DIR" 2>/dev/null | awk 'NR==2{print $4}' || true)
     [ "${avail:-0}" -ge "$need_kb" ] || warn "only $((avail/1024/1024)) GiB free on head for a ~164 GiB model"
     avail=$(worker_ssh "df -Pk '$WORKER_HOME' 2>/dev/null" | awk 'NR==2{print $4}' || true)
@@ -993,7 +1026,13 @@ preflight() {
     # sync starts. A root-owned ~/.cache/huggingface (prior sudo/docker
     # prepare on the worker) otherwise fails mid-sync with a bare mkdir
     # permission error. mkdir -p is idempotent and is what sync does anyway.
-    if ! worker_ssh "mkdir -p '$WORKER_CACHE_DIR/hub' && test -w '$WORKER_CACHE_DIR/hub'"; then
+    # Under READ_ONLY, test instead of create: a missing directory is not fatal
+    # here because start would create it, so warn rather than abort a retry that
+    # could still succeed.
+    if [ "$READ_ONLY" = 1 ]; then
+        worker_ssh "test -w '$WORKER_CACHE_DIR/hub'" \
+            || warn "worker $WORKER_CACHE_DIR/hub is not writable yet (would be created on start)"
+    elif ! worker_ssh "mkdir -p '$WORKER_CACHE_DIR/hub' && test -w '$WORKER_CACHE_DIR/hub'"; then
         die "worker cannot write $WORKER_CACHE_DIR/hub as $( [ -n "${WORKER_USER:-}" ] && echo "$WORKER_USER" || echo "$USER" ) — fix ownership on the worker, e.g.: ssh $WORKER_SSH \"sudo chown -R ${WORKER_USER:-\$USER}: '$WORKER_CACHE_DIR'\""
     fi
 
@@ -2239,8 +2278,14 @@ main() {
             # resolution. Exposed so a supervisor (local/prod-start.sh) can tell
             # a DETERMINISTIC environment/config failure — retrying it is futile
             # and leaves partial containers behind — from a transient one.
-            # Mutates nothing.
-            preflight && log "preflight OK" ;;
+            # Mutates nothing: READ_ONLY suppresses the cache-directory creation
+            # inside preflight(), and the `.env` bootstrap above skips it.
+            # Called as a STANDALONE command, never inside `&&`/`||`: an AND-list
+            # suppresses errexit for the whole call, so a mid-function failure
+            # would be masked and this would report success on a failed check.
+            READ_ONLY=1
+            preflight
+            log "preflight OK" ;;
         status)   status ;;
         logs)     shift || true; logs "$@" ;;
         -h|--help|help) usage ;;
