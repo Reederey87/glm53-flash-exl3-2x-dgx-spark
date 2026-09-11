@@ -132,6 +132,25 @@ def judge(receipt: dict, base_dir: Path) -> dict:
         result["verdict"] = "ABORT"
         return result
 
+    # --- KV pool identity ---------------------------------------------------
+    # Every arm must reserve the same pool. Checking this per arm, rather than
+    # only before-and-after, localizes a divergence to the boot that caused it.
+    pool_before = receipt.get("pool_line_before") or ""
+    if not pool_before:
+        errors.append("pre-window KV pool line missing from the receipt")
+    for arm in ARMS:
+        record = arms.get(arm) or {}
+        if not record.get("pool_line"):
+            errors.append(f"arm {arm} recorded no KV pool line")
+        elif record["pool_line"] != pool_before:
+            errors.append(
+                f"arm {arm} KV pool differs from the pre-window pool: "
+                f"{record['pool_line']!r} vs {pool_before!r}"
+            )
+    if errors:
+        result["verdict"] = "ABORT"
+        return result
+
     # --- correctness gates --------------------------------------------------
     gates = receipt.get("gates") or {}
     if gates.get("acceptance_rc") != 0:

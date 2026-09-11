@@ -151,6 +151,30 @@ def jit_stamp() -> str:
     return win.STAMP.read_text().strip() if win.STAMP.is_file() else ""
 
 
+def pool_line() -> str:
+    """The canonical KV-capacity line from the head container's log.
+
+    Deliberately more specific than the shared `win.pool_line()`, which returns
+    the first line containing `kv_cache`. In this container the *first* such line
+    is a startup patch message carrying the file path `kv_cache_utils.py`
+    (`[patch_glm5_drafter_group] ... kv_cache_utils.py: already patched`), which
+    is identical on every arm. Comparing that would make the auditor's
+    pool-unchanged gate vacuous: it would pass even if the real pool moved.
+
+    `grep -m1` exits at the first match, so the pipeline stops early rather than
+    streaming the whole log.
+    """
+    for pattern in ("GPU KV cache size:", "glm53-kv-capacity-log"):
+        proc = win.run(
+            ["sh", "-c", f"docker logs {HEAD_CONTAINER} 2>&1 | grep -m1 {pattern!r}"],
+            timeout=300, check=False,
+        )
+        line = proc.stdout.strip()
+        if line:
+            return line
+    return ""
+
+
 # --- container identity -----------------------------------------------------
 
 def container_image(container: str, host: str | None = None) -> str:
@@ -260,7 +284,7 @@ def phase_preflight(state: dict) -> None:
             "start_sha256": win.sha256(ROOT / "start.sh"),
             "env_effective_before": env,
             "image_before": win.image_id(),
-            "pool_line_before": win.pool_line(),
+            "pool_line_before": pool_line(),
             "jit_stamp_before": stamp_before,
             "arm_image_presence": presence,
             "contract": {"arms": ARMS, "lanes": {k: v[0] for k, v in LANES.items()}},
@@ -320,6 +344,7 @@ def phase_arm(state: dict, arm: str) -> None:
         "worker_exllamav3_version": worker["exllamav3_version"],
         "health": 200,
         "jit_stamp": jit_stamp(),
+        "pool_line": pool_line(),
         "memfree_head_gib": head_mem,
         "memfree_worker_gib": worker_mem,
         "preemptions_before": preemptions(),
@@ -395,7 +420,7 @@ def phase_gates(state: dict) -> None:
         "acceptance_tail": (acc.stdout or "").strip().splitlines()[-6:],
         "memfree_head_gib": head,
         "memfree_worker_gib": worker,
-        "pool_line": win.pool_line(),
+        "pool_line": pool_line(),
         "pool_line_before": state.get("pool_line_before", ""),
         "jit_stamp": jit_stamp(),
         "jit_stamp_arm_b": (state.get("arms", {}).get("b", {}) or {}).get("jit_stamp", ""),

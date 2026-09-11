@@ -199,6 +199,7 @@ def _window_receipt(tmp_path, arm_values, *, gates_ok=True, write_probes=True):
             "worker_image_tag": audit.ARM_IMAGE[arm],
             "worker_exllamav3_version": audit.ARM_EXLLAMAV3[arm],
             "jit_stamp": "stamp-b" if arm in ("b", "b2") else "stamp-a",
+            "pool_line": "GPU KV cache size: 1,396,551 tokens",
         }
     gates = {
         "acceptance_rc": 0,
@@ -211,7 +212,10 @@ def _window_receipt(tmp_path, arm_values, *, gates_ok=True, write_probes=True):
     }
     if not gates_ok:
         gates["acceptance_rc"] = 1
-    return {"schema": 1, "window": "task35b", "arms": arms, "gates": gates, "probes": probes}
+    return {
+        "schema": 1, "window": "task35b", "arms": arms, "gates": gates, "probes": probes,
+        "pool_line_before": "GPU KV cache size: 1,396,551 tokens",
+    }
 
 
 def _uniform(value_map):
@@ -340,6 +344,79 @@ def test_auditor_aborts_when_the_kv_pool_moved(tmp_path):
     result = audit.judge(receipt, tmp_path)
     assert result["verdict"] == "ABORT"
     assert any("KV pool changed" in message for message in result["errors"])
+
+
+def test_auditor_aborts_when_one_arm_reserved_a_different_pool(tmp_path):
+    """The per-arm pool check localizes a divergence to the boot that caused it."""
+    values = _values_with({})
+    receipt = _window_receipt(tmp_path, values)
+    receipt["arms"]["b2"]["pool_line"] = "GPU KV cache size: 1,200,000 tokens"
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "ABORT"
+    assert any("arm b2 KV pool differs" in message for message in result["errors"])
+
+
+def test_auditor_aborts_when_an_arm_recorded_no_pool_line(tmp_path):
+    values = _values_with({})
+    receipt = _window_receipt(tmp_path, values)
+    del receipt["arms"]["a"]["pool_line"]
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "ABORT"
+    assert any("arm a recorded no KV pool line" in message for message in result["errors"])
+
+
+def test_auditor_aborts_when_the_pre_window_pool_line_is_missing(tmp_path):
+    values = _values_with({})
+    receipt = _window_receipt(tmp_path, values)
+    receipt["pool_line_before"] = ""
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "ABORT"
+    assert any("pre-window KV pool line missing" in message for message in result["errors"])
+
+
+def test_window_pool_line_prefers_the_canonical_capacity_line(monkeypatch):
+    """A bare `kv_cache` match would hit the startup patch message instead, whose
+    value is constant across arms and would make the pool gate vacuous."""
+    seen: list[str] = []
+
+    class Fake:
+        def __init__(self, stdout):
+            self.stdout = stdout
+
+    def fake_run(argv, **_kw):
+        command = argv[-1]
+        seen.append(command)
+        if "GPU KV cache size:" in command:
+            return Fake("(EngineCore pid=237) INFO [kv_cache_utils.py:2598] "
+                        "GPU KV cache size: 1,396,551 tokens\n")
+        return Fake("")
+
+    monkeypatch.setattr(window.win, "run", fake_run)
+    line = window.pool_line()
+    assert line.endswith("GPU KV cache size: 1,396,551 tokens")
+    assert "GPU KV cache size:" in seen[0]
+
+
+def test_window_pool_line_falls_back_to_the_local_capacity_marker(monkeypatch):
+    class Fake:
+        def __init__(self, stdout):
+            self.stdout = stdout
+
+    def fake_run(argv, **_kw):
+        if "glm53-kv-capacity-log" in argv[-1]:
+            return Fake("[glm53-kv-capacity-log] usable block ids: 566\n")
+        return Fake("")
+
+    monkeypatch.setattr(window.win, "run", fake_run)
+    assert "glm53-kv-capacity-log" in window.pool_line()
+
+
+def test_window_pool_line_is_empty_when_neither_line_exists(monkeypatch):
+    class Fake:
+        stdout = ""
+
+    monkeypatch.setattr(window.win, "run", lambda *_a, **_k: Fake())
+    assert window.pool_line() == ""
 
 
 def test_auditor_aborts_when_the_final_jit_stamp_is_not_the_candidate_stamp(tmp_path):
