@@ -1,0 +1,42 @@
+spark1 (head) GPU clock fault - 507 MHz floor (2026-09-11)
+==========================================================
+
+Found while smoke-testing the task 35 section 6 qualification harness.
+Cold prefill measured ~582 tok/s vs the standing ~1454 tok/s receipt on
+identical geometry, so the probe was cross-checked against the older
+local/prefill-probe.py (~484-524 tok/s for ~80k): the regression is real,
+not a probe artifact.
+
+--- spark1 (head)
+boot_id: b3ab1d6f-3727-4592-9461-8310495984c8
+up 55 minutes
+NVIDIA GB10, 507 MHz, 3003 MHz, [N/A], 0 %, 5.07 W, [N/A], 42, Enabled
+
+--- spark2 (worker)
+boot_id: 31da9678-0bdb-453f-a896-78ab60849af2
+up 54 minutes
+NVIDIA GB10, 2411 MHz, 3003 MHz, [N/A], 0 %, 12.14 W, [N/A], 47, Enabled
+
+--- matmul throughput (bf16 8192^3, 20 reps, in-container, production up)
+spark1   Pseudo-terminal will not be allocated because stdin is not a terminal.
+n=8192 torch.bfloat16 48.10 ms -> 22.9 TFLOP/s
+clock_sm: 507 kHz
+spark2   Pseudo-terminal will not be allocated because stdin is not a terminal.
+n=8192 torch.bfloat16 11.60 ms -> 94.8 TFLOP/s
+clock_sm: 2431 kHz
+
+Head is ~4.3x slower than the worker on the identical workload.
+
+Ruled out (read-only checks on both nodes):
+  - active throttle reason: none (SW/HW thermal, power cap, brake all Not Active)
+  - persistence mode: enabled on both
+  - Xid errors: none
+  - fabric: both QSFP rails ping, NCCL RDMA healthy
+  - vm.min_free_kbytes: symmetric across nodes
+  - temperature: normal (42 C idle)
+
+Conclusion: the head GPU is pinned at its 507 MHz minimum clock since the
+2026-09-11 05:07 EDT boot, under sustained load, with no reported throttle
+reason. Requires a node reboot (the assistant has no sudo). Until it clears,
+the task 35 section 6 A-B-B-A window cannot produce valid prefill numbers and
+must not be started.

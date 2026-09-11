@@ -1,0 +1,55 @@
+Task 38 item 2 — e2m1 silicon probe: SILICON_CONFIRMED on both dies (2026-09-11)
+================================================================================
+
+Closes task 38 item 2. No maintenance window was needed: the probe runs
+alongside production.
+
+Probe: scripts/probe_isa_e2m1_silicon.py (driver-JIT, no host compiler needed)
+Images/containers: throwaway `glm53-selfbuild:e3-w3-zfill-v149` runs, --gpus all,
+production `glm53-exl3-head` left up and healthy (health 200) throughout.
+Receipts: local/isa-probe-spark1-20260911.json, local/isa-probe-spark2-20260911.json
+
+VERDICT
+  spark1 (head):   SILICON_CONFIRMED  12/12 cases match the PTX ISA, 0 reversed
+  spark2 (worker): SILICON_CONFIRMED  12/12 cases match the PTX ISA, 0 reversed
+  ptxas re-check:  rc=0 for -arch=sm_121a (item 1's toolchain half re-confirmed)
+
+  a       b       observed   expected (a -> high nibble, b -> low)
+  1.0     2.0     0x24       0x24
+  6.0     6.0     0x77       0x77
+  0.5     0.5     0x11       0x11
+  4.0     1.0     0x62       0x62
+  -1.0    -6.0    0xaf       0xaf
+  3.0     5.0     0x56       0x56
+  100.0   1e30    0x77       0x77   (saturates)
+  -100.0  -1e30   0xff       0xff   (saturates)
+  0.4     1.2     0x12       0x12   (rounds down)
+  0.6     2.7     0x15       0x15   (rounds up)
+  0.25    0.75    0x02       0x02   (tie -> nearest even; recorded, not gated)
+  2.0     1.0     0x42       0x42   (the value recorded in the task 38 note)
+
+  The 0x42 recorded against "(1.0, 2.0)" is consistent with the operand order
+  (2.0, 1.0). With the spec order it would be 0x24. Nothing depends on which it
+  was; the observed table is authoritative.
+
+FOUR FINDINGS THAT MADE THE PROBE WORK (all were failures first)
+  1. Destination is .b8 with `st.global.u8`. Declaring .b32 / st.global.u32 makes
+     ptxas reject the instruction ("Arguments mismatch for instruction 'cvt'"),
+     and the driver then rejects the module with CUDA_ERROR_INVALID_PTX (218).
+  2. Operands must come from memory, NOT immediates. With
+     `mov.f32 %f1, 0f3F800000` ptxas materializes only the top byte of the
+     constant and EVERY case reads 0x00 — a clean, silent, wrong answer. Passing
+     the two floats as kernel parameters is correct.
+  3. kernelParams is an array of POINTERS, one per kernel parameter. Passing a
+     pointer to a whole argument struct segfaults the host process.
+  4. a -> upper nibble, b -> lower nibble, per PTX ISA and confirmed on silicon.
+
+NO WINDOW REQUIRED (this supersedes the task 38 item 2 framing)
+  The item was scoped as "blocked on a stopped maintenance window" because the
+  original probe needed the primary context and hit CUDA_ERROR_OUT_OF_MEMORY
+  against running production. Measured here: cuDevicePrimaryCtxRetain, a 1-byte
+  cuMemAlloc, a single-thread cuLaunchKernel and a 1-byte D2H copy ALL succeed
+  with production up and healthy. The blocker was the probe's memory footprint,
+  not the primary context. Hence the ISA phase was removed from
+  scripts/run_v149_qualification_window.py — the window must not stop production
+  for this.

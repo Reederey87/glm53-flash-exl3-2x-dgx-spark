@@ -1,0 +1,138 @@
+{
+ "schema": 1,
+ "probe": "cvt.rn.satfinite.e2m1x2.f32",
+ "ptx": ".version 9.0\n.target sm_121a\n.address_size 64\n\n.visible .entry probe_e2m1(.param .u64 p_out, .param .f32 pa, .param .f32 pb)\n{\n    .reg .b64  %rd<4>;\n    .reg .b8   %rs<2>;\n    .reg .f32  %f<4>;\n\n    ld.param.u64      %rd1, [p_out];\n    cvta.to.global.u64 %rd2, %rd1;\n    ld.param.f32 %f1, [pa];\n    ld.param.f32 %f2, [pb];\n    cvt.rn.satfinite.e2m1x2.f32 %rs1, %f1, %f2;\n    st.global.u8 [%rd2], %rs1;\n    ret;\n}\n",
+ "ptxas": {
+  "ptxas": "ptxas",
+  "rc": 0,
+  "stdout": "",
+  "stderr": ""
+ },
+ "cases": [
+  {
+   "case": "recorded-reversed-2.0-1.0",
+   "a": 2.0,
+   "b": 1.0,
+   "tie": false,
+   "observed": "0x42",
+   "expected_spec": "0x42",
+   "matches_spec": true,
+   "matches_reversed_order": false
+  },
+  {
+   "case": "zero",
+   "a": 0.0,
+   "b": 0.0,
+   "tie": false,
+   "observed": "0x00",
+   "expected_spec": "0x00",
+   "matches_spec": true,
+   "matches_reversed_order": false
+  },
+  {
+   "case": "half",
+   "a": 0.5,
+   "b": 0.5,
+   "tie": false,
+   "observed": "0x11",
+   "expected_spec": "0x11",
+   "matches_spec": true,
+   "matches_reversed_order": false
+  },
+  {
+   "case": "distinct-1.0-2.0",
+   "a": 1.0,
+   "b": 2.0,
+   "tie": false,
+   "observed": "0x24",
+   "expected_spec": "0x24",
+   "matches_spec": true,
+   "matches_reversed_order": false
+  },
+  {
+   "case": "distinct-4.0-1.0",
+   "a": 4.0,
+   "b": 1.0,
+   "tie": false,
+   "observed": "0x62",
+   "expected_spec": "0x62",
+   "matches_spec": true,
+   "matches_reversed_order": false
+  },
+  {
+   "case": "top-of-range",
+   "a": 6.0,
+   "b": 6.0,
+   "tie": false,
+   "observed": "0x77",
+   "expected_spec": "0x77",
+   "matches_spec": true,
+   "matches_reversed_order": false
+  },
+  {
+   "case": "negative",
+   "a": -1.0,
+   "b": -6.0,
+   "tie": false,
+   "observed": "0xaf",
+   "expected_spec": "0xaf",
+   "matches_spec": true,
+   "matches_reversed_order": false
+  },
+  {
+   "case": "saturate-high",
+   "a": 100.0,
+   "b": 1e+30,
+   "tie": false,
+   "observed": "0x77",
+   "expected_spec": "0x77",
+   "matches_spec": true,
+   "matches_reversed_order": false
+  },
+  {
+   "case": "saturate-low",
+   "a": -100.0,
+   "b": -1e+30,
+   "tie": false,
+   "observed": "0xff",
+   "expected_spec": "0xff",
+   "matches_spec": true,
+   "matches_reversed_order": false
+  },
+  {
+   "case": "round-down",
+   "a": 0.4,
+   "b": 1.2,
+   "tie": false,
+   "observed": "0x12",
+   "expected_spec": "0x12",
+   "matches_spec": true,
+   "matches_reversed_order": false
+  },
+  {
+   "case": "round-up",
+   "a": 0.6,
+   "b": 2.7,
+   "tie": false,
+   "observed": "0x15",
+   "expected_spec": "0x15",
+   "matches_spec": true,
+   "matches_reversed_order": false
+  },
+  {
+   "case": "tie-0.25-0.75",
+   "a": 0.25,
+   "b": 0.75,
+   "tie": true,
+   "observed": "0x02",
+   "expected_spec": "0x02",
+   "matches_spec": true,
+   "matches_reversed_order": false
+  }
+ ],
+ "gated_cases": 11,
+ "cases_matching_spec": 12,
+ "reversed_order_cases": 0,
+ "errors": [],
+ "verdict": "SILICON_CONFIRMED"
+}
