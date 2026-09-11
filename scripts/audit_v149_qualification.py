@@ -52,6 +52,14 @@ BANDS = {
 }
 # A window whose two control arms disagree by more than this cannot decide.
 DRIFT_MAX = 0.05
+# Within-arm variability limit: `(max - min) / median` for a single arm's runs.
+# An arm whose own observations span more than this has no settled number, so a
+# pair of arms agreeing on their medians is not evidence of stability. This
+# catches a bimodal arm (e.g. nine runs of which four sit near 1 and four near
+# 1000) that would otherwise ADOPT on a matching median. Pre-registered, and
+# deliberately strict: a false INCONCLUSIVE costs a re-run, a false ADOPT does
+# not.
+VARIABILITY_MAX = 0.30
 # Arm identity: what the boot was supposed to be running.
 ARM_IMAGE = {
     "a": "glm53-selfbuild:e3-w3-zfill",
@@ -154,6 +162,9 @@ def judge(receipt: dict, base_dir: Path) -> dict:
             errors.append(f"arm {arm} recorded no preemption delta")
         elif delta != 0:
             errors.append(f"arm {arm} saw {delta} preemptions during measurement")
+        # The arm's own JIT shape stamp: two empty stamps would compare equal.
+        if not record.get("jit_stamp"):
+            errors.append(f"arm {arm} recorded no JIT shape stamp")
     if errors:
         result["verdict"] = "ABORT"
         return result
@@ -201,8 +212,12 @@ def judge(receipt: dict, base_dir: Path) -> dict:
     # --- per-lane evidence --------------------------------------------------
     probes = receipt.get("probes") or {}
     lane_medians: dict[str, dict[str, float]] = {}
+    lane_spreads: dict[str, dict[str, float]] = {}
+    unsettled: dict[str, list[str]] = {}
     for lane in LANES:
         per_arm: dict[str, float] = {}
+        spreads: dict[str, float] = {}
+        unsettled_arms: list[str] = []
         for arm in ARMS:
             path = probes.get(arm, {}).get(lane)
             if not path:
@@ -227,13 +242,16 @@ def judge(receipt: dict, base_dir: Path) -> dict:
                 continue
             # An EXCLUDED run that was excluded for a correctness reason is
             # still evidence: a NaN-corrupted output must not be silently
-            # dropped into the exclusion list and then ignored.
+            # dropped into the exclusion list and then ignored. Inspect the raw
+            # `nan` flag, not just the reason text: `decode_run_invalid` reports
+            # a stream error first, so a NaN run that also errored carries
+            # "TimeoutError: ..." as its reason and would otherwise slip through.
             for bad in probe.get("invalid_runs") or []:
                 reason = str(bad.get("invalid_reason") or "")
-                if "NaN" in reason or "locklock" in reason:
+                if bad.get("nan") or "NaN" in reason or "locklock" in reason:
                     errors.append(
                         f"arm {arm} lane {lane}: an excluded run was corrupted "
-                        f"({reason})"
+                        f"(nan={bad.get('nan')!r} reason={reason!r})"
                     )
             valid = int(probe.get("valid_runs") or 0)
             if valid < REQUIRED_RUNS[lane]:
@@ -246,9 +264,22 @@ def judge(receipt: dict, base_dir: Path) -> dict:
             if len(values) < REQUIRED_RUNS[lane]:
                 errors.append(f"arm {arm} lane {lane}: only {len(values)} usable values")
                 continue
+            # Within-arm variability: a bimodal arm has no settled number. This
+            # is not an invalid window, so it is NOT an `errors` entry (which
+            # would ABORT): the lane simply has no number to compare, which is a
+            # decision the harness cannot make. Recorded per lane and reported as
+            # INCONCLUSIVE below, like drift.
+            spread = (max(values) - min(values)) / median(values) if median(values) else 0.0
+            if spread > VARIABILITY_MAX:
+                unsettled_arms.append(arm)
+                continue
             per_arm[arm] = median(values)
+            spreads[arm] = spread
+        if unsettled_arms:
+            unsettled[lane] = unsettled_arms
         if len(per_arm) == len(ARMS):
             lane_medians[lane] = per_arm
+            lane_spreads[lane] = spreads
 
     if errors:
         result["verdict"] = "ABORT"
@@ -258,6 +289,18 @@ def judge(receipt: dict, base_dir: Path) -> dict:
     # --- drift, ratio, verdict ---------------------------------------------
     worst = "ADOPT"
     for lane in LANES:
+        if lane not in lane_medians:
+            # The lane's arms never settled (variability gate above), so there is
+            # no number to compare. §6: report INCONCLUSIVE when variance
+            # prevents a decision — this is not an invalid window.
+            result["lanes"][lane] = {
+                "unsettled_arms": unsettled.get(lane, []),
+                "variability_limit": VARIABILITY_MAX,
+                "verdict": "INCONCLUSIVE",
+            }
+            if worst != "REVERT":
+                worst = "INCONCLUSIVE"
+            continue
         per_arm = lane_medians[lane]
         control = median([per_arm[arm] for arm in CONTROL_ARMS])
         candidate = median([per_arm[arm] for arm in CANDIDATE_ARMS])
@@ -283,6 +326,7 @@ def judge(receipt: dict, base_dir: Path) -> dict:
             "band": BANDS[lane],
             "control_drift": round(drift, 4),
             "candidate_drift": round(b_drift, 4),
+            "arm_spread": {arm: round(value, 4) for arm, value in lane_spreads[lane].items()},
             "verdict": lane_verdict,
         }
         if lane_verdict == "FAIL":
@@ -294,8 +338,8 @@ def judge(receipt: dict, base_dir: Path) -> dict:
         errors.append("a lane regressed beyond its pre-registered band")
     elif worst == "INCONCLUSIVE":
         errors.append(
-            "the window drifted beyond its band (control or candidate); "
-            "the comparison cannot decide"
+            "the window could not decide: a lane drifted beyond its band "
+            "(control or candidate), or an arm's own observations never settled"
         )
     result["verdict"] = worst
     # Be explicit about what an ADOPT does and does not certify. This harness

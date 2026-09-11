@@ -166,7 +166,18 @@ re-judged without touching the cluster.
 | Warmup | one predeclared 32-token pass per arm boot |
 | Non-inferiority band | `structured` 0.97, all other lanes 0.95 (candidate ÷ control, on arm medians) |
 | Drift limit | control drift `abs(a − a2) / max(a, a2)` > **0.05** → INCONCLUSIVE |
+| Candidate drift | candidate drift `abs(b − b2) / max(b, b2)` > **0.05** → INCONCLUSIVE |
+| Within-arm variability | `(max − min) / median` for one arm's own runs > **0.30** → INCONCLUSIVE |
 | Verdicts | ADOPT / REVERT / INCONCLUSIVE / ABORT |
+
+The variability limit is deliberately strict, and it is not a substitute for the
+drift limit: drift compares an arm's *median* against its partner's, so two arms
+can agree on their medians while neither has a settled number. A lane of nine
+observations in which four sit near 1 and four near 1000 has a matching median on
+both candidate arms and would otherwise ADOPT. An unsettled arm yields
+INCONCLUSIVE, not ABORT: the window ran and is valid, it simply cannot decide.
+The asymmetry is intentional — a false INCONCLUSIVE costs a re-run, a false
+ADOPT does not.
 
 The band is one-sided on purpose. v1.4.9 was taken for currency and correctness
 and **no speed claim is made**, so the question the window answers is "does the
@@ -182,6 +193,21 @@ the pre-window capacity. That check is only meaningful because the capacity is
 source prefix that differ on every boot, and the shared helper's first
 `kv_cache` match is a startup patch message whose value is identical on every
 arm (see the fixes in commits 5baf82a and cc12e74).
+
+Receipt integrity is enforced rather than assumed. The per-arm boot identity
+(`docker inspect .State.StartedAt`) is captured on **both** nodes and must be
+non-empty; the measurement phase refuses to run when the token cannot be read or
+when either container restarted since the arm phase, so observations cannot be
+attributed to a boot that was never verified. Each measurement block is
+registered in the receipt *before* it runs, so a failed block stays visible to
+the judge instead of disappearing down the retry path. Receipt writes are
+best-effort: a full disk or a read-only path must not stop the window from
+restarting production or re-arming the timers. Quiescence fails closed — an
+unreadable service state or a failed job query counts as busy, so the window
+cannot declare quiet on absent evidence. The judge inspects the raw `nan` flag
+on excluded runs rather than their reason text (the probe reports a stream error
+before the NaN check, so a NaN run that also errored carries an error string as
+its reason) and requires a non-empty JIT shape stamp per arm.
 
 The measurement probe's streaming reader was **also defective** and is fixed in
 the same commit: it read the SSE stream in 4096-byte blocks, which measured TTFT

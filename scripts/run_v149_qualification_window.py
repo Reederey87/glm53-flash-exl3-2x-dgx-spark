@@ -119,12 +119,21 @@ def log(message: str) -> None:
 
 
 def save(state: dict) -> None:
-    """Atomically persist the receipt so an interrupted window stays recoverable."""
+    """Persist the receipt, best-effort.
+
+    The receipt is diagnostic: a full disk or a read-only path must never stop
+    the window from restarting production or re-arming the timers. A persistent
+    write failure is logged loudly (and counted) rather than raised.
+    """
     if _RECEIPT is None:
         return
-    tmp = _RECEIPT.with_suffix(_RECEIPT.suffix + ".tmp")
-    tmp.write_text(json.dumps(state, indent=1, default=str) + "\n")
-    os.replace(tmp, _RECEIPT)
+    try:
+        tmp = _RECEIPT.with_suffix(_RECEIPT.suffix + ".tmp")
+        tmp.write_text(json.dumps(state, indent=1, default=str) + "\n")
+        os.replace(tmp, _RECEIPT)
+    except OSError as exc:
+        state["save_failures"] = int(state.get("save_failures", 0)) + 1
+        log(f"WARNING: could not write the receipt ({exc}); continuing")
 
 
 # --- environment ------------------------------------------------------------
@@ -369,26 +378,32 @@ def _active_services() -> dict[str, str]:
     out: dict[str, str] = {}
     for unit in TIMER_SERVICES:
         proc = win.run(["systemctl", "--user", "is-active", unit], timeout=30, check=False)
-        out[unit] = proc.stdout.strip() or "unknown"
+        status = proc.stdout.strip()
+        # A failed query must not masquerade as "inactive". Mark it unknown so
+        # quiescence cannot be declared on absent evidence.
+        out[unit] = status if status else f"unknown(rc={proc.returncode})"
     return out
 
 
-def _pending_jobs() -> int:
+def _pending_jobs() -> int | None:
+    """Queued systemd jobs, or None when the query itself failed."""
     proc = win.run(["systemctl", "--user", "list-jobs"], timeout=30, check=False)
+    if proc.returncode != 0:
+        return None
     lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
-    # The header line ("No jobs running." or a column header) is not a job.
     return len([ln for ln in lines if "No jobs running" not in ln and not ln.startswith("JOB")])
 
 
 def wait_quiescent(timeout: float = 300.0) -> bool:
-    """Wait until the timer services are inactive and no jobs are queued."""
+    """Wait until the timer services are provably inactive and no jobs are queued.
+
+    Fails closed: a failed `list-jobs` query, or a service whose state could not
+    be read, counts as busy rather than as quiet.
+    """
     deadline = time.monotonic() + timeout
     while True:
-        busy = {
-            unit: status
-            for unit, status in _active_services().items()
-            if status in ("active", "activating", "reloading", "deactivating")
-        }
+        services = _active_services()
+        busy = {u: s for u, s in services.items() if s != "inactive"}
         jobs = _pending_jobs()
         if not busy and jobs == 0:
             return True
@@ -412,10 +427,14 @@ def phase_arm(state: dict, arm: str) -> None:
     head = verify_arm(arm, HEAD_CONTAINER)
     worker = verify_arm(arm, WORKER_CONTAINER, host=WORKER)
     head_mem, worker_mem = check_tripwire(f"arm {arm} boot")
-    # One predeclared warmup pass before the measured block.
+    # One predeclared warmup pass before the measured block. The receipt path is
+    # a real file: the probe now writes atomically (temp + rename), so
+    # `--out /dev/null` would try to create `/dev/null.tmp` in a root-owned
+    # directory and fail the arm.
     warm = win.run(
         ["python3", str(PROBE), "--kind", "structured", "--runs", "1",
-         "--max-tokens", str(WARMUP_TOKENS), "--out", "/dev/null"],
+         "--max-tokens", str(WARMUP_TOKENS),
+         "--out", str(_RECEIPT.parent / f"{_RECEIPT.stem}-{arm}-warmup.json")],
         timeout=900, check=False,
     )
     if warm.returncode != 0:
@@ -427,7 +446,9 @@ def phase_arm(state: dict, arm: str) -> None:
         "health": 200,
         "jit_stamp": jit_stamp(),
         "pool_line": pool_line_raw(),
+        "pool_capacity": pool_capacity(),
         "container_started_at": container_started_at(),
+        "worker_container_started_at": container_started_at(WORKER_CONTAINER, host=WORKER),
         "memfree_head_gib": head_mem,
         "memfree_worker_gib": worker_mem,
         "preemptions_before": preemptions(),
@@ -449,20 +470,39 @@ def phase_measure(state: dict, arm: str) -> None:
     worker_now = verify_arm(arm, WORKER_CONTAINER, host=WORKER)
     record = state.setdefault("arms", {}).setdefault(arm, {})
     boot_now = container_started_at()
-    recorded_boot = record.get("container_started_at")
-    if recorded_boot and boot_now and boot_now != recorded_boot:
+    worker_boot_now = container_started_at(WORKER_CONTAINER, host=WORKER)
+    # A missing boot identity is a refusal, not a pass: an unavailable token
+    # would silently bypass the binding the check exists to enforce.
+    if not boot_now or not worker_boot_now:
         raise RuntimeError(
-            f"arm {arm}: the head container restarted since the arm phase "
-            f"({recorded_boot} -> {boot_now}); the observations would not belong "
-            "to the verified boot"
+            f"arm {arm}: could not read the container boot identity "
+            f"(head={boot_now!r} worker={worker_boot_now!r}); refusing to measure"
+        )
+    recorded_boot = record.get("container_started_at")
+    recorded_worker_boot = record.get("worker_container_started_at")
+    if not recorded_boot or not recorded_worker_boot:
+        raise RuntimeError(
+            f"arm {arm}: no boot identity was recorded by the arm phase; "
+            "resume from the arm phase so the observations belong to a verified boot"
+        )
+    if boot_now != recorded_boot or worker_boot_now != recorded_worker_boot:
+        raise RuntimeError(
+            f"arm {arm}: a container restarted since the arm phase "
+            f"(head {recorded_boot} -> {boot_now}, "
+            f"worker {recorded_worker_boot} -> {worker_boot_now}); the observations "
+            "would not belong to the verified boot"
         )
     record["measure_verified_image"] = head_now["image_tag"]
     record["measure_verified_worker_image"] = worker_now["image_tag"]
     record["measure_verified_exllamav3"] = head_now["exllamav3_version"]
     record["measure_container_started_at"] = boot_now
+    record["measure_worker_container_started_at"] = worker_boot_now
     # A fresh attempt tag per invocation: a retry after a failed block writes new
     # files instead of overwriting the evidence an earlier receipt points at.
-    attempt = time.strftime("%Y%m%d-%H%M%S")
+    # The counter keeps two attempts within the same second distinct.
+    attempts = int(state.get("measure_attempts", 0)) + 1
+    state["measure_attempts"] = attempts
+    attempt = f"{time.strftime('%Y%m%d-%H%M%S')}-{attempts}"
     record["measure_attempt"] = attempt
     save(state)
 
@@ -474,6 +514,18 @@ def phase_measure(state: dict, arm: str) -> None:
             f"{_RECEIPT.stem}-{arm}-{lane}-{attempt}.json"
         )
         head_before, worker_before = check_tripwire(f"arm {arm} {lane} before")
+        # Register the attempt BEFORE running it. Registration only on success
+        # would let a failed block vanish from the receipt, so a retry could
+        # judge the window without ever seeing that the failure happened.
+        block = {
+            "arm": arm, "lane": lane, "runs": runs, "attempt": attempt,
+            "path": out.name, "started": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "ok": None, "returncode": None, "error": None,
+            "memfree_head_gib": [head_before, None],
+            "memfree_worker_gib": [worker_before, None],
+        }
+        state.setdefault("probe_blocks", []).append(block)
+        save(state)
         started = time.time()
         proc = subprocess.run(
             ["python3", str(PROBE), "--kind", lane, "--runs", str(runs), "--out", str(out)],
@@ -481,19 +533,26 @@ def phase_measure(state: dict, arm: str) -> None:
         )
         elapsed = time.time() - started
         head_after, worker_after = check_tripwire(f"arm {arm} {lane} after")
+        block.update({
+            "seconds": round(elapsed, 1),
+            "memfree_head_gib": [head_before, head_after],
+            "memfree_worker_gib": [worker_before, worker_after],
+            "returncode": proc.returncode,
+        })
         if proc.returncode != 0:
+            # Never slice None: a probe that dies before printing has both
+            # streams empty, and `None[-400:]` would raise over the real error.
+            tail = (proc.stdout or "") + (proc.stderr or "")
+            block["ok"] = False
+            block["error"] = tail[-400:] or "(no output)"
+            block["evidence_present"] = out.is_file()
+            save(state)
             raise RuntimeError(
                 f"arm {arm} lane {lane}: probe exited {proc.returncode}; "
-                f"last output: {(proc.stdout or proc.stderr)[-400:]}"
+                f"last output: {tail[-400:] or '(no output)'}"
             )
+        block["ok"] = True
         state["probes"][arm][lane] = out.name
-        state.setdefault("probe_blocks", []).append(
-            {
-                "arm": arm, "lane": lane, "runs": runs, "seconds": round(elapsed, 1),
-                "memfree_head_gib": [head_before, head_after],
-                "memfree_worker_gib": [worker_before, worker_after],
-            }
-        )
         save(state)
         log(f"arm {arm} lane {lane}: {runs} runs in {elapsed:.0f}s")
     state["arms"].setdefault(arm, {})["preemptions_after"] = preemptions()

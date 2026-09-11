@@ -1,0 +1,83 @@
+spark1 (head) GPU clock fault - re-measured under load (2026-09-11)
+==================================================================
+
+Re-checked after the earlier receipt (local/spark1-head-clock-507mhz-20260911.txt)
+to see whether the fault had cleared. It has not.
+
+Boot:   boot_id b3ab1d6f-3727-4592-9461-8310495984c8, up 2h09m - UNCHANGED.
+        The same boot as the original receipt (and as the running container,
+        which started 2026-09-11T09:09:03Z). No reboot has happened.
+Node:   spark1 head, NVIDIA GB10, driver 580.173.02.
+
+Method
+------
+The first idle reading of 507 MHz is NOT by itself evidence of the fault: GB10
+parks at its minimum clock when idle. The decisive measurement is the clock
+*under sustained load*, so a bf16 8192^3 matmul was run inside the live
+production container while `nvidia-smi` sampled the SM clock and power draw
+every 1.5 s. Run via `docker exec -i glm53-exl3-head python3 - < /tmp/matmul_bench.py`.
+
+Result - load confirmed, clock still pinned
+-------------------------------------------
+  sample          clock_sm   power    util
+  idle              507 MHz   5.05 W      -
+  under load        507 MHz   5.05 W     0 %
+  under load        507 MHz   5.10 W     5 %
+  under load        507 MHz  13.67 W    96 %   <- real load
+  under load        507 MHz   5.03 W     0 %
+  ...
+  all 14 samples    507 MHz
+
+  n=8192 torch.bfloat16 46.54 ms -> 23.6 TFLOP/s
+  clock_sm: 507 kHz (torch.cuda.clock_rate(); the unit label is torch's, the
+            value is 507 MHz)
+
+Load is genuine: 96% utilisation and 13.67 W draw. The clock does not move off
+507 MHz even at 96% utilisation, so this is not idle downclocking.
+
+Comparison - spark2 (worker), identical hardware, same command
+--------------------------------------------------------------
+  spark2           2411 MHz, 94.8 TFLOP/s   (from the original receipt)
+  spark1            507 MHz, 23.6 TFLOP/s
+  Head is ~4.0x slower on the identical workload.
+
+Throttle state (both nodes, read-only)
+--------------------------------------
+  Idle / Applications Clocks Setting / SW Power Cap / HW Slowdown /
+  HW Thermal Slowdown / HW Power Brake / Sync Boost / SW Thermal Slowdown /
+  Display Clock Setting  ->  ALL "Not Active" on BOTH nodes.
+
+  Clocks Event Reasons Counters (cumulative since boot):
+    SW Power Capping:  spark1 46,490,615 us   spark2 27,781,901 us
+  Both nodes have accumulated SW power-capping time, spark1 ~1.7x more, but
+  neither reports it as active now, and the head is drawing 13.67 W at 43 C -
+  neither power nor thermal limited at the moment of measurement.
+
+Ruled out this round
+--------------------
+  - Stray process holding the GPU: `nvidia-smi --query-compute-apps` shows one
+    compute process, PID 31422 "VLLM::Worker_TP0", 103,159 MiB. Its cgroup is
+    docker-f49bf2a0fc59..., which `docker inspect` confirms IS glm53-exl3-head.
+    The process title is set by the container's launcher; the image is the GLM
+    exllamav3 build. So that 103 GiB is the GLM model itself, not a leftover
+    vLLM deployment. Hypothesis closed - no stray process to kill.
+  - Container identity: f49bf2a0fc59... = /glm53-exl3-head, started
+    2026-09-11T09:09:03Z, entrypoint [bash] /start.sh. Only one container is
+    running (glm53-exl3-head); inkling-dl and v25build are long exited.
+  - Kernel log: no NVRM or Xid lines readable.
+  - Memory: 121 GiB total, 116 used, 4 free - consistent with one loaded model.
+
+Conclusion
+----------
+Unchanged from the original receipt. The head GPU is stuck at its 507 MHz
+minimum clock under sustained load, with no reported throttle reason, while the
+identical worker node runs at 2411 MHz. The window's prefill lanes cannot
+produce valid numbers in this state and the task 35 §6 A-B-B-A window must not
+be started. The remedy is a node reboot, which needs sudo; the assistant has
+none on either node.
+
+Unblock check for the next session:
+  ssh spark1 'cat /proc/sys/kernel/random/boot_id'   -> must differ from
+  b3ab1d6f-3727-4592-9461-8310495984c8
+then re-run the load measurement above and require >= 2000 MHz under load and
+>= 80 TFLOP/s before starting the window.

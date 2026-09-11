@@ -661,6 +661,171 @@ def test_audit_scope_states_what_adopt_does_not_cover(tmp_path):
     assert "NOT that the full docs/13" in scope["adopt_means"]
 
 
+def test_auditor_rejects_an_excluded_run_that_is_nan_but_errored(tmp_path):
+    """`decode_run_invalid` reports a stream error before the NaN check, so a
+    NaN run that also errored carries an error string as its reason. The raw
+    `nan` flag must be inspected independently of the exclusion wording."""
+    values = _values_with({})
+    receipt = _window_receipt(tmp_path, values)
+    path = tmp_path / receipt["probes"]["a"]["structured"]
+    payload = json.loads(path.read_text())
+    payload["invalid_runs"] = [
+        {"i": 1, "nan": True, "invalid_reason": "TimeoutError: stream disconnected"}
+    ]
+    path.write_text(json.dumps(payload))
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "ABORT"
+    assert any("excluded run was corrupted" in message for message in result["errors"])
+
+
+def test_auditor_rejects_a_missing_per_arm_jit_stamp(tmp_path):
+    values = _values_with({})
+    receipt = _window_receipt(tmp_path, values)
+    receipt["arms"]["b2"]["jit_stamp"] = ""
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "ABORT"
+    assert any("arm b2 recorded no JIT shape stamp" in message for message in result["errors"])
+
+
+def test_auditor_cannot_decide_on_a_bimodal_arm_whose_median_matches(tmp_path):
+    """Two candidate arms can agree on their medians while neither is settled.
+    A matching median is not evidence of stability. This is a window that
+    cannot decide, not an invalid window, so it must not ABORT."""
+    values = _values_with({})
+    bimodal = [1.0, 1.0, 1.0, 1.0, 25.0, 1000.0, 1000.0, 1000.0, 1000.0]
+    values["b"]["structured"] = list(bimodal)
+    values["b2"]["structured"] = list(bimodal)
+    receipt = _window_receipt(tmp_path, values)
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "INCONCLUSIVE", result["errors"]
+    lane = result["lanes"]["structured"]
+    assert lane["verdict"] == "INCONCLUSIVE"
+    assert lane["unsettled_arms"] == ["b", "b2"]
+    assert lane["variability_limit"] == audit.VARIABILITY_MAX
+    # Other lanes are still reported, so a partial window stays readable.
+    assert result["lanes"]["essay"]["verdict"] == "PASS"
+
+
+def test_auditor_accepts_a_settled_arm(tmp_path):
+    values = _values_with({})
+    values["b"]["essay"] = [25.0, 25.2, 24.8, 25.1, 24.9, 25.0, 25.3, 24.7, 25.0]
+    receipt = _window_receipt(tmp_path, values)
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "ADOPT", result["errors"]
+    assert result["lanes"]["essay"]["arm_spread"]["b"] < audit.VARIABILITY_MAX
+
+
+def test_auditor_cannot_decide_when_a_control_arm_is_unsettled(tmp_path):
+    """The variability gate applies to the control arms too: an unsettled
+    control cannot anchor the comparison."""
+    values = _values_with({})
+    values["a2"]["hashmap"] = [10.0, 10.0, 10.0, 10.0, 30.0, 900.0, 900.0, 900.0, 900.0]
+    receipt = _window_receipt(tmp_path, values)
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "INCONCLUSIVE", result["errors"]
+    assert result["lanes"]["hashmap"]["unsettled_arms"] == ["a2"]
+
+
+def test_auditor_reports_the_remaining_lanes_of_a_partially_unsettled_window(tmp_path):
+    """One unsettled lane must not hide the verdicts of the settled ones."""
+    values = _values_with({})
+    values["b"]["prefill240k"] = [100.0, 100.0, 100.0, 100.0, 1400.0]
+    values["b2"]["prefill240k"] = [100.0, 100.0, 100.0, 100.0, 1400.0]
+    receipt = _window_receipt(tmp_path, values)
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "INCONCLUSIVE", result["errors"]
+    assert result["lanes"]["prefill240k"]["unsettled_arms"] == ["b", "b2"]
+    assert result["lanes"]["structured"]["verdict"] == "PASS"
+    assert result["lanes"]["prefill60k"]["verdict"] == "PASS"
+
+
+def test_auditor_still_aborts_on_a_hard_defect_alongside_an_unsettled_arm(tmp_path):
+    """A genuine invalidity outranks noise: corruption is still an ABORT."""
+    values = _values_with({})
+    values["b"]["structured"] = [1.0, 1.0, 1.0, 1.0, 25.0, 1000.0, 1000.0, 1000.0, 1000.0]
+    receipt = _window_receipt(tmp_path, values)
+    receipt["arms"]["b2"]["jit_stamp"] = ""
+    result = audit.judge(receipt, tmp_path)
+    assert result["verdict"] == "ABORT"
+    assert any("recorded no JIT shape stamp" in message for message in result["errors"])
+
+
+# --- runner -> probe integration --------------------------------------------
+
+def _arm_fixture(monkeypatch, tmp_path, *, warmup_rc=0):
+    """Wire phase_arm's collaborators and capture the argv it invokes."""
+    monkeypatch.setattr(window, "_RECEIPT", tmp_path / "task35b-window.json")
+    monkeypatch.setattr(window, "set_image", lambda tag: None)
+    monkeypatch.setattr(window.win, "guarded_start", lambda: None)
+    monkeypatch.setattr(window.win, "wait_health", lambda timeout=0: True)
+    monkeypatch.setattr(window.win, "memfree_gib", lambda host=None: 4.0)
+    monkeypatch.setattr(window, "verify_arm", lambda arm, container, host=None: {
+        "image_tag": window.ARMS[arm]["tag"], "exllamav3_version": window.ARMS[arm]["exllamav3"],
+    })
+    monkeypatch.setattr(window, "jit_stamp", lambda: "stamp")
+    monkeypatch.setattr(window, "pool_line_raw", lambda: "GPU KV cache size: 1,396,551 tokens")
+    monkeypatch.setattr(window, "pool_capacity", lambda: "1396551 tokens; concurrency 1.40x")
+    monkeypatch.setattr(window, "container_started_at", lambda *a, **k: "boot")
+    monkeypatch.setattr(window, "preemptions", lambda: 0.0)
+    monkeypatch.setattr(window, "save", lambda _s: None)
+    seen: list[list[str]] = []
+
+    class Done:
+        returncode = warmup_rc
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setattr(window.win, "run",
+                        lambda argv, **k: seen.append(argv) or Done())
+    return seen
+
+
+def test_arm_warmup_does_not_write_to_a_device_path(monkeypatch, tmp_path):
+    """The probe writes atomically (temp + rename), so `--out /dev/null` would
+    try to create `/dev/null.tmp` in a root-owned directory and fail the arm."""
+    seen = _arm_fixture(monkeypatch, tmp_path)
+    window.phase_arm({}, "a")
+    warm = [argv for argv in seen if "--kind" in argv]
+    assert warm, "no warmup invocation was captured"
+    out = warm[0][warm[0].index("--out") + 1]
+    assert out != "/dev/null"
+    assert not out.startswith("/dev/")
+    assert Path(out).parent == tmp_path
+
+
+def test_arm_records_the_pool_capacity_the_auditor_requires(monkeypatch, tmp_path):
+    """The auditor requires `pool_capacity` per arm; the arm phase must produce
+    exactly that field, not only the raw line."""
+    _arm_fixture(monkeypatch, tmp_path)
+    state: dict = {}
+    window.phase_arm(state, "a")
+    record = state["arms"]["a"]
+    assert record["pool_capacity"] == "1396551 tokens; concurrency 1.40x"
+    assert record["container_started_at"] == "boot"
+    assert record["worker_container_started_at"] == "boot"
+    assert record["preemptions_before"] == 0.0
+
+
+def test_arm_records_feed_the_auditor_without_an_identity_abort(monkeypatch, tmp_path):
+    """End-to-end: records actually produced by the arm phase must satisfy the
+    auditor's identity and pool checks, so a healthy window is not aborted."""
+    _arm_fixture(monkeypatch, tmp_path)
+    state: dict = {"pool_capacity_before": "1396551 tokens; concurrency 1.40x"}
+    for arm in window.ARMS:
+        window.phase_arm(state, arm)
+        state["arms"][arm]["preemptions_delta"] = 0
+    receipt = {"arms": state["arms"], "pool_capacity_before": state["pool_capacity_before"]}
+    errors: list[str] = []
+    for arm in audit.ARMS:
+        record = receipt["arms"][arm]
+        assert record.get("pool_capacity") == receipt["pool_capacity_before"]
+        assert record.get("jit_stamp")
+        assert record.get("preemptions_delta") == 0
+        assert record.get("image_tag") == audit.ARM_IMAGE[arm]
+        assert record.get("exllamav3_version") == audit.ARM_EXLLAMAV3[arm]
+    assert errors == []
+
+
 def test_auditor_aborts_when_the_final_jit_stamp_is_not_the_candidate_stamp(tmp_path):
     values = _values_with({})
     receipt = _window_receipt(tmp_path, values)
@@ -887,9 +1052,34 @@ def test_measure_rejects_a_boot_that_restarted_since_the_arm_phase(monkeypatch, 
         "image_tag": window.ARMS[arm]["tag"], "exllamav3_version": window.ARMS[arm]["exllamav3"],
     })
     monkeypatch.setattr(window, "container_started_at", lambda *a, **k: "2026-09-11T10:00:00Z")
-    state = {"arms": {"a": {"container_started_at": "2026-09-11T09:00:00Z"}}}
+    state = {"arms": {"a": {"container_started_at": "2026-09-11T09:00:00Z",
+                            "worker_container_started_at": "2026-09-11T09:00:00Z"}}}
     with pytest.raises(RuntimeError, match="restarted since the arm phase"):
         window.phase_measure(state, "a")
+
+
+def test_measure_refuses_when_the_boot_identity_is_unavailable(monkeypatch, tmp_path):
+    """An unreadable boot token must refuse, not silently bypass the binding."""
+    monkeypatch.setattr(window, "save", lambda _s: None)
+    monkeypatch.setattr(window, "_RECEIPT", tmp_path / "w.json")
+    monkeypatch.setattr(window, "verify_arm", lambda arm, container, host=None: {
+        "image_tag": window.ARMS[arm]["tag"], "exllamav3_version": window.ARMS[arm]["exllamav3"],
+    })
+    monkeypatch.setattr(window, "container_started_at", lambda *a, **k: "")
+    state = {"arms": {"a": {"container_started_at": "x", "worker_container_started_at": "x"}}}
+    with pytest.raises(RuntimeError, match="could not read the container boot identity"):
+        window.phase_measure(state, "a")
+
+
+def test_measure_refuses_when_the_arm_phase_recorded_no_boot(monkeypatch, tmp_path):
+    monkeypatch.setattr(window, "save", lambda _s: None)
+    monkeypatch.setattr(window, "_RECEIPT", tmp_path / "w.json")
+    monkeypatch.setattr(window, "verify_arm", lambda arm, container, host=None: {
+        "image_tag": window.ARMS[arm]["tag"], "exllamav3_version": window.ARMS[arm]["exllamav3"],
+    })
+    monkeypatch.setattr(window, "container_started_at", lambda *a, **k: "boot")
+    with pytest.raises(RuntimeError, match="no boot identity was recorded"):
+        window.phase_measure({}, "a")
 
 
 def test_measure_probe_paths_are_attempt_specific(monkeypatch, tmp_path):
@@ -910,13 +1100,125 @@ def test_measure_probe_paths_are_attempt_specific(monkeypatch, tmp_path):
 
     monkeypatch.setattr(window.subprocess, "run",
                         lambda argv, **k: seen.append(argv) or Done())
-    window.phase_measure({}, "a")
+    state = {"arms": {"a": {"container_started_at": "boot",
+                            "worker_container_started_at": "boot"}}}
+    window.phase_measure(state, "a")
     outs = [argv[argv.index("--out") + 1] for argv in seen]
     assert len(outs) == len(window.LANES)
     assert len(set(outs)) == len(outs)  # one distinct file per lane
     for out in outs:
         assert "task35b-window-20260911-a-" in Path(out).name
         assert Path(out).name != "task35b-a-structured.json"
+
+
+def test_measure_attempts_do_not_collide_across_invocations(monkeypatch, tmp_path):
+    """Two measure calls in the same second must not reuse the same paths."""
+    monkeypatch.setattr(window, "_RECEIPT", tmp_path / "task35b-window.json")
+    monkeypatch.setattr(window, "verify_arm", lambda arm, container, host=None: {
+        "image_tag": window.ARMS[arm]["tag"], "exllamav3_version": window.ARMS[arm]["exllamav3"],
+    })
+    monkeypatch.setattr(window, "container_started_at", lambda *a, **k: "boot")
+    monkeypatch.setattr(window.win, "memfree_gib", lambda host=None: 4.0)
+    monkeypatch.setattr(window, "preemptions", lambda: 0.0)
+    monkeypatch.setattr(window, "save", lambda _s: None)
+    seen: list[list[str]] = []
+
+    class Done:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setattr(window.subprocess, "run",
+                        lambda argv, **k: seen.append(argv) or Done())
+    state = {"arms": {"a": {"container_started_at": "boot",
+                            "worker_container_started_at": "boot"}}}
+    window.phase_measure(state, "a")
+    first = {argv[argv.index("--out") + 1] for argv in seen}
+    seen.clear()
+    window.phase_measure(state, "a")
+    second = {argv[argv.index("--out") + 1] for argv in seen}
+    assert first and second and not (first & second)
+
+
+def test_measure_registers_the_block_before_running_it(monkeypatch, tmp_path):
+    """A failed block must appear in the receipt, so a retry cannot judge the
+    window without seeing that the failure happened."""
+    monkeypatch.setattr(window, "_RECEIPT", tmp_path / "task35b-window.json")
+    monkeypatch.setattr(window, "verify_arm", lambda arm, container, host=None: {
+        "image_tag": window.ARMS[arm]["tag"], "exllamav3_version": window.ARMS[arm]["exllamav3"],
+    })
+    monkeypatch.setattr(window, "container_started_at", lambda *a, **k: "boot")
+    monkeypatch.setattr(window.win, "memfree_gib", lambda host=None: 4.0)
+    monkeypatch.setattr(window, "save", lambda _s: None)
+
+    class Failed:
+        returncode = 3
+        stdout = None
+        stderr = None
+
+    monkeypatch.setattr(window.subprocess, "run", lambda *a, **k: Failed())
+    state = {"arms": {"a": {"container_started_at": "boot",
+                            "worker_container_started_at": "boot"}}}
+    with pytest.raises(RuntimeError, match="no output"):
+        window.phase_measure(state, "a")
+    blocks = state["probe_blocks"]
+    assert blocks and blocks[0]["ok"] is False
+    assert blocks[0]["returncode"] == 3
+    assert blocks[0]["error"] == "(no output)"
+    assert state["probes"]["a"] == {}  # nothing registered as usable evidence
+
+
+def test_wait_quiescent_fails_closed_when_the_job_query_fails(monkeypatch):
+    monkeypatch.setattr(window, "_active_services",
+                        lambda: {u: "inactive" for u in window.TIMER_SERVICES})
+    monkeypatch.setattr(window, "_pending_jobs", lambda: None)
+    assert window.wait_quiescent(timeout=0.01) is False
+
+
+def test_wait_quiescent_fails_closed_when_a_service_state_is_unknown(monkeypatch):
+    monkeypatch.setattr(window, "_active_services",
+                        lambda: {u: "unknown(rc=1)" for u in window.TIMER_SERVICES})
+    monkeypatch.setattr(window, "_pending_jobs", lambda: 0)
+    assert window.wait_quiescent(timeout=0.01) is False
+
+
+def test_pending_jobs_reports_none_when_systemctl_fails(monkeypatch):
+    class Failed:
+        returncode = 1
+        stdout = ""
+
+    monkeypatch.setattr(window.win, "run", lambda *a, **k: Failed())
+    assert window._pending_jobs() is None
+
+
+def test_save_is_best_effort_so_receipt_io_cannot_block_recovery(monkeypatch, tmp_path):
+    """A persistent receipt-write failure must not stop the window from
+    restarting production."""
+    monkeypatch.setattr(window, "_RECEIPT", tmp_path / "sub" / "missing" / "w.json")
+    state: dict = {}
+    window.save(state)  # parent directories do not exist
+    assert state["save_failures"] == 1
+
+
+def test_restore_restarts_production_even_when_the_receipt_cannot_be_written(monkeypatch, tmp_path):
+    """The checkpoint write before the restart must not be able to prevent it."""
+    env = tmp_path / ".env"
+    backup = tmp_path / "backup.env"
+    env.write_text("IMAGE=armed\n")
+    backup.write_text(f"IMAGE={window.PRODUCTION_IMAGE}\n")
+    monkeypatch.setattr(window, "ENV_FILE", env)
+    monkeypatch.setattr(window, "_RECEIPT", tmp_path / "no" / "such" / "dir" / "w.json")
+    started: list[str] = []
+    monkeypatch.setattr(window.win, "guarded_start", lambda: started.append("start"))
+    monkeypatch.setattr(window.win, "wait_health", lambda timeout=0: True)
+    monkeypatch.setattr(window, "verify_arm", lambda arm, container, host=None: {
+        "image_tag": window.PRODUCTION_IMAGE, "exllamav3_version": "1.4.9",
+    })
+    state = {"backup": str(backup), "env_touched": True,
+             "env_sha256": window.win.sha256(backup)}
+    window.phase_restore(state)
+    assert started == ["start"]
+    assert state["env_touched"] is False
 
 
 def test_disarm_waits_for_quiescence(monkeypatch, tmp_path):
