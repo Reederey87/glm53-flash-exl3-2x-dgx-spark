@@ -887,15 +887,21 @@ require_gid_index() {
     fi
     # Explicit if/return rather than `[ ... ] || die`: `die` exits today, but a
     # trailing `case` would otherwise make this function report success whenever
-    # a non-exiting die was substituted.
+    # a non-exiting die was substituted. That is not hypothetical — the test
+    # harness in tests/test_start_gid_resolution.py substitutes exactly that
+    # (`die() { ...; return 1; }`) so it can assert the message and the status in
+    # one run, and the status has to come from here. SC2317 is therefore correct
+    # about production and wrong about the contract, hence the scoped waivers.
     if [ "$got" != "$want" ]; then
         die "${where} gid${idx} on ${ib_dev} is now '${got:-empty}', expected ${want} (${ip}) — the GID table changed; re-run"
+        # shellcheck disable=SC2317
         return 1
     fi
-    case "$type" in
-        *"RoCE v2"*) ;;
-        *) die "${where} gid${idx} on ${ib_dev} has type '${type:-unreadable}', not RoCE v2"; return 1 ;;
-    esac
+    if [[ "$type" != *"RoCE v2"* ]]; then
+        die "${where} gid${idx} on ${ib_dev} has type '${type:-unreadable}', not RoCE v2"
+        # shellcheck disable=SC2317
+        return 1
+    fi
 }
 
 # Both tables, for the failure path.
