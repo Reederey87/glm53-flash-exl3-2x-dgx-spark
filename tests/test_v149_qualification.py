@@ -62,8 +62,22 @@ def _decode_run(tok_s=70.0, completion_tokens=200, nan=False, ttft_s=0.3, http=2
     }
 
 
-def _prefill_run(rate=1400.0, prompt_tokens=None, cached_tokens=0, target=60_000, ttft_s=57.0):
+_UNSET = object()
+
+
+def _prefill_run(rate=1400.0, prompt_tokens=None, cached_tokens=None, target=60_000,
+                 ttft_s=57.0, queries_delta=_UNSET, hits_delta=0):
+    """A prefill observation. Defaults model the LIVE server, not an ideal one.
+
+    Production runs without vLLM's `--enable-prompt-tokens-details`, so
+    `prompt_tokens_details` is never populated and `cached_tokens` is always
+    None — verified on a full cache hit. Coldness therefore has to come from the
+    engine's prefix-cache counters, and `queries_delta` defaults to the run's own
+    `prompt_tokens`, which is what a cold run shows.
+    """
     prompt_tokens = target if prompt_tokens is None else prompt_tokens
+    if queries_delta is _UNSET:
+        queries_delta = float(prompt_tokens)
     return {
         "http": 200,
         "error": None,
@@ -72,6 +86,8 @@ def _prefill_run(rate=1400.0, prompt_tokens=None, cached_tokens=0, target=60_000
         "tokenize_estimate": prompt_tokens,
         "prompt_tokens": prompt_tokens,
         "cached_tokens": cached_tokens,
+        "cache_queries_delta": queries_delta,
+        "cache_hits_delta": hits_delta,
         "ttft_s": ttft_s,
         "wall_s": ttft_s + 1,
         "prefill_tok_s": rate,
@@ -107,11 +123,33 @@ def test_prefill_run_invalid_accepts_a_cold_run():
     assert probe.prefill_run_invalid(_prefill_run()) is None
 
 
+def test_prefill_coldness_accepts_the_engine_counter_path():
+    """The LIVE case: the server emits no `prompt_tokens_details`, so the run is
+    proved cold by the engine's own counters. This is what the window failed on
+    before the fallback existed — every run was rejected with "cannot prove the
+    run was cold" and the lane produced zero valid observations."""
+    run = _prefill_run(cached_tokens=None, queries_delta=60_002.0, hits_delta=0.0)
+    assert probe.prefill_run_invalid(run) is None
+
+
+def test_prefill_coldness_still_accepts_the_per_request_field_when_present():
+    """A server WITH --enable-prompt-tokens-details keeps working unchanged."""
+    run = _prefill_run(cached_tokens=0, queries_delta=None, hits_delta=None)
+    assert probe.prefill_run_invalid(run) is None
+
+
 @pytest.mark.parametrize(
     "kwargs,needle",
     [
-        ({"cached_tokens": 4096}, "warm request"),
-        ({"cached_tokens": None}, "cannot prove the run was cold"),
+        ({"cached_tokens": 4096}, "warm request: cached_tokens"),
+        # No field AND no counters: still fail-closed, never "assumed cold".
+        ({"cached_tokens": None, "cache_queries_delta": None, "cache_hits_delta": None},
+         "no prefix-cache telemetry"),
+        ({"cached_tokens": None, "cache_queries_delta": None}, "no prefix-cache telemetry"),
+        # The engine counters show a real cache hit -> warm.
+        ({"cached_tokens": None, "cache_hits_delta": 512.0}, "warm request: prefix_cache_hits"),
+        # Counters present but frozen / not attributable to this run.
+        ({"cached_tokens": None, "cache_queries_delta": 10.0}, "did not account for the run"),
         ({"prompt_tokens": 20_000}, "outside"),
         ({"http": 503}, "http 503"),
         ({"ttft_s": None}, "no first token"),
@@ -126,6 +164,49 @@ def test_prefill_run_invalid_rejects(kwargs, needle):
     assert reason is not None and needle in reason
 
 
+def test_prefix_cache_snapshot_sums_label_sets_and_fails_closed():
+    """Counters carry label sets and are summed; an unreadable /metrics returns
+    an empty dict, which the caller must read as "unknown", never as zero."""
+    body = "\n".join([
+        '# HELP vllm:prefix_cache_hits_total hits',
+        'vllm:prefix_cache_hits_total{engine="0",model_name="m"} 66176.0',
+        'vllm:prefix_cache_hits_total{engine="1",model_name="m"} 24.0',
+        'vllm:prefix_cache_queries_total{engine="0",model_name="m"} 133594.0',
+        # A `_created` gauge must not be mistaken for the counter.
+        'vllm:prefix_cache_hits_created{engine="0"} 1.789e+09',
+    ])
+    real_get = probe._get
+    probe._get = lambda *a, **k: body
+    try:
+        snap = probe.prefix_cache_snapshot()
+    finally:
+        probe._get = real_get
+    assert snap == {"hits": 66200.0, "queries": 133594.0}
+
+    def boom(*a, **k):
+        raise OSError("metrics down")
+
+    probe._get = boom
+    try:
+        assert probe.prefix_cache_snapshot() == {}
+    finally:
+        probe._get = real_get
+
+
+def test_prefix_cache_delta_is_none_when_either_sample_is_unusable():
+    assert probe.prefix_cache_delta({}, {"hits": 1.0, "queries": 2.0}) == {
+        "queries_delta": None,
+        "hits_delta": None,
+    }
+    assert probe.prefix_cache_delta({"hits": 5.0}, {"hits": 5.0, "queries": 9.0}) == {
+        "queries_delta": None,
+        "hits_delta": 0.0,
+    }
+    assert probe.prefix_cache_delta(
+        {"hits": 5.0, "queries": 100.0}, {"hits": 5.0, "queries": 160.0}
+    ) == {"queries_delta": 60.0, "hits_delta": 0.0}
+
+
 def test_summarize_reports_median_and_flags_nan_and_cache_hits():
     decode = probe.summarize("structured", [_decode_run(70.0), _decode_run(80.0)], [])
     assert decode["valid_runs"] == 2
@@ -137,6 +218,11 @@ def test_summarize_reports_median_and_flags_nan_and_cache_hits():
     prefill = probe.summarize("prefill60k", [_prefill_run(cached_tokens=99)], [])
     assert prefill["any_cache_hit"] is True
     assert prefill["prefill_tok_s_median"] == 1400.0
+    # The counter path must flag a hit too, not just the per-request field.
+    by_counter = probe.summarize("prefill60k", [_prefill_run(hits_delta=2048.0)], [])
+    assert by_counter["any_cache_hit"] is True
+    cold = probe.summarize("prefill60k", [_prefill_run()], [])
+    assert cold["any_cache_hit"] is False
 
 
 def test_probe_refuses_to_measure_an_unhealthy_server(monkeypatch, tmp_path):

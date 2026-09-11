@@ -228,8 +228,13 @@ inactive unit (rc=3) **and** for a unit that does not exist (rc=4), verified on
 the live node, so a wrong-user or renamed-unit query would otherwise look
 disarmed. Disarm now requires a provable `inactive`, and rearm attempts both
 timers independently so a persistent failure on one cannot leave the other down.
-Cold-prefill validation likewise requires an explicit `cached_tokens == 0`;
-missing cache telemetry is not measured zero usage. The audit receipt is derived
+Cold-prefill validation likewise requires an explicit
+zero-cache-hit reading; missing cache telemetry is not measured zero usage.
+**Amended 2026-09-11 after the first window attempt failed** — see
+"The first §6 attempt failed on unavailable cache telemetry" below: on this kit
+the per-request field does not exist, so the reading comes from the engine's own
+prefix-cache counters instead. The standard is unchanged (an explicit
+zero-hits reading attributable to the run); only its source moved. The audit receipt is derived
 by suffixing, so a receipt named without a `-window-` token no longer collides
 with its own audit output.
 
@@ -242,6 +247,71 @@ bug and must not be cited. Corrected on production: structured 30.1 tok/s
 (TTFT 0.62 s), hashmap 14.7 tok/s, with `ttft + decode == wall` holding exactly.
 Those lower numbers are consistent with the 507 MHz clock fault below, which the
 inflated ones were not. Detail: `local/probe-timing-defect-20260911.txt`.
+
+### The first §6 attempt failed on unavailable cache telemetry (2026-09-11)
+
+The first real window ran on 2026-09-11 (state
+`local/task35b-window-20260911T140111Z.json`). It completed `preflight`,
+`disarm`, `arm_a` and the three **decode** lanes, then failed at
+`measure_a`/`prefill60k`. The recovery path worked exactly as designed: the
+pre-window `.env` was restored, production was rebooted onto the v1.4.9
+candidate, both timers were re-armed, and the receipt was written.
+
+The failure was in the **harness**, not the cluster:
+
+```
+[probe] prefill60k run 1/5: {... "prefill_tok_s": 1581.8, "prompt_tokens": 60002,
+  "cached_tokens": null} INVALID no cached_tokens in usage (cannot prove the run was cold)
+```
+
+The lane produced **zero** valid observations; all five runs were rejected. The
+fail-closed cold check was working — the telemetry it required does not exist on
+this server.
+
+**Root cause.** `prompt_tokens_details` is gated in the deployed vLLM at
+`entrypoints/openai/completion/serving.py:455`:
+
+```python
+if self.enable_prompt_tokens_details and num_cached_tokens is not None:
+    final_usage_info.prompt_tokens_details = PromptTokenUsageInfo(...)
+```
+
+`enable_prompt_tokens_details` defaults to **False** and is wired from
+`--enable-prompt-tokens-details`, which production does not pass. So the field is
+**never** populated.
+
+**Verified, not assumed.** Two byte-identical 66,129-token requests were sent to
+production. Both returned `prompt_tokens_details: null`, while the engine's own
+`vllm:prefix_cache_hits_total` advanced by **66,176** tokens on the second and
+the server's reported prefix-cache hit rate jumped to 49.5%. The cache was
+demonstrably hit and the per-request field still said nothing — so `null` here
+carries **no** information and must not be relaxed into "cold". (A non-streaming
+request returns the same: `"prompt_tokens_details": null`.)
+
+**Fix.** Coldness now comes from whichever source the server actually offers, in
+order: (1) `cached_tokens` when present — unchanged for a server that enables the
+flag; (2) otherwise the engine's `vllm:prefix_cache_hits_total` /
+`vllm:prefix_cache_queries_total` counters, sampled immediately before and after
+the request. A cold run must show a **hits delta of exactly 0** while the
+**queries delta accounts for the run's own `prompt_tokens`** — the second half is
+what keeps it fail-closed, because a frozen or unreadable counter then cannot be
+read as "zero hits". An unreadable `/metrics` yields no delta at all and the run
+is rejected.
+
+This is a *stronger* proof than the field it replaces: it is the engine's own
+accounting rather than a client-echoed value, and it is attributable to the
+specific request. Confirmed against live production, one run:
+
+```
+{"prefill_tok_s": 1607.2, "prompt_tokens": 60002, "cached_tokens": null,
+ "cache_queries_delta": 60002.0, "cache_hits_delta": 0.0}   -> valid_runs 1, rc 0
+```
+
+The fresh-salt half of the contract is untouched: every prefill request still
+carries a `uuid4` salt plus 24 random hex bytes. Because the receipt registers
+every block before it runs and the judge rejects a receipt containing a failed
+block, the re-run uses a **fresh state file**; the failed receipt is kept as the
+evidence of this failure.
 
 ### What this harness does NOT cover
 
@@ -359,7 +429,8 @@ not certify that execution either.
 
 ### Review rounds
 
-Four review rounds ran against the harness.
+Five review rounds ran against the harness and the launcher fixes. Rounds 1–4
+covered the §6 harness; round 5 covered the launcher changes in §4.
 
 - **Round 1 — eleven findings.** Two would have aborted a healthy window, two
   would have produced wrong numbers, and the rest were fail-closed or evidence
@@ -381,6 +452,8 @@ Four review rounds ran against the harness.
   `phase_disarm`, where a hung first query or stop hid the second unit.
   Reproduced against the pre-fix revision (only the watchdog timer attempted,
   `rearm_failures` absent) and covered by three regression tests.
+- **Round 5 — four findings, all against the launcher changes in §4.** See
+  "Four defects in the launcher fixes" below. Fixed in `bb61b3f`.
 
 ### The 507 MHz clock cap CLEARED — and how (2026-09-11)
 
@@ -454,6 +527,54 @@ is an OLDER revision than the repo's — it lacks the task-34 track-A FlashKDA
 wiring, and the matching `overlay/patch_flashkda_prefill.py` is absent from the
 live checkout too. Deploying the repo `start.sh` as-is would `die` at preflight on
 the missing overlay, so the two must be shipped together.
+
+### Four defects in the launcher fixes (review round 5, fixed in `bb61b3f`)
+
+Review round 5 on `628833d` found four behavioural defects in the fixes above.
+None was cosmetic; each is now covered by a regression test that was verified to
+fail against the pre-fix revision (15 red, 30 green).
+
+1. **The exhaustion branch exited before cleaning up.** The retry bound was
+   checked *before* `./start.sh stop`, so the last failed attempt's containers
+   stayed up while the log reported "production left down". They hold unified
+   memory plus the API/master ports — which is precisely what makes the next
+   manual start fail. Cleanup now runs before the exhaustion decision, so it
+   happens on the final attempt too.
+
+2. **`start.sh preflight` was not read-only.** It wrote `.env` from
+   `env.example` (the bootstrap skipped only `validate`) and created the head HF
+   cache plus the worker's cache directory. `local/prod-start.sh` calls it to
+   *classify* a failed start, and a classifier that mutates state also changes
+   its own next answer. The `.env` bootstrap now skips `validate|preflight`, and
+   a `READ_ONLY` flag suppresses both `mkdir`s — testing instead of creating.
+   Under `READ_ONLY` a missing cache only warns: `start` would create it, so
+   dying there would abort a retry that could still have succeeded.
+
+3. **`preflight && log "preflight OK"` suppressed `errexit`.** A call in an
+   AND-list disables `set -e` for the whole call, so preflight could report
+   success on a failed check. It is now called standalone. The two GID table
+   reads additionally carry explicit `|| die`: a command substitution that
+   printed a usable row and *then* returned non-zero was swallowed, so an
+   incomplete check read as a pass.
+
+4. **Malformed IPv4 was accepted and resolved to a plausible GID.** Three forms
+   survived the original `read -a` plus per-octet loop:
+
+   | Input | Why it passed | What it resolved to |
+   |---|---|---|
+   | `192.168.177.11.` | the empty fifth field is dropped, so the 4-field count check passed | the worker's address |
+   | `192.168.177.18446744073709551627` | `$((10#$o))` overflowed 64 bits and wrapped to 11 | the worker's address |
+   | `192.168.177.11\nignored` | `read` consumed only the first line and discarded the rest | the worker's address |
+
+   A bad `HEAD_IP`/`WORKER_IP` in `.env` would therefore have silently matched
+   the wrong fabric address instead of failing closed. Validation is now an
+   anchored `^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$` plus a **digit-count** bound
+   before any arithmetic, so an overflow cannot wrap. `192.168.177.010` still
+   resolves as decimal 10 (intended: `10#` defeats octal interpretation).
+
+Also validated: `MAX_BOOT_ATTEMPTS=bogus` disabled the retry bound entirely,
+because `[ "$attempt" -ge "bogus" ]` is false. A non-numeric or sub-1 value now
+falls back to 3 with a warning.
 
 ## 5. What the window broke, and the three fixes it produced
 

@@ -20,8 +20,27 @@ Kinds
 `prefill60k` / `prefill240k`
     Cold-prefill blocks. Every request carries a fresh salt, the filler count
     is calibrated through ``/tokenize`` so the server-reported ``prompt_tokens``
-    lands on the target, and a run whose ``prompt_tokens_details.cached_tokens``
-    is non-zero is rejected as warm. prefill tok/s = ``prompt_tokens / ttft``.
+    lands on the target, and a run that hit the prefix cache is rejected as
+    warm. prefill tok/s = ``prompt_tokens / ttft``.
+
+    Coldness is proved from whichever source the server actually offers, in
+    this order:
+
+    1. ``usage.prompt_tokens_details.cached_tokens``, when present. This is
+       gated by vLLM's ``--enable-prompt-tokens-details`` (default **False**),
+       and production does not pass it, so on this kit the field is absent.
+    2. The engine's own ``vllm:prefix_cache_hits_total`` /
+       ``vllm:prefix_cache_queries_total`` counters, sampled around the request.
+       A cold run must show a hits delta of exactly 0 while the queries delta
+       accounts for the run's own prompt tokens — so a frozen or unreadable
+       counter is rejected rather than read as zero.
+
+    Measured on the live candidate 2026-09-11: two byte-identical 66k-token
+    requests produced ``prompt_tokens_details: null`` on **both**, while
+    ``prefix_cache_hits_total`` advanced by 66,176 tokens on the second — i.e.
+    the cache was hit and the per-request field still said nothing. That is why
+    the counter fallback exists rather than a relaxed ``null`` check: a missing
+    per-request field carries no information here.
 
 A run that cannot be measured is recorded and listed in ``invalid_runs``; it is
 never silently dropped, because the auditor's sample-count gate reads that list.
@@ -71,6 +90,11 @@ TASK = "Reply with OK."
 PREFILL_TARGET_TOLERANCE = 0.05
 NAN_RE = re.compile(r"\bnan\b|locklock", re.I)
 SPEC_RE = re.compile(r"^(vllm:spec_decode_[a-zA-Z0-9_]+)\{([^}]*)\}\s+(\S+)$")
+# Engine-side prefix-cache counters. These carry label sets, so the value is
+# summed across them; `_created` gauges are excluded by the `_total` anchor.
+PREFIX_CACHE_RE = re.compile(
+    r"^vllm:prefix_cache_(queries|hits)_total\{([^}]*)\}\s+(\S+)$"
+)
 
 
 def contains_nan(text: str) -> bool:
@@ -124,6 +148,36 @@ def spec_snapshot() -> dict[str, float]:
                 out[f"pos:{pos.group(1)}"] = value
         else:
             out[name] = out.get(name, 0.0) + value
+    return out
+
+
+def prefix_cache_snapshot() -> dict[str, float]:
+    """Engine-side prefix-cache counters, summed over their label sets.
+
+    Returns an EMPTY dict when /metrics is unreadable or the counters are
+    absent. The caller must treat that as "cannot prove cold" — never as zero,
+    which is the whole point of sampling the engine instead of trusting a
+    client-visible field.
+    """
+    out: dict[str, float] = {}
+    try:
+        body = _get("/metrics", timeout=15)
+    except Exception:  # noqa: BLE001  (an unreadable counter is not a zero)
+        return {}
+    for line in body.splitlines():
+        match = PREFIX_CACHE_RE.match(line)
+        if not match:
+            continue
+        out[match.group(1)] = out.get(match.group(1), 0.0) + float(match.group(3))
+    return out
+
+
+def prefix_cache_delta(before: dict[str, float], after: dict[str, float]) -> dict:
+    """Per-request prefix-cache deltas; None when either sample is unusable."""
+    out: dict[str, float | None] = {"queries_delta": None, "hits_delta": None}
+    for key, field in (("queries", "queries_delta"), ("hits", "hits_delta")):
+        if key in before and key in after:
+            out[field] = after[key] - before[key]
     return out
 
 
@@ -322,11 +376,14 @@ def prefill_run(target: int, timeout: float) -> dict:
         "stream_options": {"include_usage": True},
         "chat_template_kwargs": {"enable_thinking": False},
     }
+    cache_before = prefix_cache_snapshot()
     raw = _stream(body, timeout)
+    cache_after = prefix_cache_snapshot()
     usage = raw["usage"]
     prompt_tokens = int(usage.get("prompt_tokens") or 0)
     details = usage.get("prompt_tokens_details") or {}
     cached = details.get("cached_tokens") if isinstance(details, dict) else None
+    cache_delta = prefix_cache_delta(cache_before, cache_after)
     ttft = None if raw["first_s"] is None else raw["first_s"] - raw["started_s"]
     prefill_tok_s = prompt_tokens / ttft if ttft and ttft > 0 and prompt_tokens else None
     return {
@@ -337,6 +394,8 @@ def prefill_run(target: int, timeout: float) -> dict:
         "tokenize_estimate": estimate,
         "prompt_tokens": prompt_tokens,
         "cached_tokens": cached,
+        "cache_queries_delta": cache_delta["queries_delta"],
+        "cache_hits_delta": cache_delta["hits_delta"],
         "ttft_s": ttft,
         "wall_s": raw["ended_s"] - raw["started_s"],
         "prefill_tok_s": prefill_tok_s,
@@ -361,13 +420,31 @@ def prefill_run_invalid(run: dict) -> str | None:
     if abs(run["prompt_tokens"] - target) / target > PREFILL_TARGET_TOLERANCE:
         return f"prompt_tokens {run['prompt_tokens']} outside {target} +/- {PREFILL_TARGET_TOLERANCE:.0%}"
     cached = run["cached_tokens"]
-    if cached is None:
-        # Unknown cache usage is not measured zero usage. `cached_tokens == 0`
-        # is the substitute this harness relies on for the omitted APC-reset
-        # audit, so a missing counter must be rejected rather than assumed cold.
-        return "no cached_tokens in usage (cannot prove the run was cold)"
-    if cached != 0:
-        return f"warm request: cached_tokens={cached}"
+    if cached is not None:
+        # Preferred source: the per-request field, when the server emits it.
+        if cached != 0:
+            return f"warm request: cached_tokens={cached}"
+    else:
+        # The field is gated by vLLM's `--enable-prompt-tokens-details`
+        # (default False) and production does not pass it, so on this kit it is
+        # ALWAYS absent — verified on a full cache hit, where the engine's
+        # hits counter advanced by 66,176 tokens while the field stayed null.
+        # `null` therefore carries no information and must not be read as zero.
+        # Fall back to the engine's own counters, fail-closed.
+        queries_delta = run.get("cache_queries_delta")
+        hits_delta = run.get("cache_hits_delta")
+        if queries_delta is None or hits_delta is None:
+            return "no prefix-cache telemetry (cannot prove the run was cold)"
+        if queries_delta < run["prompt_tokens"]:
+            # The counters did not account for this run's tokens, so either they
+            # are frozen or the run was not the only traffic. Either way the
+            # zero-hits reading is not attributable to this run.
+            return (
+                f"prefix-cache counters did not account for the run "
+                f"(queries delta {queries_delta} < prompt_tokens {run['prompt_tokens']})"
+            )
+        if hits_delta != 0:
+            return f"warm request: prefix_cache_hits advanced by {hits_delta} tokens"
     if run["nan"]:
         return "NaN/locklock marker in output"
     return None
@@ -408,11 +485,14 @@ def summarize(kind: str, runs: list[dict], invalid: list[dict]) -> dict:
         out["accept_ratio_median"] = statistics.median(ratios) if ratios else None
         out["any_nan"] = any(r["nan"] for r in runs)
     else:
-        # Every accepted prefill run proved cached_tokens == 0, so this can only
-        # be true for a run that was rejected as warm. Kept as an explicit
+        # Every accepted prefill run proved zero cache hits, from the
+        # per-request field or from the engine counters, so this can only be
+        # true for a run that was rejected as warm. Kept as an explicit
         # self-check over both lists rather than a tautology over `runs`.
         out["any_cache_hit"] = any(
-            (r.get("cached_tokens") or 0) != 0 for r in runs + invalid
+            (r.get("cached_tokens") or 0) != 0
+            or (r.get("cache_hits_delta") or 0) != 0
+            for r in runs + invalid
         )
     return out
 
@@ -468,7 +548,16 @@ def main(argv: list[str] | None = None) -> int:
             runs.append(run)
         shown = {
             k: run.get(k)
-            for k in ("i", "tok_s", "prefill_tok_s", "ttft_s", "prompt_tokens", "cached_tokens")
+            for k in (
+                "i",
+                "tok_s",
+                "prefill_tok_s",
+                "ttft_s",
+                "prompt_tokens",
+                "cached_tokens",
+                "cache_queries_delta",
+                "cache_hits_delta",
+            )
         }
         print(f"[probe] {args.kind} run {index + 1}/{args.runs}: {json.dumps(shown)}"
               + (f" INVALID {reason}" if reason else ""), flush=True)
