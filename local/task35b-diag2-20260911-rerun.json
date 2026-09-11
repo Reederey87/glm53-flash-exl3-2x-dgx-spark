@@ -1,0 +1,721 @@
+{
+ "schema": 1,
+ "kind": "task35b-diag",
+ "evidence_class": "diagnostic \u2014 NOT \u00a76 qualification evidence",
+ "counts": {
+  "structured": 31,
+  "essay": 31,
+  "hashmap": 81,
+  "prefill60k": 31,
+  "prefill240k": 11
+ },
+ "started": "2026-09-11T14:02:59-0400",
+ "phases": [
+  {
+   "phase": "preflight",
+   "ok": true
+  },
+  {
+   "phase": "disarm",
+   "ok": true
+  },
+  {
+   "phase": "arm_a",
+   "ok": true
+  },
+  {
+   "phase": "measure_a",
+   "ok": true
+  },
+  {
+   "phase": "arm_b",
+   "ok": true
+  },
+  {
+   "phase": "measure_b",
+   "ok": true
+  },
+  {
+   "phase": "restore",
+   "ok": true
+  },
+  {
+   "phase": "rearm",
+   "ok": true
+  },
+  {
+   "phase": "report",
+   "ok": true
+  }
+ ],
+ "phase_in_progress": null,
+ "backup": "/home/nvidia/GLM-5.3-Flash-EXL3-2x-DGX-Sparks/.env.bak-pre-task35b-diag-20260911-140259",
+ "env_sha256": "80e45237213f28c1e0a6245d12478e0a28b8eddbfeb4035a36b0e973928846ba",
+ "runner_sha256": "7e8db8604889f2965d4a11c6ff4667d5935fde823fe823529bd13bec562bcbc3",
+ "probe_sha256": "5d1160f9ff03eb1cb217e471f4457252134d633c2030d82dcb8aa0aff0708a5e",
+ "prod_start_sha256": "1e208b4f548b3bf8aa4b64c03a5317ce4dd91876893d6c24874e167bb7260708",
+ "start_sha256": "b3c56d3f93ca92779e65c5356b40fb182d8d097b1a83d2a6a51768415871885f",
+ "env_effective_before": {
+  "HEAD_IP": "192.168.177.10",
+  "WORKER_IP": "192.168.177.11",
+  "WORKER_USER": "nvidia",
+  "WORKER_HOME": "/home/nvidia",
+  "HEAD_CX7_IF": "enp1s0f1np1",
+  "WORKER_CX7_IF": "enp1s0f1np1",
+  "HEAD_CX7_IB": "rocep1s0f1",
+  "WORKER_CX7_IB": "rocep1s0f1",
+  "MODEL": "brandonmusic/GLM-5.3-Flash-tr3-4bpw",
+  "HF_HOME": "/home/nvidia/.cache/huggingface",
+  "IMAGE": "glm53-selfbuild:e3-w3-zfill-v149",
+  "PORT": "8000",
+  "TP": "2",
+  "NNODES": "2",
+  "MASTER_PORT": "29521",
+  "QUANTIZATION": "exl3",
+  "ENFORCE_EAGER": "0",
+  "EXL3_FUSED_MOE": "1",
+  "SERVED_MODEL_NAME": "GLM-5.3-Flash-EXL3",
+  "SPEC_METHOD": "dflash",
+  "DFLASH_MODEL": "incoai/GLM-5.3-Flash-DFlash2",
+  "DFLASH_TOKENS": "7",
+  "DFLASH_DRAFT_TP": "1",
+  "MTP_TOKENS": "2",
+  "MAX_NUM_SEQS": "4",
+  "GPU_MEM_UTIL": "0.85",
+  "KV_CACHE_DTYPE": "fp8",
+  "LANGUAGE_MODEL_ONLY": "0",
+  "SKIP_MM_PROFILING": "1",
+  "LIMIT_MM": "{\"image\":4,\"video\":1}",
+  "EXTRA_ARGS": "--kv-cache-memory-bytes 15414698763 --no-async-scheduling",
+  "USE_HOST_NCCL": "0",
+  "NCCL_SO_NAME": "libnccl.so.2.30.7",
+  "NCCL_IB_GID_INDEX": "3",
+  "NCCL_DEBUG": "WARN",
+  "MAX_MODEL_LEN": "1000000",
+  "MAX_NUM_BATCHED_TOKENS": "3584",
+  "LONG_PREFILL_TOKEN_THRESHOLD": "1792",
+  "DEFAULT_MAX_NEW_TOKENS": "65536",
+  "DFLASH_REVISION": "7d74cdd881ed7e32c31175984a67823127b66cfe",
+  "GLM53_SPINWAIT_2MS": "1",
+  "GLM53_FINE_GRAINED_APC": "1",
+  "EXL3_FAT_SORTED": "1",
+  "EXL3_FAT_BATCHED": "1",
+  "EXL3_FAT_KERNEL": "1",
+  "VLLM_PREFIX_CACHE_RETENTION_INTERVAL_SWA": "0",
+  "GLM53_MIXED_PREFILL_ESCALATE_MS": "10000",
+  "GLM53_DEFAULT_REASONING_EFFORT": "high",
+  "GLM53_INDEXER_WORKSPACE": "rightsize",
+  "EXL3_FAT_GROUPED": "1",
+  "GLM53_ADAPTIVE_K": "ema",
+  "GLM53_ADAPTIVE_K_CAPTURE": "1",
+  "EXL3_TEMP_ROWS_FUSED": "32",
+  "HEAD_GID": "3",
+  "WORKER_GID": "3"
+ },
+ "image_before": "sha256:c9ab369e62a1ed3b7f0e2179425f1976a2ff5b25349a90c5532fef69fe95d06a",
+ "jit_stamp_before": "7b09229c3b6f84b25ae340f4f0b57ce0",
+ "pool_capacity_before": "1396551 tokens; concurrency 1.40x",
+ "arm_image_presence": {
+  "a": {
+   "tag": "glm53-selfbuild:e3-w3-zfill",
+   "head": true,
+   "worker": true
+  },
+  "b": {
+   "tag": "glm53-selfbuild:e3-w3-zfill-v149",
+   "head": true,
+   "worker": true
+  }
+ },
+ "contract": {
+  "arms": {
+   "a": {
+    "tag": "glm53-selfbuild:e3-w3-zfill",
+    "exllamav3": "1.4.7"
+   },
+   "b": {
+    "tag": "glm53-selfbuild:e3-w3-zfill-v149",
+    "exllamav3": "1.4.9"
+   }
+  },
+  "lanes": {
+   "structured": 31,
+   "essay": 31,
+   "hashmap": 81,
+   "prefill60k": 31,
+   "prefill240k": 11
+  }
+ },
+ "disarm_attempted": true,
+ "timers_after_disarm": {
+  "vllm-glm53exl3-watchdog.timer": "inactive",
+  "glm53exl3-metrics-alert.timer": "inactive"
+ },
+ "disarm_stop_failures": {},
+ "quiescent_after_disarm": true,
+ "arms": {
+  "a": {
+   "arm_attempted": true,
+   "container": "glm53-exl3-head",
+   "image_tag": "glm53-selfbuild:e3-w3-zfill",
+   "expected_tag": "glm53-selfbuild:e3-w3-zfill",
+   "exllamav3_version": "1.4.7",
+   "worker_image_tag": "glm53-selfbuild:e3-w3-zfill",
+   "worker_exllamav3_version": "1.4.7",
+   "health": 200,
+   "jit_stamp": "fe037cb0ebdc252814b1a634b3a21258",
+   "pool_line": "(EngineCore pid=245) INFO 09-11 18:09:59 [kv_cache_utils.py:2598] GPU KV cache size: 1,396,551 tokens, Maximum concurrency for 1,000,000 tokens per request: 1.40x",
+   "pool_capacity": "1396551 tokens; concurrency 1.40x",
+   "container_started_at": "2026-09-11T18:03:38.90998314Z",
+   "worker_container_started_at": "2026-09-11T18:03:38.412575427Z",
+   "memfree_head_gib": 5.23,
+   "memfree_worker_gib": 4.33,
+   "preemptions_before": 0.0,
+   "warmup_rc": 0,
+   "measure_verified_image": "glm53-selfbuild:e3-w3-zfill",
+   "measure_verified_worker_image": "glm53-selfbuild:e3-w3-zfill",
+   "measure_verified_exllamav3": "1.4.7",
+   "measure_container_started_at": "2026-09-11T18:03:38.90998314Z",
+   "measure_worker_container_started_at": "2026-09-11T18:03:38.412575427Z",
+   "measure_attempt": "20260911-141414-1",
+   "preemptions_after": 0.0,
+   "preemptions_delta": 0.0
+  },
+  "b": {
+   "arm_attempted": true,
+   "container": "glm53-exl3-head",
+   "image_tag": "glm53-selfbuild:e3-w3-zfill-v149",
+   "expected_tag": "glm53-selfbuild:e3-w3-zfill-v149",
+   "exllamav3_version": "1.4.9",
+   "worker_image_tag": "glm53-selfbuild:e3-w3-zfill-v149",
+   "worker_exllamav3_version": "1.4.9",
+   "health": 200,
+   "jit_stamp": "7f2205293afc22e27ec1dcb32eec2c38",
+   "pool_line": "(EngineCore pid=245) INFO 09-11 19:24:33 [kv_cache_utils.py:2598] GPU KV cache size: 1,396,551 tokens, Maximum concurrency for 1,000,000 tokens per request: 1.40x",
+   "pool_capacity": "1396551 tokens; concurrency 1.40x",
+   "container_started_at": "2026-09-11T19:18:09.971971838Z",
+   "worker_container_started_at": "2026-09-11T19:18:09.459191795Z",
+   "memfree_head_gib": 5.04,
+   "memfree_worker_gib": 4.38,
+   "preemptions_before": 0.0,
+   "warmup_rc": 0,
+   "measure_verified_image": "glm53-selfbuild:e3-w3-zfill-v149",
+   "measure_verified_worker_image": "glm53-selfbuild:e3-w3-zfill-v149",
+   "measure_verified_exllamav3": "1.4.9",
+   "measure_container_started_at": "2026-09-11T19:18:09.971971838Z",
+   "measure_worker_container_started_at": "2026-09-11T19:18:09.459191795Z",
+   "measure_attempt": "20260911-152828-2",
+   "preemptions_after": 0.0,
+   "preemptions_delta": 0.0
+  }
+ },
+ "env_touched": false,
+ "measure_attempts": 2,
+ "probes": {
+  "a": {
+   "structured": "task35b-diag2-20260911-rerun-a-structured-20260911-141414-1.json",
+   "essay": "task35b-diag2-20260911-rerun-a-essay-20260911-141414-1.json",
+   "hashmap": "task35b-diag2-20260911-rerun-a-hashmap-20260911-141414-1.json",
+   "prefill60k": "task35b-diag2-20260911-rerun-a-prefill60k-20260911-141414-1.json",
+   "prefill240k": "task35b-diag2-20260911-rerun-a-prefill240k-20260911-141414-1.json"
+  },
+  "b": {
+   "structured": "task35b-diag2-20260911-rerun-b-structured-20260911-152828-2.json",
+   "essay": "task35b-diag2-20260911-rerun-b-essay-20260911-152828-2.json",
+   "hashmap": "task35b-diag2-20260911-rerun-b-hashmap-20260911-152828-2.json",
+   "prefill60k": "task35b-diag2-20260911-rerun-b-prefill60k-20260911-152828-2.json",
+   "prefill240k": "task35b-diag2-20260911-rerun-b-prefill240k-20260911-152828-2.json"
+  }
+ },
+ "probe_blocks": [
+  {
+   "arm": "a",
+   "lane": "structured",
+   "runs": 31,
+   "attempt": "20260911-141414-1",
+   "path": "task35b-diag2-20260911-rerun-a-structured-20260911-141414-1.json",
+   "started": "2026-09-11T14:14:15-0400",
+   "ok": true,
+   "returncode": 0,
+   "error": null,
+   "memfree_head_gib": [
+    5.41,
+    5.34
+   ],
+   "memfree_worker_gib": [
+    4.51,
+    5.34
+   ],
+   "seconds": 106.4
+  },
+  {
+   "arm": "a",
+   "lane": "essay",
+   "runs": 31,
+   "attempt": "20260911-141414-1",
+   "path": "task35b-diag2-20260911-rerun-a-essay-20260911-141414-1.json",
+   "started": "2026-09-11T14:16:02-0400",
+   "ok": true,
+   "returncode": 0,
+   "error": null,
+   "memfree_head_gib": [
+    5.34,
+    5.33
+   ],
+   "memfree_worker_gib": [
+    5.33,
+    4.42
+   ],
+   "seconds": 263.5
+  },
+  {
+   "arm": "a",
+   "lane": "hashmap",
+   "runs": 81,
+   "attempt": "20260911-141414-1",
+   "path": "task35b-diag2-20260911-rerun-a-hashmap-20260911-141414-1.json",
+   "started": "2026-09-11T14:20:26-0400",
+   "ok": true,
+   "returncode": 0,
+   "error": null,
+   "memfree_head_gib": [
+    5.33,
+    5.25
+   ],
+   "memfree_worker_gib": [
+    4.43,
+    4.41
+   ],
+   "seconds": 560.5
+  },
+  {
+   "arm": "a",
+   "lane": "prefill60k",
+   "runs": 31,
+   "attempt": "20260911-141414-1",
+   "path": "task35b-diag2-20260911-rerun-a-prefill60k-20260911-141414-1.json",
+   "started": "2026-09-11T14:29:48-0400",
+   "ok": true,
+   "returncode": 0,
+   "error": null,
+   "memfree_head_gib": [
+    5.25,
+    5.04
+   ],
+   "memfree_worker_gib": [
+    4.41,
+    4.42
+   ],
+   "seconds": 1171.4
+  },
+  {
+   "arm": "a",
+   "lane": "prefill240k",
+   "runs": 11,
+   "attempt": "20260911-141414-1",
+   "path": "task35b-diag2-20260911-rerun-a-prefill240k-20260911-141414-1.json",
+   "started": "2026-09-11T14:49:20-0400",
+   "ok": true,
+   "returncode": 0,
+   "error": null,
+   "memfree_head_gib": [
+    5.04,
+    5.38
+   ],
+   "memfree_worker_gib": [
+    4.41,
+    4.19
+   ],
+   "seconds": 1689.1
+  },
+  {
+   "arm": "b",
+   "lane": "structured",
+   "runs": 31,
+   "attempt": "20260911-152828-2",
+   "path": "task35b-diag2-20260911-rerun-b-structured-20260911-152828-2.json",
+   "started": "2026-09-11T15:28:28-0400",
+   "ok": true,
+   "returncode": 0,
+   "error": null,
+   "memfree_head_gib": [
+    4.37,
+    4.9
+   ],
+   "memfree_worker_gib": [
+    4.34,
+    5.03
+   ],
+   "seconds": 111.6
+  },
+  {
+   "arm": "b",
+   "lane": "essay",
+   "runs": 31,
+   "attempt": "20260911-152828-2",
+   "path": "task35b-diag2-20260911-rerun-b-essay-20260911-152828-2.json",
+   "started": "2026-09-11T15:30:21-0400",
+   "ok": true,
+   "returncode": 0,
+   "error": null,
+   "memfree_head_gib": [
+    4.9,
+    4.87
+   ],
+   "memfree_worker_gib": [
+    5.03,
+    5.02
+   ],
+   "seconds": 265.7
+  },
+  {
+   "arm": "b",
+   "lane": "hashmap",
+   "runs": 81,
+   "attempt": "20260911-152828-2",
+   "path": "task35b-diag2-20260911-rerun-b-hashmap-20260911-152828-2.json",
+   "started": "2026-09-11T15:34:47-0400",
+   "ok": true,
+   "returncode": 0,
+   "error": null,
+   "memfree_head_gib": [
+    4.87,
+    5.19
+   ],
+   "memfree_worker_gib": [
+    5.02,
+    5.01
+   ],
+   "seconds": 558.7
+  },
+  {
+   "arm": "b",
+   "lane": "prefill60k",
+   "runs": 31,
+   "attempt": "20260911-152828-2",
+   "path": "task35b-diag2-20260911-rerun-b-prefill60k-20260911-152828-2.json",
+   "started": "2026-09-11T15:44:07-0400",
+   "ok": true,
+   "returncode": 0,
+   "error": null,
+   "memfree_head_gib": [
+    5.19,
+    4.66
+   ],
+   "memfree_worker_gib": [
+    5.01,
+    4.27
+   ],
+   "seconds": 1163.0
+  },
+  {
+   "arm": "b",
+   "lane": "prefill240k",
+   "runs": 11,
+   "attempt": "20260911-152828-2",
+   "path": "task35b-diag2-20260911-rerun-b-prefill240k-20260911-152828-2.json",
+   "started": "2026-09-11T16:03:31-0400",
+   "ok": true,
+   "returncode": 0,
+   "error": null,
+   "memfree_head_gib": [
+    4.66,
+    3.99
+   ],
+   "memfree_worker_gib": [
+    4.27,
+    3.41
+   ],
+   "seconds": 1688.6
+  }
+ ],
+ "restored_image_tag": "glm53-selfbuild:e3-w3-zfill-v149",
+ "restored_exllamav3_version": "1.4.9",
+ "restored_worker_image_tag": "glm53-selfbuild:e3-w3-zfill-v149",
+ "timers_after_rearm": {
+  "vllm-glm53exl3-watchdog.timer": "active",
+  "glm53exl3-metrics-alert.timer": "active"
+ },
+ "rearm_failures": {},
+ "stats": {
+  "structured": {
+   "a": {
+    "valid_runs": 31,
+    "median": 66.55446831903294,
+    "min": 25.27304498371402,
+    "max": 67.20321508716023,
+    "mad": 0.2377371058910569,
+    "mad_over_median": 0.0035720682907637315,
+    "stall_threshold": 33.27723415951647,
+    "stall_count": 1,
+    "stall_fraction": 0.03225806451612903,
+    "registered_spread": 0.6300128475589553,
+    "registered_settled": false,
+    "low": 66.33613453139763,
+    "high": 66.73945886896686,
+    "level": 0.9893261594697833,
+    "n": 31,
+    "order_statistic": 9,
+    "invalid_runs": 0
+   },
+   "b": {
+    "valid_runs": 31,
+    "median": 66.0236947494042,
+    "min": 25.095109943346465,
+    "max": 67.04580304614223,
+    "mad": 0.28912495629072055,
+    "mad_over_median": 0.0043791090060637606,
+    "stall_threshold": 33.0118473747021,
+    "stall_count": 2,
+    "stall_fraction": 0.06451612903225806,
+    "registered_spread": 0.6353884504952568,
+    "registered_settled": false,
+    "low": 65.64811671627476,
+    "high": 66.19113022872943,
+    "level": 0.9893261594697833,
+    "n": 31,
+    "order_statistic": 9,
+    "invalid_runs": 0
+   }
+  },
+  "essay": {
+   "a": {
+    "valid_runs": 31,
+    "median": 24.473240483714623,
+    "min": 22.205952953297036,
+    "max": 26.654665348679366,
+    "mad": 0.8252819635730511,
+    "mad_over_median": 0.03372180991406608,
+    "stall_threshold": 12.236620241857311,
+    "stall_count": 0,
+    "stall_fraction": 0.0,
+    "registered_spread": 0.18177864097493193,
+    "registered_settled": true,
+    "low": 23.86406528777432,
+    "high": 25.12265648462653,
+    "level": 0.9893261594697833,
+    "n": 31,
+    "order_statistic": 9,
+    "invalid_runs": 0
+   },
+   "b": {
+    "valid_runs": 31,
+    "median": 24.580912554930045,
+    "min": 14.977018531224013,
+    "max": 27.550433267623905,
+    "mad": 0.6100725792302448,
+    "mad_over_median": 0.02481895567818886,
+    "stall_threshold": 12.290456277465022,
+    "stall_count": 0,
+    "stall_fraction": 0.0,
+    "registered_spread": 0.5115113081462112,
+    "registered_settled": false,
+    "low": 24.346998116246592,
+    "high": 25.19098513416029,
+    "level": 0.9893261594697833,
+    "n": 31,
+    "order_statistic": 9,
+    "invalid_runs": 0
+   }
+  },
+  "hashmap": {
+   "a": {
+    "valid_runs": 81,
+    "median": 30.689201057965175,
+    "min": 17.25018799135801,
+    "max": 33.51731285037712,
+    "mad": 1.8913310598057436,
+    "mad_over_median": 0.061628553191509734,
+    "stall_threshold": 15.344600528982587,
+    "stall_count": 0,
+    "stall_fraction": 0.0,
+    "registered_spread": 0.5300602263413138,
+    "registered_settled": false,
+    "low": 29.292390426389897,
+    "high": 31.74984334294853,
+    "level": 0.9860005262800131,
+    "n": 81,
+    "order_statistic": 30,
+    "invalid_runs": 0
+   },
+   "b": {
+    "valid_runs": 81,
+    "median": 30.85496679636853,
+    "min": 17.045298331113955,
+    "max": 33.37398738927469,
+    "mad": 1.798876673692881,
+    "mad_over_median": 0.058301040657888485,
+    "stall_threshold": 15.427483398184265,
+    "stall_count": 0,
+    "stall_fraction": 0.0,
+    "registered_spread": 0.5292077987289403,
+    "registered_settled": false,
+    "low": 29.721310059202956,
+    "high": 31.528781106767795,
+    "level": 0.9860005262800131,
+    "n": 81,
+    "order_statistic": 30,
+    "invalid_runs": 0
+   }
+  },
+  "prefill60k": {
+   "a": {
+    "valid_runs": 31,
+    "median": 1601.3679156425962,
+    "min": 1417.0862679271265,
+    "max": 1610.7060066032693,
+    "mad": 2.8860326274459567,
+    "mad_over_median": 0.0018022295808816993,
+    "stall_threshold": 800.6839578212981,
+    "stall_count": 0,
+    "stall_fraction": 0.0,
+    "registered_spread": 0.1209089658814896,
+    "registered_settled": true,
+    "low": 1598.9558187149744,
+    "high": 1604.796984192953,
+    "level": 0.9893261594697833,
+    "n": 31,
+    "order_statistic": 9,
+    "invalid_runs": 0
+   },
+   "b": {
+    "valid_runs": 31,
+    "median": 1606.783600358123,
+    "min": 1602.3358893506556,
+    "max": 1613.5484880160727,
+    "mad": 2.4833433346057063,
+    "mad_over_median": 0.0015455368937374106,
+    "stall_threshold": 803.3918001790615,
+    "stall_count": 0,
+    "stall_fraction": 0.0,
+    "registered_spread": 0.006978287967911799,
+    "registered_settled": true,
+    "low": 1605.160654950103,
+    "high": 1609.3264103833592,
+    "level": 0.9893261594697833,
+    "n": 31,
+    "order_statistic": 9,
+    "invalid_runs": 0
+   }
+  },
+  "prefill240k": {
+   "a": {
+    "valid_runs": 11,
+    "median": 1588.2911740709737,
+    "min": 1485.229653398685,
+    "max": 1593.5537040068946,
+    "mad": 5.262529935920838,
+    "mad_over_median": 0.0033133281994084034,
+    "stall_threshold": 794.1455870354869,
+    "stall_count": 0,
+    "stall_fraction": 0.0,
+    "registered_spread": 0.0682016322804102,
+    "registered_settled": true,
+    "low": 1537.655660584724,
+    "high": 1593.0790391419864,
+    "level": 0.98828125,
+    "n": 11,
+    "order_statistic": 2,
+    "invalid_runs": 0
+   },
+   "b": {
+    "valid_runs": 11,
+    "median": 1581.9790415128914,
+    "min": 1520.2356703660218,
+    "max": 1591.9812239030455,
+    "mad": 9.948574622057777,
+    "mad_over_median": 0.006288689268944848,
+    "stall_threshold": 790.9895207564457,
+    "stall_count": 0,
+    "stall_fraction": 0.0,
+    "registered_spread": 0.04535177246622137,
+    "registered_settled": true,
+    "low": 1524.9796892327515,
+    "high": 1591.9276161349492,
+    "level": 0.98828125,
+    "n": 11,
+    "order_statistic": 2,
+    "invalid_runs": 0
+   }
+  }
+ },
+ "comparison": [
+  {
+   "lane": "structured",
+   "band": 0.97,
+   "control_median": 66.55446831903294,
+   "candidate_median": 66.0236947494042,
+   "ratio": 0.9920249746856298,
+   "candidate_over_control_percent": -0.7975025314370221,
+   "ratio_ci_low": 0.9836477224840136,
+   "ratio_ci_high": 0.9978140977961331,
+   "ratio_ci_level": 0.9786523189395666,
+   "verdict": "non-inferior",
+   "reason": "median-ratio interval [0.9836, 0.9978] at 0.9787 coverage lies at or above band 0.97"
+  },
+  {
+   "lane": "essay",
+   "band": 0.95,
+   "control_median": 24.473240483714623,
+   "candidate_median": 24.580912554930045,
+   "ratio": 1.0043995837530004,
+   "candidate_over_control_percent": 0.43995837530004245,
+   "ratio_ci_low": 0.9691251453103858,
+   "ratio_ci_high": 1.055603260818506,
+   "ratio_ci_level": 0.9786523189395666,
+   "verdict": "non-inferior",
+   "reason": "median-ratio interval [0.9691, 1.0556] at 0.9787 coverage lies at or above band 0.95"
+  },
+  {
+   "lane": "hashmap",
+   "band": 0.95,
+   "control_median": 30.689201057965175,
+   "candidate_median": 30.85496679636853,
+   "ratio": 1.0054014354459817,
+   "candidate_over_control_percent": 0.5401435445981706,
+   "ratio_ci_low": 0.9361088726695687,
+   "ratio_ci_high": 1.0763471552790416,
+   "ratio_ci_level": 0.9720010525600262,
+   "verdict": "inconclusive",
+   "reason": "median-ratio interval [0.9361, 1.0763] spans band 0.95; the sample cannot decide this lane"
+  },
+  {
+   "lane": "prefill60k",
+   "band": 0.95,
+   "control_median": 1601.3679156425962,
+   "candidate_median": 1606.783600358123,
+   "ratio": 1.0033819115910996,
+   "candidate_over_control_percent": 0.33819115910995734,
+   "ratio_ci_low": 1.0002266148059424,
+   "ratio_ci_high": 1.0064858525463944,
+   "ratio_ci_level": 0.9786523189395666,
+   "verdict": "non-inferior",
+   "reason": "median-ratio interval [1.0002, 1.0065] at 0.9787 coverage lies at or above band 0.95"
+  },
+  {
+   "lane": "prefill240k",
+   "band": 0.95,
+   "control_median": 1588.2911740709737,
+   "candidate_median": 1581.9790415128914,
+   "ratio": 0.9960258341410387,
+   "candidate_over_control_percent": -0.3974165858961265,
+   "ratio_ci_low": 0.9572529998599991,
+   "ratio_ci_high": 1.0352952594923541,
+   "ratio_ci_level": 0.9765625,
+   "verdict": "non-inferior",
+   "reason": "median-ratio interval [0.9573, 1.0353] at 0.9766 coverage lies at or above band 0.95"
+  }
+ ],
+ "capture_problems": [],
+ "verdict": "INCONCLUSIVE",
+ "verdict_reason": "at least one lane could not be decided",
+ "method": {
+  "point_estimate": "median of each arm's observations; the ratio B_median/A_median",
+  "decision": "conservative composed interval for the MEDIAN RATIO: each arm's distribution-free sign-test order-statistic interval at 0.9750, paired across arms so the ratio is covered at 0.95 by the union bound",
+  "why_not_a_shift_interval": "a Hodges-Lehmann shift estimates the median of pairwise differences, which equals the difference of medians only under a location-shift model; it does not bound the median ratio across differently shaped arms",
+  "coverage_requirement": "a lane below 0.95 coverage is inconclusive; the minimum sample supporting it is 7 observations per arm",
+  "stall_count": "descriptive only; never used to certify the median it was measured against",
+  "fail_closed": "a lane whose ratio interval spans its band is inconclusive; a receipt failing validate_capture() is INVALID CAPTURE and cannot be read as a result"
+ },
+ "finished": "2026-09-11T16:42:28-0400"
+}
