@@ -151,6 +151,47 @@ on a quiet node or the owner grants an explicit exception for this currency
 bump. Qualification evidence remains outstanding; nothing found so far suggests
 a defect.
 
+### Pre-registered contract for the §6 qualification run
+
+Registered 2026-09-11 **before** the run. The constants live in
+`scripts/audit_v149_qualification.py`, which is the offline judge; the window
+runner records raw evidence and decides nothing, so the same capture can be
+re-judged without touching the cluster.
+
+| | |
+|---|---|
+| Arms | `a` = v1.4.7, `b` = v1.4.9, `b2` = v1.4.9, `a2` = v1.4.7 (A-B-B-A) |
+| Decode lanes | `structured`, `essay`, `hashmap` — **9** observations per arm each |
+| Prefill lanes | `prefill60k`, `prefill240k` — **5** observations per arm each |
+| Warmup | one predeclared 32-token pass per arm boot |
+| Non-inferiority band | `structured` 0.97, all other lanes 0.95 (candidate ÷ control, on arm medians) |
+| Drift limit | control drift `abs(a − a2) / max(a, a2)` > **0.05** → INCONCLUSIVE |
+| Verdicts | ADOPT / REVERT / INCONCLUSIVE / ABORT |
+
+The band is one-sided on purpose. v1.4.9 was taken for currency and correctness
+and **no speed claim is made**, so the question the window answers is "does the
+candidate regress", not "does it win". A lane below its band returns REVERT;
+control drift beyond the limit returns INCONCLUSIVE rather than a verdict, per
+`docs/13` §6's "report **INCONCLUSIVE**, not keep rerunning until it wins".
+
+Arm identity is verified on **both** nodes — container image tag and the
+in-container `exllamav3` distribution version, because `exllamav3.__version__`
+is unset — and the KV pool line is captured per arm. The pool line must equal
+the pre-window line. That check is only meaningful because the line is extracted
+specifically: the shared helper's first `kv_cache` match is a startup patch
+message whose value is identical on every arm, which would have made the gate
+vacuous (see the fix in commit 5baf82a).
+
+### Blocker: head-GPU clock fault (2026-09-11)
+
+The re-run could not start. spark1's head GPU is pinned at its **507 MHz**
+minimum clock — 22.9 TFLOP/s against 94.8 TFLOP/s on spark2 for the same bf16
+8192³ matmul, with no throttle reason reported, persistence enabled, normal
+temperature and no Xid. Cold prefill measures ~582 tok/s against the standing
+~1454 tok/s receipt, so a prefill arm run in this state would measure the fault
+rather than the candidate. A reboot is required. Receipt:
+`local/spark1-head-clock-507mhz-20260911.txt`.
+
 Note that `IMAGE` is part of `prod-start.sh`'s JIT shape hash, so the window
 wiped and rebuilt the Triton/TileLang caches on both nodes. The candidate's
 numbers are therefore post-rebuild and directly comparable to the standing band.
