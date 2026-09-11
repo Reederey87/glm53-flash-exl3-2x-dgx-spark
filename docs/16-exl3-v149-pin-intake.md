@@ -176,11 +176,36 @@ control drift beyond the limit returns INCONCLUSIVE rather than a verdict, per
 
 Arm identity is verified on **both** nodes — container image tag and the
 in-container `exllamav3` distribution version, because `exllamav3.__version__`
-is unset — and the KV pool line is captured per arm. The pool line must equal
-the pre-window line. That check is only meaningful because the line is extracted
-specifically: the shared helper's first `kv_cache` match is a startup patch
-message whose value is identical on every arm, which would have made the gate
-vacuous (see the fix in commit 5baf82a).
+is unset — and the KV pool capacity is captured per arm. The capacity must equal
+the pre-window capacity. That check is only meaningful because the capacity is
+*parsed*, not compared as a log line: the line carries a timestamp, PID and
+source prefix that differ on every boot, and the shared helper's first
+`kv_cache` match is a startup patch message whose value is identical on every
+arm (see the fixes in commits 5baf82a and cc12e74).
+
+### What this harness does NOT cover
+
+This is a **narrowed** contract, and an ADOPT from it is a statement about
+throughput on the lanes measured, **not** a completed `docs/13` §6
+qualification. `docs/13` §6 asks for more than this harness collects, and the
+gap is recorded here rather than silently absorbed. The audit output carries the
+same statement in its `scope` field so a receipt cannot be read as more than it
+is.
+
+Not covered:
+
+- **temp-1 production cells.** §6 asks for both temp-0 diagnostic and temp-1
+  production cells; this harness runs temp-0 only.
+- **The §6 serving gates** — toolcall, thinking/SSE, long-form and the
+  mixed-cache soak. `local/acceptance.sh` is run after restore and its return
+  code is gated, but it is not a substitute for those.
+- **The prescribed drained-APC reset and cache-counter traffic audit** for cold
+  rounds. Cold runs are validated by `cached_tokens == 0` and a fresh salt
+  instead, which rejects a warm hit but does not perform the §6 reset.
+
+Closing the qualification therefore still needs either those measurements or an
+owner-approved narrowing. This document records which of the two has happened;
+right now, neither has.
 
 ### Blocker: head-GPU clock fault (2026-09-11)
 
