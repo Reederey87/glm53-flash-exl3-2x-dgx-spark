@@ -30,6 +30,21 @@ review findings:
    every lane file present but the capture rejected. A retry that eventually
    succeeded must not erase the record of the attempt that failed first. See the
    `test_report_*` and `test_an_interrupted_retry_*` tests.
+
+5. Validation must fail closed on an *incomplete* contract, not only on a
+   demonstrably false one. Success has to be affirmative (`ok is True`), every
+   lane needs a usable count before its evidence can be measured against one,
+   and both nodes' images and boots must be the arm's own — a check that reads
+   only the head cannot see a worker running the other arm's build. See
+   `test_a_phase_with_no_success_flag_is_not_evidence_of_success` and the
+   `worker`/`no usable observation count`/`registered 7 runs` cases.
+
+6. An interruption must survive a resume of the very phase it interrupted.
+   Exempting that case let `--from rearm --to report` turn a run killed inside
+   `rearm` into NO REGRESSION DETECTED. See
+   `test_resuming_the_interrupted_evidence_phase_does_not_launder_it` and
+   `test_the_running_phase_is_not_mistaken_for_a_crashed_one`, which also pins
+   the narrow exception for the recomputable terminal phase.
 """
 
 from __future__ import annotations
@@ -452,9 +467,13 @@ def _healthy_state(directory: Path, counts: dict | None = None) -> dict:
     for arm, boot in (("a", "boot-a"), ("b", "boot-b")):
         state["arms"][arm] = {
             "container_started_at": boot,
+            "worker_container_started_at": f"{boot}-worker",
             "measure_container_started_at": boot,
+            "measure_worker_container_started_at": f"{boot}-worker",
             "measure_verified_image": window.ARMS[arm]["tag"],
+            "measure_verified_worker_image": window.ARMS[arm]["tag"],
             "measure_verified_exllamav3": window.ARMS[arm]["exllamav3"],
+            "worker_exllamav3_version": window.ARMS[arm]["exllamav3"],
             "preemptions_delta": 0,
             "measure_attempt": f"{arm}-attempt-1",
         }
@@ -498,6 +517,11 @@ def test_the_running_phase_is_not_mistaken_for_a_crashed_one(tmp_path, monkeypat
     "report". Treating that as a crash made every report run through `main()`
     return INVALID CAPTURE -- found by exercising the real bytes on the cluster,
     because a direct `phase_report(state)` call never sets the field.
+
+    The in-run case is handled by `current_phase`, and a leftover for the
+    terminal report phase is recoverable: re-running it regenerates the verdict
+    from evidence that is still on disk. A leftover for any phase that produces
+    evidence is flagged, whatever is running.
     """
     receipt = tmp_path / "diag.json"
     monkeypatch.setattr(diag.window, "_RECEIPT", receipt)
@@ -509,9 +533,11 @@ def test_the_running_phase_is_not_mistaken_for_a_crashed_one(tmp_path, monkeypat
 
     # The phase executing now is not evidence of an earlier crash.
     assert diag.validate_capture(state, current_phase="report") == []
-    # Any OTHER leftover phase is.
-    assert any("aborted inside phase" in p
-               for p in diag.validate_capture(state, current_phase=None))
+    # Nor is a leftover report at any other moment: that phase only recomputes
+    # the verdict, so a kill inside it leaves the capture intact.
+    assert "report" not in diag.EVIDENCE_PHASES
+    assert diag.validate_capture(state, current_phase=None) == []
+    # A leftover for an evidence phase is flagged even while another runs.
     state["phase_in_progress"] = "measure_b"
     assert any("aborted inside phase 'measure_b'" in p
                for p in diag.validate_capture(state, current_phase="report"))
@@ -523,6 +549,43 @@ def test_the_running_phase_is_not_mistaken_for_a_crashed_one(tmp_path, monkeypat
     written = json.loads(receipt.read_text())
     assert written["verdict"] == "NO REGRESSION DETECTED"
     assert written["capture_problems"] == []
+
+
+@pytest.mark.parametrize("phase", ["rearm", "restore", "arm_b", "measure_a"])
+def test_resuming_the_interrupted_evidence_phase_does_not_launder_it(
+        tmp_path, monkeypatch, phase):
+    """The reviewer's repro: `--from <the interrupted phase>` must not pass.
+
+    `main` used to exempt a leftover equal to the phase being resumed, so a run
+    killed inside `rearm` was accepted by simply resuming `rearm`: rc=0 and NO
+    REGRESSION DETECTED, with the interruption erased. `restore` and the
+    `arm_*`/`measure_*` phases had the same hole, and those phases leave no probe
+    block behind, so nothing else preserved the failure.
+
+    The handlers are stubbed: what is under test is the interruption
+    bookkeeping, not the cluster work. `require_disarmed` is stubbed too, since
+    an arm phase would otherwise reach for the cluster.
+    """
+    receipt = tmp_path / "diag.json"
+    monkeypatch.setattr(diag.window, "_RECEIPT", receipt)
+    monkeypatch.setattr(diag.window, "require_disarmed", lambda *a, **k: None)
+    monkeypatch.setitem(diag.HANDLERS, phase, lambda state: None)
+    state = _healthy_state(tmp_path)
+    state["phase_in_progress"] = phase
+    state["backup"] = str(tmp_path / "env.bak")
+    receipt.write_text(json.dumps(state))
+
+    # Resuming exactly the interrupted phase succeeds on its own terms...
+    assert diag.main(["--state", str(receipt), "--from", phase, "--to", phase]) == 0
+    written = json.loads(receipt.read_text())
+    assert phase in written["interrupted_phases"]
+    # ...but the interruption is not erasable, so judging the receipt fails
+    # closed rather than reporting NO REGRESSION DETECTED.
+    assert diag.main(["--state", str(receipt), "--from", "report", "--to", "report"]) == 1
+    written = json.loads(receipt.read_text())
+    assert written["verdict"] == "INVALID CAPTURE"
+    assert any(f"interrupted inside phase '{phase}'" in p
+               for p in written["capture_problems"])
 
 
 def test_report_resumption_on_a_failed_receipt_is_not_a_pass(tmp_path, monkeypatch):
@@ -581,7 +644,24 @@ def test_a_failed_phase_is_not_erased_by_a_successful_retry(tmp_path, monkeypatc
     state["phases"].append({"phase": "measure_b", "ok": True})
 
     problems = diag.validate_capture(state)
-    assert any("measure_b failed" in p for p in problems), problems
+    assert any("did not report success" in p for p in problems), problems
+
+
+def test_a_phase_with_no_success_flag_is_not_evidence_of_success(tmp_path, monkeypatch):
+    """Success must be AFFIRMATIVE.
+
+    `ok` missing, or `ok: null`, is an incomplete contract: it says nothing
+    about whether the phase succeeded. Testing only for `ok is False` accepted
+    both, so a truncated or hand-edited receipt could pass a phase that never
+    recorded its outcome.
+    """
+    receipt = tmp_path / "diag.json"
+    monkeypatch.setattr(diag.window, "_RECEIPT", receipt)
+    for entry in ({"phase": "measure_b"}, {"phase": "measure_b", "ok": None}):
+        state = _healthy_state(tmp_path)
+        state["phases"].append(entry)
+        problems = diag.validate_capture(state)
+        assert any("did not report success" in p for p in problems), (entry, problems)
 
 
 def test_main_preserves_a_leftover_phase_instead_of_overwriting_it(tmp_path, monkeypatch):
@@ -640,7 +720,28 @@ def test_evidence_from_an_earlier_attempt_is_not_accepted(tmp_path, monkeypatch)
     (lambda s: s["arms"]["a"].update(measure_verified_exllamav3="1.4.9"), "exllamav3"),
     (lambda s: s["arms"]["b"].update(measure_verified_image="wrong:tag"), "not the arm's tag"),
     (lambda s: s["arms"]["a"].update(measure_container_started_at="boot-later"), "restarted"),
-    (lambda s: s["arms"]["b"].update(container_started_at="boot-a"), "same container boot"),
+    # The reviewer's repro for finding 2: arm B's worker still on arm A's image.
+    # The head was checked but the worker was not, so a two-node comparison whose
+    # worker ran the other arm's build passed.
+    (lambda s: s["arms"]["b"].update(
+        measure_verified_worker_image=window.ARMS["a"]["tag"]), "worker"),
+    (lambda s: s["arms"]["b"].update(worker_exllamav3_version="1.4.7"), "worker"),
+    (lambda s: s["arms"]["a"].pop("worker_container_started_at"), "worker"),
+    (lambda s: s["arms"]["a"].update(measure_worker_container_started_at="boot-later"),
+     "worker"),
+    # Same worker boot in both arms: the arms are not two distinct boots.
+    (lambda s: s["arms"]["b"].update(
+        worker_container_started_at="boot-a-worker",
+        measure_worker_container_started_at="boot-a-worker"), "same worker"),
+    # The reviewer's repro for finding 3: an absent count used to disable the
+    # observation-length check entirely, so a short file passed a long contract.
+    (lambda s: s["counts"].pop("hashmap"), "no usable observation count"),
+    (lambda s: s["counts"].update(structured=None), "no usable observation count"),
+    (lambda s: s["counts"].update(essay=0), "no usable observation count"),
+    (lambda s: s["counts"].update(essay="21"), "no usable observation count"),
+    # The receipt's count, the block's count and the file must agree.
+    (lambda s: s["probe_blocks"][0].update(runs=7), "registered 7 runs"),
+    (lambda s: s["arms"]["b"].update(container_started_at="boot-a"), "same head"),
     (lambda s: s["probes"]["a"].pop("hashmap"), "no evidence file was selected"),
     (lambda s: [b.update(ok=False, error="probe died")
                 for b in s["probe_blocks"] if b["arm"] == "a" and b["lane"] == "essay"],

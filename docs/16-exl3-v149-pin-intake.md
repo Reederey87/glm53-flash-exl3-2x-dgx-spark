@@ -13,6 +13,14 @@ bump on which no performance claim is made. Do not cite this task as a completed
 performance qualification. Verdict receipts: `local/task35-v149-verdict-20260910.txt`,
 `local/task35-prod-start-hardening-20260910.txt`.
 
+A **paired two-arm diagnostic** (not the §6 contract) has since measured the two
+pins directly, in two passes on 2026-09-11 — see §4, "A paired two-arm diagnostic
+instead of a re-run". It establishes non-inferiority on four of five lanes and
+demonstrates no regression on any lane, but leaves `hashmap` undecided, so it
+does **not** close §6. An earlier, smaller pass reported v1.4.9 ~3.7–4.9%
+*faster* on decode; the resized pass refuted that as a small-sample artifact and
+the claim is withdrawn.
+
 Production runs `glm53-selfbuild:e3-w3-zfill-v149` (`sha256:c9ab369e62a1…`).
 Rollback is the last-wins `IMAGE=glm53-selfbuild:e3-w3-zfill` line, restored from
 `.env.bak-pre-task35-v149-20260910`.
@@ -507,13 +515,17 @@ median-ratio interval to the same 73-minute capture gives:
 | prefill240k | 0.9997 | 0.95 | [0.9927, 1.0062] | 0.8750 | **inconclusive** (coverage) |
 
 **INCONCLUSIVE — at least one lane could not be decided.** Two of five lanes are
-decided non-inferior, and no lane shows a regression: every point estimate is at
-or above 0.9967 and three of five are ~4–5% *faster*. But three lanes are
-undecidable on this capture — `hashmap` and `prefill60k` because the interval
-spans the band at 21 and 9 observations respectively, and `prefill240k` because 5
-observations reach only 0.875 coverage, below the 0.95 the rule requires. An
-earlier revision of this document reported NO REGRESSION DETECTED on this same
-capture; that verdict came from the shift rule and is withdrawn.
+decided non-inferior. No lane's point estimate falls below its band — every one
+is at or above 0.9967 and three of five are ~4–5% *faster* — but a point estimate
+is not the decision, and with three lanes undecidable **no regression is ruled
+out either**: `hashmap`'s interval reaches 0.9284 against a 0.95 band and
+`prefill60k`'s reaches 0.8722, so both are consistent with a regression as well
+as with the improvement they measured. Three lanes are undecidable on this
+capture — `hashmap` and `prefill60k` because the interval spans the band at 21
+and 9 observations respectively, and `prefill240k` because 5 observations reach
+only 0.875 coverage, below the 0.95 the rule requires. An earlier revision of
+this document reported NO REGRESSION DETECTED on this same capture; that verdict
+came from the shift rule and is withdrawn.
 
 Note what the corrected rule does *not* do: it does not turn any measured
 improvement into a regression, and it does not doubt the point estimates. The
@@ -533,27 +545,41 @@ Resized per lane as above, ~2h39m total, `capture_problems: []`.
 | prefill240k | 11 | 1588.29 | 1581.98 | 0.9960 | 0.95 | [0.9573, 1.0353] | 0.9766 | non-inferior |
 
 **INCONCLUSIVE — one lane undecided.** Four of five lanes are decided
-non-inferior and no lane regresses past its band. `hashmap` is the exception,
-and the reason is headroom rather than data quality: its point ratio is 1.0054
-against a 0.95 band, so the margin available is 5.5%, while the exact interval's
-half-width at 81 observations is about 7%. Deciding that lane needs roughly
-131–161 observations. The failure is on width, not coverage — the interval spans
-its band, and the lane's coverage (0.9720) is above the requirement.
+non-inferior: `structured`, `essay`, `prefill60k` and `prefill240k` each have an
+interval entirely above their band. `hashmap` is the exception, and the reason is
+headroom rather than data quality: its point ratio is 1.0054 against a 0.95 band,
+so the margin available is 5.5%, while the exact interval's half-width at 81
+observations is about 7%. Deciding that lane needs roughly 131–161 observations.
+The failure is on width, not coverage — the interval spans its band, and the
+lane's coverage (0.9720) is above the requirement.
+
+That lane is therefore **not decided in either direction**, and the distinction
+matters for how this pass is read: its interval `[0.9361, 1.0763]` crosses the
+0.95 band, so this capture does **not** establish that `hashmap` is
+non-inferior, and does **not** rule out a regression there. The honest summary is
+that no regression is *demonstrated* on any lane, on four lanes non-inferiority
+is *established*, and on `hashmap` the question stays open. It is not a pass for
+that lane.
 
 **The first pass's decode win does not reproduce, and that is the headline
 correction.** The withdrawn pass reported v1.4.9 ~3.7–4.9% *faster* on the three
 decode lanes, and that number reached the README. At 31–81 observations every
-lane sits within ±0.8% of parity, so the apparent win was a small-sample
-artifact — the first pass had 21 observations per decode lane, and at that size
-the order-statistic interval is wide enough for a chance draw to look like a
-consistent advantage. The honest result is **throughput parity**: v1.4.9 is
-neither faster nor slower than v1.4.7 beyond ±0.8% on any lane measured here, and
-no lane regresses past its pre-registered band. One detail belongs in that
-statement rather than under it: `structured` is 0.8% *slower* on this pass and
-its interval [0.9836, 0.9978] excludes 1.0, so the slowdown is resolved — it is
-simply far inside the 0.97 band. Both passes agree that the pin is safe to hold;
-only the first pass's *magnitude* was wrong, and it was wrong in the direction
-that flattered the change.
+lane's point estimate sits within ±0.8% of parity, so the apparent win was a
+small-sample artifact — the first pass had 21 observations per decode lane, and
+at that size the order-statistic interval is wide enough for a chance draw to
+look like a consistent advantage. The honest result is **throughput parity on the
+point estimates**: v1.4.9's measured medians are within ±0.8% of v1.4.7's on
+every lane here.
+
+That is a statement about the medians, not a bound on the difference. Only four
+lanes carry a decided answer, and `hashmap`'s interval is wide enough (±7%) to
+contain both a 5% regression and a 5% win, so "within ±0.8%" must not be read as
+"equivalent to within ±0.8%", and no lane's *interval* is ±0.8% wide. One detail
+belongs in that statement rather than under it: `structured` is 0.8% *slower* on
+this pass and its interval [0.9836, 0.9978] excludes 1.0, so that slowdown is
+resolved — it is simply far inside the 0.97 band. Both passes agree that the pin
+is safe to hold; only the first pass's *magnitude* was wrong, and it was wrong in
+the direction that flattered the change.
 
 The receipt also shows why the registered window could not answer this: on arm A
 alone the `(max - min) / median` spread was **0.645** (structured), **0.640**
@@ -583,9 +609,10 @@ Production was restored byte-for-byte (`.env` sha256 identical to the pre-run
 backup, no leftover diagnostic `IMAGE=` line, both nodes back on
 `e3-w3-zfill-v149` at exllamav3 1.4.9, health 200) and both timers were re-armed.
 The diagnostic receipt carries `evidence_class: "diagnostic — NOT §6
-qualification evidence"`, and **§6 remains open**: this pass says no lane
-regressed and four lanes are non-inferior, but it is neither the registered
-contract nor, on `hashmap`, a decided answer, and must not be filed as either.
+qualification evidence"`, and **§6 remains open**: this pass establishes
+non-inferiority on four lanes and demonstrates no regression on any lane, but it
+is neither the registered contract nor, on `hashmap`, a decided answer, and must
+not be filed as either.
 
 ### What this harness does NOT cover
 
@@ -780,12 +807,43 @@ telemetry"; round 8 covered the diagnostic.
   (a bootstrap interval for the same estimand decides all five lanes on the same
   capture, but is not exact) and chose to re-run rather than record a narrowing.
   **The resized pass then refuted the round-8 pass's own headline**: at 31–81
-  observations v1.4.9 is within ±0.8% of v1.4.7 on every lane, so the ~3.7–4.9%
-  decode advantage the withdrawn verdict reported was a small-sample artifact.
+  observations every lane's point estimate is within ±0.8% of v1.4.7, so the
+  ~3.7–4.9% decode advantage the withdrawn verdict reported was a small-sample
+  artifact.
   One lane, `hashmap`, remains undecided on interval width; the owner accepted
   that rather than spending another three-hour window. The finding that survives
-  both passes, and the one the pin actually needed, is that **no lane regresses
-  past its band**.
+  both passes, and the one the pin actually needed, is that **no lane is
+  demonstrated to regress past its band** — on four lanes non-inferiority is
+  established outright, and on `hashmap`, whose interval straddles the band, the
+  question is left open rather than answered in the pin's favour.
+- **Round 10 — four findings against the capture validation, all real.** (1)
+  **Resuming the interrupted phase discarded the interruption.** `main` exempted
+  a leftover `phase_in_progress` equal to the phase being resumed, on the
+  reasoning that the in-run case looks identical — so `--from rearm --to report`
+  on a run killed inside `rearm` returned rc=0 and NO REGRESSION DETECTED.
+  `restore` and the `arm_*`/`measure_*` phases had the same hole, and those
+  phases leave no probe block behind, so nothing else preserved the failure. The
+  in-run case is now handled only by `validate_capture`'s `current_phase`, and
+  every evidence-producing phase's leftover is kept. The one exemption is the
+  terminal `report` phase, which recomputes its output from evidence still on
+  disk: flagging a kill there would poison a receipt permanently for a
+  millisecond-wide window, and on this host (stalls, power capping) that is a
+  real possibility. (2) **The worker node was unvalidated.** Only the head's
+  image and version were checked, so arm B with its worker still on arm A's image
+  passed a two-node comparison. Both nodes are now checked per node, with the
+  worker's boot bound to the measured boot and the two arms' worker boots
+  required to differ. (3) **Incomplete contracts bypassed the checks.** A phase
+  entry with `ok: null` counted as success because the test was `ok is False`,
+  and a missing `counts.<lane>` silently disabled the observation-length check,
+  so a 7-observation file could stand in for a 31-observation contract. Success
+  is now affirmative, every lane needs a usable positive-integer count, and the
+  block that wrote the selected file must agree with that count. (4) **The
+  documentation overclaimed.** README, this document and the PR body said "no
+  lane regresses" and that no interval crosses its band, but `hashmap`'s verified
+  interval `[0.9361, 1.0763]` crosses the 0.95 band. Corrected to four lanes
+  decided non-inferior, `hashmap` undecided, and **no regression demonstrated —
+  not ruled out**. All four are covered by tests verified to fail against the
+  pre-fix revision (`554fe86`): 18 red, each mapping to its finding.
 
 ### The 507 MHz clock cap CLEARED — and how (2026-09-11)
 

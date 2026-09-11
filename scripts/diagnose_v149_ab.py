@@ -146,6 +146,13 @@ PHASES = (
     "report",
 )
 ARM_PHASES = tuple(name for name in PHASES if name.startswith(("arm_", "measure_")))
+# Phases that only recompute their output from inputs that are already on disk.
+# Re-running one reproduces exactly what the killed run would have produced, so
+# an interruption there leaves no gap in the evidence. Every other phase either
+# touches the cluster or records state, and an interrupted one means the capture
+# may be incomplete -- that interruption must never be discarded.
+RECOMPUTABLE_PHASES = ("report",)
+EVIDENCE_PHASES = tuple(name for name in PHASES if name not in RECOMPUTABLE_PHASES)
 
 
 def log(message: str) -> None:
@@ -598,12 +605,17 @@ def validate_capture(state: dict, current_phase: str | None = None) -> list[str]
         if name not in seen:
             problems.append(f"phase {name} never ran")
     # Iterate every entry, not the latest per phase: a retry that succeeded must
-    # not erase the record of the attempt that failed before it.
+    # not erase the record of the attempt that failed before it. Success must be
+    # AFFIRMATIVE: an entry with no `ok` field, or `ok: null`, is not evidence
+    # that the phase succeeded, and testing only for `False` let both through.
     for entry in entries:
-        if entry.get("ok") is False:
-            problems.append(f"phase {entry.get('phase')} failed: {entry.get('error')}")
+        if entry.get("ok") is not True:
+            problems.append(
+                f"phase {entry.get('phase')} did not report success "
+                f"(ok={entry.get('ok')!r}): {entry.get('error')}"
+            )
     in_progress = state.get("phase_in_progress")
-    if in_progress and in_progress != current_phase:
+    if in_progress and in_progress != current_phase and in_progress in EVIDENCE_PHASES:
         problems.append(
             f"the run aborted inside phase {in_progress!r} "
             "(phase_in_progress was not cleared)"
@@ -618,29 +630,55 @@ def validate_capture(state: dict, current_phase: str | None = None) -> list[str]
 
     counts = state.get("counts") or {}
     blocks = state.get("probe_blocks") or []
+    # The counts are the contract the evidence was collected under, so a missing
+    # or nonsensical one must be a failure rather than a skipped check: an absent
+    # count used to disable the observation-length test entirely, letting a
+    # 7-observation file stand in for a 31-observation contract.
+    for lane in EXPECTED_LANES:
+        want = counts.get(lane)
+        if not isinstance(want, int) or isinstance(want, bool) or want < 1:
+            problems.append(
+                f"lane {lane}: the receipt records no usable observation count "
+                f"({want!r}); the evidence cannot be checked against a contract"
+            )
     for arm in ("a", "b"):
         record = (state.get("arms") or {}).get(arm) or {}
         expected = window.ARMS[arm]
-        if record.get("measure_verified_image") != expected["tag"]:
-            problems.append(
-                f"arm {arm}: measured image {record.get('measure_verified_image')!r} "
-                f"is not the arm's tag {expected['tag']!r}"
-            )
-        if record.get("measure_verified_exllamav3") != expected["exllamav3"]:
-            problems.append(
-                f"arm {arm}: measured exllamav3 {record.get('measure_verified_exllamav3')!r} "
-                f"is not {expected['exllamav3']!r}"
-            )
-        # Boot binding: the arm phase's boot must be the one that was measured.
-        boot = record.get("container_started_at")
-        measured_boot = record.get("measure_container_started_at")
-        if not boot or not measured_boot:
-            problems.append(f"arm {arm}: missing container boot identity")
-        elif boot != measured_boot:
-            problems.append(
-                f"arm {arm}: the container restarted between arming and measuring "
-                f"({boot} -> {measured_boot})"
-            )
+        # Both nodes are checked, not just the head. The comparison is a
+        # two-node measurement, so a worker running a different image would
+        # invalidate it just as surely as a wrong head. The worker's exllamav3
+        # version is the one the arm phase recorded rather than a measure-time
+        # re-read (the runner re-verifies the worker's boot at measure time but
+        # not its version), so it is the strongest worker evidence available.
+        for node, image_key, version_key in (
+            ("head", "measure_verified_image", "measure_verified_exllamav3"),
+            ("worker", "measure_verified_worker_image", "worker_exllamav3_version"),
+        ):
+            if record.get(image_key) != expected["tag"]:
+                problems.append(
+                    f"arm {arm} {node}: measured image {record.get(image_key)!r} "
+                    f"is not the arm's tag {expected['tag']!r}"
+                )
+            if record.get(version_key) != expected["exllamav3"]:
+                problems.append(
+                    f"arm {arm} {node}: measured exllamav3 {record.get(version_key)!r} "
+                    f"is not {expected['exllamav3']!r}"
+                )
+        # Boot binding, per node: the boot the arm phase recorded must be the one
+        # that was measured, or the observations belong to some other boot.
+        for node, armed_key, measured_key in (
+            ("head", "container_started_at", "measure_container_started_at"),
+            ("worker", "worker_container_started_at", "measure_worker_container_started_at"),
+        ):
+            armed = record.get(armed_key)
+            measured = record.get(measured_key)
+            if not armed or not measured:
+                problems.append(f"arm {arm} {node}: missing container boot identity")
+            elif armed != measured:
+                problems.append(
+                    f"arm {arm} {node}: the container restarted between arming and "
+                    f"measuring ({armed} -> {measured})"
+                )
         delta = record.get("preemptions_delta")
         if delta is None:
             problems.append(f"arm {arm}: preemption delta unreadable (not 'no preemptions')")
@@ -648,12 +686,16 @@ def validate_capture(state: dict, current_phase: str | None = None) -> list[str]
             problems.append(f"arm {arm}: {delta} preemptions during measurement")
 
     # The two arms must be different boots, or the comparison is not two arms.
-    boots = {
-        arm: ((state.get("arms") or {}).get(arm) or {}).get("container_started_at")
-        for arm in ("a", "b")
-    }
-    if boots["a"] and boots["a"] == boots["b"]:
-        problems.append("both arms report the same container boot identity")
+    for node, key in (("head", "container_started_at"),
+                      ("worker", "worker_container_started_at")):
+        boots = {
+            arm: ((state.get("arms") or {}).get(arm) or {}).get(key)
+            for arm in ("a", "b")
+        }
+        if boots["a"] and boots["a"] == boots["b"]:
+            problems.append(
+                f"both arms report the same {node} container boot identity"
+            )
 
     for arm in ("a", "b"):
         attempt = ((state.get("arms") or {}).get(arm) or {}).get("measure_attempt")
@@ -677,6 +719,17 @@ def validate_capture(state: dict, current_phase: str | None = None) -> list[str]
             if not selected:
                 problems.append(f"arm {arm} lane {lane}: no evidence file was selected")
                 continue
+            # The block that wrote the selected file must itself claim the
+            # contract's observation count, so the three records -- the receipt's
+            # count, the block's count, and the file's observations -- have to
+            # agree rather than each being checked in isolation.
+            chosen_blocks = [b for b in matching if b.get("path") == selected]
+            if chosen_blocks and isinstance(want, int) and chosen_blocks[-1].get("runs") != want:
+                problems.append(
+                    f"arm {arm} lane {lane}: the block that wrote the selected file "
+                    f"registered {chosen_blocks[-1].get('runs')!r} runs, but the "
+                    f"receipt's count is {want}"
+                )
             # Bind the selected evidence to the CURRENT measurement attempt, so a
             # stale file from an earlier attempt cannot be judged as this one's.
             if not attempt:
@@ -924,22 +977,33 @@ def main(argv: list[str] | None = None) -> int:
     for sig in (signal.SIGTERM, signal.SIGHUP):
         signal.signal(sig, window._on_signal)
     atexit.register(window.emergency_restore)
-    # A leftover `phase_in_progress` can mean an earlier attempt died inside that
-    # phase without clearing it. The loop below overwrites this field before
-    # every phase, so the signal would be lost and a later success would read as
-    # a clean capture. Preserve it for `validate_capture` instead.
+    # A leftover `phase_in_progress` means an earlier attempt died inside that
+    # phase without clearing it -- `main` clears the field after every phase,
+    # success or failure, and saves, so a persisted value can only come from a
+    # hard kill (SIGKILL, OOM, power loss, host stall). The loop below overwrites
+    # the field before every phase, so the signal would otherwise be lost and a
+    # later success would read as a clean capture. Preserve it instead.
     #
-    # The one value that is NOT evidence of a crash is the phase this invocation
-    # is about to run: `main` sets `phase_in_progress` before calling the
-    # handler, so resuming the phase that was interrupted looks identical to
-    # starting it. A resumed phase is caught by its own block records instead --
-    # a killed attempt's block is registered before it runs, so it stays in
-    # `probe_blocks` as a failure.
+    # This covers the phase this invocation is about to resume, not just the
+    # others. An earlier revision exempted the match, reasoning that `main` sets
+    # the field before calling the handler and so a resuming run looks identical
+    # to a starting one. That reasoning was wrong: the in-run case is already
+    # handled by `validate_capture`'s `current_phase`, while exempting the match
+    # discarded real evidence -- a run killed during `restore` or `arm_*` was
+    # silently accepted by resuming that same phase, and those phases leave no
+    # probe block to preserve the failure.
+    #
+    # The one exception is a phase that only recomputes its output, i.e. the
+    # terminal report: re-running it regenerates the verdict from evidence that
+    # is still on disk, so a kill there leaves the capture itself intact.
+    # Flagging it would permanently poison a receipt for a millisecond-wide
+    # window, which on this cluster (host stalls, power capping) is a real
+    # possibility. `EVIDENCE_PHASES` is every phase that does NOT qualify.
     leftover = state.get("phase_in_progress")
-    if leftover and leftover != PHASES[lo]:
+    if leftover and leftover in EVIDENCE_PHASES:
         state.setdefault("interrupted_phases", []).append(leftover)
-        state["phase_in_progress"] = None
         log(f"an earlier attempt was interrupted inside phase {leftover!r}")
+    state["phase_in_progress"] = None
     window.save(state)
 
     failure: BaseException | None = None

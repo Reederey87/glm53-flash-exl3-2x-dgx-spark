@@ -234,20 +234,24 @@ change here, oldest first:
   is additive and off our path. Kernel parity returns the same verdict as the
   control and the microbench shows no delta. The reachable consequence is the
   autotune-cache bump, which re-tunes on first boot. **Throughput: parity with
-  v1.4.7, and no lane regresses.** A paired two-arm run (2026-09-11, v1.4.7 vs
-  v1.4.9, one dedicated boot per arm) puts every lane within **±0.8%** of
+  v1.4.7 — four of five lanes are decided non-inferior, and no lane is
+  demonstrated to regress.** A paired two-arm run (2026-09-11, v1.4.7 vs
+  v1.4.9, one dedicated boot per arm) gives point estimates within 0.8% of
   parity — structured 66.55 → 66.02, essay 24.47 → 24.58, hashmap 30.69 → 30.85,
-  60k prefill 1601.4 → 1606.8, 240k prefill 1588.3 → 1582.0 — and no lane's
-  distribution-free median-ratio interval crosses its pre-registered band. An
-  earlier, smaller pass reported v1.4.9 ~3.7–4.9% *faster* on decode; that was a
+  60k prefill 1601.4 → 1606.8, 240k prefill 1588.3 → 1582.0 — but the point
+  estimates are not the result: the decision is each lane's distribution-free
+  median-ratio interval against its pre-registered band. `structured`, `essay`
+  and both prefill lanes clear their bands. `hashmap` is **undecided**: its
+  interval `[0.9361, 1.0763]` straddles the 0.95 band, so the run neither
+  establishes non-inferiority nor rules a regression out — the 81-observation
+  sample is simply too wide (7.6% either way) to decide a 5% margin. Read that as
+  an open question, not as a pass. `structured` is 0.8% slower with an interval
+  that excludes exact parity but stays well inside its 0.97 band. An earlier,
+  smaller pass reported v1.4.9 ~3.7–4.9% *faster* on decode; that was a
   **small-sample artifact** and the claim is withdrawn. The pin was taken on the
-  correctness gates and needs no throughput win. Four of five lanes are decided
-  non-inferior; `hashmap` is reported **undecided**, because the exact interval's
-  width at 81 observations exceeds that lane's 5.5% margin to its band.
-  `structured` is 0.8% slower with an interval that excludes parity, well inside
-  its 0.97 band. `docs/16` records the method, all three review rounds, and the
-  fact that this is a diagnostic, **not** the registered `docs/13` §6
-  qualification, which remains formally open.
+  correctness gates and needs no throughput win. `docs/16` records the method,
+  all review rounds, and the fact that this is a diagnostic, **not** the
+  registered `docs/13` §6 qualification, which remains formally open.
 
 Measured and reverted, with numbers: W1 lazy grouped scratch (PR #54), W4 fused
 gather (PR #57, 60k −10.7%), the W4 successor persistent A-cache (PR #65), and W5
