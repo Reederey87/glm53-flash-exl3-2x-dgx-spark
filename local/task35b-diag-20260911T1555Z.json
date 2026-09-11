@@ -46,6 +46,14 @@
   {
    "phase": "report",
    "ok": true
+  },
+  {
+   "phase": "report",
+   "ok": true
+  },
+  {
+   "phase": "report",
+   "ok": true
   }
  ],
  "phase_in_progress": null,
@@ -727,8 +735,8 @@
   }
  ],
  "verdict": "NO REGRESSION DETECTED",
- "verdict_reason": "every lane's ratio interval lies at or above its pre-registered band",
- "finished": "2026-09-11T13:18:14-0400",
+ "verdict_reason": "every lane's shift interval lies at or above its pre-registered band boundary",
+ "finished": "2026-09-11T13:43:43-0400",
  "capture_problems": [],
  "method": {
   "point_estimate": "median of each arm's observations",

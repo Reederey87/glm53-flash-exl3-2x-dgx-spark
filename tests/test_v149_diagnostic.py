@@ -373,6 +373,40 @@ def test_a_healthy_receipt_validates_and_passes(tmp_path, monkeypatch):
     assert "Hodges-Lehmann" in written["method"]["decision"]
 
 
+def test_the_running_phase_is_not_mistaken_for_a_crashed_one(tmp_path, monkeypatch):
+    """`main` sets `phase_in_progress` BEFORE calling the handler.
+
+    So a receipt read from inside the report phase legitimately has it set to
+    "report". Treating that as a crash made every report run through `main()`
+    return INVALID CAPTURE -- found by exercising the real bytes on the cluster,
+    because a direct `phase_report(state)` call never sets the field.
+    """
+    receipt = tmp_path / "diag.json"
+    monkeypatch.setattr(diag.window, "_RECEIPT", receipt)
+    state = _healthy_state(tmp_path)
+    state["phase_in_progress"] = "report"
+    # `--from report` requires a prior preflight, i.e. a recorded `.env` backup.
+    state["backup"] = str(tmp_path / "env.bak")
+    receipt.write_text(json.dumps(state))
+
+    # The phase executing now is not evidence of an earlier crash.
+    assert diag.validate_capture(state, current_phase="report") == []
+    # Any OTHER leftover phase is.
+    assert any("aborted inside phase" in p
+               for p in diag.validate_capture(state, current_phase=None))
+    state["phase_in_progress"] = "measure_b"
+    assert any("aborted inside phase 'measure_b'" in p
+               for p in diag.validate_capture(state, current_phase="report"))
+
+    # End to end through the real entry point: this must still pass.
+    state["phase_in_progress"] = "report"
+    receipt.write_text(json.dumps(state))
+    assert diag.main(["--state", str(receipt), "--from", "report", "--to", "report"]) == 0
+    written = json.loads(receipt.read_text())
+    assert written["verdict"] == "NO REGRESSION DETECTED"
+    assert written["capture_problems"] == []
+
+
 def test_report_resumption_on_a_failed_receipt_is_not_a_pass(tmp_path, monkeypatch):
     """The reviewer's concrete path: failure at the final preemption check.
 

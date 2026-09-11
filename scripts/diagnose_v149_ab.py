@@ -589,7 +589,7 @@ REQUIRED_PHASES = ("preflight", "disarm", "arm_a", "measure_a", "arm_b",
 EXPECTED_LANES = (*DECODE_LANES, *PREFILL_LANES)
 
 
-def validate_capture(state: dict) -> list[str]:
+def validate_capture(state: dict, current_phase: str | None = None) -> list[str]:
     """Every reason this receipt must NOT be read as a passing verdict.
 
     The report phase is reachable by `--from report`, and by a resume after a
@@ -597,6 +597,11 @@ def validate_capture(state: dict) -> list[str]:
     while the capture itself was rejected. Reading those files and printing
     NO REGRESSION DETECTED would launder a failed run into a pass, so the
     receipt is checked for internal consistency BEFORE any verdict is issued.
+
+    `current_phase` is the phase executing right now. `main` records the phase
+    in progress *before* calling its handler and clears it afterwards, so a
+    receipt read from inside a phase legitimately has `phase_in_progress` set to
+    that phase; only a DIFFERENT value means an earlier run died mid-phase.
 
     Checks are deliberately independent: each returns its own message, and one
     failure does not stop the others from being reported.
@@ -613,9 +618,10 @@ def validate_capture(state: dict) -> list[str]:
     for name, entry in phases.items():
         if entry.get("ok") is False and name not in REQUIRED_PHASES:
             problems.append(f"phase {name} failed: {entry.get('error')}")
-    if state.get("phase_in_progress"):
+    in_progress = state.get("phase_in_progress")
+    if in_progress and in_progress != current_phase:
         problems.append(
-            f"the run aborted inside phase {state['phase_in_progress']!r} "
+            f"the run aborted inside phase {in_progress!r} "
             "(phase_in_progress was not cleared)"
         )
 
@@ -713,7 +719,7 @@ def validate_capture(state: dict) -> list[str]:
 
 def phase_report(state: dict) -> None:
     lanes = list(EXPECTED_LANES)
-    problems = validate_capture(state)
+    problems = validate_capture(state, current_phase="report")
     stats: dict[str, dict] = {}
     rows: list[dict] = []
     for lane in lanes:
