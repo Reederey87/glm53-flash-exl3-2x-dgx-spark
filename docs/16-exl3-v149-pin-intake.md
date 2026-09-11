@@ -183,6 +183,16 @@ source prefix that differ on every boot, and the shared helper's first
 `kv_cache` match is a startup patch message whose value is identical on every
 arm (see the fixes in commits 5baf82a and cc12e74).
 
+The measurement probe's streaming reader was **also defective** and is fixed in
+the same commit: it read the SSE stream in 4096-byte blocks, which measured TTFT
+as "time until 4096 bytes arrived" and compressed the decode interval, inflating
+the reported rate by roughly 2.8x. The earlier smoke figures for this harness
+(structured 84.3/85.4, essay 14.9, hashmap 20.3 tok/s) were artifacts of that
+bug and must not be cited. Corrected on production: structured 30.1 tok/s
+(TTFT 0.62 s), hashmap 14.7 tok/s, with `ttft + decode == wall` holding exactly.
+Those lower numbers are consistent with the 507 MHz clock fault below, which the
+inflated ones were not. Detail: `local/probe-timing-defect-20260911.txt`.
+
 ### What this harness does NOT cover
 
 This is a **narrowed** contract, and an ADOPT from it is a statement about
