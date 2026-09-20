@@ -3594,10 +3594,13 @@ deltas. Baseline:
 | `exact@6500` / `@10000` / `@20000` | — | — | — | **0** | 0.20–0.26 s |
 
 Every non-multiple-of-64 length already reached its ceiling; every aligned length
-fell exactly one page short, at ~2.67 s instead of ~0.25 s. That asymmetry is the
-whole diagnosis, and it is why the defect survived every gate the kit runs —
-acceptance, serving and decode are all green with it present, because it degrades
-reuse rather than correctness.
+fell back to the previous full 3,584-token page, so the loss is the distance from
+the 64-grain ceiling down to that page boundary and it varies by length — 128
+tokens at `exact@7360` (0.570 s), 2,816 at `exact@6464` (2.268 s), 3,520 at
+`exact@7168`/`@10752`/`@14336` (2.668–2.679 s). That asymmetry is the whole
+diagnosis, and it is why the defect survived every gate the kit runs — acceptance,
+serving and decode are all green with it present, because it degrades reuse
+rather than correctness.
 
 **The three sites.** `scheduler._mamba_block_aligned_split` (the mamba partial-tail
 prefill stop), `FullAttentionManager._cache_partial_tail_block`
@@ -3618,7 +3621,7 @@ emitted value is identical.
 
 | gate | result |
 |---|---|
-| boundary ladder | every `exact@*` ratio **1.0000**, warm 0.260–0.272 s |
+| boundary ladder | every probed 64-aligned `exact@*` ratio **1.0000**, warm 0.264–0.266 s |
 | correctness | 26,240-token hash-grid prompt: exact replay reuses **26,176 = the exact ceiling**, right code, 1.377 s vs 19.086 s cold (**13.9×**); changed-needle returns the new code, **no stale leak**; cold is 0 hits |
 | acceptance | 7/7 |
 | serving | 6/6 |
@@ -3659,19 +3662,26 @@ boundary is unchanged by the fix (6,500 is not a multiple of 64) and it costs
 when the two agreed; where they did not it already recomputed a partial tail at
 the same ~0.4–0.5 s.
 
-**Which lengths change, per measured case — not as a rate.** The append cost falls
-on prompts that are 64-aligned but **not** a multiple of the 3,584-token page
-(`6464`, `7360`: 0.24 s → 0.50 s). Page-aligned lengths (`7168`, `10752`,
-`14336`) and unaligned lengths (`6500`, `10000`, `20000`) keep their previous
-timing. The replay gain likewise varies by case: `exact@7360` 0.570 s → 0.266 s
-(128 tokens short before) against `exact@7168` 2.268 s → 0.265 s (3,520 tokens
-short before). **No population-level claim is made** — nine lengths were probed,
-and a per-random-length rate or a "caching is now length-independent" statement
-would need a workload distribution this change does not have. No paired
-overlay-off A/B was taken for the append shape; that limitation is in `docs/17`.
-Not taken: registering both `n` and `n - 64` removes the cost but adds a cache
-entry per request on a pool that is the binding capacity constraint, which is why
-45b carries it as its own candidate.
+**Which lengths change, per measured case — not as a rate.** Two statements with
+**different** scope:
+
+- **The replay repair applies to every 64-aligned length probed.** All five lost
+  tokens in the baseline, from 128 (`exact@7360`, 0.570 s) to 3,520
+  (`exact@7168`/`@10752`/`@14336`, 2.668–2.679 s), depending on where the page
+  boundary below the prompt fell, and all five reach their 64-grain ceiling after
+  (0.264–0.266 s). Lengths that are not 64-aligned were never affected.
+- **The append cost falls only on 64-aligned lengths that are not also a multiple
+  of the 3,584-token page** (`6464`, `7360`: 0.243/0.251 s → 0.495/0.497 s). A
+  page-multiple length keeps a reachable full-page block, so its timing is
+  unchanged (0.234–0.240 s), and unaligned lengths are untouched (0.243–0.404 s).
+
+**No population-level claim is made** — nine lengths were probed, and a
+per-random-length rate or a "caching is now length-independent" statement would
+need a workload distribution this change does not have. No paired overlay-off A/B
+was taken for the append shape; that limitation is in `docs/17`. Not taken:
+registering both `n` and `n - 64` removes the cost but adds a cache entry per
+request on a pool that is the binding capacity constraint, which is why 45b
+carries it as its own candidate.
 
 **A measurement error caught in review, recorded because it nearly shipped.**
 An earlier revision of the boundary probe repeated the *consumer* to time it.

@@ -45,14 +45,18 @@ Measured on the live cluster before the change
 | `exact@10000` | 10,000 | 9,984 | 9,984 | 0 | 0.197 s |
 | `exact@20000` | 20,000 | 19,968 | 19,968 | 0 | 0.262 s |
 
-Every length that is **not** a multiple of 64 already reached its ceiling; every
-one that is fell a whole page short, at ~2.67 s instead of ~0.25 s. A prompt that
-is an exact multiple of the page size is worse: `_cache_partial_tail_block`
-refuses a block-aligned tail outright (`num_tokens % block_size == 0`), so no
-partial entry was registered at all and the guard
-`last_cache_position < tail_boundary < num_prompt_tokens` failed too, because on a
-page-aligned prompt `last_cache_position` backs off a whole page under EAGLE while
-the stock `tail_boundary` equals `num_prompt_tokens`.
+Every length that is **not** a multiple of 64 already reached its ceiling. Every
+one that is fell back to the previous full 3,584-token page, so the size of the
+loss is the distance from the 64-grain ceiling down to that page boundary, and it
+varies by length: **128 tokens** at `exact@7360` (0.570 s), **2,816** at
+`exact@6464` (2.268 s), and **3,520** at `exact@7168`, `@10752` and `@14336`
+(2.668–2.679 s). On a prompt that is also an exact multiple of the page size,
+`_cache_partial_tail_block` refuses a block-aligned tail outright
+(`num_tokens % block_size == 0`), so no partial entry was registered at all and
+the guard `last_cache_position < tail_boundary < num_prompt_tokens` failed too,
+because on such a prompt `last_cache_position` backs off a whole page under EAGLE
+while the stock `tail_boundary` equals `num_prompt_tokens`; the same page fallback
+applied either way.
 
 ## The change
 
@@ -123,7 +127,7 @@ unchanged.
 
 | gate | result | receipt |
 |---|---|---|
-| boundary reachability | every exact replay reaches its ceiling; 2.67 s → 0.265 s | `local/task45-apc-tail-boundary-armed-20260919.json` |
+| boundary reachability | every probed 64-aligned exact replay reaches its ceiling; 0.570–2.679 s → 0.264–0.266 s | `local/task45-apc-tail-boundary-armed-repeats-20260919.json` |
 | correctness (26k needle, hash-grid prompt) | exact replay hits **26,176 = the exact ceiling**, right code, 1.377 s vs 19.086 s cold (**13.9×**); changed-needle returns the new code with **no stale leak**; cold is 0 hits | `local/task45-apc-tail-correctness-20260919.json` |
 | acceptance | 7/7, incl. the ~32k needle | `local/task45-gates-20260919.txt` |
 | serving | 6/6 | `local/task45-gates-20260919.txt` |
@@ -174,22 +178,30 @@ Two things follow, and the second matters more than the first:
 **Which lengths the fix changes, per measured case.** The regime is **not
 uniform**, so it is stated case by case rather than as a rate:
 
-| producer length | replay shape | append shape |
+| producer length | replay shape (baseline → armed) | append shape (baseline → armed) |
 |---|---|---|
-| 64-aligned, **not** a multiple of the 3,584-token page (`6464`, `7360`) | reaches the ceiling now; 2.268 s and 0.570 s → **0.264 / 0.266 s** | 0.243 / 0.251 s → **0.495 / 0.497 s** |
-| a multiple of the page (`7168`, `10752`, `14336`) | reached the ceiling before and after | unchanged, 0.24 s |
-| not 64-aligned (`6500`, `10000`, `20000`) | reached the ceiling before and after | unchanged, 0.20–0.39 s |
+| `6464` (64-aligned) | 2,816 short, 2.268 s → ceiling, **0.264 s** | 0.243 s → **0.495 s** |
+| `7360` (64-aligned) | 128 short, 0.570 s → ceiling, **0.266 s** | 0.251 s → **0.497 s** |
+| `7168` (64-aligned, page multiple) | 3,520 short, 2.668 s → ceiling, **0.265 s** | unchanged, 0.242 → 0.237 s |
+| `10752` (64-aligned, page multiple) | 3,520 short, 2.673 s → ceiling, **0.265 s** | unchanged, 0.242 → 0.234 s |
+| `14336` (64-aligned, page multiple) | 3,520 short, 2.679 s → ceiling, **0.265 s** | unchanged, 0.237 → 0.240 s |
+| `6500`, `10000`, `20000` (not 64-aligned) | at the ceiling before and after, 0.197–0.262 s | unchanged, 0.243–0.404 s |
 
-So the append cost falls on prompts that are 64-aligned but not page-aligned, and
-the page-aligned and unaligned lengths keep their previous timing. Note also that
-the baseline replay loss is not one number: across the probed 64-aligned lengths
-it ranges from **128 tokens** (`exact@7360`, 0.570 s) to **3,520 tokens**
-(`exact@7168`, 2.268 s), depending on where the page boundary below the prompt
-falls.
+Two separate statements follow, and they have **different** scope:
+
+- **The replay repair applies to every 64-aligned length probed** — all five lost
+  tokens in the baseline, from **128** (`exact@7360`, 0.570 s) to **3,520**
+  (`exact@7168`/`@10752`/`@14336`, 2.668–2.679 s), depending on where the
+  3,584-token page boundary below the prompt fell, and all five reach their
+  64-grain ceiling after. Lengths that are not 64-aligned were never affected.
+- **The append cost falls only on 64-aligned lengths that are not also a multiple
+  of the 3,584-token page** (`6464`, `7360`). A page-multiple length keeps a
+  reachable full-page block, so the consumer still reaches its ceiling and its
+  timing is unchanged; unaligned lengths are untouched.
 
 **No population-level claim is made.** Only nine prompt lengths were probed, one
-or two per regime. Turning the table above into a "per random length" rate, or
-into a statement that caching became length-independent, would need an explicit
+or two per class. Turning the table above into a "per random length" rate, or into
+a statement that caching became length-independent, would need an explicit
 workload distribution and representative measurements, and this change does not
 have them. What is measured is the per-case trade-off above.
 
