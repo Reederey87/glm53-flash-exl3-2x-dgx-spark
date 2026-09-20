@@ -11,79 +11,82 @@ runs the local build, not a pulled artifact.
 
 ## Why this kit, in numbers
 
-The most frustrating thing about every GLM-5.3-Flash config I ran before this one
-was not decode speed — it was **prefix-cache misses and prefill latency**. A config
-that passed every acceptance check would read **0% cache hits** under real agentic
-traffic (each turn re-read the whole history), and with a few coding agents attached
-time-to-first-token ran **80–160 s** while effective prefill collapsed from ~900 to
-**~160 tok/s**. Nothing was logged; the counters just read zero.
+The frustrating thing about every GLM-5.3-Flash config I ran before this one
+was not decode speed — it was **prefix-cache misses and prefill latency**. A
+config that passed every acceptance check would read **0% cache hits** under
+real agentic traffic (each turn re-read the whole history). With a few coding
+agents attached, time-to-first-token ran **80–160 s** and effective prefill
+collapsed from ~900 to **~160 tok/s**. Nothing was logged; the counters just
+read zero.
 
-The cause is the model, not a mis-set flag: GLM-5.3-Flash is a hybrid KDA(mamba)+MLA
-architecture, cached in **3,584-token pages** whose KDA state is checkpointed only
-when a scheduler step ends exactly on a page boundary — and one missing checkpoint
-vetoes every attention hit. On top of that, the DFlash2 drafter's eagle-style prune
-silently dropped the last page of every hit. Fixing this is most of what separates
-this tree from the recipe it started from:
+The cause is the model, not a mis-set flag: GLM-5.3-Flash is hybrid
+KDA(mamba)+MLA, cached in **3,584-token pages**. KDA state is checkpointed
+only when a scheduler step ends on a page boundary — one miss vetoes every
+attention hit. The DFlash2 drafter's eagle-style prune then dropped the last
+page of every hit. Fixing that is most of what separates this tree from the
+recipe it started from:
 
-| Measured before | Fix in this tree | Measured after |
+| Pain | This tree | Now |
 |---|---|---|
-| Hits read 0% at upstream `MNBT=1024` (chunk ends miss the page boundary) | `MAX_NUM_BATCHED_TOKENS` = the 3,584 page size, async scheduling OFF | solo 110k replay **97–98%** |
-| Every hit lost its last page (N−1 of N) | `overlay/patch_hybrid_prefix_hit.py` — prune scoped to the drafter's own group | full-N-page hits |
-| Multi-session retention collapse — 2×68k sessions **0%** (163 s) | per-group retention (`overlay/patch_apc_per_group_retention.py`): drafter SWA boundaries-only, MLA/mamba dense | **100%** (1.3 s) |
-| Co-batch zero-insertion — 4×60k concurrent **0%** (288 s) | per-group sparse retention (the global knob was the old thrash) | **98.7%** (16.5 s) |
-| Prompts under ~3.6k could never hit, and every follow-up re-read up to a page | `overlay/patch_fine_grained_apc.py` — hits reconcile at the 64-token hash grain instead of the 3,584-token page | a 2.6k prompt reuses **2,816** tokens; follow-ups reuse **96–99%** (~4.1 s → ~1.0 s per turn) |
-| Hash-grid prompt lengths lost a whole page on replay — 3,520 tokens, **2.67 s** | `overlay/patch_apc_tail_boundary.py` — the three registration sites floored from `n` instead of `n − 1`, one 64-token unit above anything a lookup can request | every replay reaches its ceiling (ratio **1.0000**, **0.265 s**); a 26k needle task reuses **26,176** tokens, **2.04 s vs 19.76 s** cold |
-| Toggling thinking on/off threw the whole prefix away (50k prompt: 56.8 s re-read) | chat template emits the `Reasoning Effort` line unconditionally — the off-shape is a strict extension of the on-shape | toggle hits **100%** (0.26 s) |
-| Short request stuck behind a 240k read — **256 s** TTFT | `LONG_PREFILL_TOKEN_THRESHOLD=1792` fairness cap | **6.7–7.9 s** (gate v3; earlier builds measured 5.3–7.9) |
-| First turn after every restart cold | `local/content-warmup.sh` pre-reads the shared system prompt at boot | warm on turn 1 |
-| Two CPU cores spinning flat-out during every decode (SoC heat, no work) | `overlay/patch_spinwait_gb10.py` — vLLM's 1 s reader spin cut to 2 ms | spinning core freed, head hot zones **−5 °C**, throughput unchanged (same-day control) |
+| Hits 0% at MNBT=1024; last page of every hit dropped | MNBT = 3,584 page size, async OFF; `overlay/patch_hybrid_prefix_hit.py` | 110k replay **97–98%**, full-N-page hits |
+| Multi-session / co-batch collapse — 2×68k **0%** (163 s), 4×60k **0%** (288 s) | per-group sparse retention | **100%** (1.3 s); **98.7%** (16.5 s) |
+| Sub-page prompts never hit; hash-grid tails lost a page (3,520 tok, **2.67 s**) | 64-token APC + `overlay/patch_apc_tail_boundary.py` | 2.6k reuses **2,816**; replay ceiling **1.0000** at **0.265 s** |
+| Thinking on/off threw the prefix (50k: 56.8 s) | chat template always emits `Reasoning Effort` | toggle **100%** (0.26 s) |
+| Short request behind a 240k read — **256 s** TTFT | `LONG_PREFILL_TOKEN_THRESHOLD=1792` | **6.7–7.9 s** |
+| First turn after restart cold; two cores spinning during decode | boot warmup + 2 ms spinwait | warm on turn 1; head **−5 °C**, throughput unchanged |
 
-Mechanism, the remaining cautions, and how to verify on your own pair (a lifetime
-hit-rate on a dashboard hides all of this): `docs/04-prefix-caching.md`,
-`docs/08-concurrent-prefill.md`; probes `local/cache-burst.py`, `local/cache-probe.sh`,
-`local/ttft-probe.py`.
+Mechanism and how to verify on your own pair (a lifetime hit-rate on a
+dashboard hides all of this): `docs/04-prefix-caching.md`,
+`docs/08-concurrent-prefill.md`; probes `local/cache-burst.py`,
+`local/cache-probe.sh`, `local/ttft-probe.py`.
 
-The headline figures, same pair:
+**Current production, same pair** (`glm53-selfbuild:e3-pipeline-f1s8-reuse`,
+2026-09-20):
 
 | | |
 |---|---|
 | Context window | **1,000,000 tokens**, with speculation active — on two desk machines |
-| **Prose decode** | **~29–32 tok/s** at the 1M window — the most reliable real-workload figure here (natural prose acceptance is ~0.4–0.5, so this is what unstructured generation costs, and the number least inflated by a high-acceptance prompt). Four same-stack controls on 2026-09-09 measured **29.1–31.9** |
-| Structured decode | **~69–70 tok/s** at speculative acceptance **1.0000** (7/7 drafted tokens accepted, every uncontended pass; standing median **69.10**). Treat this as the **acceptance/quality gate, not the headline throughput** — near-ceiling structured prompts are the most favorable regime. Contended passes land wherever ambient traffic puts them; the durable invariant is the 7.0/1.000 profile |
-| Cold prefill | **~1408 tok/s** solo at 240k, **~1454 tok/s** at 60k (2026-09-09 stack; +13.3% / +16.1% vs the same-boot E3@128 control 1242 / 1253). Previous kernel stack, for reference: E3 grouped **1075 → 1286 tok/s** at 240k (+19.6%, 2026-09-07) |
-| Long-context decode | Structured acceptance holds **0.978** (6.85/step) through ~324k and steps down to **0.89–0.95** past ~415k (2026-09-04, confirmed by a second ladder); at ~519k, **31.3 tok/s** at intact 6.62/step. Compaction at 300k stands |
-| Short request behind a 240k read | **6.7–7.9 s** to first token (mixed-prefill gate v3 with the 512→1792 aging ladder; 256 s without this kit's fairness cap) |
-| Multi-agent concurrency | **4 in-flight generations**, zero preemptions through 4×60k×3 (2026-09-05); warm aggregate **63.4–66.3 tok/s** at TTFT p95 **0.92–0.96 s**; a warm follow-up lands in **~2.6 s behind a running generation** (45.8 s before the mixed-prefill gate); decode keeps **+27% tokens per fixed window** during a co-batched cold read; cached-conversation capacity ≈ **50,176 tokens ≈ 14 sessions** under per-group retention — replays at 86% of the pool cost retention (4×200k: 49.9%), so plan concurrency below that |
+| **Prose decode** | **~33 tok/s** at the 1M window (hashmap median **33.03**, 28.1–35.4, acc 0.55) — the most reliable real-workload figure here. Natural-prose acceptance is ~0.4–0.5, so this is what unstructured generation costs. Hard essay sits lower at **~26 tok/s** (median **25.92**, 24.5–27.2, acc 0.44) |
+| Structured decode | **~74 tok/s** at speculative acceptance **1.0000** (7/7 drafted tokens accepted; standing median **74.19**). Treat this as the **acceptance/quality gate, not the headline throughput** — near-ceiling structured prompts are the most favorable regime. Contended passes land wherever ambient traffic puts them; the durable invariant is the 7.0/1.000 profile |
+| Cold prefill | **~1408 tok/s** at 240k, **~1454 tok/s** at 60k (2026-09-09 stack; not re-measured on the 2026-09-20 decode image) |
+| Long-context decode | Structured acceptance **0.978** (6.85/step) through ~324k, **0.89–0.95** past ~415k; at ~519k, **31.3 tok/s** at 6.62/step. Compaction at 300k stands (2026-09-04) |
+| Short request behind a 240k read | **6.7–7.9 s** to first token (256 s without this kit's fairness cap) |
+| Multi-agent concurrency | **4 in-flight**, zero preemptions through 4×60k×3 (2026-09-05); warm aggregate **63.4–66.3 tok/s**, TTFT p95 **0.92–0.96 s**; a warm follow-up lands in **~2.6 s** behind a running generation. Plan below ≈ **50,176 tokens ≈ 14 sessions** of cached-conversation capacity |
 | Multi-session caching | 2×68k sessions retain **100%**; 4×60k concurrent retain **98.7%** |
 | Follow-up turns | reuse **96–99%** of the prompt at 64-token grain — even prompts under one 3,584-token page |
 
 Prefill and content type: the prefill rows are natural-language (word-salad)
 probes. Prefill is compute-bound on this stack, so **tokens/second is
-essentially content-independent** — but **tokens per document is not**: code and
-JSON tokenize denser, so the same document can cost 20–50% more prompt tokens and
-proportionally longer TTFT. Read the rows as per-token rates, not per-document
-promises.
+essentially content-independent** — but **tokens per document is not**: code
+and JSON tokenize denser, so the same document can cost 20–50% more prompt
+tokens and proportionally longer TTFT. Read the rows as per-token rates, not
+per-document promises.
 
-No other public recipe serves this model on this hardware with all six of: EXL3
-(the quantization this stack is built and tuned around — see `docs/01` for why
-the NVFP4 route is target-gated rather than silicon-absent on GB10), a 1M window
-that *coexists* with speculative decoding, prefix
-caching that survives the hybrid-KDA architecture and the drafter, perfect
-structured acceptance, verification-only adaptive-k on the target, and a
-hand-tuned MoE kernel stack (fat-expert GEMM, dynamic ticket scheduling, grouped
-fat-expert dispatch, a 3-stage `cp.async` pipeline). Each is a specific fix in
-this tree, and removing any one of them has a measured cost
-(`docs/10-selfbuild-production.md`, "load-bearing set").
+No other public recipe serves this model on this hardware with all six of:
+EXL3 (the quantization this stack is built and tuned around — see `docs/01`
+for why the NVFP4 route is target-gated rather than silicon-absent on GB10), a
+1M window that *coexists* with speculative decoding, prefix caching that
+survives the hybrid-KDA architecture and the drafter, perfect structured
+acceptance, verification-only adaptive-k on the target, and a hand-tuned MoE
+kernel stack (fat-expert GEMM, dynamic ticket scheduling, grouped fat-expert
+dispatch, a 3-stage `cp.async` pipeline, register-cut fused decode, gate/up
+Hadamard reuse). Each is a specific fix in this tree, and removing any one of
+them has a measured cost (`docs/10-selfbuild-production.md`, "load-bearing
+set").
 
-Provenance: every row is a same-day A/B on this pair — a reference from another
-day or image drifts by a few percent, so each window runs its own control arm.
-The standing numbers are the 2026-09-09 stack (`glm53-selfbuild:e3-w3-zfill`,
-last-wins `EXL3_TEMP_ROWS_FUSED=32`, `GLM53_ADAPTIVE_K=ema`); the isolated
-receipts, the previous-stack figures and every rejected arm are in
-`docs/06-improvement-plan.md`. Every bench and probe ships in `tests/` and
-`local/` — reproduce any row in minutes. Offline regression suite:
-`uv sync && uv run pytest tests/ -q` (dependencies are declared in
-`pyproject.toml`; `requirements-dev.txt` remains as a pip-only fallback).
+Provenance: every decode row is a same-day A/B on this pair — a reference from
+another day or image drifts by a few percent, so each window runs its own
+control arm. The standing decode numbers are the 2026-09-20 stack
+(`glm53-selfbuild:e3-pipeline-f1s8-reuse`, last-wins
+`GLM53_EXL3_MOE_PIPELINE=1`, `GLM53_EXL3_MOE_REUSE=1`,
+`EXL3_TEMP_ROWS_FUSED=32`, `GLM53_ADAPTIVE_K=ema`). Prefill and concurrency
+rows are earlier same-pair windows and keep their dates. Isolated receipts,
+previous-stack figures (2026-09-09 `e3-w3-zfill`: prose ~29–32, structured
+~69–70) and every rejected arm are in `docs/06-improvement-plan.md`. Every
+bench and probe ships in `tests/` and `local/` — reproduce any row in minutes.
+Offline regression suite: `uv sync && uv run pytest tests/ -q` (dependencies
+are declared in `pyproject.toml`; `requirements-dev.txt` remains as a pip-only
+fallback).
 
 ## The serving image: preview vLLM, pinned and completed
 `download.sh` validates the selected snapshot's
@@ -124,11 +127,11 @@ base **by digest** and adds every capability explicitly, verified on the real pa
 - **EXL3 kernels** — `exllamav3` built for aarch64/sm_121 at pinned **v1.4.9
   `5be8865`**; keeps the 320B experts packed at 82 GiB/node, which is what
   leaves room for the 1M pool.
-- **MoE expert kernels, hand-tuned for GB10** — this repo's fat-expert GEMM for
-  oversized prefill experts, upstream's dynamic ticket scheduler in the fused
-  launch, a 3-stage `cp.async` pipeline (+41% kernel throughput at production
-  shapes), and grouped fat-expert dispatch (`EXL3_FAT_GROUPED=1`, +19.6%
-  240k cold prefill vs pipelined E2; `docs/11`).
+- **MoE expert kernels, hand-tuned for GB10** — fat-expert GEMM, ticket
+  scheduler, 3-stage `cp.async` pipeline, grouped fat-expert dispatch
+  (`EXL3_FAT_GROUPED=1`), plus the 2026-09-20 fused-decode stack: register-cut
+  pipeline kernel (`GLM53_EXL3_MOE_PIPELINE=1`) and gate/up Hadamard reuse
+  (`GLM53_EXL3_MOE_REUSE=1`). Details and receipts in `docs/11` / PR #76.
 - **The DFlash2 drafter end to end** — model, speculator, aux-hidden-state capture;
   none of it exists in the preview tree (we booted the raw base nine times to prove
   exactly what's missing — `docs/09-rebase-draft-test.md`).
@@ -231,29 +234,25 @@ change here, oldest first:
   scheduler and the current ext set arrive upstream, so the tree carries that
   cherry-pick only for the older `c5d9c657` lineage.
 - **Pin advance to `exllamav3` v1.4.9 `5be8865`** (2026-09-10, task 35) — 69
-  commits. The six quant/MoE files are byte-identical to v1.4.7, so the fused
-  kernels and the E3/W3 cubin contract are untouched; the MGEMM sliced-mode work
-  is additive and off our path. Kernel parity returns the same verdict as the
-  control and the microbench shows no delta. The reachable consequence is the
-  autotune-cache bump, which re-tunes on first boot. **Throughput: parity with
-  v1.4.7 — four of five lanes are decided non-inferior, and no lane is
-  demonstrated to regress.** A paired two-arm run (2026-09-11, v1.4.7 vs
-  v1.4.9, one dedicated boot per arm) gives point estimates within 0.8% of
-  parity — structured 66.55 → 66.02, essay 24.47 → 24.58, hashmap 30.69 → 30.85,
-  60k prefill 1601.4 → 1606.8, 240k prefill 1588.3 → 1582.0 — but the point
-  estimates are not the result: the decision is each lane's distribution-free
-  median-ratio interval against its pre-registered band. `structured`, `essay`
-  and both prefill lanes clear their bands. `hashmap` is **undecided**: its
-  interval `[0.9361, 1.0763]` straddles the 0.95 band, so the run neither
-  establishes non-inferiority nor rules a regression out — the 81-observation
-  sample is simply too wide (7.6% either way) to decide a 5% margin. Read that as
-  an open question, not as a pass. `structured` is 0.8% slower with an interval
-  that excludes exact parity but stays well inside its 0.97 band. An earlier,
-  smaller pass reported v1.4.9 ~3.7–4.9% *faster* on decode; that was a
-  **small-sample artifact** and the claim is withdrawn. The pin was taken on the
-  correctness gates and needs no throughput win. `docs/16` records the method,
-  all review rounds, and the fact that this is a diagnostic, **not** the
-  registered `docs/13` §6 qualification, which remains formally open.
+  commits, six quant/MoE files byte-identical to v1.4.7, so the fused and E3/W3
+  cubin contracts are untouched. Taken on the correctness gates; throughput is
+  parity with v1.4.7 (four of five lanes non-inferior; hashmap undecided). Full
+  method in `docs/16`. The registered `docs/13` §6 qualification remains open.
+- **Register-cut fused `exl3_moe` decode** (task 42 lever 1, 2026-09-20, PR #76)
+  — same kernel template at `MOE_FRAG_STAGES=1` / `MOE_SH_STAGES=8`: STACK
+  88→32 B, STL 37→9, LDL 39→4. Kernel device time **−6.4 / −6.8 / −7.3%** at
+  T=12/20/32. End to end vs stock on that image: structured **71.17 → 75.48
+  (+5.8%)**, hashmap **30.17 → 33.89 (+12%)**, essay **25.38 → 26.01 (+2.5%)**.
+  Adopted on an explicit user decision; the essay lane is below the
+  pre-registered ≥5% bar.
+- **Gate/up Hadamard reuse** (task 42 lever 2, 2026-09-20, PR #76 follow-on) —
+  skip the duplicate up-lane Hadamard when residual SUH is identical
+  (`GLM53_EXL3_MOE_REUSE=1` on the same cubin). Isolated device time is a wash;
+  warmed serving: structured **73.88 → 74.19 (+0.42%)**, hashmap **30.36 →
+  33.03 (+8.79%)**, essay **25.18 → 25.92 (+2.94%)**. Same class of adopt;
+  essay still short of 5%. Production image
+  `glm53-selfbuild:e3-pipeline-f1s8-reuse`. Rollback: `GLM53_EXL3_MOE_REUSE=0`
+  on that image, or `IMAGE=glm53-selfbuild:e3-pipeline-f1s8`.
 
 Measured and reverted, with numbers: W1 lazy grouped scratch (PR #54), W4 fused
 gather (PR #57, 60k −10.7%), the W4 successor persistent A-cache (PR #65), and W5
