@@ -1,0 +1,25 @@
+# Task 45 site 1 (APC tail floor) — armed-boot gate receipts, 2026-09-19
+# image glm53-selfbuild:e3-w3-zfill-v149 | GLM53_APC_TAIL_FLOOR=1
+# pool 1,396,551 tokens / 1.40x | retention_by_group=[None x6, 0]
+# boot: Result=success NRestarts=0 8m55s health=200
+
+[acceptance.sh]  passed: 7   failed: 0   ACCEPTANCE PASSED
+[serving-test.sh] passed: 6   failed: 0   SERVING TEST PASSED
+  (incl. 4-way concurrency MAX_NUM_SEQS=4 distinct content, tool call, 5 sustained)
+[MemFree] head 5 GiB  worker 3 GiB   (floor 2.5 GiB)
+[prose 5-run] 32.31 median tok/s, accept 0.542  (standing band 29-32)
+[structured]  71.20 tok/s @ accept 1.0/7.0, no NaN
+
+# --- post-review refresh 2026-09-19 ---
+[correctness v2, hardened gate] PASS
+  cold 0 hits (negative control) | exact_replay hits=26176=ceiling, 1.377s vs 19.086s cold (13.9x)
+  append_continuation hits=26176=n-64 (accepted cost, answer not checked by design)
+  changed_needle hits=26176, new code, NO stale leak
+  gate asserts per case: exact hit boundary, query delta vs prompt, reset success, answer
+  mutation check: removing the hit-boundary check fails 4 of 14 gate tests
+[first-consumer wall, --case-repeats 3, median]
+  append32@6464 0.243s -> 0.495s | append32@7360 0.251s -> 0.497s
+  append32@6500 0.404s -> 0.393s (CONTROL: boundary unchanged by the fix)
+  append32@7168/@10000/@10752/@14336/@20000 unchanged 0.23-0.28s
+  => ~250ms per first consumer, NOT the ~20ms the token arithmetic predicted
+  => the ~0.4s append cost is pre-existing for this shape, not introduced here

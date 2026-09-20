@@ -4,10 +4,6 @@
 `overlay/patch_indexer_workspace.py` ·
 `tests/test_indexer_workspace.py`
 
-This is a GLM-5.3-Flash deployment change. It does not target or modify a
-DeepSeek deployment. Some reused vLLM classes retain `DeepseekV32...` names,
-but activation is scoped to `models/glm5next/nvidia/attention.py`.
-
 ## Purpose
 
 The pinned preview build sizes the sparse-indexer prefill gather workspace as:

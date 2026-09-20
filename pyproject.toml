@@ -1,0 +1,28 @@
+[project]
+name = "glm53-2x-dgx-spark"
+version = "0.0.0"
+description = "Reproducible GLM-5.3-Flash-EXL3 deployment kit for a 2x DGX Spark (GB10) cluster"
+readme = "README.md"
+requires-python = ">=3.10"
+
+# The kit deploys with Docker + bash; nothing in this file is imported at serving
+# time. The pinned serving image provides vllm, torch, triton, pydantic and the
+# compiled exllamav3_ext / exl3_fat_moe_ext modules, so they are deliberately NOT
+# dependencies here. The tests that touch them either run inside the image or
+# skip when the module is absent.
+dependencies = []
+
+[dependency-groups]
+# Host-side test/bench dependencies. `uv sync` installs this group by default.
+dev = [
+  "pytest>=8.0",
+  "jinja2>=3.1",
+]
+
+[tool.uv]
+# Not a distributable package: this repo ships overlays, launchers and tests,
+# not an importable library.
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
