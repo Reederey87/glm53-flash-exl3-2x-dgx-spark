@@ -1,0 +1,71 @@
+=== 1. stop production (parity needs the GPU exclusively) ===
+[1;36m[glm53-exl3][0m stopping head container ...
+[1;36m[glm53-exl3][0m stopping worker container on nvidia@192.168.177.11 ...
+[1;36m[glm53-exl3][0m stopped.
+MemFree:        118353600 kB
+MemAvailable:   118580640 kB
+=== 2. kernel-parity harness, both arms ===
+--- parity arm ctrl (GLM53_EXL3_MOE_PIPELINE=0) ---
+  t=   12 skew=1.0 path=none     sum=+14422.031250 sha=e5483ca84388da20
+  t=   12 skew=0.0 path=none     sum=+21263.562500 sha=665d8eb5b97532f0
+  t=   20 skew=1.0 path=none     sum=+52475.191406 sha=1c9825d526a1401d
+  t=   20 skew=0.0 path=none     sum=+15858.089844 sha=3527b28e04e27324
+  t=   32 skew=1.0 path=none     sum=+26200.234375 sha=edf1c47f267eb071
+  t=   32 skew=0.0 path=none     sum=+44203.187500 sha=35363530151673c0
+  t= 1024 skew=1.0 path=grouped  sum=-95953.812500 sha=2243565c0c60559e
+  t= 1024 skew=0.0 path=grouped  sum=+385850.562500 sha=a6fef526f43098e8
+wrote /out/parity-ctrl.json
+--- parity arm var (GLM53_EXL3_MOE_PIPELINE=1) ---
+[glm53-exl3-moe-pipeline] active: K4/N256/mcg geometry=frag1_sh8 (register-cut decode)
+  t=   12 skew=1.0 path=none     sum=+14422.300781 sha=482f9052bc9393c3
+  t=   12 skew=0.0 path=none     sum=+21263.566406 sha=d26b9394a43028ee
+  t=   20 skew=1.0 path=none     sum=+52475.195312 sha=ed5f4508e3abf89c
+  t=   20 skew=0.0 path=none     sum=+15858.089844 sha=3527b28e04e27324
+  t=   32 skew=1.0 path=none     sum=+26200.234375 sha=46988101af5b4fac
+  t=   32 skew=0.0 path=none     sum=+44203.187500 sha=a1a36c22ec7c6329
+  t= 1024 skew=1.0 path=grouped  sum=-95953.828125 sha=f8fc0400cb138c63
+  t= 1024 skew=0.0 path=grouped  sum=+385850.750000 sha=6bf1b518dda36b73
+wrote /out/parity-var.json
+=== 3. parity comparison ===
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+ModuleNotFoundError: No module named 'torch'
+=== 4. adopt: knob=1 ===
+240:GLM53_EXL3_MOE_PIPELINE=1
+[1;36m[glm53-exl3][0m configuration valid
+=== 5. boot adopted state ===
+2026-09-20T01:02:02-04:00
+start.sh exit=0
+health 200 after 10s
+2026-09-20T01:10:38-04:00
+image:        glm53-selfbuild:e3-pipeline-f1s8
+arming head:  1
+[glm53-exl3-moe-pipeline] active: K4/N256/mcg geometry=frag1_sh8 (register-cut decode)
+worker arming: 1
+kv_cache_max_concurrency="1.396551724137931"
+kv_cache_size_tokens="1396551"
+num_gpu_blocks="567"
+=== 6. acceptance on the adopted state ===
+  PASS  needle retrieved at ~32k
+
+== RESULT ==
+  passed: 7   failed: 0
+  ACCEPTANCE PASSED
+=== 7. essay lane on the variant ===
+ "ttft_median_s": 0.2846937810008967,
+ "accepted_per_step_median": 1.512,
+ "accept_ratio_median": 0.4246,
+ "any_nan": false
+}
+[probe] wrote /home/nvidia/t42-window/var-essay.json
+var essay runs: 9 median: 26.01197676060214
+=== 8. MemFree + re-arm ===
+head:   MemFree:         4015032 kB
+worker: MemFree: 4626344 kB
+watchdog re-armed
+active
+NEXT LEFT LAST                          PASSED UNIT                          ACTIVATES
+-       - Sun 2026-09-20 01:12:34 EDT 21ms ago vllm-glm53exl3-watchdog.timer vllm-glm53exl3-watchdog.service
+
+=== TASK42 FINAL DONE ===
+2026-09-20T01:12:34-04:00

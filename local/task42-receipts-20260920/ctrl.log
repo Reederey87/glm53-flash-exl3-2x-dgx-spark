@@ -1,0 +1,57 @@
+=== A. variant warm re-check (knob already 1) ===
+2026-09-20T00:23:10-04:00
+MemFree:         3966492 kB
+MemAvailable:    3994792 kB
+uptime of container: 2026-09-20T04:07:56.933833904Z
+--- warm-var structured ---
+  "tok_s_median": 75.47790855602723,
+  "tok_s_min": 75.11114175830195,
+  "tok_s_max": 76.11277385991595,
+  "accept_ratio_median": 1.0,
+  "accepted_per_step_median": 7.0,
+  "any_nan": false,
+--- warm-var hashmap prose ---
+  "tok_s_median": 33.88672886326996,
+  "tok_s_min": 27.705764729011708,
+  "tok_s_max": 34.40970695591238,
+  "accept_ratio_median": 0.5455,
+  "accepted_per_step_median": 2.226,
+  "any_nan": false,
+  "coherent": true,
+=== B. flip to control (knob 0), same image ===
+# --- task 42 arm B (register-cut fused exl3_moe) ---
+IMAGE=glm53-selfbuild:e3-pipeline-f1s8
+GLM53_EXL3_MOE_PIPELINE=0
+[1;36m[glm53-exl3][0m configuration valid
+2026-09-20T00:24:39-04:00
+start.sh exit=1
+health 200 after 10s
+2026-09-20T00:24:42-04:00
+image: glm53-selfbuild:e3-pipeline-f1s8
+arming lines (must be 0): 1
+kv_cache_max_concurrency="1.396551724137931"
+kv_cache_size_tokens="1396551"
+
+== RESULT ==
+  passed: 7   failed: 0
+  ACCEPTANCE PASSED
+MemFree:         3886412 kB
+MemAvailable:    3948996 kB
+=== C. control benches ===
+--- ctrl structured ---
+  "tok_s_median": 75.16157763838113,
+  "tok_s_min": 74.58055130590472,
+  "tok_s_max": 75.57243551770938,
+  "accept_ratio_median": 1.0,
+  "accepted_per_step_median": 7.0,
+  "any_nan": false,
+--- ctrl hashmap prose ---
+  "tok_s_median": 35.035845040138206,
+  "tok_s_min": 29.32385388525529,
+  "tok_s_max": 36.67991036363755,
+  "accept_ratio_median": 0.5789,
+  "accepted_per_step_median": 2.433,
+  "any_nan": false,
+  "coherent": true,
+=== TASK42 CONTROL DONE ===
+2026-09-20T00:26:18-04:00

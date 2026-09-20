@@ -345,6 +345,13 @@ GLM53_ALIGN_FLOOR="${GLM53_ALIGN_FLOOR:-1}"
 # num_tokens - 1, so a registration at n is unreachable and the prompt falls back a whole
 # 3584-token page. Boundary arithmetic only; no hot-path work, no numerics change.
 GLM53_APC_TAIL_FLOOR="${GLM53_APC_TAIL_FLOOR:-0}"
+# LOCAL: task 42 -- 1 = select the register-cut variant of the fused `exl3_moe`
+# decode kernel (shallow fragment pipeline, deeper smem pipeline) instead of the
+# stock 3/3 instance. The variant is compiled into the image and the geometry is
+# a build arg, so this knob is the only runtime variable and A/B stays on one
+# image. Fail-closed: the kernel refuses a geometry it was not built for rather
+# than falling back silently. Default 0 leaves stock selection untouched.
+GLM53_EXL3_MOE_PIPELINE="${GLM53_EXL3_MOE_PIPELINE:-0}"
 # LOCAL: task 25 verification-only adaptive-k. off = stock k=7 every step.
 # ema trims only request.spec_token_ids (target verify). Capture-only
 # (GLM53_ADAPTIVE_K_CAPTURE=1) adds extra FULL graphs without the EMA.
@@ -529,6 +536,13 @@ validate_numeric_config() {
         case "${!_v}" in 0|1) ;; *) echo "$_v must be exactly 0 or 1 (got: '${!_v}')" >&2; return 2 ;; esac
     done
     unset _v
+    # LOCAL: task 42 -- strict bool for the register-cut decode arm. The kernel
+    # re-validates in-process and fails closed, so this check only buys a clean
+    # refusal before the pair is torn down.
+    case "${GLM53_EXL3_MOE_PIPELINE:-0}" in
+        0|1) ;;
+        *) echo "GLM53_EXL3_MOE_PIPELINE must be exactly 0 or 1 (got: '${GLM53_EXL3_MOE_PIPELINE}')" >&2; return 2 ;;
+    esac
     case "${GLM53_INDEXER_WORKSPACE-stock}" in
         stock|rightsize) ;;
         *) echo "GLM53_INDEXER_WORKSPACE must be exactly one of: stock rightsize (got: '${GLM53_INDEXER_WORKSPACE-<unset>}')" >&2; return 2 ;;
@@ -1874,6 +1888,7 @@ launch_cluster() {
         -e "GLM53_EXPOSE_CACHE_RESET=$GLM53_EXPOSE_CACHE_RESET"
         -e "GLM53_ALIGN_FLOOR=$GLM53_ALIGN_FLOOR"
         -e "GLM53_APC_TAIL_FLOOR=$GLM53_APC_TAIL_FLOOR"
+        -e "GLM53_EXL3_MOE_PIPELINE=$GLM53_EXL3_MOE_PIPELINE"  # LOCAL: task 42 (both ranks select the kernel)
         -e "GLM53_ADAPTIVE_K=$GLM53_ADAPTIVE_K"
         -e "GLM53_ADAPTIVE_K_CAPTURE=$GLM53_ADAPTIVE_K_CAPTURE"
         -e "GLM53_ADAPTIVE_K_SET=$GLM53_ADAPTIVE_K_SET"
