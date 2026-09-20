@@ -32,7 +32,12 @@ case "$OUT" in
         ;;
 esac
 for lane in warm-structured warm-hashmap warm-essay structured hashmap essay; do
-    rm -f "$OUT/$lane.json" "$OUT/$lane.log"
+    # A failed removal must be fatal: continuing would leave a stale receipt in
+    # place and let this run report BENCH PASS on the previous run's data.
+    rm -f -- "$OUT/$lane.json" "$OUT/$lane.log" || {
+        echo "cannot clear stale receipt $OUT/$lane.json -- refusing to run" >&2
+        exit 1
+    }
 done
 
 rc=0

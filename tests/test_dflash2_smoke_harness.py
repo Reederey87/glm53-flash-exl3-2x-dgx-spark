@@ -213,6 +213,44 @@ def test_bench_rejects_stale_receipts_from_a_previous_run(tmp_path: Path) -> Non
         assert not (out / f"{lane}.json").exists()
 
 
+def test_bench_fails_when_stale_receipt_cleanup_fails(tmp_path: Path) -> None:
+    """Unremovable stale receipts must abort, not silently continue to PASS.
+
+    Setup mirrors the reachable failure: the lane JSON stays READABLE while
+    `rm` cannot unlink it. That needs a non-writable output directory, which
+    still allows the per-lane log redirect because those files already exist and
+    stay owner-writable -- exactly the case where an unguarded harness would go
+    on to consume the stale receipt and print BENCH PASS.
+    """
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        return  # root bypasses directory permissions, so the setup is not meaningful
+
+    kit, shim = _make_fixture(tmp_path, accept_pass=True, probe_pass=True)
+    out = tmp_path / "bench-locked"
+    args = {
+        "BENCH_DECODE": str(kit / "tests" / "bench_decode.py"),
+        "BENCH_OUT": str(out),
+        "BENCH_SETTLE": "0",
+    }
+
+    first = _run(kit / "local" / "dflash2-bench.sh", kit, shim, STUB_BENCH_MODE="ok", **args)
+    assert first.returncode == 0, first.stdout
+    assert (out / "hashmap.json").is_file()
+
+    # Directory read-only (so unlink fails) but the logs stay writable (so the
+    # per-lane redirect still succeeds).
+    out.chmod(0o555)
+    try:
+        second = _run(kit / "local" / "dflash2-bench.sh", kit, shim, STUB_BENCH_MODE="empty", **args)
+        assert second.returncode != 0, second.stdout
+        assert "cannot clear stale receipt" in second.stderr + second.stdout
+        assert "BENCH PASS" not in second.stdout
+        # The stale lane is still on disk: the run refused rather than consumed it.
+        assert (out / "hashmap.json").is_file()
+    finally:
+        out.chmod(0o755)
+
+
 def test_receipted_bench_json_has_the_fields_the_summary_reads() -> None:
     """Guard the field names the summary depends on, against the real receipts."""
     bench = ROOT / "local" / "dflash2-smoke-receipts-20260920" / "bench"
