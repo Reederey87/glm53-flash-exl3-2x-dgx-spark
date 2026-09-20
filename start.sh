@@ -250,6 +250,8 @@ SPINWAIT_PATCH_HOST="${SPINWAIT_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_spinwait_g
 FGAPC_PATCH_HOST="${FGAPC_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_fine_grained_apc.py}"
 # LOCAL: align-floor -- stop the mamba align split zeroing a sub-block chunk when LPTT >= block_size
 ALIGN_FLOOR_PATCH_HOST="${ALIGN_FLOOR_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_align_floor.py}"
+# LOCAL: task 45 site 1 -- floor the prefix-cache tail registration from (n - 1), not n
+APC_TAIL_FLOOR_PATCH_HOST="${APC_TAIL_FLOOR_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_apc_tail_boundary.py}"
 # LOCAL: task 25 — verification-only adaptive-k (kit #139 split, default off)
 ADAPTIVE_K_PATCH_HOST="${ADAPTIVE_K_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_adaptive_k.py}"
 # LOCAL: task 30 — fused_recurrent_kda launch (warps/stages/BV cap), default off
@@ -338,6 +340,11 @@ GLM53_FINE_GRAINED_APC="${GLM53_FINE_GRAINED_APC:-0}"
 # LOCAL: 1 = floor a sub-block mixed-prefill chunk at the mixed cap instead of 0 when LPTT >= block_size
 # (scheduler livelock, dormant at LPTT=1792 — proven 0 mismatches over 608 combinations). Read once at import.
 GLM53_ALIGN_FLOOR="${GLM53_ALIGN_FLOOR:-1}"
+# LOCAL: task 45 -- 1 = floor the prefix-cache tail registration from (n - 1) instead of
+# n in the scheduler stop and both partial-tail writers. The cache finder is capped at
+# num_tokens - 1, so a registration at n is unreachable and the prompt falls back a whole
+# 3584-token page. Boundary arithmetic only; no hot-path work, no numerics change.
+GLM53_APC_TAIL_FLOOR="${GLM53_APC_TAIL_FLOOR:-0}"
 # LOCAL: task 25 verification-only adaptive-k. off = stock k=7 every step.
 # ema trims only request.spec_token_ids (target verify). Capture-only
 # (GLM53_ADAPTIVE_K_CAPTURE=1) adds extra FULL graphs without the EMA.
@@ -1005,6 +1012,7 @@ preflight() {
     [ -f "$SPINWAIT_PATCH_HOST" ] || die "$SPINWAIT_PATCH_HOST missing"  # LOCAL: W17
     [ -f "$FGAPC_PATCH_HOST" ] || die "$FGAPC_PATCH_HOST missing"  # LOCAL: W18
     [ -f "$ALIGN_FLOOR_PATCH_HOST" ] || die "$ALIGN_FLOOR_PATCH_HOST missing"  # LOCAL: align-floor
+    [ -f "$APC_TAIL_FLOOR_PATCH_HOST" ] || die "$APC_TAIL_FLOOR_PATCH_HOST missing"  # LOCAL: task 45
     [ -f "$ADAPTIVE_K_PATCH_HOST" ] || die "$ADAPTIVE_K_PATCH_HOST missing"  # LOCAL: task 25
     [ -f "$KDA_REC_PATCH_HOST" ] || die "$KDA_REC_PATCH_HOST missing"  # LOCAL: task 30
     [ -f "$KV_CAPACITY_LOG_PATCH_HOST" ] || die "$KV_CAPACITY_LOG_PATCH_HOST missing"  # LOCAL: W41
@@ -1561,6 +1569,11 @@ fi
 if [ -f /opt/glm53/patch_align_floor.py ]; then
     python3 -S /opt/glm53/patch_align_floor.py
 fi
+# LOCAL: task 45 site 1 -- self-gated on GLM53_APC_TAIL_FLOOR; runs after align-floor
+# (both edit scheduler.py) and leaves every file byte-identical when unarmed.
+if [ -f /opt/glm53/patch_apc_tail_boundary.py ]; then
+    python3 -S /opt/glm53/patch_apc_tail_boundary.py
+fi
 if [ -f /opt/glm53/patch_adaptive_k.py ]; then  # LOCAL: task 25 (after align-floor)
     python3 -S /opt/glm53/patch_adaptive_k.py
 fi
@@ -1723,6 +1736,11 @@ fi
 if [ -f /opt/glm53/patch_align_floor.py ]; then
     python3 -S /opt/glm53/patch_align_floor.py
 fi
+# LOCAL: task 45 site 1 -- self-gated on GLM53_APC_TAIL_FLOOR; runs after align-floor
+# (both edit scheduler.py) and leaves every file byte-identical when unarmed.
+if [ -f /opt/glm53/patch_apc_tail_boundary.py ]; then
+    python3 -S /opt/glm53/patch_apc_tail_boundary.py
+fi
 if [ -f /opt/glm53/patch_adaptive_k.py ]; then  # LOCAL: task 25 (after align-floor)
     python3 -S /opt/glm53/patch_adaptive_k.py
 fi
@@ -1802,6 +1820,8 @@ launch_cluster() {
     scp -q -o BatchMode=yes "$FGAPC_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_fine_grained_apc.py"
     [ -f "$ALIGN_FLOOR_PATCH_HOST" ] || die "missing $ALIGN_FLOOR_PATCH_HOST"
     scp -q -o BatchMode=yes "$ALIGN_FLOOR_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_align_floor.py"
+    [ -f "$APC_TAIL_FLOOR_PATCH_HOST" ] || die "missing $APC_TAIL_FLOOR_PATCH_HOST"  # LOCAL: task 45
+    scp -q -o BatchMode=yes "$APC_TAIL_FLOOR_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_apc_tail_boundary.py"
     [ -f "$ADAPTIVE_K_PATCH_HOST" ] || die "missing $ADAPTIVE_K_PATCH_HOST"
     scp -q -o BatchMode=yes "$ADAPTIVE_K_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_adaptive_k.py"
     [ -f "$KDA_REC_PATCH_HOST" ] || die "missing $KDA_REC_PATCH_HOST"
@@ -1853,6 +1873,7 @@ launch_cluster() {
         # dev routes when 1. Patched file is inert when 0/unset.
         -e "GLM53_EXPOSE_CACHE_RESET=$GLM53_EXPOSE_CACHE_RESET"
         -e "GLM53_ALIGN_FLOOR=$GLM53_ALIGN_FLOOR"
+        -e "GLM53_APC_TAIL_FLOOR=$GLM53_APC_TAIL_FLOOR"
         -e "GLM53_ADAPTIVE_K=$GLM53_ADAPTIVE_K"
         -e "GLM53_ADAPTIVE_K_CAPTURE=$GLM53_ADAPTIVE_K_CAPTURE"
         -e "GLM53_ADAPTIVE_K_SET=$GLM53_ADAPTIVE_K_SET"
@@ -1973,6 +1994,7 @@ launch_cluster() {
         -v '/tmp/patch_spinwait_gb10.py:/opt/glm53/patch_spinwait_gb10.py:ro' \
         -v '/tmp/patch_fine_grained_apc.py:/opt/glm53/patch_fine_grained_apc.py:ro' \
         -v '/tmp/patch_align_floor.py:/opt/glm53/patch_align_floor.py:ro' \
+        -v '/tmp/patch_apc_tail_boundary.py:/opt/glm53/patch_apc_tail_boundary.py:ro' \
         -v '/tmp/patch_adaptive_k.py:/opt/glm53/patch_adaptive_k.py:ro' \
         -v '/tmp/patch_kda_recurrent.py:/opt/glm53/patch_kda_recurrent.py:ro' \
         -v '/tmp/patch_flashkda_prefill.py:/opt/glm53/patch_flashkda_prefill.py:ro' \
@@ -2016,6 +2038,7 @@ launch_cluster() {
         -v "$SPINWAIT_PATCH_HOST:/opt/glm53/patch_spinwait_gb10.py:ro" \
         -v "$FGAPC_PATCH_HOST:/opt/glm53/patch_fine_grained_apc.py:ro" \
         -v "$ALIGN_FLOOR_PATCH_HOST:/opt/glm53/patch_align_floor.py:ro" \
+        -v "$APC_TAIL_FLOOR_PATCH_HOST:/opt/glm53/patch_apc_tail_boundary.py:ro" \
         -v "$ADAPTIVE_K_PATCH_HOST:/opt/glm53/patch_adaptive_k.py:ro" \
         -v "$KDA_REC_PATCH_HOST:/opt/glm53/patch_kda_recurrent.py:ro" \
         -v "$FLASHKDA_PREFILL_PATCH_HOST:/opt/glm53/patch_flashkda_prefill.py:ro" \

@@ -32,6 +32,7 @@ this tree from the recipe it started from:
 | Multi-session retention collapse — 2×68k sessions **0%** (163 s) | per-group retention (`overlay/patch_apc_per_group_retention.py`): drafter SWA boundaries-only, MLA/mamba dense | **100%** (1.3 s) |
 | Co-batch zero-insertion — 4×60k concurrent **0%** (288 s) | per-group sparse retention (the global knob was the old thrash) | **98.7%** (16.5 s) |
 | Prompts under ~3.6k could never hit, and every follow-up re-read up to a page | `overlay/patch_fine_grained_apc.py` — hits reconcile at the 64-token hash grain instead of the 3,584-token page | a 2.6k prompt reuses **2,816** tokens; follow-ups reuse **96–99%** (~4.1 s → ~1.0 s per turn) |
+| Hash-grid prompt lengths lost a whole page on replay — 3,520 tokens, **2.67 s** | `overlay/patch_apc_tail_boundary.py` — the three registration sites floored from `n` instead of `n − 1`, one 64-token unit above anything a lookup can request | every replay reaches its ceiling (ratio **1.0000**, **0.265 s**); a 26k needle task reuses **26,176** tokens, **2.04 s vs 19.76 s** cold |
 | Toggling thinking on/off threw the whole prefix away (50k prompt: 56.8 s re-read) | chat template emits the `Reasoning Effort` line unconditionally — the off-shape is a strict extension of the on-shape | toggle hits **100%** (0.26 s) |
 | Short request stuck behind a 240k read — **256 s** TTFT | `LONG_PREFILL_TOKEN_THRESHOLD=1792` fairness cap | **6.7–7.9 s** (gate v3; earlier builds measured 5.3–7.9) |
 | First turn after every restart cold | `local/content-warmup.sh` pre-reads the shared system prompt at boot | warm on turn 1 |
@@ -81,7 +82,8 @@ last-wins `EXL3_TEMP_ROWS_FUSED=32`, `GLM53_ADAPTIVE_K=ema`); the isolated
 receipts, the previous-stack figures and every rejected arm are in
 `docs/06-improvement-plan.md`. Every bench and probe ships in `tests/` and
 `local/` — reproduce any row in minutes. Offline regression suite:
-`pip install -r requirements-dev.txt && pytest tests/ -q`.
+`uv sync && uv run pytest tests/ -q` (dependencies are declared in
+`pyproject.toml`; `requirements-dev.txt` remains as a pip-only fallback).
 
 ## The serving image: preview vLLM, pinned and completed
 `download.sh` validates the selected snapshot's
@@ -290,7 +292,7 @@ docs/              01 architecture · 02 parameters · 03 bringup · 04 prefix c
                    08 concurrent prefill · 09 rebase field test · 10 self-build cutover ·
                    11 gb10 kernel program · 12 sparkinfer trellis study ·
                    13 upstream review · 14 profiling runbook ·
-                   14 selective-quantization gate
+                   14 selective-quantization gate · 17 apc tail floor
 tests/             decode benches + kit regression tests
 ```
 

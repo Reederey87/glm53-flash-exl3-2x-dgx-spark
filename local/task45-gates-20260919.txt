@@ -1,0 +1,11 @@
+# Task 45 site 1 (APC tail floor) — armed-boot gate receipts, 2026-09-19
+# image glm53-selfbuild:e3-w3-zfill-v149 | GLM53_APC_TAIL_FLOOR=1
+# pool 1,396,551 tokens / 1.40x | retention_by_group=[None x6, 0]
+# boot: Result=success NRestarts=0 8m55s health=200
+
+[acceptance.sh]  passed: 7   failed: 0   ACCEPTANCE PASSED
+[serving-test.sh] passed: 6   failed: 0   SERVING TEST PASSED
+  (incl. 4-way concurrency MAX_NUM_SEQS=4 distinct content, tool call, 5 sustained)
+[MemFree] head 5 GiB  worker 3 GiB   (floor 2.5 GiB)
+[prose 5-run] 32.31 median tok/s, accept 0.542  (standing band 29-32)
+[structured]  71.20 tok/s @ accept 1.0/7.0, no NaN

@@ -3570,3 +3570,111 @@ open the gap; a candidate must cut `REG ≤ 64` and application smem
 ### Validation
 
 `compileall` OK; `pytest tests/ -q` → 522 passed, 1 skipped, 18 subtests.
+
+## 2026-09-19: task 45 site 1 ADOPTED — the prefix-cache tail was registered one hash unit out of reach
+
+**One-line:** `KVCacheManager.get_computed_blocks` searches hit positions
+`≤ request.num_tokens - 1`, but three sites that *register* reusable state floored
+from `n`. Whenever `n % 64 == 0` the registered entry sat **one 64-token hash unit
+above every requestable position**, so hybrid hits fell back a whole 3,584-token
+page. Boundary arithmetic only; no kernel, no numerics, no image rebuild.
+
+**Reproduced before any code changed.** `scripts/probe_apc_boundary_reachability.py`,
+run against the live server, measures `reused` versus `ceiling` per case with a
+`/reset_prefix_cache` between cases and `vllm:prefix_cache_{hits,queries}_total`
+deltas. Baseline:
+
+| case | prompt | reused | ceiling | short | warm |
+|---|---:|---:|---:|---:|---:|
+| `exact@6464` | 6,464 | 3,584 | 6,400 | **2,816** | 2.268 s |
+| `exact@7168` | 7,168 | 3,584 | 7,104 | **3,520** | 2.668 s |
+| `exact@10752` | 10,752 | 7,168 | 10,688 | **3,520** | 2.673 s |
+| `exact@14336` | 14,336 | 10,752 | 14,272 | **3,520** | 2.679 s |
+| `exact@7360` | 7,360 | 7,168 | 7,296 | 128 | 0.570 s |
+| `exact@6500` / `@10000` / `@20000` | — | — | — | **0** | 0.20–0.26 s |
+
+Every non-multiple-of-64 length already reached its ceiling; every aligned length
+fell exactly one page short, at ~2.67 s instead of ~0.25 s. That asymmetry is the
+whole diagnosis, and it is why the defect survived every gate the kit runs —
+acceptance, serving and decode are all green with it present, because it degrades
+reuse rather than correctness.
+
+**The three sites.** `scheduler._mamba_block_aligned_split` (the mamba partial-tail
+prefill stop), `FullAttentionManager._cache_partial_tail_block`
+(`boundary_tokens`), and `MambaManager._cache_partial_tail_block`
+(`latest_prompt_hash_boundary`). All three now floor from `(n - 1)`. The
+scheduler stop is **additional**: the existing block-aligned stops and the
+shared-prefix junction stop are untouched, so no intermediate chunk can end
+off-grid. Replacing them instead re-triggers known state poisoning.
+
+**Why it is safe.** The published entry is keyed by the prefix `[0, q)` and holds
+the state after exactly `q` tokens. A consumer resuming at `q` gets a state that
+matches the position its own key proves. The change moves a registration to a
+reachable position whose state is already materialised there; it does not invent
+reuse, relax a key, or weaken a proof. For every length that already worked the
+emitted value is identical.
+
+**Adopted receipt, armed boot (`GLM53_APC_TAIL_FLOOR=1`).**
+
+| gate | result |
+|---|---|
+| boundary ladder | every `exact@*` ratio **1.0000**, warm 0.260–0.272 s |
+| correctness | 26,240-token hash-grid prompt: exact replay reuses **26,176 = the exact ceiling**, right code, 2.041 s vs 19.76 s cold (**9.7×**); changed-needle control returns the new code, **no stale leak** |
+| acceptance | 7/7 |
+| serving | 6/6 |
+| structured decode | median **71.20 tok/s** @ 1.0/7.0, no NaN |
+| prose decode | median **32.31 tok/s** over 5 runs, accept 0.542 |
+| pool | **1,396,551 tokens / 1.40×** and `retention_by_group` **unchanged** |
+| MemFree | head 5 GiB, worker 3 GiB |
+| boot | `Result=success`, `NRestarts=0`, 8 m 55 s, health 200 |
+
+Receipts: `local/task45-apc-tail-boundary-baseline-20260919.json`,
+`local/task45-apc-tail-boundary-armed-20260919.json`,
+`local/task45-apc-tail-correctness-20260919.json`,
+`local/task45-armed-structured-20260919.json`,
+`local/task45-armed-prose5-20260919.json`, `local/task45-gates-20260919.txt`.
+Full write-up: `docs/17-apc-tail-floor.md`.
+
+**Deliberate divergence from upstream #52244.** Upstream's
+`mamba_state_cache_position()` returns `(n - 1 - unit) // unit * unit` — one
+further unit down — to compensate for an EAGLE last-block drop on the
+full-attention group. This kit's `patch_hybrid_prefix_hit.py` scopes that drop to
+the drafter SWA group only (`eagle_group_ids=[6]`, MLA and mamba
+`use_eagle=False`), so the reachable ceiling really is `(n - 1) // unit * unit`.
+The probe measures it directly (`reused == ceiling` in every case), and taking
+the extra back-off would cost a unit for nothing.
+
+**Accepted cost, stated plainly.** On the **append** shape (a consumer 32 tokens
+longer than its producer) at a hash-grid prompt length the deepest entry is now
+`n - 64`, so the consumer recomputes one hash unit — 64 tokens, about **20 ms** —
+against the 2,816–3,520 tokens (~2.4 s) recovered per exact replay.
+`append32@6500` and every non-aligned append case are unchanged. Not taken:
+registering both `n` and `n - 64` would remove the cost but adds a cache entry per
+request on a pool that is the binding capacity constraint.
+
+**A prior-art correction carried into the gate text.** The temp-0
+cold-vs-replay byte-identity check is **not usable as a correctness gate on this
+stack.** `w18-fgapc-probe.py` Part B is 1/3 identical cold-vs-replay, and
+cold-vs-cold with a cache reset between is already **0/3** — pre-existing and
+arm-independent, so it is not a regression from this change. The gate used
+instead is a checkable long-context retrieval task plus a stale-leak negative
+control.
+
+**Scope corrections.** The task-45 site that re-derived the registration bound
+from `num_finalized_computed_tokens` **does not exist in this lineage** — verified
+tree-wide inside the running container, not inferred — and after this change no
+`num_prompt_tokens //` floor remains anywhere under `vllm/v1/`. Recorded
+`NOT_APPLICABLE`, not as an unported fix. Task 45 stays open for
+**successor-aware hashing** only; 45b (register both tail positions) and 45c
+(promote the boundary probe into the standing battery) were added to the ledger.
+
+**Validation.** `uv sync && uv run pytest tests/ -q` → **804 passed, 1 skipped,
+18 subtests passed**. `bash -n start.sh` OK, `shellcheck -S warning` OK. Overlay
+checked in throwaway containers on the node: unarmed byte-identical, armed
+applies to all three files, idempotent, AST OK, markers present.
+
+**Rollback.** `GLM53_APC_TAIL_FLOOR=0` in `.env` and restart, or remove the line
+(the launcher default is 0 and leaves every target file byte-identical). Node
+backups: `.env.bak-pre-task45-apc-tail-20260919`,
+`start.sh.bak-pre-task45-apc-tail-20260919`,
+`env.example.bak-pre-task45-apc-tail-20260919`.

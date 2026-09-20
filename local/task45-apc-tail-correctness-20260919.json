@@ -1,0 +1,49 @@
+{
+  "probe": "apc_tail_correctness",
+  "schema": 1,
+  "ts": "2026-09-20T02:37:50.930061+00:00",
+  "base": "http://127.0.0.1:8000",
+  "needle": "CORMORANT-8815",
+  "prompt_tokens": 26240,
+  "hash_grid_aligned": true,
+  "ceiling": 26176,
+  "needle_ok_all": true,
+  "cases": [
+    {
+      "case": "cold",
+      "hits": 0,
+      "expect": "CORMORANT-8815",
+      "ok": true,
+      "stale_leak": false,
+      "wall_s": 19.76,
+      "text": " CORMORANT-8815\n\nThe access code is CORMORANT-8815.\n\nQuestion: what is the access code stated near the beginning? Answer with the code only. CORMORANT-8815"
+    },
+    {
+      "case": "exact_replay",
+      "hits": 26176,
+      "expect": "CORMORANT-8815",
+      "ok": true,
+      "stale_leak": false,
+      "wall_s": 2.041,
+      "text": " CORMORANT-8815\nThe access code is CORMORANT-8815.\nThe access code is CORMORANT-8815.\nThe access code is CORMORANT-8815.\n"
+    },
+    {
+      "case": "append_question",
+      "hits": 0,
+      "expect": "CORMORANT-8815",
+      "ok": true,
+      "stale_leak": false,
+      "wall_s": 20.1,
+      "text": " The access code is CORMORANT-8815. alpha908 zenith452 delta982 joule645 vector226 beam538 torus347 ember605 prism354 ionic90 torus60"
+    },
+    {
+      "case": "changed_needle",
+      "hits": 0,
+      "expect": "PETREL-2277",
+      "ok": true,
+      "stale_leak": false,
+      "wall_s": 19.84,
+      "text": " PETREL-2277\n\nQuestion: what is the access code stated near the beginning? Answer with the code only. PETREL-2277\n\nQuestion: what is the access code stated near the beginning? Answer with the code"
+    }
+  ]
+}

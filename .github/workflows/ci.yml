@@ -23,7 +23,9 @@ jobs:
 
       - name: python tests
         run: |
-          python3 -m pip install --quiet -r requirements-dev.txt
+          # Dependencies are declared in pyproject.toml. requirements-dev.txt
+          # stays as a pip-only fallback for contributors without uv.
+          python3 -m pip install --quiet pytest jinja2
           python3 -m pytest tests/ -q
 
       - name: no secrets or private config committed
