@@ -22,11 +22,16 @@ fusions, and all of EXL3 — zero EXL3 code exists in vLLM mainline). Consequenc
 
 ## Current queue (research refresh, 2026-09-05)
 
-The S1/S2 kernel program is closed. Production is
+The S1/S2 kernel program is closed. Production as of 2026-09-20 is
+`glm53-selfbuild:e3-pipeline-f1s8-reuse` with `GLM53_EXL3_MOE_PIPELINE=1`
+`GLM53_EXL3_MOE_REUSE=1` (task 42 lever 1 register/spill cut + lever 2 gate/up
+Hadamard reuse; both adopted on explicit user decisions with the essay lane
+below the pre-registered ≥5% bar — recorded, not rounded). Previous pin
 `glm53-selfbuild:e3-w3-zfill-v149` (ExLlamaV3 v1.4.9 native pin, task 35,
 2026-09-10; E2 fat GEMM pipelined, E3 grouped fat-expert MoE on, W3 zero-fill
-A-pad). Rollback remains `glm53-selfbuild:e3-w3-zfill` with `EXL3_FAT_GROUPED=1`,
-or `glm53-selfbuild:ca13bdd-v147` with `EXL3_FAT_GROUPED=0`. The initial
+A-pad) remains the rebuild base. Rollback of lever 2 is
+`GLM53_EXL3_MOE_REUSE=0` on the same image, or
+`IMAGE=glm53-selfbuild:e3-pipeline-f1s8`. The initial
 contended **+0.3%** end-to-end result is superseded by PR #32's powered
 re-window: **+5.3–5.6% cold prefill**. Further kernel work needs a new
 current-stack profile, not extrapolation from the isolated +41% kernel result.

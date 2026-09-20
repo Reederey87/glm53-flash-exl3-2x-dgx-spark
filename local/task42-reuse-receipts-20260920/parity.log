@@ -1,0 +1,42 @@
+[t42-reuse 2026-09-20T09:53:13-04:00] parity ctrl REUSE=0
+INFO 09-20 13:53:27 [exl3.py:607] exl3 fat diag schema=3 configured_tier=grouped effective_tier=grouped tier_reason=grouped_ok shared_suh=1 shared_suh_layers=1/1 sym_exl3_moe=1 sym_fat_gemm=1 sym_fat_gemm_scatter=1 sym_fat_moe=1 grouped_eligible=1 grouped_calls=0 grouped_scratch_bytes=0 grouped_scratch_growths=0 cap=12.1 cap_ok=1 tp_rank=-1 tp_size=1 prefill_layer_calls=0 thin_calls=0 row_tile_calls=0 fallback_calls=grouped=0,kernel=0,batched=0,sorted=0,legacy=0 fallback_reasons=none fat_layers=0 fat_expert_slots=0 max_rows=0
+INFO 09-20 13:53:27 [exl3.py:2044] EXL3 MCG trellis engaged for routed experts: bits=4 experts_local=288 hidden=4096 intermediate_local=2048 fused_moe=exl3_moe concurrency=6 reuse_aliased=0 (no BF16 expert reconstruct at load)
+[glm53-exl3-moe-pipeline] active: K4/N256/mcg geometry=frag1_sh8 shared_input=0 (register-cut decode)
+  t=   12 skew=1.0 path=none     sum=+14422.281250 sha=7a5e5a0456213355
+  t=   12 skew=0.0 path=none     sum=+21263.566406 sha=d26b9394a43028ee
+  t=   20 skew=1.0 path=none     sum=+52475.179688 sha=48d629bd059e4935
+  t=   20 skew=0.0 path=none     sum=+15858.089844 sha=3527b28e04e27324
+  t=   32 skew=1.0 path=none     sum=+26200.234375 sha=46988101af5b4fac
+  t=   32 skew=0.0 path=none     sum=+44203.187500 sha=a1a36c22ec7c6329
+INFO 09-20 13:53:27 [exl3.py:1194] EXL3 grouped scratch grow rows=8192 hidden=4096 intermediate=2048 bytes=100663296 growths=1
+  t= 1024 skew=1.0 path=grouped  sum=-95953.953125 sha=0e2bf150e9710d8c
+  t= 1024 skew=0.0 path=grouped  sum=+385850.625000 sha=948d5b4b34944a3e
+wrote /out/parity-ctrl.json
+[t42-reuse 2026-09-20T09:53:29-04:00] parity var REUSE=1
+INFO 09-20 13:53:43 [exl3.py:607] exl3 fat diag schema=3 configured_tier=grouped effective_tier=grouped tier_reason=grouped_ok shared_suh=1 shared_suh_layers=1/1 sym_exl3_moe=1 sym_fat_gemm=1 sym_fat_gemm_scatter=1 sym_fat_moe=1 grouped_eligible=1 grouped_calls=0 grouped_scratch_bytes=0 grouped_scratch_growths=0 cap=12.1 cap_ok=1 tp_rank=-1 tp_size=1 prefill_layer_calls=0 thin_calls=0 row_tile_calls=0 fallback_calls=grouped=0,kernel=0,batched=0,sorted=0,legacy=0 fallback_reasons=none fat_layers=0 fat_expert_slots=0 max_rows=0
+INFO 09-20 13:53:43 [exl3.py:2044] EXL3 MCG trellis engaged for routed experts: bits=4 experts_local=288 hidden=4096 intermediate_local=2048 fused_moe=exl3_moe concurrency=6 reuse_aliased=1 (no BF16 expert reconstruct at load)
+[glm53-exl3-moe-pipeline] active: K4/N256/mcg geometry=frag1_sh8 shared_input=1 (register-cut decode; gate/up Hadamard reuse)
+  t=   12 skew=1.0 path=none     sum=+14422.046875 sha=36c9c603d8c2cfe3
+  t=   12 skew=0.0 path=none     sum=+21263.562500 sha=ac9bad165c004350
+  t=   20 skew=1.0 path=none     sum=+52475.195312 sha=064c4c6986371d20
+  t=   20 skew=0.0 path=none     sum=+15858.089844 sha=3527b28e04e27324
+  t=   32 skew=1.0 path=none     sum=+26200.234375 sha=46988101af5b4fac
+  t=   32 skew=0.0 path=none     sum=+44203.187500 sha=a1a36c22ec7c6329
+INFO 09-20 13:53:43 [exl3.py:1194] EXL3 grouped scratch grow rows=8192 hidden=4096 intermediate=2048 bytes=100663296 growths=1
+  t= 1024 skew=1.0 path=grouped  sum=-95953.828125 sha=35df625f2eaf99d0
+  t= 1024 skew=0.0 path=grouped  sum=+385850.562500 sha=2ccfdf5a83fdd5b0
+wrote /out/parity-var.json
+ tokens  skew  bit-exact   maxabs delta   rel maxabs        nrmse
+     12   1.0      False     2.5000e-01    1.646e-03    7.437e-06
+     12   0.0      False     3.9062e-03    2.578e-05    1.163e-07
+     20   1.0      False     1.5625e-02    1.038e-04    3.627e-07
+     20   0.0       True     0.0000e+00    0.000e+00    0.000e+00
+     32   1.0       True     0.0000e+00    0.000e+00    0.000e+00
+     32   0.0       True     0.0000e+00    0.000e+00    0.000e+00
+   1024   1.0      False     1.2500e-01    8.329e-04    4.075e-07
+   1024   0.0      False     6.2500e-02    4.159e-04    2.053e-07
+
+cases: 8   bit-exact: 3   worst rel maxabs: 1.646e-03
+ctrl paths: ['none', 'none', 'none', 'none', 'none', 'none', 'grouped', 'grouped']
+var  paths: ['none', 'none', 'none', 'none', 'none', 'none', 'grouped', 'grouped']
+VERDICT: PARITY OK

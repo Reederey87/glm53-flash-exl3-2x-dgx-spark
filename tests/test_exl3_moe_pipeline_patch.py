@@ -55,7 +55,31 @@ template<int t_bits, int MOE_TILESIZE_N, int cb>
 __global__ __launch_bounds__(EXL3_GEMM_BASE_THREADS * MOE_TILESIZE_K / 16)
 void exl3_moe_kernel(EXL3_MOE_KERNEL_ARGS)
 {
-    exl3_gemm_kernel_inner<1, false, 1, 16, 32, 256, MOE_SH_STAGES, MOE_FRAG_STAGES>(nullptr);
+    const bool gated = act_function != MOE_ACT_RELU2_NOGATE;
+    auto had_gather_gu_in = [&]()
+    {
+        const half* in_ptr = hidden_state;
+        if (gated)
+            had_hf_r_128_inner<true, false>
+            (
+                in_ptr,
+                temp_state_g + 128 * warp_idx,
+                exp_gate_suh + 128 * token_off,
+                0.088388347648f
+            );
+                had_hf_r_128_inner<true, false>
+                (
+                    in_ptr,
+                    temp_state_u + 128 * warp_idx,
+                    exp_up_suh + 128 * token_off,
+                    0.088388347648f
+                );
+    };
+    had_gather_gu_in();
+    auto gemm_up = [&](const half* in_addr, half* out_addr, const uint16_t* trellis, const int K) {};
+    if (gated)
+        gemm_up(temp_state_g, temp_intermediate_g, exp_gate_trellis, K_gate);
+        gemm_up(temp_state_u, temp_intermediate_u, exp_up_trellis, K_up);
 }
 """
 
@@ -64,6 +88,7 @@ COMMON_CUH = """#pragma once
 #define MOE_TILESIZE_M 16
 #define MOE_SH_STAGES 3
 #define MOE_FRAG_STAGES 3
+#define MOE_ACT_RELU2_NOGATE 2
 """
 
 INSTANCES_CUH = """#pragma once
@@ -141,6 +166,9 @@ def test_variant_is_a_separate_symbol_and_stock_is_untouched(tmp_path):
     # Renamed, not merely re-included: keeping the old name would be an ODR clash
     # with the stock instance at the same template signature.
     assert "void exl3_moe_kernel(EXL3_MOE_KERNEL_ARGS)" not in variant
+    assert "template<int t_bits, int MOE_TILESIZE_N, int cb, bool shared_input>" in variant
+    assert "if constexpr (!shared_input)" in variant
+    assert "gemm_up(temp_state_g, temp_intermediate_u, exp_up_trellis, K_up)" in variant
 
 
 def test_geometry_reaches_the_comp_unit(tmp_path):
@@ -149,7 +177,10 @@ def test_geometry_reaches_the_comp_unit(tmp_path):
     unit = (ext / "quant" / "comp_units" / "glm53_exl3_moe_pipeline.cu").read_text()
     assert "#define MOE_FRAG_STAGES 1" in unit
     assert "#define MOE_SH_STAGES 8" in unit
-    assert "glm53_exl3_moe_pipeline_kernel<4, 256, 1>" in unit
+    assert "glm53_exl3_moe_pipeline_kernel<4, 256, 1, false>" in unit
+    assert "glm53_exl3_moe_pipeline_kernel<4, 256, 1, true>" in unit
+    assert "glm53_exl3_moe_pipeline_kernel<4, 256, 2, false>" in unit
+    assert "glm53_exl3_moe_pipeline_kernel<4, 256, 2, true>" in unit
     assert 'return "frag1_sh8";' in unit
     # An overlay that emitted the stock numbers would make the arm inert while
     # still booting, which is the failure mode this pins against.
@@ -183,6 +214,12 @@ def test_dispatch_is_opt_in_and_fails_closed(tmp_path):
     assert "GLM53_EXL3_MOE_PIPELINE=1 requires SM121" in host
     assert "K == 4 && N_off == 1 && cb_idx == 0" in host
     assert "refusing to serve with a silently inert arm" in host
+    # Lever 2: reuse is a second instance, fail-closed without pipeline/proof.
+    assert 'getenv("GLM53_EXL3_MOE_REUSE")' in host
+    assert "GLM53_EXL3_MOE_REUSE=1 requires GLM53_EXL3_MOE_PIPELINE=1" in host
+    assert "gate_ptrs_suh.data_ptr() == up_ptrs_suh.data_ptr()" in host
+    assert "glm53_exl3_moe_pipeline_kernel_for(cb_idx, reuse_armed && shared_suh)" in host
+    assert "MOE_ACT_RELU2_NOGATE" in host
 
 
 def test_geometry_is_reported_for_audit(tmp_path):
@@ -236,6 +273,27 @@ def test_missing_kernel_anchor_fails_closed(tmp_path):
         _apply(ext)
 
 
+def test_missing_hadamard_anchor_fails_closed(tmp_path):
+    ext = _make_tree(tmp_path)
+    kernel = ext / "quant" / "exl3_moe_kernel.cuh"
+    kernel.write_text(KERNEL_CUH.replace("temp_state_u + 128 * warp_idx", "temp_state_x + 128 * warp_idx"))
+    with pytest.raises(SystemExit, match="exactly one anchor"):
+        _apply(ext)
+
+
+def test_missing_up_gemm_anchor_fails_closed(tmp_path):
+    ext = _make_tree(tmp_path)
+    kernel = ext / "quant" / "exl3_moe_kernel.cuh"
+    kernel.write_text(
+        KERNEL_CUH.replace(
+            "gemm_up(temp_state_u, temp_intermediate_u, exp_up_trellis, K_up);",
+            "gemm_up(temp_state_x, temp_intermediate_u, exp_up_trellis, K_up);",
+        )
+    )
+    with pytest.raises(SystemExit, match="exactly one anchor"):
+        _apply(ext)
+
+
 @pytest.mark.parametrize("frag", [0, 6, -1])
 def test_out_of_range_geometry_is_rejected(tmp_path, frag):
     ext = _make_tree(tmp_path)
@@ -275,6 +333,9 @@ def test_real_tree_still_carries_the_anchors():
     host = (REAL_TREE / "quant" / "exl3_moe.cu").read_text()
     bindings = (REAL_TREE / "bindings.cpp").read_text()
     assert kernel.count(OV.KERNEL_DEF_OLD) == 1
+    assert kernel.count(OV.KERNEL_TEMPLATE_OLD) == 1
+    assert kernel.count(OV.HAD_UP_OLD) == 1
+    assert kernel.count(OV.GEMM_UP_OLD) == 1
     assert host.count(OV.HOST_INCLUDE_OLD) == 1
     assert host.count(OV.HOST_HELPERS_ANCHOR) == 1
     assert host.count(OV.HOST_DISPATCH_OLD) == 1
@@ -300,6 +361,7 @@ STUB_TOOLS = ("docker", "ssh", "scp", "rsync", "curl", "ip", "nvidia-smi")
 _DOCKER_STUB = """#!/usr/bin/env bash
 case "$*" in
   *GLM53KEY*)              printf 'GLM53KEY %s\\n' "$GLM53_STUB_HEAD_KEY" ;;
+  *glm53.task42.reuse*)    printf '%s' "$GLM53_STUB_REUSE_LABEL" ;;
   *glm53.task42.pipeline*) printf '%s' "$GLM53_STUB_PIPELINE_LABEL" ;;
 esac
 exit 0
@@ -308,6 +370,7 @@ exit 0
 _SSH_STUB = """#!/usr/bin/env bash
 case "$*" in
   *GLM53KEY*)              printf 'GLM53KEY %s\\n' "$GLM53_STUB_WORKER_KEY" ;;
+  *glm53.task42.reuse*)    printf '%s' "$GLM53_STUB_REUSE_LABEL" ;;
   *glm53.task42.pipeline*) printf '%s' "$GLM53_STUB_PIPELINE_LABEL" ;;
 esac
 exit 0
@@ -323,6 +386,7 @@ class Launcher:
         self,
         tmp: Path,
         pipeline_label: str = "",
+        reuse_label: str = "",
         head_key: str = "key-head",
         worker_key: str = "key-head",
     ) -> None:
@@ -354,6 +418,7 @@ class Launcher:
             "LC_ALL": "C",
             "TERM": "dumb",
             "GLM53_STUB_PIPELINE_LABEL": pipeline_label,
+            "GLM53_STUB_REUSE_LABEL": reuse_label,
             "GLM53_STUB_HEAD_KEY": head_key,
             "GLM53_STUB_WORKER_KEY": worker_key,
         }
@@ -378,6 +443,13 @@ STRICT = [
     ({"GLM53_EXL3_MOE_PIPELINE": "1", "EXL3_FUSED_MOE": "0"}, 2, "requires EXL3_FUSED_MOE=1"),
     ({"GLM53_EXL3_MOE_PIPELINE": "0", "EXL3_FUSED_MOE": "0"}, 0, ""),
     ({"GLM53_EXL3_MOE_PIPELINE": "", "EXL3_FUSED_MOE": "0"}, 2, "must be exactly 0 or 1"),
+    ({"GLM53_EXL3_MOE_REUSE": "0"}, 0, ""),
+    ({"GLM53_EXL3_MOE_REUSE": "1", "GLM53_EXL3_MOE_PIPELINE": "1"}, 0, ""),
+    ({"GLM53_EXL3_MOE_REUSE": ""}, 2, "must be exactly 0 or 1"),
+    ({"GLM53_EXL3_MOE_REUSE": "2"}, 2, "must be exactly 0 or 1"),
+    ({"GLM53_EXL3_MOE_REUSE": "1"}, 2, "requires GLM53_EXL3_MOE_PIPELINE=1"),
+    ({"GLM53_EXL3_MOE_REUSE": "1", "GLM53_EXL3_MOE_PIPELINE": "0"}, 2, "requires GLM53_EXL3_MOE_PIPELINE=1"),
+    ({"GLM53_EXL3_MOE_REUSE": "1", "GLM53_EXL3_MOE_PIPELINE": "1", "EXL3_FUSED_MOE": "0"}, 2, "requires EXL3_FUSED_MOE=1"),
 ]
 
 
@@ -406,6 +478,17 @@ def test_armed_knob_passes_when_the_image_carries_the_variant(tmp_path):
     assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
     assert "pipeline geometry 1x8" in r.stdout
     assert "on both nodes" in r.stdout
+
+
+def test_reuse_passes_when_the_image_carries_the_shared_input_variant(tmp_path):
+    launcher = Launcher(tmp_path, pipeline_label="1x8", reuse_label="1")
+    r = launcher.run(
+        'ensure_image; printf "rc=%s\\n" "$?"',
+        GLM53_EXL3_MOE_PIPELINE="1",
+        GLM53_EXL3_MOE_REUSE="1",
+    )
+    assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
+    assert "gate/up Hadamard reuse armed" in r.stdout
 
 
 @pytest.mark.parametrize("skip_ship", [None, "1"])
@@ -448,11 +531,15 @@ def test_knob_uses_an_unset_only_default_and_joins_the_strict_bool_loop():
     src = START.read_text()
     assert 'GLM53_EXL3_MOE_PIPELINE="${GLM53_EXL3_MOE_PIPELINE-0}"' in src
     assert 'GLM53_EXL3_MOE_PIPELINE="${GLM53_EXL3_MOE_PIPELINE:-0}"' not in src
+    assert 'GLM53_EXL3_MOE_REUSE="${GLM53_EXL3_MOE_REUSE-0}"' in src
+    assert 'GLM53_EXL3_MOE_REUSE="${GLM53_EXL3_MOE_REUSE:-0}"' not in src
     assert (
-        "for _v in GLM53_KV_CAPACITY_LOG GLM53_APC_NO_STORE GLM53_EXL3_MOE_PIPELINE; do"
+        "for _v in GLM53_KV_CAPACITY_LOG GLM53_APC_NO_STORE "
+        "GLM53_EXL3_MOE_PIPELINE GLM53_EXL3_MOE_REUSE; do"
         in src
     )
     assert '-e "GLM53_EXL3_MOE_PIPELINE=$GLM53_EXL3_MOE_PIPELINE"' in src
+    assert '-e "GLM53_EXL3_MOE_REUSE=$GLM53_EXL3_MOE_REUSE"' in src
 
 
 def test_dockerfile_stamps_the_label_the_launcher_reads():
@@ -461,8 +548,12 @@ def test_dockerfile_stamps_the_label_the_launcher_reads():
         "glm53.task42.pipeline=${GLM53_EXL3_MOE_PIPELINE_FRAG}x${GLM53_EXL3_MOE_PIPELINE_SH}"
         in dockerfile
     )
+    assert "glm53.task42.reuse=1" in dockerfile
     # The reader and the stamp have to name the same label.
-    assert "glm53.task42.pipeline" in START.read_text()
+    src = START.read_text()
+    assert "glm53.task42.pipeline" in src
+    assert "glm53.task42.reuse" in src
+    assert "COPY overlay/exl3.py" in dockerfile
 
 
 def test_env_example_documents_the_knob_and_its_refusals():
@@ -472,6 +563,8 @@ def test_env_example_documents_the_knob_and_its_refusals():
     # The documented signature must be the shipped one, not the compile probe's.
     assert "STACK:32 B with 9 STL / 4 LDL" in env
     assert "STACK:40 B" not in env
+    assert "GLM53_EXL3_MOE_REUSE=0" in env
+    assert "Rollback: GLM53_EXL3_MOE_REUSE=0" in env
 
 
 def test_caller_export_wins_over_dotenv_including_empty(tmp_path):
@@ -494,6 +587,43 @@ def test_caller_export_wins_over_dotenv_including_empty(tmp_path):
                      GLM53_EXL3_MOE_PIPELINE="")
     assert r.returncode == 2
     assert "must be exactly 0 or 1" in r.stderr
+
+
+def test_reuse_caller_export_wins_over_dotenv_including_empty(tmp_path):
+    launcher = Launcher(tmp_path)
+    (launcher.repo / ".env").write_text("GLM53_EXL3_MOE_REUSE=0\n")
+    body = 'printf "%s\\n" "${GLM53_EXL3_MOE_REUSE-<unset>}"'
+    assert launcher.run(body).stdout.strip() == "0"
+    assert launcher.run(body, GLM53_EXL3_MOE_REUSE="1").stdout.strip() == "1"
+    assert launcher.run(body, GLM53_EXL3_MOE_REUSE="").stdout.strip() == ""
+    r = launcher.run('validate_numeric_config; printf "rc=%s\\n" "$?"',
+                     GLM53_EXL3_MOE_REUSE="")
+    assert r.returncode == 2
+    assert "must be exactly 0 or 1" in r.stderr
+
+
+def test_reuse_is_refused_when_the_image_carries_no_variant(tmp_path):
+    launcher = Launcher(tmp_path, pipeline_label="")
+    r = launcher.run(
+        'ensure_image; printf "rc=%s\\n" "$?"',
+        GLM53_EXL3_MOE_PIPELINE="1",
+        GLM53_EXL3_MOE_REUSE="1",
+    )
+    assert r.returncode == 1, (r.returncode, r.stdout, r.stderr)
+    assert "carries no register-cut kernel" in r.stderr
+
+
+def test_reuse_is_refused_on_a_pipeline_image_without_the_skip(tmp_path):
+    """A pre-lever-2 pipeline cubin still compiles two Hadamards."""
+    launcher = Launcher(tmp_path, pipeline_label="1x8", reuse_label="")
+    r = launcher.run(
+        'ensure_image; printf "rc=%s\\n" "$?"',
+        GLM53_EXL3_MOE_PIPELINE="1",
+        GLM53_EXL3_MOE_REUSE="1",
+    )
+    assert r.returncode == 1, (r.returncode, r.stdout, r.stderr)
+    assert "carries no gate/up Hadamard-reuse kernel" in r.stderr
+    assert "glm53.task42.reuse absent" in r.stderr
 
 
 # --- the parity comparator must fail closed --------------------------------

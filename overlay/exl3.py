@@ -781,6 +781,53 @@ def fused_moe_enabled() -> bool:
     return os.environ.get("EXL3_FUSED_MOE", "1") != "0"
 
 
+def fused_moe_reuse_enabled() -> bool:
+    """Task 42 lever 2: skip the duplicate gate/up input Hadamard.
+
+    Strict bool, same contract as the launcher: exactly ``0`` or ``1``.
+    Unset and empty are off at this helper (the launcher rejects empty
+    before boot). The kernel additionally requires the gate/up SUH
+    pointer tables to be the same tensor, so this flag alone cannot
+    take the skip path.
+    """
+    raw = os.environ.get("GLM53_EXL3_MOE_REUSE")
+    if raw is None or raw == "":
+        return False
+    if raw not in ("0", "1"):
+        raise RuntimeError(
+            f"GLM53_EXL3_MOE_REUSE must be exactly 0 or 1 (got {raw!r})"
+        )
+    return raw == "1"
+
+
+def alias_exl3_fused_up_suh(layer: torch.nn.Module) -> bool:
+    """Point the fused up-SUH table at the gate table after the equality proof.
+
+    The kernel skip keys off ``gate_ptrs_suh.data_ptr() == up_ptrs_suh.data_ptr()``,
+    so a value-equal copy in a distinct tensor would refuse. Returns True when
+    the alias is live.
+    """
+    ptrs = getattr(layer, "_exl3_ptrs", None)
+    if not ptrs:
+        return False
+    if not fused_moe_reuse_enabled():
+        return False
+    if not bool(getattr(layer, "_exl3_shared_w13_suh", False)):
+        raise RuntimeError(
+            "GLM53_EXL3_MOE_REUSE=1 requires all-expert equal gate/up SUH "
+            "(torch.equal(w13_suh[:,0], w13_suh[:,1]) is False); refusing "
+            "to skip a transform whose scales were not proven equal"
+        )
+    if os.environ.get("GLM53_EXL3_MOE_PIPELINE") != "1":
+        raise RuntimeError(
+            "GLM53_EXL3_MOE_REUSE=1 requires GLM53_EXL3_MOE_PIPELINE=1 "
+            "(reuse is compiled only into the pipeline variant)"
+        )
+    ptrs["up_suh"] = ptrs["gate_suh"]
+    layer._exl3_reuse_aliased = True
+    return True
+
+
 def load_exllamav3_ext():
     import exllamav3_ext
 
@@ -1325,6 +1372,7 @@ def build_exl3_fused_state(layer: torch.nn.Module, inners: list[dict[str, Any]])
     layer._exl3_fused_temps = temps
     layer._exl3_fused_concurrency = concurrency
     layer._exl3_k = int(layer._exl3_bits)
+    layer._exl3_reuse_aliased = bool(alias_exl3_fused_up_suh(layer))
 
 
 def _exl3_moe_launch(
@@ -1953,6 +2001,22 @@ class Exl3MoEMethod(FusedMoEMethodBase):
         _record_exl3_fat_resolution(layer)
         fused_ok = False
         fused_err = None
+        if fused_moe_reuse_enabled():
+            if os.environ.get("GLM53_EXL3_MOE_PIPELINE") != "1":
+                raise RuntimeError(
+                    "GLM53_EXL3_MOE_REUSE=1 requires GLM53_EXL3_MOE_PIPELINE=1 "
+                    "(reuse is compiled only into the pipeline variant)"
+                )
+            if not fused_moe_enabled():
+                raise RuntimeError(
+                    "GLM53_EXL3_MOE_REUSE=1 requires EXL3_FUSED_MOE=1 "
+                    "(the skip is only reachable through the fused expert path)"
+                )
+            if not bool(layer._exl3_shared_w13_suh):
+                raise RuntimeError(
+                    "GLM53_EXL3_MOE_REUSE=1 requires all-expert equal gate/up SUH "
+                    "(torch.equal(w13_suh[:,0], w13_suh[:,1]) is False)"
+                )
         if fused_moe_enabled():
             try:
                 import exllamav3_ext
@@ -1965,18 +2029,29 @@ class Exl3MoEMethod(FusedMoEMethodBase):
             except Exception as exc:
                 fused_err = repr(exc)
                 layer._exl3_ptrs = None
+                if fused_moe_reuse_enabled():
+                    raise RuntimeError(
+                        "GLM53_EXL3_MOE_REUSE=1 cannot boot without a live fused "
+                        f"MoE state ({fused_err})"
+                    ) from exc
+        if fused_moe_reuse_enabled() and not fused_ok:
+            raise RuntimeError(
+                "GLM53_EXL3_MOE_REUSE=1 cannot boot without a live fused "
+                f"MoE state ({fused_err or 'exl3_moe missing'})"
+            )
         if not self._logged:
             if fused_ok:
                 logger.info(
                     "EXL3 MCG trellis engaged for routed experts: bits=%s "
                     "experts_local=%s hidden=%s intermediate_local=%s "
-                    "fused_moe=exl3_moe concurrency=%s "
+                    "fused_moe=exl3_moe concurrency=%s reuse_aliased=%s "
                     "(no BF16 expert reconstruct at load)",
                     self.bits,
                     n_exp,
                     layer._exl3_hidden_size,
                     layer._exl3_intermediate_local,
                     getattr(layer, "_exl3_fused_concurrency", "?"),
+                    int(bool(getattr(layer, "_exl3_reuse_aliased", False))),
                 )
             else:
                 logger.info(

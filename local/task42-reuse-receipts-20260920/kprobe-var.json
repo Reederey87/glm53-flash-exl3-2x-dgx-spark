@@ -1,0 +1,139 @@
+{
+  "pipeline": "1",
+  "reuse": "1",
+  "arm": "1",
+  "cap": 32,
+  "iters": 30,
+  "reuse_aliased": true,
+  "cases": [
+    {
+      "tokens": 12,
+      "path": "none",
+      "wall_median_ms": 3.2380000352859497,
+      "device_total_us_per_call": 3209.1934666666702,
+      "fused_us_per_call": 3179.4642666666673,
+      "fused_share_pct": 99.0736239398218,
+      "fused_kernels": {
+        "void glm53_exl3_moe_pipeline_kernel<4, 256, 1, true>(__half const*, __half*, __half*, __half*, __half*, float*, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, long const*, long const*, __half const*, int, int, int, int, int, int, float, int, int, int, int, int*)": 3179.4642666666673
+      },
+      "top_kernels": [
+        {
+          "name": "void glm53_exl3_moe_pipeline_kernel<4, 256, 1, true>(__half const*, __half*, __half*, __ha",
+          "us_per_call": 3179.4642666666673,
+          "n": 30
+        },
+        {
+          "name": "void at::native::warpMergeSortKVInPlace<-2, -1, 128, 16, long, long, at::native::LTOp<long",
+          "us_per_call": 3.6298666666681054,
+          "n": 30
+        },
+        {
+          "name": "void at::native::vectorized_elementwise_kernel<2, at::native::FillFunctor<long>, std::arra",
+          "us_per_call": 3.0175999999999856,
+          "n": 90
+        },
+        {
+          "name": "Memcpy DtoD (Device -> Device)",
+          "us_per_call": 2.9408000000001873,
+          "n": 90
+        },
+        {
+          "name": "void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native:",
+          "us_per_call": 2.729633333333019,
+          "n": 30
+        },
+        {
+          "name": "void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native:",
+          "us_per_call": 2.7039999999999056,
+          "n": 30
+        }
+      ]
+    },
+    {
+      "tokens": 20,
+      "path": "none",
+      "wall_median_ms": 4.553824186325073,
+      "device_total_us_per_call": 4493.890999999995,
+      "fused_us_per_call": 4450.399699999999,
+      "fused_share_pct": 99.0322128418336,
+      "fused_kernels": {
+        "void glm53_exl3_moe_pipeline_kernel<4, 256, 1, true>(__half const*, __half*, __half*, __half*, __half*, float*, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, long const*, long const*, __half const*, int, int, int, int, int, int, float, int, int, int, int, int*)": 4450.399699999999
+      },
+      "top_kernels": [
+        {
+          "name": "void glm53_exl3_moe_pipeline_kernel<4, 256, 1, true>(__half const*, __half*, __half*, __ha",
+          "us_per_call": 4450.399699999999,
+          "n": 30
+        },
+        {
+          "name": "void at::native::radixSortKVInPlace<-2, -1, 32, 32, long, long, unsigned int>(at::cuda::de",
+          "us_per_call": 19.254466666667145,
+          "n": 30
+        },
+        {
+          "name": "void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native:",
+          "us_per_call": 3.1509333333322807,
+          "n": 30
+        },
+        {
+          "name": "void at::native::vectorized_elementwise_kernel<2, at::native::FillFunctor<long>, std::arra",
+          "us_per_call": 3.02826666666496,
+          "n": 90
+        },
+        {
+          "name": "void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native:",
+          "us_per_call": 2.906666666667676,
+          "n": 30
+        },
+        {
+          "name": "Memcpy DtoD (Device -> Device)",
+          "us_per_call": 2.834133333333208,
+          "n": 90
+        }
+      ]
+    },
+    {
+      "tokens": 32,
+      "path": "none",
+      "wall_median_ms": 5.81443190574646,
+      "device_total_us_per_call": 5758.072399999999,
+      "fused_us_per_call": 5712.5044,
+      "fused_share_pct": 99.20862405272987,
+      "fused_kernels": {
+        "void glm53_exl3_moe_pipeline_kernel<4, 256, 1, true>(__half const*, __half*, __half*, __half*, __half*, float*, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, long const*, long const*, __half const*, int, int, int, int, int, int, float, int, int, int, int, int*)": 5712.5044
+      },
+      "top_kernels": [
+        {
+          "name": "void glm53_exl3_moe_pipeline_kernel<4, 256, 1, true>(__half const*, __half*, __half*, __ha",
+          "us_per_call": 5712.5044,
+          "n": 30
+        },
+        {
+          "name": "void at::native::radixSortKVInPlace<-2, -1, 32, 32, long, long, unsigned int>(at::cuda::de",
+          "us_per_call": 20.222899999998177,
+          "n": 30
+        },
+        {
+          "name": "void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native:",
+          "us_per_call": 3.5530999999996764,
+          "n": 30
+        },
+        {
+          "name": "void at::native::index_elementwise_kernel<128, 4, at::native::gpu_index_kernel<at::native:",
+          "us_per_call": 3.3311999999995425,
+          "n": 30
+        },
+        {
+          "name": "void at::native::vectorized_elementwise_kernel<4, at::native::float16_copy_kernel_cuda(at:",
+          "us_per_call": 2.9365333333337125,
+          "n": 30
+        },
+        {
+          "name": "Memcpy DtoD (Device -> Device)",
+          "us_per_call": 2.5664000000000216,
+          "n": 90
+        }
+      ]
+    }
+  ]
+}

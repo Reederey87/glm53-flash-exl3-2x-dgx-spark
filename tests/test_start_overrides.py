@@ -171,6 +171,8 @@ def caller_value(key: str) -> str:
         "GLM53_INDEXER_WORKSPACE": "stock",
         "GLM53_KV_CAPACITY_LOG": "0",
         "GLM53_APC_NO_STORE": "0",
+        "GLM53_EXL3_MOE_PIPELINE": "0",
+        "GLM53_EXL3_MOE_REUSE": "0",
         "KV_CACHE_DTYPE": "auto",
     }
     if key in constrained:
@@ -200,6 +202,9 @@ def test_no_per_knob_allowlist_remains() -> None:
         # W41/W42 rule, so it needs the same setness-aware exception.
         "_glm53_cli_moepipe_set",
         "_glm53_cli_moepipe_val",
+        # task 42 lever 2: gate/up Hadamard reuse, same strict-bool contract.
+        "_glm53_cli_moereuse_set",
+        "_glm53_cli_moereuse_val",
     }
     assert cli_tokens <= allowed, (
         f"the per-knob _cli_* allowlist must be gone (generic rule, #91); "

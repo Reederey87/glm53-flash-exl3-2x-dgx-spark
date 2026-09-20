@@ -1,0 +1,48 @@
+[t42-reuse 2026-09-20T09:51:57-04:00] kprobe ctrl REUSE=0
+INFO 09-20 13:52:12 [exl3.py:607] exl3 fat diag schema=3 configured_tier=grouped effective_tier=grouped tier_reason=grouped_ok shared_suh=1 shared_suh_layers=1/1 sym_exl3_moe=1 sym_fat_gemm=1 sym_fat_gemm_scatter=1 sym_fat_moe=1 grouped_eligible=1 grouped_calls=0 grouped_scratch_bytes=0 grouped_scratch_growths=0 cap=12.1 cap_ok=1 tp_rank=-1 tp_size=1 prefill_layer_calls=0 thin_calls=0 row_tile_calls=0 fallback_calls=grouped=0,kernel=0,batched=0,sorted=0,legacy=0 fallback_reasons=none fat_layers=0 fat_expert_slots=0 max_rows=0
+INFO 09-20 13:52:12 [exl3.py:2044] EXL3 MCG trellis engaged for routed experts: bits=4 experts_local=288 hidden=4096 intermediate_local=2048 fused_moe=exl3_moe concurrency=6 reuse_aliased=0 (no BF16 expert reconstruct at load)
+[glm53-exl3-moe-pipeline] active: K4/N256/mcg geometry=frag1_sh8 shared_input=0 (register-cut decode)
+USDT:2026-09-20 13:52:12 1:1 SyncActivityProfilerHandler.cpp:52] profiler_start
+USDT:2026-09-20 13:52:12 1:1 SyncActivityProfilerHandler.cpp:59] profiler_stop
+  t=   12 wall=   3.316 ms  device=   3226.9 us  fused=  3197.6 us ( 99.1%)  path=none
+      fused kernel: void glm53_exl3_moe_pipeline_kernel<4, 256, 1, false>(__half const*, __half*, __half*, __half*, __half*, float  3197.6 us/call
+USDT:2026-09-20 13:52:12 1:1 SyncActivityProfilerHandler.cpp:52] profiler_start
+USDT:2026-09-20 13:52:12 1:1 SyncActivityProfilerHandler.cpp:59] profiler_stop
+  t=   20 wall=   4.580 ms  device=   4478.5 us  fused=  4435.9 us ( 99.0%)  path=none
+      fused kernel: void glm53_exl3_moe_pipeline_kernel<4, 256, 1, false>(__half const*, __half*, __half*, __half*, __half*, float  4435.9 us/call
+USDT:2026-09-20 13:52:13 1:1 SyncActivityProfilerHandler.cpp:52] profiler_start
+USDT:2026-09-20 13:52:13 1:1 SyncActivityProfilerHandler.cpp:59] profiler_stop
+  t=   32 wall=   5.841 ms  device=   5788.2 us  fused=  5740.2 us ( 99.2%)  path=none
+      fused kernel: void glm53_exl3_moe_pipeline_kernel<4, 256, 1, false>(__half const*, __half*, __half*, __half*, __half*, float  5740.2 us/call
+wrote /out/kprobe-ctrl.json
+reuse_aliased False pipeline 1 reuse 0
+[t42-reuse 2026-09-20T09:52:14-04:00] kprobe var REUSE=1
+INFO 09-20 13:52:28 [exl3.py:607] exl3 fat diag schema=3 configured_tier=grouped effective_tier=grouped tier_reason=grouped_ok shared_suh=1 shared_suh_layers=1/1 sym_exl3_moe=1 sym_fat_gemm=1 sym_fat_gemm_scatter=1 sym_fat_moe=1 grouped_eligible=1 grouped_calls=0 grouped_scratch_bytes=0 grouped_scratch_growths=0 cap=12.1 cap_ok=1 tp_rank=-1 tp_size=1 prefill_layer_calls=0 thin_calls=0 row_tile_calls=0 fallback_calls=grouped=0,kernel=0,batched=0,sorted=0,legacy=0 fallback_reasons=none fat_layers=0 fat_expert_slots=0 max_rows=0
+INFO 09-20 13:52:28 [exl3.py:2044] EXL3 MCG trellis engaged for routed experts: bits=4 experts_local=288 hidden=4096 intermediate_local=2048 fused_moe=exl3_moe concurrency=6 reuse_aliased=1 (no BF16 expert reconstruct at load)
+[glm53-exl3-moe-pipeline] active: K4/N256/mcg geometry=frag1_sh8 shared_input=1 (register-cut decode; gate/up Hadamard reuse)
+USDT:2026-09-20 13:52:28 1:1 SyncActivityProfilerHandler.cpp:52] profiler_start
+USDT:2026-09-20 13:52:28 1:1 SyncActivityProfilerHandler.cpp:59] profiler_stop
+  t=   12 wall=   3.238 ms  device=   3209.2 us  fused=  3179.5 us ( 99.1%)  path=none
+      fused kernel: void glm53_exl3_moe_pipeline_kernel<4, 256, 1, true>(__half const*, __half*, __half*, __half*, __half*, float*  3179.5 us/call
+USDT:2026-09-20 13:52:29 1:1 SyncActivityProfilerHandler.cpp:52] profiler_start
+USDT:2026-09-20 13:52:29 1:1 SyncActivityProfilerHandler.cpp:59] profiler_stop
+  t=   20 wall=   4.554 ms  device=   4493.9 us  fused=  4450.4 us ( 99.0%)  path=none
+      fused kernel: void glm53_exl3_moe_pipeline_kernel<4, 256, 1, true>(__half const*, __half*, __half*, __half*, __half*, float*  4450.4 us/call
+USDT:2026-09-20 13:52:29 1:1 SyncActivityProfilerHandler.cpp:52] profiler_start
+USDT:2026-09-20 13:52:29 1:1 SyncActivityProfilerHandler.cpp:59] profiler_stop
+  t=   32 wall=   5.814 ms  device=   5758.1 us  fused=  5712.5 us ( 99.2%)  path=none
+      fused kernel: void glm53_exl3_moe_pipeline_kernel<4, 256, 1, true>(__half const*, __half*, __half*, __half*, __half*, float*  5712.5 us/call
+wrote /out/kprobe-var.json
+reuse_aliased True pipeline 1 reuse 1
+ctrl reuse=0 aliased=False
+var  reuse=1 aliased=True
+   T  ctrl fused us   var fused us      delta
+  12         3197.6         3179.5     -0.57%
+  ctrl kernels: ['void glm53_exl3_moe_pipeline_kernel<4, 256, 1, false>(__half const*, __half*, __half*, __half*, __half*, float*, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, long const*, long const*, __half const*, int, int, int, int, int, int, float, int, int, int, int, int*)']
+  var  kernels: ['void glm53_exl3_moe_pipeline_kernel<4, 256, 1, true>(__half const*, __half*, __half*, __half*, __half*, float*, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, long const*, long const*, __half const*, int, int, int, int, int, int, float, int, int, int, int, int*)']
+  20         4435.9         4450.4      0.33%
+  ctrl kernels: ['void glm53_exl3_moe_pipeline_kernel<4, 256, 1, false>(__half const*, __half*, __half*, __half*, __half*, float*, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, long const*, long const*, __half const*, int, int, int, int, int, int, float, int, int, int, int, int*)']
+  var  kernels: ['void glm53_exl3_moe_pipeline_kernel<4, 256, 1, true>(__half const*, __half*, __half*, __half*, __half*, float*, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, long const*, long const*, __half const*, int, int, int, int, int, int, float, int, int, int, int, int*)']
+  32         5740.2         5712.5     -0.48%
+  ctrl kernels: ['void glm53_exl3_moe_pipeline_kernel<4, 256, 1, false>(__half const*, __half*, __half*, __half*, __half*, float*, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, long const*, long const*, __half const*, int, int, int, int, int, int, float, int, int, int, int, int*)']
+  var  kernels: ['void glm53_exl3_moe_pipeline_kernel<4, 256, 1, true>(__half const*, __half*, __half*, __half*, __half*, float*, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, unsigned short const**, __half const**, __half const**, long const*, long const*, __half const*, int, int, int, int, int, int, float, int, int, int, int, int*)']

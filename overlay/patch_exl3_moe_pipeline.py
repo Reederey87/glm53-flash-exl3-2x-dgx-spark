@@ -78,6 +78,20 @@ the build args. That keeps A and B on one image: the same boot layout, the same
 JIT shape hash, the same capture set, and the kernel selection as the only
 independent variable.
 
+Task 42 lever 2 (same cubin, second independent variable)
+---------------------------------------------------------
+Stock `had_gather_gu_in()` always calls `had_hf_r_128_inner` twice on the same
+`in_ptr` (once into `temp_state_g` with `exp_gate_suh`, once into `temp_state_u`
+with `exp_up_suh`). On this checkpoint an all-expert `torch.equal` of
+`w13_suh[:,0]` vs `[:,1]` is true, so the two transforms are identical. Lever 2
+compiles a `bool shared_input` instance of the same pipeline kernel that skips
+the second Hadamard and feeds the up GEMM from `temp_state_g`. Dispatch requires
+`GLM53_EXL3_MOE_REUSE=1` **and** the gate/up SUH pointer *tables* to be the same
+tensor (Python aliases them only after the equality proof). A missing proof,
+stock kernel, non-pipeline image or non-gated activation refuses rather than
+running two Hadamards under an armed knob. Both `shared_input=false` and `true`
+are in the cubin, so A/B stays on one image with REUSE the only runtime variable.
+
 Why the deeper smem pipeline is affordable
 ------------------------------------------
 The dynamic smem is a fixed launch parameter (`SMEM_MAX`, 90 KiB) and
@@ -111,6 +125,42 @@ COMP_UNIT_REL = "quant/comp_units/glm53_exl3_moe_pipeline.cu"
 
 KERNEL_DEF_OLD = "void exl3_moe_kernel(EXL3_MOE_KERNEL_ARGS)"
 KERNEL_DEF_NEW = "void glm53_exl3_moe_pipeline_kernel(EXL3_MOE_KERNEL_ARGS)"
+
+KERNEL_TEMPLATE_OLD = "template<int t_bits, int MOE_TILESIZE_N, int cb>\n"
+KERNEL_TEMPLATE_NEW = "template<int t_bits, int MOE_TILESIZE_N, int cb, bool shared_input>\n"
+
+# Unique body of the up-lane input Hadamard. Wrapping it in
+# `if constexpr (!shared_input)` is the whole skip: the gate lane still writes
+# `temp_state_g`, and the up GEMM rereads that buffer when shared_input is true.
+HAD_UP_OLD = (
+    "                had_hf_r_128_inner<true, false>\n"
+    "                (\n"
+    "                    in_ptr,\n"
+    "                    temp_state_u + 128 * warp_idx,\n"
+    "                    exp_up_suh + 128 * token_off,\n"
+    "                    0.088388347648f\n"
+    "                );\n"
+)
+HAD_UP_NEW = (
+    "                if constexpr (!shared_input)\n"
+    "                had_hf_r_128_inner<true, false>\n"
+    "                (\n"
+    "                    in_ptr,\n"
+    "                    temp_state_u + 128 * warp_idx,\n"
+    "                    exp_up_suh + 128 * token_off,\n"
+    "                    0.088388347648f\n"
+    "                );\n"
+)
+
+GEMM_UP_OLD = (
+    "        gemm_up(temp_state_u, temp_intermediate_u, exp_up_trellis, K_up);\n"
+)
+GEMM_UP_NEW = (
+    "        if constexpr (shared_input)\n"
+    "            gemm_up(temp_state_g, temp_intermediate_u, exp_up_trellis, K_up);\n"
+    "        else\n"
+    "            gemm_up(temp_state_u, temp_intermediate_u, exp_up_trellis, K_up);\n"
+)
 
 HOST_INCLUDE_OLD = (
     '#include "comp_units/exl3_moe_instances.cuh"\n'
@@ -160,8 +210,26 @@ static bool glm53_exl3_moe_pipeline_device_ok(int device)
     return cached[device] == 1;
 }
 
-static fp_exl3_moe_kernel glm53_exl3_moe_pipeline_kernel_for(int cb_idx)
+#ifndef MOE_ACT_RELU2_NOGATE
+#define MOE_ACT_RELU2_NOGATE 2
+#endif
+
+static bool glm53_exl3_moe_reuse_armed()
 {
+    static const bool armed = [] {
+        const char* value = std::getenv("GLM53_EXL3_MOE_REUSE");
+        TORCH_CHECK(!value || !std::strcmp(value, "0") || !std::strcmp(value, "1"),
+                    "GLM53_EXL3_MOE_REUSE must be 0 or 1");
+        return value && !std::strcmp(value, "1");
+    }();
+    return armed;
+}
+
+static fp_exl3_moe_kernel glm53_exl3_moe_pipeline_kernel_for(int cb_idx, bool shared_input)
+{
+    if (shared_input)
+        return cb_idx == 0 ? glm53_exl3_moe_pipeline_k4_n256_cb1_shared()
+                           : glm53_exl3_moe_pipeline_k4_n256_cb2_shared();
     return cb_idx == 0 ? glm53_exl3_moe_pipeline_k4_n256_cb1()
                        : glm53_exl3_moe_pipeline_k4_n256_cb2();
 }
@@ -181,6 +249,27 @@ HOST_DISPATCH_NEW = HOST_DISPATCH_OLD + """
     // this geometry is the only one the variant is instantiated for, and a
     // silent fallback to stock would leave the arm armed but inert, which would
     // make every measurement taken under it uninterpretable.
+    // Lever 2 (GLM53_EXL3_MOE_REUSE) is a second independent variable on the
+    // same cubin: it is allowed only when the pipeline arm is already selected
+    // and the gate/up SUH pointer tables are the same tensor. A missing proof
+    // or a stock-kernel selection refuses rather than measuring two Hadamards
+    // under an armed reuse knob.
+    const bool reuse_armed = glm53_exl3_moe_reuse_armed();
+    const bool shared_suh = (gate_ptrs_suh.data_ptr() == up_ptrs_suh.data_ptr());
+    if (reuse_armed)
+    {
+        TORCH_CHECK(glm53_exl3_moe_pipeline_armed(),
+                    "GLM53_EXL3_MOE_REUSE=1 requires GLM53_EXL3_MOE_PIPELINE=1 "
+                    "(gate/up Hadamard reuse is compiled only into the pipeline "
+                    "variant; refusing to serve with a silently inert arm)");
+        TORCH_CHECK(shared_suh,
+                    "GLM53_EXL3_MOE_REUSE=1 requires identical gate/up SUH pointer "
+                    "tables (got distinct tensors); refuse rather than skip a "
+                    "transform whose scales were not proven equal");
+        TORCH_CHECK(act_function != MOE_ACT_RELU2_NOGATE,
+                    "GLM53_EXL3_MOE_REUSE=1 is the gated gate/up skip; "
+                    "MOE_ACT_RELU2_NOGATE already omits the gate Hadamard");
+    }
     if (glm53_exl3_moe_pipeline_armed())
     {
         TORCH_CHECK(glm53_exl3_moe_pipeline_device_ok(device),
@@ -189,15 +278,17 @@ HOST_DISPATCH_NEW = HOST_DISPATCH_OLD + """
                     "GLM53_EXL3_MOE_PIPELINE=1 is instantiated for the K4/N256/mcg "
                     "geometry only (got K=", K, " N_off=", N_off, " cb_idx=", cb_idx,
                     "); refusing to serve with a silently inert arm");
-        kernel = glm53_exl3_moe_pipeline_kernel_for(cb_idx);
+        kernel = glm53_exl3_moe_pipeline_kernel_for(cb_idx, reuse_armed && shared_suh);
         static bool logged = false;
         if (!logged)
         {
             logged = true;
             fprintf(stderr,
                     "[glm53-exl3-moe-pipeline] active: K4/N256/mcg geometry=%s "
-                    "(register-cut decode)\\n",
-                    glm53_exl3_moe_pipeline_geometry().c_str());
+                    "shared_input=%d (register-cut decode%s)\\n",
+                    glm53_exl3_moe_pipeline_geometry().c_str(),
+                    int(reuse_armed && shared_suh),
+                    reuse_armed ? "; gate/up Hadamard reuse" : "");
             fflush(stderr);
         }
     }
@@ -225,6 +316,8 @@ GEOMETRY_HEADER = f"""#pragma once
 
 fp_exl3_moe_kernel glm53_exl3_moe_pipeline_k4_n256_cb1();
 fp_exl3_moe_kernel glm53_exl3_moe_pipeline_k4_n256_cb2();
+fp_exl3_moe_kernel glm53_exl3_moe_pipeline_k4_n256_cb1_shared();
+fp_exl3_moe_kernel glm53_exl3_moe_pipeline_k4_n256_cb2_shared();
 
 // Baked geometry label, e.g. "frag1_sh8". Defined in the generated comp unit.
 std::string glm53_exl3_moe_pipeline_geometry_literal();
@@ -254,8 +347,10 @@ COMP_UNIT = """// {marker} generated comp unit -- do not edit in the image.
 
 #include <string>
 
-fp_exl3_moe_kernel glm53_exl3_moe_pipeline_k4_n256_cb1() {{ return glm53_exl3_moe_pipeline_kernel<4, 256, 1>; }}
-fp_exl3_moe_kernel glm53_exl3_moe_pipeline_k4_n256_cb2() {{ return glm53_exl3_moe_pipeline_kernel<4, 256, 2>; }}
+fp_exl3_moe_kernel glm53_exl3_moe_pipeline_k4_n256_cb1() {{ return glm53_exl3_moe_pipeline_kernel<4, 256, 1, false>; }}
+fp_exl3_moe_kernel glm53_exl3_moe_pipeline_k4_n256_cb2() {{ return glm53_exl3_moe_pipeline_kernel<4, 256, 2, false>; }}
+fp_exl3_moe_kernel glm53_exl3_moe_pipeline_k4_n256_cb1_shared() {{ return glm53_exl3_moe_pipeline_kernel<4, 256, 1, true>; }}
+fp_exl3_moe_kernel glm53_exl3_moe_pipeline_k4_n256_cb2_shared() {{ return glm53_exl3_moe_pipeline_kernel<4, 256, 2, true>; }}
 
 std::string glm53_exl3_moe_pipeline_geometry_literal()
 {{
@@ -313,7 +408,17 @@ def main() -> int:
 
     # --- derive the renamed kernel header ----------------------------------
     kernel_out = replace_once(
-        kernel_src, KERNEL_DEF_OLD, KERNEL_DEF_NEW, "exl3_moe_kernel.cuh entry point"
+        kernel_src, KERNEL_TEMPLATE_OLD, KERNEL_TEMPLATE_NEW,
+        "exl3_moe_kernel.cuh template signature",
+    )
+    kernel_out = replace_once(
+        kernel_out, KERNEL_DEF_OLD, KERNEL_DEF_NEW, "exl3_moe_kernel.cuh entry point"
+    )
+    kernel_out = replace_once(
+        kernel_out, HAD_UP_OLD, HAD_UP_NEW, "exl3_moe_kernel.cuh up Hadamard"
+    )
+    kernel_out = replace_once(
+        kernel_out, GEMM_UP_OLD, GEMM_UP_NEW, "exl3_moe_kernel.cuh up GEMM input"
     )
     kernel_out = f"// {MARKER} renamed copy; geometry comes from the comp unit.\n" + kernel_out
 
