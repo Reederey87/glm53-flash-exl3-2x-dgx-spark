@@ -18,6 +18,7 @@ other overlay tests in this kit use). They pin the properties the arm depends on
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import shutil
 import subprocess
@@ -293,11 +294,38 @@ def test_real_tree_still_carries_the_anchors():
 
 STUB_TOOLS = ("docker", "ssh", "scp", "rsync", "curl", "ip", "nvidia-smi")
 
+# The launcher asks the image two questions: its identity key (the GLM53KEY
+# format) and the task-42 capability label. The stubs answer both, so head and
+# worker identity can be varied independently.
+_DOCKER_STUB = """#!/usr/bin/env bash
+case "$*" in
+  *GLM53KEY*)              printf 'GLM53KEY %s\\n' "$GLM53_STUB_HEAD_KEY" ;;
+  *glm53.task42.pipeline*) printf '%s' "$GLM53_STUB_PIPELINE_LABEL" ;;
+esac
+exit 0
+"""
+
+_SSH_STUB = """#!/usr/bin/env bash
+case "$*" in
+  *GLM53KEY*)              printf 'GLM53KEY %s\\n' "$GLM53_STUB_WORKER_KEY" ;;
+  *glm53.task42.pipeline*) printf '%s' "$GLM53_STUB_PIPELINE_LABEL" ;;
+esac
+exit 0
+"""
+
+_PLAIN_STUB = "#!/usr/bin/env bash\nexit 0\n"
+
 
 class Launcher:
     """Throwaway copy of start.sh with the host tools stubbed out."""
 
-    def __init__(self, tmp: Path, pipeline_label: str = "") -> None:
+    def __init__(
+        self,
+        tmp: Path,
+        pipeline_label: str = "",
+        head_key: str = "key-head",
+        worker_key: str = "key-head",
+    ) -> None:
         self.repo = tmp / "repo"
         self.repo.mkdir()
         shutil.copy2(START, self.repo / "start.sh")
@@ -314,9 +342,9 @@ class Launcher:
         for tool in STUB_TOOLS:
             p = self.bin / tool
             p.write_text(
-                f'#!/usr/bin/env bash\nprintf "%s" "{pipeline_label}"\nexit 0\n'
-                if tool == "docker"
-                else "#!/usr/bin/env bash\nexit 0\n"
+                _DOCKER_STUB if tool == "docker"
+                else _SSH_STUB if tool == "ssh"
+                else _PLAIN_STUB
             )
             p.chmod(0o755)
         self.env = {
@@ -325,6 +353,9 @@ class Launcher:
             "USER": "t42-launcher",
             "LC_ALL": "C",
             "TERM": "dumb",
+            "GLM53_STUB_PIPELINE_LABEL": pipeline_label,
+            "GLM53_STUB_HEAD_KEY": head_key,
+            "GLM53_STUB_WORKER_KEY": worker_key,
         }
 
     def run(self, body: str, **overrides: str) -> subprocess.CompletedProcess[str]:
@@ -374,6 +405,35 @@ def test_armed_knob_passes_when_the_image_carries_the_variant(tmp_path):
     r = launcher.run('ensure_image; printf "rc=%s\\n" "$?"', GLM53_EXL3_MOE_PIPELINE="1")
     assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
     assert "pipeline geometry 1x8" in r.stdout
+    assert "on both nodes" in r.stdout
+
+
+@pytest.mark.parametrize("skip_ship", [None, "1"])
+def test_armed_knob_is_refused_on_a_heterogeneous_pair(tmp_path, skip_ship):
+    """The kernel is compiled into the image, so a mismatched pair arms one node
+    and not the other. `ensure_image` tolerates an unmatched worker under
+    SKIP_SHIP=1 and after a failed post-ship key comparison, so the armed path
+    has to refuse the pair explicitly rather than measure it."""
+    launcher = Launcher(
+        tmp_path, pipeline_label="1x8", head_key="key-f1s8", worker_key="key-v149"
+    )
+    overrides = {"GLM53_EXL3_MOE_PIPELINE": "1"}
+    if skip_ship:
+        overrides["SKIP_SHIP"] = skip_ship
+    r = launcher.run('ensure_image; printf "rc=%s\\n" "$?"', **overrides)
+    assert r.returncode == 1, (r.returncode, r.stdout, r.stderr)
+    assert "requires the same image on both nodes" in r.stderr
+    assert "head=key-f1s8 worker=key-v149" in r.stderr
+
+
+def test_unarmed_boot_still_tolerates_a_heterogeneous_pair(tmp_path):
+    """Stock behaviour: the existing warn-and-continue path must be preserved."""
+    launcher = Launcher(
+        tmp_path, pipeline_label="", head_key="key-a", worker_key="key-b"
+    )
+    r = launcher.run('ensure_image; printf "rc=%s\\n" "$?"', GLM53_EXL3_MOE_PIPELINE="0")
+    assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
+    assert "requires the same image on both nodes" not in r.stderr
 
 
 def test_unarmed_boot_is_unaffected_by_a_missing_variant(tmp_path):
@@ -434,3 +494,109 @@ def test_caller_export_wins_over_dotenv_including_empty(tmp_path):
                      GLM53_EXL3_MOE_PIPELINE="")
     assert r.returncode == 2
     assert "must be exactly 0 or 1" in r.stderr
+
+
+# --- the parity comparator must fail closed --------------------------------
+#
+# cmp.py is a receipt tool, but it is used as a gate, so it has to exit non-zero
+# rather than print a verdict and return 0. The NaN case is the one that bit:
+# `max(0.0, nan)` is 0.0, so a non-finite tensor used to report PARITY OK.
+# These need torch, so they skip on a host without it (the kit's pattern for
+# image-only checks) and run inside the image.
+
+CMP = KIT / "local" / "task42-receipts-20260920" / "cmp.py"
+
+
+def _torch():
+    return pytest.importorskip("torch", reason="cmp.py needs torch; run inside the image")
+
+
+def _write_arm(out: Path, arm: str, tensor, case: dict) -> None:
+    (out / f"parity-{arm}.json").write_text(
+        json.dumps(
+            {"arm": arm, "tokens": str(case["tokens"]), "cap": 32, "cases": [case]}
+        )
+    )
+    tensor_name = f"parity-{arm}.json.t{case['tokens']}.s{case['skew']}.pt"
+    _torch().save(tensor, out / tensor_name)
+
+
+def _cmp_case(tokens: int = 2, skew: float = 1.0, shape: tuple = (2, 4)) -> dict:
+    return {"tokens": tokens, "skew": skew, "path": "none", "shape": list(shape)}
+
+
+def _run_cmp(out: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(CMP), str(out)], capture_output=True, text=True
+    )
+
+
+def test_cmp_accepts_identical_outputs(tmp_path):
+    torch = _torch()
+    out = tmp_path / "out"
+    out.mkdir()
+    case = _cmp_case()
+    t = torch.ones(2, 4, dtype=torch.float32)
+    _write_arm(out, "ctrl", t, case)
+    _write_arm(out, "var", t.clone(), case)
+    r = _run_cmp(out)
+    assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
+    assert "VERDICT: PARITY OK" in r.stdout
+    assert "bit-exact: 1" in r.stdout
+
+
+def test_cmp_rejects_nonfinite_output(tmp_path):
+    """`max(0.0, nan)` is 0.0, so this must be checked explicitly, not inferred."""
+    torch = _torch()
+    out = tmp_path / "out"
+    out.mkdir()
+    case = _cmp_case()
+    t = torch.ones(2, 4, dtype=torch.float32)
+    bad = t.clone()
+    bad[0, 0] = float("nan")
+    _write_arm(out, "ctrl", t, case)
+    _write_arm(out, "var", bad, case)
+    r = _run_cmp(out)
+    assert r.returncode == 1, (r.returncode, r.stdout, r.stderr)
+    assert "non-finite" in r.stderr
+    assert "PARITY OK" not in r.stdout
+
+
+def test_cmp_rejects_a_tolerance_failure(tmp_path):
+    torch = _torch()
+    out = tmp_path / "out"
+    out.mkdir()
+    case = _cmp_case()
+    t = torch.ones(2, 4, dtype=torch.float32)
+    _write_arm(out, "ctrl", t, case)
+    _write_arm(out, "var", t + 1.0, case)
+    r = _run_cmp(out)
+    assert r.returncode == 1, (r.returncode, r.stdout, r.stderr)
+    assert "tolerance" in r.stderr
+    assert "PARITY OK" not in r.stdout
+
+
+def test_cmp_rejects_mismatched_case_lists(tmp_path):
+    """A short or reordered list must not read as a pass via a truncating zip."""
+    torch = _torch()
+    out = tmp_path / "out"
+    out.mkdir()
+    _write_arm(out, "ctrl", torch.ones(2, 4), _cmp_case(tokens=2, skew=1.0))
+    _write_arm(out, "var", torch.ones(2, 4), _cmp_case(tokens=3, skew=1.0))
+    r = _run_cmp(out)
+    assert r.returncode == 1, (r.returncode, r.stdout, r.stderr)
+    assert "case lists differ" in r.stderr
+
+
+def test_cmp_rejects_a_missing_tensor(tmp_path):
+    torch = _torch()
+    out = tmp_path / "out"
+    out.mkdir()
+    case = _cmp_case()
+    _write_arm(out, "ctrl", torch.ones(2, 4), case)
+    (out / "parity-var.json").write_text(
+        json.dumps({"arm": "1", "tokens": "2", "cap": 32, "cases": [case]})
+    )
+    r = _run_cmp(out)
+    assert r.returncode == 1, (r.returncode, r.stdout, r.stderr)
+    assert "missing tensor" in r.stderr

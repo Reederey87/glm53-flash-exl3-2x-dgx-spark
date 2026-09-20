@@ -91,7 +91,13 @@ Prose and essay are noisy (control prose spans 28.5–34.6; prose acceptance dri
   (within fp16 recompilation tolerance), and stated as such rather than as exact
   parity. Note the first attempt at this comparison ran on the host, which has no
   torch, and died with `ModuleNotFoundError` (`final.log` section 3), so the
-  numbers above come from a re-run against the harness's saved tensors.
+  numbers above come from a re-run against the harness's saved tensors. `cmp.py`
+  is fail-closed (non-finite tensors and metrics, differing case lists, shape
+  mismatches and a failed tolerance all exit non-zero) and its five negative
+  cases were run inside the image; see `parity-compare.txt`.
+- The knob is fail-closed in four places: the kernel's own geometry refusal, the
+  `EXL3_FUSED_MOE=0` contradiction, an image with no `glm53.task42.pipeline`
+  label, and a pair whose two nodes are not running the same image identity.
 - MemFree above the 2.5 GiB floor on both nodes throughout; pool byte-identical.
 
 ## 6. Gate verdict
@@ -117,11 +123,21 @@ What is true and what is not:
 - The change is **not gate-passing** as pre-registered. Adoption and gate
   satisfaction are separate claims and this receipt does not merge them.
 
-Acceptance therefore stays **pending**, not satisfied. The essay shortfall is a
-measured outcome, not an implementation defect, so no code change follows from
-it. Resolving it needs one of: a user decision to revise the gate or the scope
-(a single-lane essay result on a noisy lane), or a further arm that clears ≥5%
-on the essay lane. Until then this task must not be reported as a met gate.
+Acceptance is resolved by an **explicit user decision, not by reinterpreting the
+measurement**: on 2026-09-20 the user reviewed the per-lane result above and
+directed that the change be **adopted** as-is, with the essay shortfall left
+recorded. That is the requirement revision the shortfall needed; it does not make
+the essay lane a ≥5% result, and this receipt keeps the two statements separate:
+
+- The gate **as pre-registered is not met** (essay +2.47% < 5%). That remains
+  true and is not restated as a pass.
+- The change is **accepted and deployed** on the user's explicit decision, with
+  every lane improved, no lane regressed, and the fused kernel −6.4 to −7.3% on
+  device time.
+
+Anyone re-reading this later should take the deployed state as intended and the
+essay figure as what it is: a +2.47% improvement that missed the pre-registered
+bar and was accepted anyway, deliberately and on the record.
 
 ## 7. Method findings worth keeping
 
@@ -151,3 +167,17 @@ on the essay lane. Until then this task must not be reported as a met gate.
    old image or a disabled code path: both reach stock with the knob armed. The
    build stamps `glm53.task42.pipeline` and the launcher refuses an armed knob
    without it. Assert the *end-to-end* contract, not the layer you wrote.
+6. **Check capability on *both* nodes, not just the head.** The first version of
+   that check read the label on the head only. `ensure_image` tolerates an
+   unmatched worker under `SKIP_SHIP=1` and after a failed post-ship key
+   comparison, so a heterogeneous pair would have armed the variant on the head
+   and served stock on the worker — an arm that looks armed in the logs and is
+   not. The armed path now also requires the two nodes to be running the same
+   image identity.
+7. **A comparator that prints a verdict must also set the exit code.** `cmp.py`
+   reported `PARITY OK` for a non-finite output, because `max(0.0, nan)` is `0.0`
+   in Python and the worst-case metric stayed at its initial zero; it also printed
+   `PARITY FAIL` and returned 0. A checker whose result is read by eye is not a
+   gate. It now rejects non-finite tensors and metrics, compares the case lists
+   instead of letting `zip` truncate them, and exits non-zero on any failure —
+   with the five negative cases run inside the image.

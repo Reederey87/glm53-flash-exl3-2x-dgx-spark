@@ -1261,16 +1261,22 @@ ensure_image() {
             || { tail -n 80 "$LOGDIR/overlay-verify.log" >&2; die "EXL3 overlay GPU self-check failed"; }
         log "overlay verify OK"
     fi
-    # LOCAL: task 42 -- fail closed when the knob is armed but the resolved image
-    # has no register-cut kernel. Both nodes run $IMAGE, and the label is stamped
-    # at build time, so this is the last point before container creation where the
-    # contradiction is still cheap to refuse.
+    # LOCAL: task 42 -- fail closed when the knob is armed but the pair cannot
+    # actually select the variant on BOTH nodes. The kernel is compiled into the
+    # image, so two things have to hold: the image must carry it (build-stamped
+    # label), and both nodes must be running that same image. The second half
+    # matters because ensure_image() above tolerates an unmatched worker when
+    # SKIP_SHIP=1 or after a failed post-ship key comparison -- either way the
+    # head would arm the variant while the worker served stock, and the arm would
+    # be uninterpretable. This is the last point before container creation.
     if [ "${GLM53_EXL3_MOE_PIPELINE}" = "1" ]; then
         local pipeline_geometry
         pipeline_geometry="$(image_pipeline_geometry)"
         [ -n "$pipeline_geometry" ] \
             || die "GLM53_EXL3_MOE_PIPELINE=1 but ${IMAGE} carries no register-cut kernel (label glm53.task42.pipeline absent) -- set GLM53_EXL3_MOE_PIPELINE=0 or boot an image built from Dockerfile.e3-pipeline-layer"
-        log "register-cut decode kernel present in ${IMAGE} (pipeline geometry ${pipeline_geometry})"
+        images_match "$head_key" "$worker_key" \
+            || die "GLM53_EXL3_MOE_PIPELINE=1 requires the same image on both nodes (head=${head_key:-none} worker=${worker_key:-none}) -- the register-cut kernel is compiled into the image, so a heterogeneous pair would arm one node and not the other"
+        log "register-cut decode kernel present in ${IMAGE} on both nodes (pipeline geometry ${pipeline_geometry})"
     fi
     log "image ready on both nodes"
 }
