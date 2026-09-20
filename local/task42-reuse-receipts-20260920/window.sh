@@ -13,7 +13,6 @@ set -euo pipefail
 KIT=/home/nvidia/GLM-5.3-Flash-EXL3-2x-DGX-Sparks
 OUT=/home/nvidia/t42-reuse-window
 NEW=glm53-selfbuild:e3-pipeline-f1s8-reuse
-OLD=glm53-selfbuild:e3-pipeline-f1s8
 WORKER=nvidia@192.168.177.11
 export SKIP_PULL=1
 export SKIP_DOWNLOAD=1
@@ -83,7 +82,7 @@ wait_health() {
 }
 
 assert_arm() {  # $1 expected reuse 0|1
-    local expect="$1" head_n worker_n image labels reuse_label
+    local expect="$1" head_n worker_n image labels
     image=$(docker inspect -f '{{.Config.Image}}' glm53-exl3-head)
     [ "$image" = "$NEW" ] || die "head image is $image, want $NEW"
     labels=$(docker inspect -f 'pipeline={{index .Config.Labels "glm53.task42.pipeline"}} reuse={{index .Config.Labels "glm53.task42.reuse"}}' "$NEW")
@@ -96,8 +95,9 @@ assert_arm() {  # $1 expected reuse 0|1
         "docker logs glm53-exl3-worker 2>&1" || true)
     head_n=$(printf '%s\n' "$head_logs" | grep -c 'glm53-exl3-moe-pipeline' || true)
     worker_n=$(printf '%s\n' "$worker_logs" | grep -c 'glm53-exl3-moe-pipeline' || true)
-    [ "$head_n" -ge 1 ] && [ "$worker_n" -ge 1 ] \
-        || die "pipeline arming lines head=$head_n worker=$worker_n (want >=1 on both)"
+    if [ "$head_n" -lt 1 ] || [ "$worker_n" -lt 1 ]; then
+        die "pipeline arming lines head=$head_n worker=$worker_n (want >=1 on both)"
+    fi
     if [ "$expect" = "1" ]; then
         printf '%s\n' "$head_logs" | grep 'shared_input=1' >/dev/null \
             || die "head missing shared_input=1 arming line"
@@ -146,10 +146,7 @@ case "$cmd" in
         # Extract the extension from a throwaway container filesystem.
         cid=$(docker create "$NEW")
         docker cp "$cid":/usr/local/lib/python3.12/dist-packages/exllamav3_ext.cpython-312-aarch64-linux-gnu.so "$OUT/exllamav3_ext.so" \
-            || docker cp "$cid":$(python3 - <<'PY'
-print("skip")
-PY
-) /dev/null 2>/dev/null || true
+            || true
         docker rm "$cid" >/dev/null
         if [ -f "$OUT/exllamav3_ext.so" ]; then
             log "cuobjdump -res-usage (pipeline kernels)"
@@ -165,7 +162,7 @@ PY
             fi
             if command -v nvdisasm >/dev/null; then
                 nvdisasm "$OUT/exllamav3_ext.so" 2>/dev/null \
-                    | grep -E 'STL|LDL' | wc -l | tee "$OUT/cubin-stl-ldl-count.txt" || true
+                    | grep -cE 'STL|LDL' | tee "$OUT/cubin-stl-ldl-count.txt" || true
             fi
         else
             log "WARN: could not copy extension so; listing image site-packages"
@@ -178,8 +175,8 @@ PY
         krun() {  # $1 label $2 reuse
             local label="$1" reuse="$2"
             log "kprobe $label REUSE=$reuse"
-            docker rm -f t42k-$label >/dev/null 2>&1 || true
-            timeout 900 docker run --rm --name t42k-$label --gpus all --entrypoint python3 \
+            docker rm -f "t42k-$label" >/dev/null 2>&1 || true
+            timeout 900 docker run --rm --name "t42k-$label" --gpus all --entrypoint python3 \
                 -e GLM53_EXL3_MOE_PIPELINE=1 -e GLM53_EXL3_MOE_REUSE="$reuse" \
                 -e EXL3_TEMP_ROWS_FUSED=32 -e EXL3_FAT_GROUPED=1 \
                 -v "$OUT/kprobe.py:/kprobe.py:ro" -v "$OUT:/out" \
@@ -208,8 +205,8 @@ PY
         prun() {
             local label="$1" reuse="$2"
             log "parity $label REUSE=$reuse"
-            docker rm -f t42p-$label >/dev/null 2>&1 || true
-            timeout 900 docker run --rm --name t42p-$label --gpus all --entrypoint python3 \
+            docker rm -f "t42p-$label" >/dev/null 2>&1 || true
+            timeout 900 docker run --rm --name "t42p-$label" --gpus all --entrypoint python3 \
                 -e GLM53_EXL3_MOE_PIPELINE=1 -e GLM53_EXL3_MOE_REUSE="$reuse" \
                 -e EXL3_TEMP_ROWS_FUSED=32 -e EXL3_FAT_GROUPED=1 \
                 -v "$OUT/parity.py:/parity.py:ro" -v "$OUT:/out" \
