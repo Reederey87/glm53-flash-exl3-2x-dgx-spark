@@ -119,6 +119,41 @@ def test_circular_math() -> None:
     )
 
 
+def test_padded_row_is_bounds_only() -> None:
+    """The deployed tail row is 32 wide, not 1.
+
+    ``get_block_table_width`` raises ``block_size`` 4 to ``token_alignment``
+    128, i.e. ``block_alignment`` 32, so ``block_table_stride`` is 32. The
+    clamp is therefore an upper-bound safety guard, not the circular-mapping
+    repair: it pins the index to column 31, which ``KpoolTailManager`` never
+    writes, and reads back a null block.
+    """
+    tail_row = [17] + [0] * 31  # stride 32; only column 0 is ever written
+    assert len(tail_row) == 32
+
+    # Inside the row the clamp is identity, so pos 0 is still correct...
+    assert circular_slot_ids([0], tail_row, 4, clamp=True) == [68]
+    # ...but pos 4 is already column 1, which is unwritten -> slot 0, not 68.
+    assert circular_slot_ids([4], tail_row, 4, clamp=True) == [0]
+    assert circular_slot_ids([4], tail_row, 4, clamp=False) == [0]
+
+    # Past the row the clamp only avoids the overrun; it does not recover the
+    # request's own tail block.
+    assert circular_slot_ids([128], tail_row, 4, clamp=True) == [0]
+    try:
+        circular_slot_ids([128], tail_row, 4, clamp=False)
+    except IndexError:
+        pass
+    else:
+        raise AssertionError("unpatched mapping must IndexError past the row")
+
+    # The overrun count is identical with and without the clamp: that is the
+    # evidence this clamp is not the mapping repair.
+    positions = list(range(0, 256, 4))
+    assert count_overruns(positions, block_size=4, stride=32) == len(positions) - 32
+    assert count_overruns(positions, block_size=4, stride=32) == 32
+
+
 def test_fixture() -> None:
     with tempfile.TemporaryDirectory() as raw:
         target = Path(raw) / "block_table.py"
@@ -199,6 +234,7 @@ def test_recipe_wiring_if_present() -> None:
 
 def main() -> int:
     test_circular_math()
+    test_padded_row_is_bounds_only()
     test_fixture()
     test_fail_closed()
     test_installed_copy_if_present()

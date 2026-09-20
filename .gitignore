@@ -10,9 +10,10 @@ __pycache__/
 
 # Local working ledgers — maintained on disk, never tracked
 spec/
+local/
 
 # Full live-image Python dump for local audits; never ship
-tests/fixtures/live-image-vllm/
+tests/fixtures/
 
 # Profiler traces are large (2.2 GB decompressed per rank); the derived JSON
 # receipts under local/ are the tracked evidence, the traces stay on disk
