@@ -189,6 +189,30 @@ def test_bench_passes_when_all_lanes_land(tmp_path: Path) -> None:
         assert rec["tok_s_median"] == 70.0
 
 
+def test_bench_rejects_stale_receipts_from_a_previous_run(tmp_path: Path) -> None:
+    """A prior success in the same BENCH_OUT must not satisfy the current run."""
+    kit, shim = _make_fixture(tmp_path, accept_pass=True, probe_pass=True)
+    out = tmp_path / "bench-reused"
+    args = {
+        "BENCH_DECODE": str(kit / "tests" / "bench_decode.py"),
+        "BENCH_OUT": str(out),
+        "BENCH_SETTLE": "0",
+    }
+
+    first = _run(kit / "local" / "dflash2-bench.sh", kit, shim, STUB_BENCH_MODE="ok", **args)
+    assert first.returncode == 0, first.stdout
+    for lane in ("structured", "hashmap", "essay"):
+        assert (out / f"{lane}.json").is_file()
+
+    # Same output directory, driver exits 0 and writes nothing.
+    second = _run(kit / "local" / "dflash2-bench.sh", kit, shim, STUB_BENCH_MODE="empty", **args)
+    assert second.returncode != 0, second.stdout
+    assert "MISSING LANES" in second.stdout
+    assert "BENCH FAIL" in second.stdout
+    for lane in ("structured", "hashmap", "essay"):
+        assert not (out / f"{lane}.json").exists()
+
+
 def test_receipted_bench_json_has_the_fields_the_summary_reads() -> None:
     """Guard the field names the summary depends on, against the real receipts."""
     bench = ROOT / "local" / "dflash2-smoke-receipts-20260920" / "bench"

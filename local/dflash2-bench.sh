@@ -21,6 +21,20 @@ OUT="${BENCH_OUT:-$(cat /tmp/dflash2-smoke-dir)/bench}"
 SETTLE="${BENCH_SETTLE:-240}"
 mkdir -p "$OUT" || exit 1
 
+# Every required receipt must come from THIS invocation. Clear the script's own
+# lane artifacts first: without this, a previous successful run in the same
+# BENCH_OUT satisfies the missing-result check even when the current driver
+# writes nothing, so a broken run reports BENCH PASS on stale data.
+case "$OUT" in
+    ""|"/"|"."|"..")
+        echo "refusing unsafe BENCH_OUT: '$OUT'" >&2
+        exit 2
+        ;;
+esac
+for lane in warm-structured warm-hashmap warm-essay structured hashmap essay; do
+    rm -f "$OUT/$lane.json" "$OUT/$lane.log"
+done
+
 rc=0
 
 # Run one lane. Logs to <out>.log so a failure is inspectable; the lane's own
