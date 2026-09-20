@@ -2,8 +2,7 @@
 # DFlash2 housekeep cluster smoke: runtime identity + KV + error triage.
 set -uo pipefail
 D=/home/nvidia/GLM-5.3-Flash-EXL3-2x-DGX-Sparks
-cd "$D"
-OUT=$(cat /tmp/dflash2-smoke-dir)
+cd "$D" || exit 1
 
 echo "=== A. acceptance.sh ==="
 bash local/acceptance.sh 2>&1 | tail -22

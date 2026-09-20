@@ -3,7 +3,7 @@
 # warmup 3-run per lane, 240 s settle, then 9-run measured round.
 set -uo pipefail
 D=/home/nvidia/GLM-5.3-Flash-EXL3-2x-DGX-Sparks
-cd "$D"
+cd "$D" || exit 1
 OUT=$(cat /tmp/dflash2-smoke-dir)
 mkdir -p "$OUT/bench"
 
