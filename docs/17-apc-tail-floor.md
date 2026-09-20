@@ -164,23 +164,39 @@ Two things follow, and the second matters more than the first:
    prefill chunk costs roughly **250 ms** at request level on this pair, not the
    ~20 ms that 64 tokens of prefill arithmetic predicts. The tokens are 64; the
    cost is a scheduler step, and it is not proportional to the token count.
-2. **The ~0.4–0.5 s append cost is not new.** `append32@6500` is the control: its
-   boundary is unchanged by this fix (6,500 is not a multiple of 64) and it costs
-   0.404 s before against 0.393 s after. What the fix changes is *which* append
-   lengths pay it. Stock registered its tail at `floor(n / 64) * 64`, so a
-   consumer could reuse up to its own ceiling only when the producer's length was
-   such that the two agreed; on the append shape that is a fraction of lengths,
-   and those lengths already recomputed a partial tail. The fix makes the
-   behaviour uniform and the hash-grid-aligned lengths join the group that pays.
+2. **The ~0.4–0.5 s append cost is not new to this shape.** `append32@6500` is the
+   control: its boundary is unchanged by this fix (6,500 is not a multiple of 64)
+   and it costs 0.404 s before against 0.393 s after. Stock registered its tail at
+   `floor(n / 64) * 64`, so an appending consumer could reach its own ceiling only
+   when the two agreed; where they did not, it already recomputed a partial tail
+   at the same ~0.4–0.5 s.
 
-Net, for a prompt length drawn at random: the replay shape moves from 2.67 s to
-0.27 s on the 1/64 of lengths that are hash-grid aligned, and the append shape
-moves from 0.24 s to 0.49 s on the same 1/64. Caching becomes length-independent
-rather than alternating between two regimes. Accepted on that basis — and it is
-precisely the reason **45b** (register both `n - 64` and `n`) is worth doing,
-since it would remove this cost entirely. **Not** taken here: registering both
-positions adds a cache entry per request on a pool that is the binding capacity
-constraint.
+**Which lengths the fix changes, per measured case.** The regime is **not
+uniform**, so it is stated case by case rather than as a rate:
+
+| producer length | replay shape | append shape |
+|---|---|---|
+| 64-aligned, **not** a multiple of the 3,584-token page (`6464`, `7360`) | reaches the ceiling now; 2.268 s and 0.570 s → **0.264 / 0.266 s** | 0.243 / 0.251 s → **0.495 / 0.497 s** |
+| a multiple of the page (`7168`, `10752`, `14336`) | reached the ceiling before and after | unchanged, 0.24 s |
+| not 64-aligned (`6500`, `10000`, `20000`) | reached the ceiling before and after | unchanged, 0.20–0.39 s |
+
+So the append cost falls on prompts that are 64-aligned but not page-aligned, and
+the page-aligned and unaligned lengths keep their previous timing. Note also that
+the baseline replay loss is not one number: across the probed 64-aligned lengths
+it ranges from **128 tokens** (`exact@7360`, 0.570 s) to **3,520 tokens**
+(`exact@7168`, 2.268 s), depending on where the page boundary below the prompt
+falls.
+
+**No population-level claim is made.** Only nine prompt lengths were probed, one
+or two per regime. Turning the table above into a "per random length" rate, or
+into a statement that caching became length-independent, would need an explicit
+workload distribution and representative measurements, and this change does not
+have them. What is measured is the per-case trade-off above.
+
+Accepted on that per-case basis, and it is precisely the reason **45b** (register
+both `n - 64` and `n`) is worth doing, since it would remove this cost entirely.
+**Not** taken here: registering both positions adds a cache entry per request on a
+pool that is the binding capacity constraint.
 
 **Limitation, stated rather than implied.** No paired overlay-off A/B was taken
 for the append shape. The baseline column is the earlier single-run ladder plus

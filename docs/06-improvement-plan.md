@@ -3655,15 +3655,23 @@ of three whole reset→prime→measure sequences (`--case-repeats 3`):
 The cost is **not new to this shape**. `append32@6500` is the control: its
 boundary is unchanged by the fix (6,500 is not a multiple of 64) and it costs
 0.404 s before against 0.393 s after. Stock registered its tail at
-`floor(n / 64) * 64`, so an appending consumer could reuse up to its own ceiling
-only for some lengths; others already recomputed a partial tail at the same
-~0.4–0.5 s. The fix makes the behaviour uniform and the aligned lengths join the
-group that pays. Net for a random length: replay 2.67 s → 0.27 s on the 1/64
-aligned lengths, append 0.24 s → 0.49 s on the same 1/64. No paired overlay-off
-A/B was taken for the append shape — stated as a limitation in `docs/17`. Not
-taken: registering both `n` and `n - 64` removes the cost but adds a cache entry
-per request on a pool that is the binding capacity constraint, which is why 45b
-carries it as its own candidate.
+`floor(n / 64) * 64`, so an appending consumer could reach its own ceiling only
+when the two agreed; where they did not it already recomputed a partial tail at
+the same ~0.4–0.5 s.
+
+**Which lengths change, per measured case — not as a rate.** The append cost falls
+on prompts that are 64-aligned but **not** a multiple of the 3,584-token page
+(`6464`, `7360`: 0.24 s → 0.50 s). Page-aligned lengths (`7168`, `10752`,
+`14336`) and unaligned lengths (`6500`, `10000`, `20000`) keep their previous
+timing. The replay gain likewise varies by case: `exact@7360` 0.570 s → 0.266 s
+(128 tokens short before) against `exact@7168` 2.268 s → 0.265 s (3,520 tokens
+short before). **No population-level claim is made** — nine lengths were probed,
+and a per-random-length rate or a "caching is now length-independent" statement
+would need a workload distribution this change does not have. No paired
+overlay-off A/B was taken for the append shape; that limitation is in `docs/17`.
+Not taken: registering both `n` and `n - 64` removes the cost but adds a cache
+entry per request on a pool that is the binding capacity constraint, which is why
+45b carries it as its own candidate.
 
 **A measurement error caught in review, recorded because it nearly shipped.**
 An earlier revision of the boundary probe repeated the *consumer* to time it.
