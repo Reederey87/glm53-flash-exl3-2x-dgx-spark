@@ -185,7 +185,7 @@ def caller_value(key: str) -> str:
 def test_no_per_knob_allowlist_remains() -> None:
     src = START.read_text()
     # The generic [ -n ] replay cannot express "an explicitly EMPTY caller
-    # export must reach validate_numeric_config", so exactly the three strict
+    # export must reach validate_numeric_config", so exactly the strict
     # runtime-overlay knobs keep documented setness-aware captures.
     import re as _re
     cli_tokens = set(_re.findall(r"_glm53_cli_[A-Za-z0-9_]*", src))
@@ -196,6 +196,10 @@ def test_no_per_knob_allowlist_remains() -> None:
         "_glm53_cli_apcns_val",
         "_glm53_cli_indexer_workspace_set",
         "_glm53_cli_indexer_workspace_val",
+        # task 42: the register-cut decode knob is a strict bool under the same
+        # W41/W42 rule, so it needs the same setness-aware exception.
+        "_glm53_cli_moepipe_set",
+        "_glm53_cli_moepipe_val",
     }
     assert cli_tokens <= allowed, (
         f"the per-knob _cli_* allowlist must be gone (generic rule, #91); "

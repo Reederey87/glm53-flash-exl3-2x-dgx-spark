@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -26,6 +28,9 @@ import pytest
 
 KIT = Path(__file__).resolve().parents[1]
 OVERLAY = KIT / "overlay" / "patch_exl3_moe_pipeline.py"
+START = KIT / "start.sh"
+DOCKERFILE = KIT / "Dockerfile.e3-pipeline-layer"
+ENV_EXAMPLE = KIT / "env.example"
 
 
 def _load_overlay():
@@ -274,3 +279,158 @@ def test_real_tree_still_carries_the_anchors():
     assert host.count(OV.HOST_DISPATCH_OLD) == 1
     assert bindings.count(OV.BINDINGS_INCLUDE_OLD) == 1
     assert bindings.count(OV.BINDINGS_DEF_OLD) == 1
+
+
+# --- launcher wiring: the knob is fail-closed end to end --------------------
+#
+# The overlay's own TORCH_CHECK covers only a process that actually reaches the
+# patched dispatcher. Two configurations reach stock code instead, and an arm
+# that boots armed while running stock is uninterpretable: an image that carries
+# no variant, and an armed knob with the fused expert path disabled. Both are
+# refused by the launcher, so they are exercised against the real
+# `validate_numeric_config` and the real `ensure_image` rather than a lifted
+# fragment.
+
+STUB_TOOLS = ("docker", "ssh", "scp", "rsync", "curl", "ip", "nvidia-smi")
+
+
+class Launcher:
+    """Throwaway copy of start.sh with the host tools stubbed out."""
+
+    def __init__(self, tmp: Path, pipeline_label: str = "") -> None:
+        self.repo = tmp / "repo"
+        self.repo.mkdir()
+        shutil.copy2(START, self.repo / "start.sh")
+        shutil.copy2(ENV_EXAMPLE, self.repo / "env.example")
+        text = START.read_text()
+        assert text.rstrip().endswith('\nmain "$@"'), 'start.sh must end with main "$@"'
+        # Drop the dispatcher so the prologue can be driven directly.
+        (self.repo / "start.fn.sh").write_text(text.rstrip()[: -len('main "$@"')] + '"$@"\n')
+        (self.repo / ".env").write_text("")
+        home = tmp / "home"
+        home.mkdir()
+        self.bin = tmp / "bin"
+        self.bin.mkdir()
+        for tool in STUB_TOOLS:
+            p = self.bin / tool
+            p.write_text(
+                f'#!/usr/bin/env bash\nprintf "%s" "{pipeline_label}"\nexit 0\n'
+                if tool == "docker"
+                else "#!/usr/bin/env bash\nexit 0\n"
+            )
+            p.chmod(0o755)
+        self.env = {
+            "PATH": f"{self.bin}{os.pathsep}/usr/bin:/bin",
+            "HOME": str(home),
+            "USER": "t42-launcher",
+            "LC_ALL": "C",
+            "TERM": "dumb",
+        }
+
+    def run(self, body: str, **overrides: str) -> subprocess.CompletedProcess[str]:
+        env = dict(self.env)
+        env.update(overrides)
+        return subprocess.run(
+            ["bash", "./start.fn.sh", "eval", body],
+            cwd=self.repo, capture_output=True, text=True, env=env,
+        )
+
+
+STRICT = [
+    ({}, 0, ""),
+    ({"GLM53_EXL3_MOE_PIPELINE": "0"}, 0, ""),
+    ({"GLM53_EXL3_MOE_PIPELINE": "1"}, 0, ""),
+    # `:-` used to coerce these two to 0; the W41/W42 contract says "" is a value.
+    ({"GLM53_EXL3_MOE_PIPELINE": ""}, 2, "must be exactly 0 or 1"),
+    ({"GLM53_EXL3_MOE_PIPELINE": "2"}, 2, "must be exactly 0 or 1"),
+    ({"GLM53_EXL3_MOE_PIPELINE": "yes"}, 2, "must be exactly 0 or 1"),
+    ({"GLM53_EXL3_MOE_PIPELINE": "1", "EXL3_FUSED_MOE": "0"}, 2, "requires EXL3_FUSED_MOE=1"),
+    ({"GLM53_EXL3_MOE_PIPELINE": "0", "EXL3_FUSED_MOE": "0"}, 0, ""),
+    ({"GLM53_EXL3_MOE_PIPELINE": "", "EXL3_FUSED_MOE": "0"}, 2, "must be exactly 0 or 1"),
+]
+
+
+@pytest.mark.parametrize("caller,rc,want_err", STRICT)
+def test_knob_is_strict_and_the_fused_path_is_required(tmp_path, caller, rc, want_err):
+    launcher = Launcher(tmp_path)
+    r = launcher.run('validate_numeric_config; printf "rc=%s\\n" "$?"', **caller)
+    assert r.returncode == rc, (r.returncode, r.stdout, r.stderr)
+    if want_err:
+        assert want_err in r.stderr, r.stderr
+    else:
+        assert "rc=0" in r.stdout, r.stdout
+
+
+def test_armed_knob_is_refused_when_the_image_carries_no_variant(tmp_path):
+    launcher = Launcher(tmp_path, pipeline_label="")
+    r = launcher.run('ensure_image; printf "rc=%s\\n" "$?"', GLM53_EXL3_MOE_PIPELINE="1")
+    assert r.returncode == 1, (r.returncode, r.stdout, r.stderr)
+    assert "carries no register-cut kernel" in r.stderr
+    assert "glm53.task42.pipeline absent" in r.stderr
+
+
+def test_armed_knob_passes_when_the_image_carries_the_variant(tmp_path):
+    launcher = Launcher(tmp_path, pipeline_label="1x8")
+    r = launcher.run('ensure_image; printf "rc=%s\\n" "$?"', GLM53_EXL3_MOE_PIPELINE="1")
+    assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
+    assert "pipeline geometry 1x8" in r.stdout
+
+
+def test_unarmed_boot_is_unaffected_by_a_missing_variant(tmp_path):
+    """The capability check must not turn stock images into a boot failure."""
+    launcher = Launcher(tmp_path, pipeline_label="")
+    r = launcher.run('ensure_image; printf "rc=%s\\n" "$?"', GLM53_EXL3_MOE_PIPELINE="0")
+    assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
+    assert "carries no register-cut kernel" not in r.stderr
+
+
+def test_knob_uses_an_unset_only_default_and_joins_the_strict_bool_loop():
+    src = START.read_text()
+    assert 'GLM53_EXL3_MOE_PIPELINE="${GLM53_EXL3_MOE_PIPELINE-0}"' in src
+    assert 'GLM53_EXL3_MOE_PIPELINE="${GLM53_EXL3_MOE_PIPELINE:-0}"' not in src
+    assert (
+        "for _v in GLM53_KV_CAPACITY_LOG GLM53_APC_NO_STORE GLM53_EXL3_MOE_PIPELINE; do"
+        in src
+    )
+    assert '-e "GLM53_EXL3_MOE_PIPELINE=$GLM53_EXL3_MOE_PIPELINE"' in src
+
+
+def test_dockerfile_stamps_the_label_the_launcher_reads():
+    dockerfile = DOCKERFILE.read_text()
+    assert (
+        "glm53.task42.pipeline=${GLM53_EXL3_MOE_PIPELINE_FRAG}x${GLM53_EXL3_MOE_PIPELINE_SH}"
+        in dockerfile
+    )
+    # The reader and the stamp have to name the same label.
+    assert "glm53.task42.pipeline" in START.read_text()
+
+
+def test_env_example_documents_the_knob_and_its_refusals():
+    env = ENV_EXAMPLE.read_text()
+    assert "GLM53_EXL3_MOE_PIPELINE=0" in env
+    assert "Rollback: GLM53_EXL3_MOE_PIPELINE=0" in env
+    # The documented signature must be the shipped one, not the compile probe's.
+    assert "STACK:32 B with 9 STL / 4 LDL" in env
+    assert "STACK:40 B" not in env
+
+
+def test_caller_export_wins_over_dotenv_including_empty(tmp_path):
+    """Setness-aware caller-wins: an explicitly EMPTY caller export is a value.
+
+    The generic `[ -n ]` replay skips empty caller values, so the strict knobs
+    carry a setness-aware exception. This knob is a strict bool under the same
+    rule, so `GLM53_EXL3_MOE_PIPELINE= ./start.sh validate` must not silently
+    fall back to the `.env` value and pass.
+    """
+    launcher = Launcher(tmp_path)
+    (launcher.repo / ".env").write_text("GLM53_EXL3_MOE_PIPELINE=0\n")
+    body = 'printf "%s\\n" "${GLM53_EXL3_MOE_PIPELINE-<unset>}"'
+
+    assert launcher.run(body).stdout.strip() == "0"          # .env only
+    assert launcher.run(body, GLM53_EXL3_MOE_PIPELINE="1").stdout.strip() == "1"
+    # Empty caller value beats .env, and is then rejected by the validator.
+    assert launcher.run(body, GLM53_EXL3_MOE_PIPELINE="").stdout.strip() == ""
+    r = launcher.run('validate_numeric_config; printf "rc=%s\\n" "$?"',
+                     GLM53_EXL3_MOE_PIPELINE="")
+    assert r.returncode == 2
+    assert "must be exactly 0 or 1" in r.stderr

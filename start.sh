@@ -103,6 +103,8 @@ _glm53_cli_apcns_set="${GLM53_APC_NO_STORE+a}"
 _glm53_cli_apcns_val="${GLM53_APC_NO_STORE-}"
 _glm53_cli_indexer_workspace_set="${GLM53_INDEXER_WORKSPACE+a}"
 _glm53_cli_indexer_workspace_val="${GLM53_INDEXER_WORKSPACE-}"
+_glm53_cli_moepipe_set="${GLM53_EXL3_MOE_PIPELINE+a}"
+_glm53_cli_moepipe_val="${GLM53_EXL3_MOE_PIPELINE-}"
 # LOCAL: W41/W42 caller-wins capture (end)
 set -a
 # shellcheck disable=SC1091
@@ -118,6 +120,7 @@ unset _k _kv _flags _env_keys _caller_overrides
 [ -n "${_glm53_cli_kvlog_set}" ] && GLM53_KV_CAPACITY_LOG="$_glm53_cli_kvlog_val"
 [ -n "${_glm53_cli_apcns_set}" ] && GLM53_APC_NO_STORE="$_glm53_cli_apcns_val"
 [ -n "${_glm53_cli_indexer_workspace_set}" ] && GLM53_INDEXER_WORKSPACE="$_glm53_cli_indexer_workspace_val"
+[ -n "${_glm53_cli_moepipe_set}" ] && GLM53_EXL3_MOE_PIPELINE="$_glm53_cli_moepipe_val"
 # LOCAL: W41/W42 caller-wins restore (end)
 
 # ----------------------------- configuration -------------------------------
@@ -345,13 +348,6 @@ GLM53_ALIGN_FLOOR="${GLM53_ALIGN_FLOOR:-1}"
 # num_tokens - 1, so a registration at n is unreachable and the prompt falls back a whole
 # 3584-token page. Boundary arithmetic only; no hot-path work, no numerics change.
 GLM53_APC_TAIL_FLOOR="${GLM53_APC_TAIL_FLOOR:-0}"
-# LOCAL: task 42 -- 1 = select the register-cut variant of the fused `exl3_moe`
-# decode kernel (shallow fragment pipeline, deeper smem pipeline) instead of the
-# stock 3/3 instance. The variant is compiled into the image and the geometry is
-# a build arg, so this knob is the only runtime variable and A/B stays on one
-# image. Fail-closed: the kernel refuses a geometry it was not built for rather
-# than falling back silently. Default 0 leaves stock selection untouched.
-GLM53_EXL3_MOE_PIPELINE="${GLM53_EXL3_MOE_PIPELINE:-0}"
 # LOCAL: task 25 verification-only adaptive-k. off = stock k=7 every step.
 # ema trims only request.spec_token_ids (target verify). Capture-only
 # (GLM53_ADAPTIVE_K_CAPTURE=1) adds extra FULL graphs without the EMA.
@@ -400,6 +396,18 @@ fi
 # the overlays re-validate in-process and fail closed at boot.
 GLM53_KV_CAPACITY_LOG="${GLM53_KV_CAPACITY_LOG-1}"
 GLM53_APC_NO_STORE="${GLM53_APC_NO_STORE-1}"
+# LOCAL: task 42 -- 1 = select the register-cut variant of the fused `exl3_moe`
+# decode kernel (shallow fragment pipeline, deeper smem pipeline) instead of the
+# stock 3/3 instance. The variant is compiled into the image and the geometry is
+# a build arg, so this knob is the only runtime variable and A/B stays on one
+# image. Unset-only default so "" stays a value and is rejected, like the two
+# above. Fail-closed beyond the kernel's own geometry check, because that check
+# only covers a process that reaches the patched dispatcher:
+# validate_numeric_config refuses the knob with EXL3_FUSED_MOE=0 (the fused
+# expert path is the only route to the variant) and ensure_image refuses an image
+# that carries no register-cut kernel. Default 0 leaves stock selection
+# untouched.
+GLM53_EXL3_MOE_PIPELINE="${GLM53_EXL3_MOE_PIPELINE-0}"
 # W28: stock is the shipped allocation; rightsize enables the GLM-5.3-only
 # reclaim. Default stays stock until the guarded A/B produces live receipts.
 GLM53_INDEXER_WORKSPACE="${GLM53_INDEXER_WORKSPACE-stock}"
@@ -532,17 +540,20 @@ validate_numeric_config() {
     # value and is rejected. Runs before start/restart and through `validate`:
     # a bad value fails before boot, never stop/status/logs on a running pair;
     # the overlays re-validate in-process and fail closed.
-    for _v in GLM53_KV_CAPACITY_LOG GLM53_APC_NO_STORE; do
+    for _v in GLM53_KV_CAPACITY_LOG GLM53_APC_NO_STORE GLM53_EXL3_MOE_PIPELINE; do
         case "${!_v}" in 0|1) ;; *) echo "$_v must be exactly 0 or 1 (got: '${!_v}')" >&2; return 2 ;; esac
     done
     unset _v
-    # LOCAL: task 42 -- strict bool for the register-cut decode arm. The kernel
-    # re-validates in-process and fails closed, so this check only buys a clean
-    # refusal before the pair is torn down.
-    case "${GLM53_EXL3_MOE_PIPELINE:-0}" in
-        0|1) ;;
-        *) echo "GLM53_EXL3_MOE_PIPELINE must be exactly 0 or 1 (got: '${GLM53_EXL3_MOE_PIPELINE}')" >&2; return 2 ;;
-    esac
+    # LOCAL: task 42 -- the register-cut kernel is reachable only through the
+    # fused expert path (`apply_exl3_experts`); with EXL3_FUSED_MOE=0 the Python
+    # expert loop runs and the patched dispatcher is never reached, so an armed
+    # knob would silently measure stock. Refuse the contradiction rather than
+    # produce an uninterpretable arm. The image-capability half of the same
+    # contract is enforced in ensure_image().
+    if [ "${GLM53_EXL3_MOE_PIPELINE}" = "1" ] && [ "${EXL3_FUSED_MOE:-1}" = "0" ]; then
+        echo "GLM53_EXL3_MOE_PIPELINE=1 requires EXL3_FUSED_MOE=1 (the register-cut kernel is only reachable through the fused expert path; got EXL3_FUSED_MOE=${EXL3_FUSED_MOE})" >&2
+        return 2
+    fi
     case "${GLM53_INDEXER_WORKSPACE-stock}" in
         stock|rightsize) ;;
         *) echo "GLM53_INDEXER_WORKSPACE must be exactly one of: stock rightsize (got: '${GLM53_INDEXER_WORKSPACE-<unset>}')" >&2; return 2 ;;
@@ -1119,6 +1130,14 @@ image_platform() {
     printf '%s' "${p:-linux/arm64}"
 }
 
+# LOCAL: task 42 -- the register-cut kernel is compiled into the image (the
+# geometry is a build arg), so the knob alone cannot conjure it. The task-42
+# Dockerfile stamps `glm53.task42.pipeline=<frag>x<sh>`; an empty label means
+# this image carries no variant and an armed knob would serve stock silently.
+image_pipeline_geometry() {
+    docker image inspect -f '{{index .Config.Labels "glm53.task42.pipeline"}}' "$IMAGE" 2>/dev/null || true
+}
+
 build_image() {
     log "building ${IMAGE} from Dockerfile (log: $LOGDIR/build-sm121.log) ..."
     docker build -t "$IMAGE" "$SCRIPT_DIR" \
@@ -1241,6 +1260,17 @@ ensure_image() {
             >"$LOGDIR/overlay-verify.log" 2>&1 \
             || { tail -n 80 "$LOGDIR/overlay-verify.log" >&2; die "EXL3 overlay GPU self-check failed"; }
         log "overlay verify OK"
+    fi
+    # LOCAL: task 42 -- fail closed when the knob is armed but the resolved image
+    # has no register-cut kernel. Both nodes run $IMAGE, and the label is stamped
+    # at build time, so this is the last point before container creation where the
+    # contradiction is still cheap to refuse.
+    if [ "${GLM53_EXL3_MOE_PIPELINE}" = "1" ]; then
+        local pipeline_geometry
+        pipeline_geometry="$(image_pipeline_geometry)"
+        [ -n "$pipeline_geometry" ] \
+            || die "GLM53_EXL3_MOE_PIPELINE=1 but ${IMAGE} carries no register-cut kernel (label glm53.task42.pipeline absent) -- set GLM53_EXL3_MOE_PIPELINE=0 or boot an image built from Dockerfile.e3-pipeline-layer"
+        log "register-cut decode kernel present in ${IMAGE} (pipeline geometry ${pipeline_geometry})"
     fi
     log "image ready on both nodes"
 }

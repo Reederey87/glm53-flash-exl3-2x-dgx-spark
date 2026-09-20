@@ -81,20 +81,47 @@ Prose and essay are noisy (control prose spans 28.5–34.6; prose acceptance dri
 - Prose coherent, no NaN.
 - Kernel parity (`parity.py`, real serving entry point `apply_exl3_experts`,
   8 cases over T ∈ {12,20,32,1024} × skew ∈ {1.0, 0.0}, both arms on identical
-  inputs): **1 of 8 bit-exact**, worst single-element relative deviation
-  **1.65e-3**, worst RMS deviation **7.4e-6**, both arms take identical paths.
-  Not bit-exact: recompiling with a different register budget lets ptxas
-  schedule/reassociate fp differently. Verdict: PARITY OK (within fp16
-  recompilation tolerance), and stated as such rather than as exact parity.
+  inputs; `cmp.py` over the saved fp32 output tensors, receipt
+  `parity-compare.txt`): **1 of 8 bit-exact**, worst normalized max-abs deviation
+  **1.646e-3** (`max|Δ| / mean|a|`), worst NRMSE **7.438e-6**, both arms take
+  identical paths. `absum` (Σ|y|) is bit-identical in all 8 cases and `sum`
+  agrees to ≤1.9e-5 relative, so the deviation is small against the output scale
+  rather than a shifted result. Not bit-exact: recompiling with a different
+  register budget lets ptxas schedule/contract fp differently. Verdict: PARITY OK
+  (within fp16 recompilation tolerance), and stated as such rather than as exact
+  parity. Note the first attempt at this comparison ran on the host, which has no
+  torch, and died with `ModuleNotFoundError` (`final.log` section 3), so the
+  numbers above come from a re-run against the harness's saved tensors.
 - MemFree above the 2.5 GiB floor on both nodes throughout; pool byte-identical.
 
 ## 6. Gate verdict
 
 Task 42's gate: *≥5% decode e2e on hashmap prose **and** hard essay, structured
-non-inferior.* **Partially met.** Structured +5.8% and prose +12% clear the bar;
-**essay +2.5% does not.** No lane regressed, and the independent kernel
-measurement (+6.4 to +7.3%) is consistent with the structured result, so the
-change is adopted with the essay shortfall recorded rather than rounded away.
+non-inferior.* **NOT MET — one lane is short.**
+
+| lane | result | gate |
+|---|---|---|
+| structured | +5.8% | non-inferior ✓ |
+| hashmap prose | +12% | ≥5% ✓ |
+| hard essay | **+2.47%** (25.3845 → 26.0120 tok/s) | ≥5% ✗ |
+
+The essay lane is the binding lane and it does not clear the bar. Kernel device
+time (−6.4 to −7.3%) and the structured result do not substitute for it, because
+the gate is stated per-lane on end-to-end decode.
+
+What is true and what is not:
+
+- The change is **deployed**: production boots it, the arming line is present on
+  both nodes, acceptance is 7/7, the pool is byte-identical, and the rollback is
+  a single knob. No lane regressed, and the essay lane did improve.
+- The change is **not gate-passing** as pre-registered. Adoption and gate
+  satisfaction are separate claims and this receipt does not merge them.
+
+Acceptance therefore stays **pending**, not satisfied. The essay shortfall is a
+measured outcome, not an implementation defect, so no code change follows from
+it. Resolving it needs one of: a user decision to revise the gate or the scope
+(a single-lane essay result on a noisy lane), or a further arm that clears ≥5%
+on the essay lane. Until then this task must not be reported as a met gate.
 
 ## 7. Method findings worth keeping
 
@@ -112,3 +139,15 @@ change is adopted with the essay shortfall recorded rather than rounded away.
    relation to the kernel — the arming line count was 0, so the variant had never
    been selected. Cleaning up probe artifacts and rebooting cleared it. This is
    the task-50 margin, and a window must leave the box as clean as it found it.
+4. **Run in-container comparisons in the container.** The parity step ran its
+   `torch.load` comparison on the host, which has no torch, so it died with
+   `ModuleNotFoundError` *after* both arms had already succeeded. The window's
+   headline numbers were therefore reported without a retained receipt for a
+   while; `parity-compare.txt` is the re-run. Any step that imports torch belongs
+   in `docker run`, and a window script should assert its comparison step exited 0
+   instead of leaving the failure in a log.
+5. **A capability that lives in the image needs a capability check in the
+   launcher.** "Fail-closed" inside the patched extension says nothing about an
+   old image or a disabled code path: both reach stock with the knob armed. The
+   build stamps `glm53.task42.pipeline` and the launcher refuses an armed knob
+   without it. Assert the *end-to-end* contract, not the layer you wrote.

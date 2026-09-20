@@ -767,15 +767,37 @@ def _run_defaults(knob: str, value: str | None) -> tuple[int, str, str]:
     return r.returncode, out, err
 
 
+# Every knob the W41/W42 strict-bool loop validates, with the value its
+# top-level default assigns when unset. The loop and this table must stay in
+# step: `test_strict_bool_knobs_match_the_loop` fails loudly if one gains a knob
+# the other does not, rather than letting the harness reach the validator unset.
+STRICT_BOOL_DEFAULTS = {
+    "GLM53_KV_CAPACITY_LOG": "1",
+    "GLM53_APC_NO_STORE": "1",
+    "GLM53_EXL3_MOE_PIPELINE": "0",
+}
+
+
 def _run_validator(knob: str, value: str) -> tuple[int, str, str]:
-    # The loop validates BOTH knobs; in the real launcher the top-level
-    # defaults block has already assigned the other one (unset -> 1), so the
-    # harness mirrors that instead of letting it reach the validator unset.
-    other = "GLM53_APC_NO_STORE" if knob == "GLM53_KV_CAPACITY_LOG" else "GLM53_KV_CAPACITY_LOG"
+    # The loop validates every strict-bool knob; in the real launcher the
+    # top-level defaults block has already assigned all of the others, so the
+    # harness mirrors that instead of letting them reach the validator unset.
     script = validator_source() + "\n_glm53_w4142_validate"
-    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LC_ALL": "C", knob: value, other: "1"}
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LC_ALL": "C", knob: value}
+    env.update({k: v for k, v in STRICT_BOOL_DEFAULTS.items() if k != knob})
     r = subprocess.run(["bash", "-c", script], text=True, capture_output=True, env=env)
     return r.returncode, r.stdout.strip(), r.stderr.strip()
+
+
+def test_strict_bool_knobs_match_the_loop() -> None:
+    """The harness table and start.sh's loop must name the same knobs."""
+    text = START.read_text()
+    begin = text.index("# LOCAL: W41/W42 strict-bool validation (begin)")
+    end = text.index("# LOCAL: W41/W42 strict-bool validation (end)", begin)
+    loop = text[begin:end]
+    line = next(ln for ln in loop.splitlines() if ln.strip().startswith("for _v in"))
+    named = {tok.rstrip(";") for tok in line.split() if tok.startswith("GLM53_")}
+    assert named == set(STRICT_BOOL_DEFAULTS), (sorted(named), sorted(STRICT_BOOL_DEFAULTS))
 
 
 def _run_caller_wins(knob: str, caller: str | None, env_value: str) -> tuple[int, str, str]:
