@@ -1,34 +1,57 @@
 #!/usr/bin/env python3
-"""Clamp K-pool tail slot mapping to the one-block circular contract.
+"""Upper-bound safety clamp on the legacy V1 slot-mapping kernel.
 
+This is a **bounds guard, not the circular-mapping repair**. The authoritative
+tail mapping is ``compute_kpool_tail_slot_mapping`` in
+``v1/attention/backends/mla/indexer.py``; see
+``patch_kpool_tail_correctness.py`` for that fix.
+
+What this patch covers
+----------------------
 ``KpoolTailSpec`` is a one-block circular scratch cache: both
 ``max_admission_blocks_per_request`` and ``max_num_blocks_per_req`` return 1,
-so its block-table row is a single entry. Slot mapping still uses the generic
-paged Triton kernel, which does::
+so its block table holds one block per request. Slot mapping still used the
+generic paged Triton kernel in the *legacy* ``v1/worker/block_table.py``::
 
     block_indices = pos // block_size
     block_numbers = block_table[req, block_indices]
 
-The mask only guards token validity. Nothing bounds ``block_indices`` against
-the row width. For the tail group every token at ``pos >= block_size`` reads
-past that one entry; the kpool seed/update kernels then write through the
-garbage block id. Long generations (~2k tokens) hit this reliably. A finished
-request is not proof the writes were in-bounds — most overruns land inside the
-shared pool and silently corrupt another layer's indexer.
+The load's mask covers token validity only. Nothing bounded ``block_indices``
+against the row width, so for the tail group every token at
+``pos >= block_size`` read past the row and the kpool seed/update kernels
+wrote through whatever block id came back. A finished request is not proof the
+writes were in-bounds — most overruns land inside the shared pool and silently
+corrupt another layer's indexer.
 
-The fix clamps the index to the row::
+Correction to the original rationale
+------------------------------------
+This patch previously claimed ``block_table_stride == 1`` for the tail group,
+so clamping to ``block_table_stride - 1`` would pin the index to entry 0 and
+yield ``block_table[req, 0] * block_size + pos % block_size``. **That premise
+was false.** ``block_table_stride`` is the padded row width from
+``get_block_table_width``, which is 32 for the tail group (``block_size`` 4
+raised to ``token_alignment`` 128). The clamp therefore pins to column 31,
+which ``KpoolTailManager`` never writes, and reads back 0 — a null block, not
+the request's own tail block.
 
-    block_indices = tl.minimum(block_indices, block_table_stride - 1)
+An independent measurement of this exact clamp (vcruz305,
+``docs/KPOOL_TAIL_BUG.md``, the source of the mechanism below) reported 48
+overruns before and 48 after, i.e. it did not restore the documented
+addressing. What it *does* do is replace the unmasked out-of-bounds read with
+a deterministic in-bounds read, which is still worth having.
 
-For the tail group ``block_table_stride == 1``, so the slot becomes
-``block_table[req, 0] * block_size + pos % block_size`` — the addressing
-``_kpool_tail_seed_kernel`` already documents. For every other group a request
-never legitimately needs more blocks than its row holds, so the clamp is
-identity.
+For every other group a request never legitimately needs more blocks than its
+row holds, so the clamp is provably identity there.
 
-Mechanism from vcruz305/GLM-5.3-Flash-EXL3-K2-DGX-Spark-recipe
-(docs/KPOOL_TAIL_BUG.md). Fail-closed, idempotent, preflights the pinned
-anchor before writing.
+Scope caveat
+------------
+Production runs the **V2** model runner, whose slot-mapping kernel lives in
+``v1/worker/gpu/block_table.py``. The V2 runner imports only
+``get_block_table_width`` from this legacy module, so this patch does not
+execute in production. The live kernel is bounded by
+``patch_kpool_tail_correctness.py`` instead.
+
+Fail-closed, idempotent, preflights the pinned anchor before writing.
 """
 from __future__ import annotations
 

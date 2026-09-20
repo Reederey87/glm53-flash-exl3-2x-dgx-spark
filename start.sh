@@ -268,6 +268,14 @@ APC_NO_STORE_PATCH_HOST="${APC_NO_STORE_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_ap
 # LOCAL: W28 GLM-only indexer-workspace reclaim + bundled correctness backports
 INDEXER_WORKSPACE_PATCH_HOST="${INDEXER_WORKSPACE_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_indexer_workspace.py}"
 W28_CORRECTNESS_PATCH_HOST="${W28_CORRECTNESS_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_w28_correctness.py}"
+# LOCAL: W29 — kpool tail correctness. #57477 seed stride, positions forwarding
+# on the hybrid path, persistent builder-owned tail slot mapping, and a range
+# bound on the live V2 slot-mapping kernel.
+KPOOL_TAIL_CORRECTNESS_PATCH_HOST="${KPOOL_TAIL_CORRECTNESS_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_kpool_tail_correctness.py}"
+# On by default (it is a correctness fix), but knobbable so a failed A/B rolls
+# back with one .env line instead of editing this launcher. Unset-only default:
+# an explicit empty value stays a value.
+KPOOL_TAIL_CORRECTNESS="${KPOOL_TAIL_CORRECTNESS-1}"
 MAMBA_NULL_GAP_PATCH_HOST="${MAMBA_NULL_GAP_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_mamba_null_gap_retirement.py}"
 # LOCAL: task 17 / #55234 — inherited KVCacheSpec.merge assert -> raise (python -O)
 KV_MERGE_ASSERT_PATCH_HOST="${KV_MERGE_ASSERT_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_kv_merge_assert.py}"
@@ -1680,6 +1688,9 @@ fi
 if [ -f /opt/glm53/patch_w28_correctness.py ]; then  # LOCAL: W28 correctness first
     python3 -S /opt/glm53/patch_w28_correctness.py
 fi
+if [ "${KPOOL_TAIL_CORRECTNESS:-1}" = "1" ] && [ -f /opt/glm53/patch_kpool_tail_correctness.py ]; then  # LOCAL: W29 kpool tail
+    python3 -S /opt/glm53/patch_kpool_tail_correctness.py
+fi
 if [ -f /opt/glm53/patch_indexer_workspace.py ]; then  # LOCAL: W28 decision variable
     python3 -S /opt/glm53/patch_indexer_workspace.py
 fi
@@ -1847,6 +1858,9 @@ fi
 if [ -f /opt/glm53/patch_w28_correctness.py ]; then  # LOCAL: W28 correctness first
     python3 -S /opt/glm53/patch_w28_correctness.py
 fi
+if [ "${KPOOL_TAIL_CORRECTNESS:-1}" = "1" ] && [ -f /opt/glm53/patch_kpool_tail_correctness.py ]; then  # LOCAL: W29 kpool tail
+    python3 -S /opt/glm53/patch_kpool_tail_correctness.py
+fi
 if [ -f /opt/glm53/patch_indexer_workspace.py ]; then  # LOCAL: W28 decision variable
     python3 -S /opt/glm53/patch_indexer_workspace.py
 fi
@@ -1917,6 +1931,8 @@ launch_cluster() {
     scp -q -o BatchMode=yes "$APC_NO_STORE_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_apc_no_store.py"
     [ -f "$W28_CORRECTNESS_PATCH_HOST" ] || die "missing $W28_CORRECTNESS_PATCH_HOST"  # LOCAL: W28
     scp -q -o BatchMode=yes "$W28_CORRECTNESS_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_w28_correctness.py"
+    [ -f "$KPOOL_TAIL_CORRECTNESS_PATCH_HOST" ] || die "missing $KPOOL_TAIL_CORRECTNESS_PATCH_HOST"  # LOCAL: W29
+    scp -q -o BatchMode=yes "$KPOOL_TAIL_CORRECTNESS_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_kpool_tail_correctness.py"
     [ -f "$INDEXER_WORKSPACE_PATCH_HOST" ] || die "missing $INDEXER_WORKSPACE_PATCH_HOST"  # LOCAL: W28
     scp -q -o BatchMode=yes "$INDEXER_WORKSPACE_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_indexer_workspace.py"
     [ -f "$MAMBA_NULL_GAP_PATCH_HOST" ] || die "missing $MAMBA_NULL_GAP_PATCH_HOST"
@@ -1976,6 +1992,7 @@ launch_cluster() {
         -e "GLM53_KV_CAPACITY_LOG=$GLM53_KV_CAPACITY_LOG"  # LOCAL: W41
         -e "GLM53_APC_NO_STORE=$GLM53_APC_NO_STORE"  # LOCAL: W42
         -e "GLM53_INDEXER_WORKSPACE=$GLM53_INDEXER_WORKSPACE"  # LOCAL: W28
+        -e "KPOOL_TAIL_CORRECTNESS=$KPOOL_TAIL_CORRECTNESS"  # LOCAL: W29 (both ranks apply the tail patch at start)
         # LOCAL: W9 ablation — 0 restores stock router-GEMM eligibility exactly
         -e "GLM53_ROUTER_GEMM_CUBLAS=${GLM53_ROUTER_GEMM_CUBLAS:-1}"
         # LOCAL: W17/W18 opt-in overlays (both ranks read these at patch time)
@@ -2088,6 +2105,7 @@ launch_cluster() {
         -v '/tmp/patch_kv_capacity_log.py:/opt/glm53/patch_kv_capacity_log.py:ro' \
         -v '/tmp/patch_apc_no_store.py:/opt/glm53/patch_apc_no_store.py:ro' \
         -v '/tmp/patch_w28_correctness.py:/opt/glm53/patch_w28_correctness.py:ro' \
+        -v '/tmp/patch_kpool_tail_correctness.py:/opt/glm53/patch_kpool_tail_correctness.py:ro' \
         -v '/tmp/patch_indexer_workspace.py:/opt/glm53/patch_indexer_workspace.py:ro' \
         -v '/tmp/patch_mamba_null_gap_retirement.py:/opt/glm53/patch_mamba_null_gap_retirement.py:ro' \
         -v '/tmp/patch_kv_merge_assert.py:/opt/glm53/patch_kv_merge_assert.py:ro' \
@@ -2132,6 +2150,7 @@ launch_cluster() {
         -v "$KV_CAPACITY_LOG_PATCH_HOST:/opt/glm53/patch_kv_capacity_log.py:ro" \
         -v "$APC_NO_STORE_PATCH_HOST:/opt/glm53/patch_apc_no_store.py:ro" \
         -v "$W28_CORRECTNESS_PATCH_HOST:/opt/glm53/patch_w28_correctness.py:ro" \
+        -v "$KPOOL_TAIL_CORRECTNESS_PATCH_HOST:/opt/glm53/patch_kpool_tail_correctness.py:ro" \
         -v "$INDEXER_WORKSPACE_PATCH_HOST:/opt/glm53/patch_indexer_workspace.py:ro" \
         -v "$MAMBA_NULL_GAP_PATCH_HOST:/opt/glm53/patch_mamba_null_gap_retirement.py:ro" \
         -v "$KV_MERGE_ASSERT_PATCH_HOST:/opt/glm53/patch_kv_merge_assert.py:ro" \
