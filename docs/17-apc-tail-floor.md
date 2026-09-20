@@ -199,11 +199,12 @@ Two separate statements follow, and they have **different** scope:
   reachable full-page block, so the consumer still reaches its ceiling and its
   timing is unchanged; unaligned lengths are untouched.
 
-**No population-level claim is made.** Only nine prompt lengths were probed, one
-or two per class. Turning the table above into a "per random length" rate, or into
-a statement that caching became length-independent, would need an explicit
-workload distribution and representative measurements, and this change does not
-have them. What is measured is the per-case trade-off above.
+**No population-level claim is made.** The ladder is nine entries covering eight
+distinct prompt lengths (10,752 appears twice), one or two per class. Turning the
+table above into a "per random length" rate, or into a statement that caching
+became length-independent, would need an explicit workload distribution and
+representative measurements, and this change does not have them. What is measured
+is the per-case trade-off above.
 
 Accepted on that per-case basis, and it is precisely the reason **45b** (register
 both `n - 64` and `n`) is worth doing, since it would remove this cost entirely.
