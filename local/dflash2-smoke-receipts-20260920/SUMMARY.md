@@ -64,6 +64,24 @@ TileLang JIT caches were wiped on **both** nodes (expected cold-JIT boot).
 
 ## 4. Runtime identity (inside the running head container)
 
+Raw output: `identity-probe.log` (`IDENTITY PASS`, 27/27 checks).
+
+The probe was corrected after a review pass, because four of its original checks
+reported FAIL on a *correct* install. Each was a probe bug, not a deployment
+defect, and they are recorded here so the checks are not "fixed" back:
+
+| original check | why it was wrong | correct check |
+|---|---|---|
+| "pin lacks `get_top_k_tokens`" | substring match tripped on the module docstring, which *names* the API it deliberately does not call | assert no executable `.get_top_k_tokens(` call |
+| "`is_causal` override" | the override lives in the **parent** `qwen3_dflash.py`, not the drafter module | inspect the parent module |
+| "class `DFlash2DraftModel`" | `DFlash2DraftModel` is an architecture **key**, not a class | assert the registry mapping |
+| "glm5next EAGLE3" | the target is `vllm/models/glm5next/nvidia/model.py`, not `model_executor/models/glm5next.py` | inspect the real path |
+
+The last one is the dangerous class: the original check inspected a path that
+does not exist in this pin, so it could never have caught a broken EAGLE3
+install. The corrected probe asserts each path exists before inspecting it, and
+exits non-zero on any failure.
+
 | check | result |
 |---|---|
 | `qwen3_dflash2.py` md5 == `/opt/glm53/dflash2_model.py` | PASS (`504c5744…`) |
@@ -71,13 +89,13 @@ TileLang JIT caches were wiped on **both** nodes (expected cold-JIT boot).
 | `_dflash2_grouped_conv_kernel` | PASS |
 | `direct_register_custom_op(op_name="dflash2_grouped_conv")` | PASS |
 | CUDA/eager branch on `hidden_states.is_cuda` | PASS |
-| `torch.topk` candidates; no live `.get_top_k_tokens(` / `draft_logits_spec` | PASS |
+| `torch.topk` candidates; no executable `.get_top_k_tokens(` / `draft_logits_spec` | PASS |
 | classes `DFlash2Qwen3ForCausalLM`, `DFlash2Qwen3Model`, `DFlash2Qwen3DecoderLayer` | PASS |
 | registry `DFlash2DraftModel` → `('qwen3_dflash2', 'DFlash2Qwen3ForCausalLM')` | PASS |
 | custom op resolves | `vllm::dflash2_grouped_conv` |
+| parent `qwen3_dflash.py`: `is_causal` / `decoder_layer_cls` | PASS |
+| EAGLE3 `EagleModelMixin` / `SupportsEagle3` / `aux_hidden_state_layers` on `models/glm5next/nvidia/model.py` | PASS |
 | `DFlash2Speculator` present | PASS |
-| `is_causal` / `decoder_layer_cls` (parent `qwen3_dflash.py`) | PASS |
-| EAGLE3 `EagleModelMixin` / `SupportsEagle3` / `aux_hidden_state_layers` | PASS |
 
 Live EAGLE3 arming (this is the target-model aux-hidden interface DFlash2
 consumes, not a second speculator):

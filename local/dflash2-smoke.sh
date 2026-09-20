@@ -3,13 +3,16 @@
 set -uo pipefail
 D=/home/nvidia/GLM-5.3-Flash-EXL3-2x-DGX-Sparks
 cd "$D" || exit 1
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 echo "=== A. acceptance.sh ==="
 bash local/acceptance.sh 2>&1 | tail -22
 
 echo
 echo "=== B. runtime identity in the head container ==="
-docker exec glm53-exl3-head python3 /opt/glm53/smoke_identity.py 2>&1 | grep -vE "^INFO|^WARNING|Triton is installed|Triton not installed"
+# The probe is streamed in over stdin: nothing in the image copies it, so
+# referencing /opt/glm53/smoke_identity.py would fail on a fresh container.
+docker exec -i glm53-exl3-head python3 - < "$HERE/smoke_identity.py" 2>&1 | grep -vE "^INFO|^WARNING|Triton is installed|Triton not installed"
 
 echo
 echo "=== C. JIT monitor / first-launch Triton JIT ==="
