@@ -1,0 +1,92 @@
+=== run the corrected smoke harness for real ===
+=== A. acceptance.sh ===
+  PASS  thinking returns reasoning + content
+
+== 4. tool call (parser glm47, auto tool choice) ==
+    finish_reason: tool_calls | tool_calls: 1
+    name: get_weather | args: {"city": "Oslo"}
+  PASS  tool call emitted and parsed
+
+== 5. production sampling: temp 1.0, thinking ON ==
+    finish_reason: stop | content chars: 374
+  PASS  temp 1.0 + thinking (the real production path)
+
+== 6. vision (LANGUAGE_MODEL_ONLY=0, limit-mm image:4) ==
+    content: Colorful
+  PASS  vision tower accepts an image
+
+== 7. long-context needle (~32k tokens) ==
+    prompt_tokens: 36040 | answer: CORMORANT-8815
+  PASS  needle retrieved at ~32k
+
+== RESULT ==
+  passed: 7   failed: 0
+  ACCEPTANCE PASSED
+
+=== B. runtime identity in the head container ===
+glm53: video placeholders aligned to encoder grid_t (Glm5Next→glm46v)
+drafter module: /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/qwen3_dflash2.py
+PASS drafter module exists
+PASS kit marker [glm53-dflash2]
+PASS triton kernel _dflash2_grouped_conv_kernel
+PASS op registration dflash2_grouped_conv
+PASS CUDA/eager branch on is_cuda
+PASS torch.topk candidate selection
+PASS no executable .get_top_k_tokens( call
+PASS no draft_logits_spec definition or call
+PASS class DFlash2Qwen3ForCausalLM
+PASS class DFlash2Qwen3Model
+PASS class DFlash2Qwen3DecoderLayer
+registry mapping DFlash2DraftModel: ('qwen3_dflash2', 'DFlash2Qwen3ForCausalLM')
+PASS registry maps to the pinned installed path
+imported module: /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/qwen3_dflash2.py
+PASS module imports
+PASS DFlash2Qwen3ForCausalLM importable
+custom op resolved: ['vllm::dflash2_grouped_conv']
+PASS custom op resolves after import
+parent module: /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/qwen3_dflash.py
+PASS parent qwen3_dflash.py exists
+PASS parent honors checkpoint is_causal
+PASS parent sets decoder_layer_cls
+glm5next target model: /usr/local/lib/python3.12/dist-packages/vllm/models/glm5next/nvidia/model.py
+PASS glm5next target model exists
+PASS EagleModelMixin
+PASS SupportsEagle3
+PASS aux_hidden_state_layers
+speculator: /usr/local/lib/python3.12/dist-packages/vllm/v1/worker/gpu/spec_decode/dflash2/speculator.py
+PASS DFlash2Speculator exists
+IDENTITY PASS
+
+=== C. JIT monitor / first-launch Triton JIT ===
+(Worker_TP0 pid=573) WARNING 09-20 18:37:10 [jit_monitor.py:135] Triton kernel JIT compilation during inference: _rejection_kernel. This causes a latency spike; consider extending warmup to cover this shape/config.
+(Worker_TP0 pid=573) WARNING 09-20 18:37:10 [jit_monitor.py:135] Triton kernel JIT compilation during inference: _resample_kernel. This causes a latency spike; consider extending warmup to cover this shape/config.
+(Worker_TP0 pid=573) WARNING 09-20 18:37:13 [jit_monitor.py:135] Triton kernel JIT compilation during inference: _topk_topp_kernel. This causes a latency spike; consider extending warmup to cover this shape/config.
+(Worker_TP0 pid=573) WARNING 09-20 18:37:17 [jit_monitor.py:135] TileLang JIT compilation during inference: mhc_pre_big_fuse_with_norm_tilelang. This causes a latency spike; consider extending warmup to cover this shape/config.
+(Worker_TP0 pid=573) WARNING 09-20 18:47:28 [jit_monitor.py:135] Triton kernel JIT compilation during inference: _fused_q_kv_rmsnorm_kernel. This causes a latency spike; consider extending warmup to cover this shape/config.
+(Worker_TP0 pid=573) WARNING 09-20 18:47:28 [jit_monitor.py:135] Triton kernel JIT compilation during inference: rotary_kernel. This causes a latency spike; consider extending warmup to cover this shape/config.
+
+=== D. KV pool (head) ===
+kv_cache_max_concurrency="1.396551724137931"
+kv_cache_memory_bytes="15414698763"
+kv_cache_size_tokens="1396551"
+num_gpu_blocks="567"
+--- head log KV lines ---
+(EngineCore pid=335) INFO 09-20 18:34:01 [kv_cache_utils.py:1841] DFlash2 drafter KV: padded slot-share block=64 mla_page=2351104 (was block=16); exact-fit page mismatch draft_bytes/token=2048 kernel_page=131072 draft_tokens/page=1148 usable_draft_tokens=1088 structural_padding_waste_bytes=122880 (5.23% of mla_page) exact_fit_page=2359296 growth_bytes=8192 (0.35%)
+(EngineCore pid=335) INFO 09-20 18:34:01 [kv_cache_utils.py:2598] GPU KV cache size: 1,396,551 tokens, Maximum concurrency for 1,000,000 tokens per request: 1.40x
+(EngineCore pid=335) INFO 09-20 18:34:01 [kv_cache_utils.py:1208] [glm53-kv-capacity-log] usable block ids: 566 (num_blocks=567 incl. the null block; 406 ids per 1,000,000-token request => 1.40x); ids per 3584-token cached segment across groups: 38 (per group: [1, 0, 1, 1, 1, 1, 33]); cached-conversation capacity at this alignment ≈ 50,176 tokens = 14 segments (aligned dense-retention prefix-cache upper bound: nothing running, every reachable block hashed, block-aligned hits). The 'GPU KV cache size' line above is max_concurrency x max_model_len, not this figure.
+
+=== E. MemFree tripwire ===
+head:   4631936 kB
+worker: 4148268 kB
+
+=== F. error triage ===
+head tracebacks/errors:   0
+worker tracebacks/errors: 0
+--- head error lines (first 10) ---
+--- worker error lines (first 10) ---
+
+=== G. serving identity ===
+head image=glm53-selfbuild:dflash2-triton-housekeep id=sha256:ec9653adaa36f7b1d95828ce1357dd7c3f15ee38b8428872799455adc6fa95d6
+worker image=glm53-selfbuild:dflash2-triton-housekeep id=sha256:ec9653adaa36f7b1d95828ce1357dd7c3f15ee38b8428872799455adc6fa95d6
+=== SMOKE PASS ===
+HARNESS EXIT=0

@@ -2,8 +2,11 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 """DFlash2 speculator: candidate-selector walk.
 
-This glm53-flash image's gumbel.py has no `gumbel_noised_argmax` export, so
-the walk kernel vendors that helper (same Gumbel-max as upstream vLLM).
+# [glm53-dflash2] This glm53-flash image's gumbel.py has no
+gumbel-noised argmax export, so the walk kernel vendors that helper
+(same Gumbel-max as upstream vLLM). Keep the vendored kernel; the pin
+does not export that helper, an IS_DRAFTING flag, or a draft-logits-spec
+method.
 """
 
 from typing import Any

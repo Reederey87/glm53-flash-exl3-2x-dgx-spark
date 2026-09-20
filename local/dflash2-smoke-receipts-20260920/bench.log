@@ -1,0 +1,52 @@
+=== warmup (3 runs per lane) ===
+  "health_code_after": 200
+}
+wrote /home/nvidia/dflash2-smoke-20260920T142652/bench/warm-structured.json
+  "health_code_after": 200
+}
+wrote /home/nvidia/dflash2-smoke-20260920T142652/bench/warm-hashmap.json
+                       [--max-tokens MAX_TOKENS] [--skip-coherence]
+                       [--structured]
+bench_decode.py: error: unrecognized arguments: --essay
+=== settle 240 s ===
+=== measured (9 runs per lane) ===
+    "ttft_s": 0.35236222100502346,
+    "completion_tokens": 32
+  },
+  "tok_s_median": 73.61268355609823,
+  "tok_s_min": 25.816924782241045,
+  "tok_s_max": 74.62005693432228,
+  "ttft_median_s": 0.3365464599992265,
+  "completion_tokens_median": 200.0,
+  "accept_ratio_median": 1.0,
+  "accepted_per_step_median": 7.0,
+  "any_nan": false,
+  "health_code_after": 200
+}
+wrote /home/nvidia/dflash2-smoke-20260920T142652/bench/structured.json
+
+  "thinking": false,
+  "temperature": 0,
+  "tok_s_median": 29.200368062977937,
+  "tok_s_min": 11.786287843565436,
+  "tok_s_max": 35.37918708330339,
+  "ttft_median_s": 0.3565016939974157,
+  "completion_tokens_median": 200.0,
+  "accept_ratio_median": 0.5271,
+  "accepted_per_step_median": 2.109,
+  "any_nan": false,
+  "coherent": true,
+  "health_code_after": 200
+}
+wrote /home/nvidia/dflash2-smoke-20260920T142652/bench/hashmap.json
+
+usage: bench_decode.py [-h] --phase PHASE --out OUT [--runs RUNS]
+                       [--max-tokens MAX_TOKENS] [--skip-coherence]
+                       [--structured]
+bench_decode.py: error: unrecognized arguments: --essay
+
+=== summary (median tok/s, min-max, accept) ===
+structured  median=73.613 nan=0
+hashmap     median=29.200 nan=0
+essay       MISSING
+=== BENCH DONE ===

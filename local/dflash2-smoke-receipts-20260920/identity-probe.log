@@ -1,0 +1,34 @@
+=== corrected probe in the live container (streamed via stdin, as the smoke script does) ===
+glm53: video placeholders aligned to encoder grid_t (Glm5Next→glm46v)
+drafter module: /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/qwen3_dflash2.py
+PASS drafter module exists
+PASS kit marker [glm53-dflash2]
+PASS triton kernel _dflash2_grouped_conv_kernel
+PASS op registration dflash2_grouped_conv
+PASS CUDA/eager branch on is_cuda
+PASS torch.topk candidate selection
+PASS no executable .get_top_k_tokens( call
+PASS no draft_logits_spec definition or call
+PASS class DFlash2Qwen3ForCausalLM
+PASS class DFlash2Qwen3Model
+PASS class DFlash2Qwen3DecoderLayer
+registry mapping DFlash2DraftModel: ('qwen3_dflash2', 'DFlash2Qwen3ForCausalLM')
+PASS registry maps to the pinned installed path
+imported module: /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/qwen3_dflash2.py
+PASS module imports
+PASS DFlash2Qwen3ForCausalLM importable
+custom op resolved: ['vllm::dflash2_grouped_conv']
+PASS custom op resolves after import
+parent module: /usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/qwen3_dflash.py
+PASS parent qwen3_dflash.py exists
+PASS parent honors checkpoint is_causal
+PASS parent sets decoder_layer_cls
+glm5next target model: /usr/local/lib/python3.12/dist-packages/vllm/models/glm5next/nvidia/model.py
+PASS glm5next target model exists
+PASS EagleModelMixin
+PASS SupportsEagle3
+PASS aux_hidden_state_layers
+speculator: /usr/local/lib/python3.12/dist-packages/vllm/v1/worker/gpu/spec_decode/dflash2/speculator.py
+PASS DFlash2Speculator exists
+IDENTITY PASS
+exit=0

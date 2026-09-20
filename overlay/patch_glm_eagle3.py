@@ -1,26 +1,34 @@
 #!/usr/bin/env python3
-"""Teach Glm5Next the EAGLE3 aux-hidden interface DFlash2 uses."""
+"""Teach Glm5Next the EAGLE3 aux-hidden interface DFlash2 uses.
 
+Fail-closed, idempotent, env-overridable. The image self-check pins the
+installed strings (``EagleModelMixin``, ``SupportsEagle3``, ``hc_contract``,
+``aux_hidden_state_layers``). Anchors are the glm53-flash pin's
+``models/glm5next/nvidia/model.py``.
+"""
 from __future__ import annotations
 
+import os
+import stat
+import sys
 from pathlib import Path
 
-SITE = Path("/usr/local/lib/python3.12/dist-packages/vllm")
-TARGET = SITE / "models/glm5next/nvidia/model.py"
 
+SITE = Path(
+    os.environ.get(
+        "GLM53_VLLM_SITE",
+        "/usr/local/lib/python3.12/dist-packages/vllm",
+    )
+)
+TARGET = Path(
+    os.environ.get(
+        "GLM53_GLM5NEXT_MODEL_PY",
+        str(SITE / "models/glm5next/nvidia/model.py"),
+    )
+)
 
-def replace_once(old: str, new: str) -> None:
-    text = TARGET.read_text()
-    if new in text and old not in text:
-        return
-    n = text.count(old)
-    if n != 1:
-        raise SystemExit(f"{TARGET}: expected one patch target, found {n}: {old!r}")
-    TARGET.write_text(text.replace(old, new))
-
-
-def main() -> None:
-    replace_once(
+EDITS: tuple[tuple[str, str], ...] = (
+    (
         "from vllm.model_executor.models.interfaces import (\n"
         "    HasInnerState,\n"
         "    IsHybrid,\n"
@@ -35,17 +43,17 @@ def main() -> None:
         "    SupportsEagle3,\n"
         "    SupportsPP,\n"
         ")\n",
-    )
-    replace_once(
+    ),
+    (
         "class Glm5NextModel(nn.Module):\n",
         "class Glm5NextModel(nn.Module, EagleModelMixin):\n",
-    )
-    replace_once(
+    ),
+    (
         "        self._active_layers = self.layers[self.start_layer : self.end_layer]\n",
         "        self._active_layers = self.layers[self.start_layer : self.end_layer]\n"
         "        self.aux_hidden_state_layers: tuple[int, ...] = ()\n",
-    )
-    replace_once(
+    ),
+    (
         "        full_num_tokens = positions.shape[0]\n"
         "        if self.is_sequence_parallel:\n"
         "            hidden_states = sp_shard(hidden_states)\n"
@@ -80,17 +88,17 @@ def main() -> None:
         "                    value = value.mean(dim=1)\n"
         "            if self.is_sequence_parallel:\n"
         "                value = sp_all_gather(value)[:full_num_tokens]\n"
-        "            aux_hidden_states.append(value)\n"
-    )
-    replace_once(
+        "            aux_hidden_states.append(value)\n",
+    ),
+    (
         "        hidden_states = self.norm(hidden_states)\n"
         "        return hidden_states\n",
         "        hidden_states = self.norm(hidden_states)\n"
         "        if aux_hidden_states:\n"
         "            return hidden_states, aux_hidden_states\n"
         "        return hidden_states\n",
-    )
-    replace_once(
+    ),
+    (
         "class Glm5NextForCausalLM(\n"
         "    nn.Module, HasInnerState, SupportsPP, MixtureOfExperts, IsHybrid\n"
         "):\n",
@@ -102,18 +110,85 @@ def main() -> None:
         "    IsHybrid,\n"
         "    SupportsEagle3,\n"
         "):\n",
-    )
-    replace_once(
+    ),
+    (
         "class Glm5NextForConditionalGeneration(\n"
         "    Glm4vForConditionalGeneration, HasInnerState, IsHybrid\n"
         "):\n",
         "class Glm5NextForConditionalGeneration(\n"
         "    Glm4vForConditionalGeneration, HasInnerState, IsHybrid, SupportsEagle3\n"
         "):\n",
+    ),
+)
+
+
+def counts(text: str) -> tuple[list[int], list[int]]:
+    old = [text.count(old) for old, _ in EDITS]
+    new = [text.count(new) for _, new in EDITS]
+    return old, new
+
+
+def leftover_old_counts() -> list[int]:
+    """Old anchors that remain as a prefix/substring of their replacement."""
+    return [new.count(old) for old, new in EDITS]
+
+
+def verified_state(text: str) -> bool:
+    old, new = counts(text)
+    return (
+        old == leftover_old_counts()
+        and new == [1] * len(EDITS)
+        and "class Glm5NextModel(nn.Module, EagleModelMixin):" in text
+        and "SupportsEagle3" in text
+        and "aux_hidden_state_layers" in text
+        and "layer.hc_post(hidden_states, residual, post, comb)" in text
+        and "hc_contract(" in text
+        and "return hidden_states, aux_hidden_states" in text
     )
-    compile(TARGET.read_text(), str(TARGET), "exec")
-    print("glm5next EAGLE3 aux-hidden overlay installed")
+
+
+def prepare(source: str) -> tuple[str, str]:
+    old, new = counts(source)
+    if verified_state(source):
+        return source, "already present"
+    if old != [1] * len(EDITS) or any(n != 0 for n in new):
+        raise ValueError(
+            "pinned glm5next EAGLE3 anchors drifted "
+            f"(old={old}, new={new})"
+        )
+    patched = source
+    for old_s, new_s in EDITS:
+        patched = patched.replace(old_s, new_s, 1)
+    if not verified_state(patched):
+        raise ValueError("glm5next EAGLE3 post-patch verification failed")
+    return patched, "patched"
+
+
+def replace_file(target: Path, source: str) -> None:
+    tmp = target.with_name(f".{target.name}.glm53-eagle3.tmp")
+    try:
+        tmp.write_text(source)
+        os.chmod(tmp, stat.S_IMODE(target.stat().st_mode))
+        os.replace(tmp, target)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+
+
+def main() -> int:
+    if not TARGET.is_file():
+        raise SystemExit(f"missing {TARGET}")
+    source = TARGET.read_text()
+    try:
+        patched, action = prepare(source)
+    except ValueError as exc:
+        raise SystemExit(f"glm5next EAGLE3 preflight failed: {exc}") from exc
+    compile(patched, str(TARGET), "exec")
+    if patched != source:
+        replace_file(TARGET, patched)
+    print(f"{TARGET.name}: glm5next EAGLE3 aux-hidden {action}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

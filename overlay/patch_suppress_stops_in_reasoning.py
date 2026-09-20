@@ -18,10 +18,23 @@ Opt-out: ``GLM53_SUPPRESS_STOPS_IN_REASONING=0`` or
 """
 from __future__ import annotations
 
+import os
+import stat
 import sys
 from pathlib import Path
 
-P = Path("/usr/local/lib/python3.12/dist-packages/vllm/v1/engine/detokenizer.py")
+P = Path(
+    os.environ.get(
+        "GLM53_DETOKENIZER_PY",
+        os.path.join(
+            os.environ.get(
+                "GLM53_VLLM_SITE",
+                "/usr/local/lib/python3.12/dist-packages/vllm",
+            ),
+            "v1/engine/detokenizer.py",
+        ),
+    )
+)
 MARK = "# [suppress-stops-in-reasoning]"
 
 IMPORT_OLD = (
@@ -161,10 +174,43 @@ STOP_NEW = """        # 2) Evaluate stop strings.
 """
 
 
+def verified_installed(src: str) -> bool:
+    return (
+        MARK in src
+        and "_maybe_enable_reasoning_stop_guard" in src
+        and IMPORT_NEW in src
+        and FACTORY_NEW in src
+        and INIT_NEW in src
+        and STOP_NEW in src
+        and FACTORY_OLD not in src
+        and INIT_OLD not in src
+        and STOP_OLD not in src
+    )
+
+
 def apply_text(src: str) -> tuple[str, str]:
     """Return (new_source, status): applied|skipped|missing:..."""
-    if MARK in src and "_maybe_enable_reasoning_stop_guard" in src:
+    if verified_installed(src):
         return src, "skipped"
+    overlay_bits = (
+        MARK in src,
+        "_maybe_enable_reasoning_stop_guard" in src,
+        IMPORT_NEW in src,
+        FACTORY_NEW in src,
+        INIT_NEW in src,
+        STOP_NEW in src,
+    )
+    if any(overlay_bits):
+        missing = []
+        if IMPORT_NEW not in src:
+            missing.append("import")
+        if FACTORY_NEW not in src:
+            missing.append("factory")
+        if INIT_NEW not in src:
+            missing.append("init")
+        if STOP_NEW not in src or STOP_OLD in src:
+            missing.append("stop")
+        return src, "missing:" + (",".join(missing) if missing else "partial")
     missing = []
     if IMPORT_OLD not in src:
         missing.append("import")
@@ -180,21 +226,37 @@ def apply_text(src: str) -> tuple[str, str]:
     out = out.replace(FACTORY_OLD, FACTORY_NEW, 1)
     out = out.replace(INIT_OLD, INIT_NEW, 1)
     out = out.replace(STOP_OLD, STOP_NEW, 1)
+    if not verified_installed(out):
+        return src, "missing:post-patch"
     return out, "applied"
+
+
+def replace_file(target: Path, source: str) -> None:
+    tmp = target.with_name(f".{target.name}.glm53-suppress-stops.tmp")
+    try:
+        tmp.write_text(source, encoding="utf-8")
+        os.chmod(tmp, stat.S_IMODE(target.stat().st_mode))
+        os.replace(tmp, target)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
 
 
 def apply_file(path: Path) -> str:
     text = path.read_text(encoding="utf-8")
     new, status = apply_text(text)
     if status == "applied":
-        path.write_text(new, encoding="utf-8")
+        compile(new, str(path), "exec")
+        replace_file(path, new)
+    elif status.startswith("missing:"):
+        return status
     return status
 
 
 def main(argv: list[str]) -> int:
     if len(argv) > 1 and argv[1] == "--status":
         target = Path(argv[2]) if len(argv) > 2 else P
-        applied = target.is_file() and MARK in target.read_text()
+        applied = target.is_file() and verified_installed(target.read_text())
         print("suppress-stops-in-reasoning    :", "APPLIED" if applied else "NOT APPLIED")
         return 0
     target = Path(argv[1]) if len(argv) > 1 else P

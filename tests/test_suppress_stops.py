@@ -16,8 +16,10 @@ from patch_suppress_stops_in_reasoning import (  # noqa: E402
     IMPORT_OLD,
     INIT_OLD,
     MARK,
+    STOP_NEW,
     STOP_OLD,
     apply_text,
+    verified_installed,
 )
 
 MINIMAL = (
@@ -55,7 +57,24 @@ def test_missing_anchor_fails_closed() -> None:
     assert "factory" in status
 
 
+def test_partial_stop_restore_fails_closed() -> None:
+    out, status = apply_text(MINIMAL)
+    assert status == "applied", status
+    assert verified_installed(out)
+    restored = out.replace(STOP_NEW, STOP_OLD, 1)
+    assert MARK in restored
+    assert "_maybe_enable_reasoning_stop_guard" in restored
+    assert STOP_OLD in restored
+    assert STOP_NEW not in restored
+    out2, status2 = apply_text(restored)
+    assert status2.startswith("missing:"), status2
+    assert "stop" in status2
+    assert out2 == restored
+    assert not verified_installed(restored)
+
+
 if __name__ == "__main__":
     test_apply_then_skip()
     test_missing_anchor_fails_closed()
+    test_partial_stop_restore_fails_closed()
     print("test_suppress_stops: ok")

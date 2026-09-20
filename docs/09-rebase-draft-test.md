@@ -97,7 +97,9 @@ load-bearing:
    throughput" as attribution, not measurement.)
 
 The DFlash2 port is eight files, all extractable from the fork image and
-bind-mountable for iteration: `qwen3_dflash2.py` (drafter model), `dflash2/`
+bind-mountable for iteration: `qwen3_dflash2.py` (drafter model — the name is a
+registry contract, not kit identity: `DFlash2DraftModel` maps to that module
+path. The kit source for it lives in `overlay/dflash2_model.py`), `dflash2/`
 (speculator package), one registry line, the speculator routing hook in
 `spec_decode/__init__.py`, the draft-KV-dtype guard in `dflash/utils.py` (dense
 DFlash2 attention cannot ride `fp8_ds_mla` on SM121), subclass hooks in

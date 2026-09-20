@@ -1,0 +1,140 @@
+{
+  "phase": "dflash2-warm-essay",
+  "health_code": 200,
+  "health_body": "",
+  "runs": [
+    {
+      "http": 200,
+      "ttft_s": 0.45801576699886937,
+      "wall_s": 7.911674998998933,
+      "decode_s": 7.453659232000064,
+      "tok_s": 26.698295938410066,
+      "completion_tokens": 200,
+      "prompt_tokens": 61,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## 1. Introduction\n\nAutoregressive large language models generate text one token at a time, and each token requires a full forward pass through the network. For large models\u2014those with tens or hundreds of billions of parameters\u2014this sequential dependency is the dominant bottleneck in inference: memory bandwidth limi",
+      "text_len": 1048,
+      "usage": {
+        "prompt_tokens": 61,
+        "total_tokens": 261,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 80,
+        "draft_tokens": 281,
+        "accepted": 120,
+        "accept_ratio": 0.427,
+        "accepted_per_step": 1.5,
+        "pos": [
+          0.6875,
+          0.4125,
+          0.2,
+          0.125,
+          0.025,
+          0.025,
+          0.025
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.4446350979997078,
+      "wall_s": 8.659874092998507,
+      "decode_s": 8.2152389949988,
+      "tok_s": 24.22327580745313,
+      "completion_tokens": 200,
+      "prompt_tokens": 61,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## 1. Introduction\n\nAutoregressive large language models generate text one token at a time, and each token requires a full forward pass through the network. For large models\u2014those with tens or hundreds of billions of parameters\u2014this sequential dependency is the dominant bottleneck in inference: memory bandwidth, not",
+      "text_len": 1039,
+      "usage": {
+        "prompt_tokens": 61,
+        "total_tokens": 261,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 89,
+        "draft_tokens": 291,
+        "accepted": 112,
+        "accept_ratio": 0.3849,
+        "accepted_per_step": 1.258,
+        "pos": [
+          0.6517,
+          0.3371,
+          0.1124,
+          0.0899,
+          0.0225,
+          0.0225,
+          0.0225
+        ]
+      }
+    },
+    {
+      "http": 200,
+      "ttft_s": 0.4406557199981762,
+      "wall_s": 8.132260844002303,
+      "decode_s": 7.691605124004127,
+      "tok_s": 25.872363023285804,
+      "completion_tokens": 200,
+      "prompt_tokens": 61,
+      "finish_reason": "length",
+      "nan": false,
+      "text_head": "# Speculative Decoding and the Hidden Cost of Failed Drafts: A Technical Analysis\n\n## 1. Introduction\n\nAutoregressive large language models generate text one token at a time, and each token requires a full forward pass through the network. For large models\u2014those with tens or hundreds of billions of parameters\u2014this sequential dependency is the dominant bottleneck in inference: memory bandwidth, not",
+      "text_len": 1042,
+      "usage": {
+        "prompt_tokens": 61,
+        "total_tokens": 261,
+        "completion_tokens": 200
+      },
+      "spec": {
+        "drafts": 82,
+        "draft_tokens": 284,
+        "accepted": 118,
+        "accept_ratio": 0.4155,
+        "accepted_per_step": 1.439,
+        "pos": [
+          0.6707,
+          0.4024,
+          0.1585,
+          0.1341,
+          0.0244,
+          0.0244,
+          0.0244
+        ]
+      }
+    }
+  ],
+  "ts": 1789931494.6833665,
+  "prompt": "hard-essay",
+  "thinking": false,
+  "temperature": 0,
+  "tok_s_median": 25.872363023285804,
+  "tok_s_min": 24.22327580745313,
+  "tok_s_max": 26.698295938410066,
+  "ttft_median_s": 0.4446350979997078,
+  "completion_tokens_median": 200.0,
+  "accept_ratio_median": 0.4155,
+  "accepted_per_step_median": 1.439,
+  "any_nan": false,
+  "health_code_after": 200,
+  "short_after": {
+    "http": 200,
+    "ttft_s": 0.38145687900396297,
+    "wall_s": 0.4915913860022556,
+    "decode_s": 0.11013450699829264,
+    "tok_s": 63.55864470441147,
+    "completion_tokens": 8,
+    "prompt_tokens": 40,
+    "finish_reason": "length",
+    "nan": false,
+    "text_head": "# How a Hash Map Works: A",
+    "text_len": 25,
+    "usage": {
+      "prompt_tokens": 40,
+      "total_tokens": 48,
+      "completion_tokens": 8
+    }
+  }
+}
