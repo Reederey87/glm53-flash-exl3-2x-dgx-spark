@@ -1,0 +1,76 @@
+=== 0. reset-failed + free memory ===
+MemFree:        100259060 kB
+MemAvailable:   119139228 kB
+--- validate ---
+[1;36m[glm53-exl3][0m configuration valid
+=== 1. boot ===
+2026-09-20T00:07:29-04:00
+start.sh exit=0
+[1;36m[glm53-exl3][0m   quick test :
+[1;36m[glm53-exl3][0m     curl -s http://127.0.0.1:8000/v1/chat/completions \
+[1;36m[glm53-exl3][0m       -H 'Content-Type: application/json' \
+[1;36m[glm53-exl3][0m       -d '{"model": "GLM-5.3-Flash-EXL3", "messages": [{"role": "user", "content": "hello!"}]}'
+[1;36m[glm53-exl3][0m   manage     : ./start.sh status | ./start.sh logs | ./start.sh logs worker | ./start.sh stop
+[1;36m[glm53-exl3][0m ======================================================================
+=== 2. wait for health ===
+health 200 after 10s
+2026-09-20T00:16:23-04:00
+
+=== 3. image + arming log ===
+image=glm53-selfbuild:e3-pipeline-f1s8
+arming lines on head: 1
+[glm53-exl3-moe-pipeline] active: K4/N256/mcg geometry=frag1_sh8 (register-cut decode)
+worker image=glm53-selfbuild:e3-pipeline-f1s8
+worker arming lines: 1
+=== 4. KV pool ===
+kv_cache_max_concurrency="1.396551724137931"
+kv_cache_size_tokens="1396551"
+num_gpu_blocks="567"
+=== 5. acceptance ===
+
+== 6. vision (LANGUAGE_MODEL_ONLY=0, limit-mm image:4) ==
+    content: Colorful
+  PASS  vision tower accepts an image
+
+== 7. long-context needle (~32k tokens) ==
+    prompt_tokens: 36040 | answer: CORMORANT-8815
+  PASS  needle retrieved at ~32k
+
+== RESULT ==
+  passed: 7   failed: 0
+  ACCEPTANCE PASSED
+=== 6. structured decode ===
+    "ttft_s": 0.4126498459991126,
+    "completion_tokens": 32
+  },
+  "tok_s_median": 54.63348414321485,
+  "tok_s_min": 41.614345384128235,
+  "tok_s_max": 56.90683787520027,
+  "ttft_median_s": 0.5066349120006635,
+  "completion_tokens_median": 200.0,
+  "accept_ratio_median": 1.0,
+  "accepted_per_step_median": 7.0,
+  "any_nan": false,
+  "health_code_after": 200
+}
+wrote /home/nvidia/t42-window/t42-structured.json
+=== 7. hashmap prose decode ===
+  "thinking": false,
+  "temperature": 0,
+  "tok_s_median": 25.251808611812304,
+  "tok_s_min": 21.903698933190846,
+  "tok_s_max": 27.99459542305439,
+  "ttft_median_s": 0.48606061700047576,
+  "completion_tokens_median": 200.0,
+  "accept_ratio_median": 0.5394,
+  "accepted_per_step_median": 2.13,
+  "any_nan": false,
+  "coherent": true,
+  "health_code_after": 200
+}
+wrote /home/nvidia/t42-window/t42-hashmap.json
+=== 8. MemFree tripwire ===
+head:   MemFree:         4019344 kB
+worker: MemFree: 3442172 kB
+=== ARM B RETRY DONE ===
+2026-09-20T00:18:58-04:00

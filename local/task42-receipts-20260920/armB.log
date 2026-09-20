@@ -1,0 +1,77 @@
+=== 1. arm the candidate (.env last-wins append) ===
+
+# --- task 42 arm B (register-cut fused exl3_moe) ---
+IMAGE=glm53-selfbuild:e3-pipeline-f1s8
+GLM53_EXL3_MOE_PIPELINE=1
+--- validate ---
+[1;36m[glm53-exl3][0m configuration valid
+=== 2. boot ===
+2026-09-19T23:58:15-04:00
+start.sh exit=1
+frame #9: <unknown function> + 0x8582c (0xe564f800582c in /lib/aarch64-linux-gnu/libc.so.6)
+frame #10: <unknown function> + 0xeb79c (0xe564f806b79c in /lib/aarch64-linux-gnu/libc.so.6)
+
+[rank1]:[W920 04:01:44.909340335 ProcessGroupNCCL.cpp:1876] [PG ID 0 PG GUID 0 Rank 1] Failed to check the "should dump" flag on TCPStore, (maybe TCPStore server has shut down too early), with error: Broken pipe
+[1;31m[glm53-exl3][0m ERROR: server did not become healthy — full logs in /home/nvidia/GLM-5.3-Flash-EXL3-2x-DGX-Sparks/logs/
+=== 3. wait for health ===
+health 200 after 860s
+2026-09-20T00:15:55-04:00
+
+=== 4. image + arming log ===
+image=glm53-selfbuild:e3-pipeline-f1s8
+[glm53-exl3-moe-pipeline] active: K4/N256/mcg geometry=frag1_sh8 (register-cut decode)
+worker:
+image=glm53-selfbuild:e3-pipeline-f1s8
+[glm53-exl3-moe-pipeline] active: K4/N256/mcg geometry=frag1_sh8 (register-cut decode)
+=== 5. KV pool ===
+kv_cache_max_concurrency="1.396551724137931"
+kv_cache_memory_bytes="15414698763"
+kv_cache_size_tokens="1396551"
+num_gpu_blocks="567"
+=== 6. acceptance ===
+
+== 6. vision (LANGUAGE_MODEL_ONLY=0, limit-mm image:4) ==
+    content: I don't see an image in our conversation — it looks like the image didn't come through. Could you try uploading it again
+  PASS  vision tower accepts an image
+
+== 7. long-context needle (~32k tokens) ==
+    prompt_tokens: 36040 | answer: CORMORANT-8815
+  PASS  needle retrieved at ~32k
+
+== RESULT ==
+  passed: 7   failed: 0
+  ACCEPTANCE PASSED
+=== 7. structured decode (gate lane) ===
+  },
+  "tok_s_median": 56.56132909368767,
+  "tok_s_min": 40.428819221387435,
+  "tok_s_max": 56.84003056506575,
+  "ttft_median_s": 0.5043474060003064,
+  "completion_tokens_median": 200.0,
+  "accept_ratio_median": 1.0,
+  "accepted_per_step_median": 7.0,
+  "any_nan": false,
+  "health_code_after": 200
+}
+wrote /home/nvidia/t42-window/t42-structured.json
+=== 8. hashmap prose decode (gate lane) ===
+  "tok_s_median": 24.812720425312087,
+  "tok_s_min": 22.142205405243555,
+  "tok_s_max": 26.978789826536417,
+  "ttft_median_s": 0.4924781539994001,
+  "completion_tokens_median": 200.0,
+  "accept_ratio_median": 0.5408,
+  "accepted_per_step_median": 2.054,
+  "any_nan": false,
+  "coherent": true,
+  "health_code_after": 200
+}
+wrote /home/nvidia/t42-window/t42-hashmap.json
+=== 9. MemFree tripwire ===
+head:   MemFree:         4025836 kB
+worker: MemFree: 3450392 kB
+=== 10. decode kernel share (task-29 oracle) ===
+probe FAILED: --trace-dir is required outside --dry-run; the captured step count must come from the trace, not from the counters
+(decode-profile probe failed)
+=== WINDOW ARM B DONE ===
+2026-09-20T00:18:54-04:00

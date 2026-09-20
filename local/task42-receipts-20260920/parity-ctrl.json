@@ -1,0 +1,119 @@
+{
+  "arm": "0",
+  "tokens": "12,20,32,1024",
+  "cap": 32,
+  "cases": [
+    {
+      "tokens": 12,
+      "skew": 1.0,
+      "path": "none",
+      "shape": [
+        12,
+        4096
+      ],
+      "sha256": "e5483ca84388da205d7d4dbb22b93fdbf6f5e7cc8aed9de56737168c551c6bda",
+      "finite": true,
+      "sum": 14422.03125,
+      "absum": 7467473.0,
+      "maxabs": 1278.0
+    },
+    {
+      "tokens": 12,
+      "skew": 0.0,
+      "path": "none",
+      "shape": [
+        12,
+        4096
+      ],
+      "sha256": "665d8eb5b97532f0a8ca3eacb1a7f4d1e73259572b10ad90df5e619d8585583a",
+      "finite": true,
+      "sum": 21263.5625,
+      "absum": 7446240.0,
+      "maxabs": 1225.0
+    },
+    {
+      "tokens": 20,
+      "skew": 1.0,
+      "path": "none",
+      "shape": [
+        20,
+        4096
+      ],
+      "sha256": "1c9825d526a1401d8b3639e4138080a3644cabd1019742a7bbc541893b78474f",
+      "finite": true,
+      "sum": 52475.19140625,
+      "absum": 12331764.0,
+      "maxabs": 1225.0
+    },
+    {
+      "tokens": 20,
+      "skew": 0.0,
+      "path": "none",
+      "shape": [
+        20,
+        4096
+      ],
+      "sha256": "3527b28e04e273247e1b43e0b8cda0e76247ddd3d772d71be9071cd58156c306",
+      "finite": true,
+      "sum": 15858.08984375,
+      "absum": 12303896.0,
+      "maxabs": 1412.0
+    },
+    {
+      "tokens": 32,
+      "skew": 1.0,
+      "path": "none",
+      "shape": [
+        32,
+        4096
+      ],
+      "sha256": "edf1c47f267eb071667b4a61ff82e0f59ed37337bad5df26cb4e7321b140ab1b",
+      "finite": true,
+      "sum": 26200.234375,
+      "absum": 19734446.0,
+      "maxabs": 1337.0
+    },
+    {
+      "tokens": 32,
+      "skew": 0.0,
+      "path": "none",
+      "shape": [
+        32,
+        4096
+      ],
+      "sha256": "35363530151673c0d3d88e7fdad732eeb2680efb633fc784d561edc1caab9da8",
+      "finite": true,
+      "sum": 44203.1875,
+      "absum": 19687072.0,
+      "maxabs": 1175.0
+    },
+    {
+      "tokens": 1024,
+      "skew": 1.0,
+      "path": "grouped",
+      "shape": [
+        1024,
+        4096
+      ],
+      "sha256": "2243565c0c60559eb75f07dd5ac8132a1bd6ef7eae8086693b91cbdbf5e049ae",
+      "finite": true,
+      "sum": -95953.8125,
+      "absum": 629504256.0,
+      "maxabs": 1707.0
+    },
+    {
+      "tokens": 1024,
+      "skew": 0.0,
+      "path": "grouped",
+      "shape": [
+        1024,
+        4096
+      ],
+      "sha256": "a6fef526f43098e8c87aab197425b77c623c58f08b6125bd76a685bf9aaae77c",
+      "finite": true,
+      "sum": 385850.5625,
+      "absum": 630277376.0,
+      "maxabs": 1721.0
+    }
+  ]
+}

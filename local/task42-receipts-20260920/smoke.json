@@ -1,0 +1,110 @@
+{
+  "tokens": 12,
+  "iters": 3,
+  "hidden": 4096,
+  "intermediate": 2048,
+  "n_exp": 288,
+  "topk": 8,
+  "device": "NVIDIA GB10",
+  "capability": [
+    12,
+    1
+  ],
+  "scales": "random-normal*0.5 (shared gate/up suh), random K4 trellis",
+  "cases": [
+    {
+      "tier": "E2",
+      "cap": 32,
+      "routing": {
+        "skew": 1.0,
+        "max_rows": 9,
+        "mean_rows": 0.3333333432674408,
+        "n_gt_256": 0,
+        "n_gt_128": 0,
+        "n_gt_64": 0,
+        "n_gt_32": 0
+      },
+      "times_ms": [
+        3.7018558979034424,
+        3.707904100418091,
+        3.705183982849121
+      ],
+      "median_ms": 3.705183982849121,
+      "tflops": 1.3040751094590806,
+      "last_fat_fallback": "none",
+      "mem_allocated_before": 3722594816,
+      "peak_allocated": 3729972736,
+      "diag_grouped_scratch_bytes": 6291456
+    },
+    {
+      "tier": "E3",
+      "cap": 32,
+      "routing": {
+        "skew": 1.0,
+        "max_rows": 9,
+        "mean_rows": 0.3333333432674408,
+        "n_gt_256": 0,
+        "n_gt_128": 0,
+        "n_gt_64": 0,
+        "n_gt_32": 0
+      },
+      "times_ms": [
+        3.7088959217071533,
+        3.7076480388641357,
+        3.72160005569458
+      ],
+      "median_ms": 3.7088959217071533,
+      "tflops": 1.3027699644308088,
+      "last_fat_fallback": "none",
+      "mem_allocated_before": 3722201600,
+      "peak_allocated": 3729972736,
+      "diag_grouped_scratch_bytes": 6291456
+    }
+  ],
+  "parity": {
+    "tokens": 64,
+    "cap": 32,
+    "fat_experts": 2,
+    "max_rows": 50,
+    "e2_vs_loop": {
+      "maxabs": 1.5296630859375,
+      "nrmse": 0.0011161270286290852,
+      "meanabs": 0.12656188011169434
+    },
+    "e2_repeat": {
+      "maxabs": 7.62939453125e-06,
+      "nrmse": 9.913311532549617e-11,
+      "meanabs": 2.9103830456733704e-11
+    },
+    "e3_vs_loop": {
+      "maxabs": 1.5296630859375,
+      "nrmse": 0.001116126235556434,
+      "meanabs": 0.12656165659427643
+    },
+    "e3_repeat": {
+      "maxabs": 0.0625,
+      "nrmse": 8.136830616367457e-07,
+      "meanabs": 2.533488441258669e-07
+    },
+    "e3_vs_e2": {
+      "maxabs": 0.125,
+      "nrmse": 1.934975792889774e-06,
+      "meanabs": 1.1955962690990418e-06
+    },
+    "ok": true
+  },
+  "summary": [
+    {
+      "skew": 1.0,
+      "best_e2": {
+        "cap": 32,
+        "ms": 3.705183982849121
+      },
+      "best_e3": {
+        "cap": 32,
+        "ms": 3.7088959217071533
+      },
+      "speedup": 0.9989991795573698
+    }
+  ]
+}

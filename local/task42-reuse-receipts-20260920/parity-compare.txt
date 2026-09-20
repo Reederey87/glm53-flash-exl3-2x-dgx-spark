@@ -1,0 +1,14 @@
+ tokens  skew  bit-exact   maxabs delta   rel maxabs        nrmse
+     12   1.0      False     2.5000e-01    1.646e-03    7.437e-06
+     12   0.0      False     3.9062e-03    2.578e-05    1.163e-07
+     20   1.0      False     1.5625e-02    1.038e-04    3.627e-07
+     20   0.0       True     0.0000e+00    0.000e+00    0.000e+00
+     32   1.0       True     0.0000e+00    0.000e+00    0.000e+00
+     32   0.0       True     0.0000e+00    0.000e+00    0.000e+00
+   1024   1.0      False     1.2500e-01    8.329e-04    4.075e-07
+   1024   0.0      False     6.2500e-02    4.159e-04    2.053e-07
+
+cases: 8   bit-exact: 3   worst rel maxabs: 1.646e-03
+ctrl paths: ['none', 'none', 'none', 'none', 'none', 'none', 'grouped', 'grouped']
+var  paths: ['none', 'none', 'none', 'none', 'none', 'none', 'grouped', 'grouped']
+VERDICT: PARITY OK

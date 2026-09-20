@@ -171,6 +171,8 @@ def caller_value(key: str) -> str:
         "GLM53_INDEXER_WORKSPACE": "stock",
         "GLM53_KV_CAPACITY_LOG": "0",
         "GLM53_APC_NO_STORE": "0",
+        "GLM53_EXL3_MOE_PIPELINE": "0",
+        "GLM53_EXL3_MOE_REUSE": "0",
         "KV_CACHE_DTYPE": "auto",
     }
     if key in constrained:
@@ -185,7 +187,7 @@ def caller_value(key: str) -> str:
 def test_no_per_knob_allowlist_remains() -> None:
     src = START.read_text()
     # The generic [ -n ] replay cannot express "an explicitly EMPTY caller
-    # export must reach validate_numeric_config", so exactly the three strict
+    # export must reach validate_numeric_config", so exactly the strict
     # runtime-overlay knobs keep documented setness-aware captures.
     import re as _re
     cli_tokens = set(_re.findall(r"_glm53_cli_[A-Za-z0-9_]*", src))
@@ -196,6 +198,13 @@ def test_no_per_knob_allowlist_remains() -> None:
         "_glm53_cli_apcns_val",
         "_glm53_cli_indexer_workspace_set",
         "_glm53_cli_indexer_workspace_val",
+        # task 42: the register-cut decode knob is a strict bool under the same
+        # W41/W42 rule, so it needs the same setness-aware exception.
+        "_glm53_cli_moepipe_set",
+        "_glm53_cli_moepipe_val",
+        # task 42 lever 2: gate/up Hadamard reuse, same strict-bool contract.
+        "_glm53_cli_moereuse_set",
+        "_glm53_cli_moereuse_val",
     }
     assert cli_tokens <= allowed, (
         f"the per-knob _cli_* allowlist must be gone (generic rule, #91); "

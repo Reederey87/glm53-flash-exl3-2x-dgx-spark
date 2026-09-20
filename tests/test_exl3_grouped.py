@@ -47,6 +47,9 @@ def _exec_helpers():
         "unique_topk_hottest_upper_bound",
         "w2_trf32_no_fallback_skip",
         "temp_rows_fused",
+        "fused_moe_enabled",
+        "fused_moe_reuse_enabled",
+        "alias_exl3_fused_up_suh",
     }
     wanted_assign = {
         "EXL3_FAT_MOE_SYMBOLS",
@@ -408,3 +411,47 @@ def test_w2_unique_topk_hottest_bound_and_trf32_gate() -> None:
     start = LAUNCHER.read_text()
     assert "below the C-decode floor" in start
     assert "EXL3_TEMP_ROWS_FUSED:-128" in start
+
+
+def test_reuse_helper_is_strict_and_off_when_unset(monkeypatch) -> None:
+    reuse = HELPERS["fused_moe_reuse_enabled"]
+    monkeypatch.delenv("GLM53_EXL3_MOE_REUSE", raising=False)
+    assert reuse() is False
+    monkeypatch.setenv("GLM53_EXL3_MOE_REUSE", "")
+    assert reuse() is False
+    monkeypatch.setenv("GLM53_EXL3_MOE_REUSE", "0")
+    assert reuse() is False
+    monkeypatch.setenv("GLM53_EXL3_MOE_REUSE", "1")
+    assert reuse() is True
+    monkeypatch.setenv("GLM53_EXL3_MOE_REUSE", "yes")
+    with pytest.raises(RuntimeError, match="must be exactly 0 or 1"):
+        reuse()
+
+
+def test_alias_up_suh_only_after_equality_and_pipeline(monkeypatch) -> None:
+    alias = HELPERS["alias_exl3_fused_up_suh"]
+    gate = object()
+    up = object()
+    layer = SimpleNamespace(
+        _exl3_ptrs={"gate_suh": gate, "up_suh": up},
+        _exl3_shared_w13_suh=True,
+    )
+    monkeypatch.delenv("GLM53_EXL3_MOE_REUSE", raising=False)
+    monkeypatch.setenv("GLM53_EXL3_MOE_PIPELINE", "1")
+    assert alias(layer) is False
+    assert layer._exl3_ptrs["up_suh"] is up
+
+    monkeypatch.setenv("GLM53_EXL3_MOE_REUSE", "1")
+    assert alias(layer) is True
+    assert layer._exl3_ptrs["up_suh"] is gate
+    assert layer._exl3_reuse_aliased is True
+
+    layer._exl3_ptrs["up_suh"] = up
+    layer._exl3_shared_w13_suh = False
+    with pytest.raises(RuntimeError, match="all-expert equal gate/up SUH"):
+        alias(layer)
+
+    layer._exl3_shared_w13_suh = True
+    monkeypatch.setenv("GLM53_EXL3_MOE_PIPELINE", "0")
+    with pytest.raises(RuntimeError, match="requires GLM53_EXL3_MOE_PIPELINE=1"):
+        alias(layer)

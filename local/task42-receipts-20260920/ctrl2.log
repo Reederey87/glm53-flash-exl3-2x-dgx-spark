@@ -1,0 +1,44 @@
+=== knob state ===
+240:GLM53_EXL3_MOE_PIPELINE=0
+=== restart to control ===
+2026-09-20T00:37:37-04:00
+start.sh exit=0
+[1;36m[glm53-exl3][0m       -H 'Content-Type: application/json' \
+[1;36m[glm53-exl3][0m       -d '{"model": "GLM-5.3-Flash-EXL3", "messages": [{"role": "user", "content": "hello!"}]}'
+[1;36m[glm53-exl3][0m   manage     : ./start.sh status | ./start.sh logs | ./start.sh logs worker | ./start.sh stop
+[1;36m[glm53-exl3][0m ======================================================================
+health 200 after 10s
+2026-09-20T00:46:55-04:00
+image:        glm53-selfbuild:e3-pipeline-f1s8
+container up: 2026-09-20T04:38:17.985440065Z
+arming lines (MUST be 0): 0
+kv_cache_max_concurrency="1.396551724137931"
+kv_cache_size_tokens="1396551"
+=== acceptance (also warms) ===
+
+== RESULT ==
+  passed: 7   failed: 0
+  ACCEPTANCE PASSED
+=== warmup round (discarded) ===
+  "tok_s_median": 70.59930402119542,
+  "tok_s_median": 31.817795378779604,
+settling 240s
+MemFree:         4066000 kB
+MemAvailable:    4294892 kB
+=== MEASURED control round ===
+2026-09-20T00:52:20-04:00
+  "tok_s_median": 71.16866967989694,
+  "tok_s_min": 70.54002171683148,
+  "tok_s_max": 71.46253170102933,
+  "accept_ratio_median": 1.0,
+  "accepted_per_step_median": 7.0,
+  "any_nan": false,
+  "tok_s_median": 30.173326589824462,
+  "tok_s_min": 28.523467640363403,
+  "tok_s_max": 34.58603702805946,
+  "accept_ratio_median": 0.5019,
+  "accepted_per_step_median": 2.062,
+  "any_nan": false,
+  "coherent": true,
+=== TASK42 CONTROL2 DONE ===
+2026-09-20T00:53:54-04:00

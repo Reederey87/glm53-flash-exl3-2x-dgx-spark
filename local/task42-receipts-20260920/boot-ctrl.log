@@ -1,0 +1,11 @@
+
+  [1;36m┌────────────────────────────────────────────┐[0m
+  [1;36m│[0m  [1mGLM-5.3 Flash EXL3[0m  [2m·  start.sh   [0m        [1;36m│[0m
+  [1;36m└────────────────────────────────────────────┘[0m
+
+[1;36m[glm53-exl3][0m checking worker nvidia@192.168.177.11 ...
+[1;36m[glm53-exl3][0m RoCE v2 GID resolved from the fabric: head rocep1s0f1 gid3 (192.168.177.10), worker rocep1s0f1 gid3 (192.168.177.11)
+[1;33m[glm53-exl3][0m other containers are running on the worker:
+glm53-exl3-worker  (glm53-selfbuild:e3-pipeline-f1s8)
+[1;33m[glm53-exl3][0m this model needs most of each GB10 — stop GPU containers on the worker first
+[1;31m[glm53-exl3][0m ERROR: port 8000 is held by glm53-exl3-head — use './start.sh restart' or './start.sh stop' first

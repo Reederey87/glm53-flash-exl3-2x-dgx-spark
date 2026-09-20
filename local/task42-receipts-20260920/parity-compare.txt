@@ -1,0 +1,52 @@
+Task 42 kernel-parity comparison: stock vs register-cut variant.
+
+Harness `parity.py` runs once per arm inside the task-42 image with the GPU
+exclusive, drives the real serving entry point `apply_exl3_experts`, and saves
+each case's fp32 output tensor as `<out>.t<tokens>.s<skew>.pt`.
+`cmp.py` then compares the two arms' saved tensors. It is CPU-only and needs no
+GPU, so it runs in the same image without touching production:
+
+  ssh nvidia@spark1 'docker run --rm -v ~/t42-window:/out \
+      --entrypoint python3 glm53-selfbuild:e3-pipeline-f1s8 /out/cmp.py'
+
+`cmp.py` fails closed: a missing or non-finite tensor, a differing case list, a
+shape mismatch, a non-finite metric, or a failed tolerance check all exit
+non-zero. That matters because a NaN metric would otherwise pass silently --
+`max(0.0, nan)` is 0.0 in Python -- so "PARITY OK" used to be printable for a
+non-finite output. Its five negative cases run inside the image:
+
+  docker run --rm -v <kit>:/kit --entrypoint python3 <image> \
+      -m pytest /kit/tests/test_exl3_moe_pipeline_patch.py -q -k cmp
+
+Why this file exists: the first attempt at this step ran the comparison on the
+HOST, which has no torch, so it died with ModuleNotFoundError and its numbers
+were never retained (see final.log section 3). The result below is a re-run
+against the tensors the harness had already saved, on the same image and
+revision, with production untouched.
+
+Metric definitions, as implemented in cmp.py (a and b are the two arms' fp32
+outputs, elementwise):
+
+  maxabs delta = max |a - b|
+  rel maxabs   = max |a - b| / mean |a|      <- normalized, NOT per-element
+  nrmse        = rms(a - b) / mean |a|
+  bit-exact    = torch.equal(a, b), i.e. the sha256 recorded in the JSONs
+
+The "rel maxabs" scale is mean |a|, so it is not a per-element relative error
+and should not be quoted as one. Tolerance is 2e-3 on that scale.
+
+ tokens  skew  bit-exact   maxabs delta   rel maxabs        nrmse
+     12   1.0      False     2.5000e-01    1.646e-03    7.438e-06
+     12   0.0      False     3.9062e-03    2.578e-05    1.172e-07
+     20   1.0      False     1.5625e-02    1.038e-04    5.129e-07
+     20   0.0       True     0.0000e+00    0.000e+00    0.000e+00
+     32   1.0      False     9.7656e-04    6.486e-06    2.534e-08
+     32   0.0      False     6.1035e-05    4.064e-07    1.122e-09
+   1024   1.0      False     1.5625e-02    1.041e-04    5.240e-08
+   1024   0.0      False     1.2500e-01    8.318e-04    4.543e-07
+
+cases: 8   bit-exact: 1   worst rel maxabs: 1.646e-03
+ctrl paths: ['none', 'none', 'none', 'none', 'none', 'none', 'grouped', 'grouped']
+var  paths: ['none', 'none', 'none', 'none', 'none', 'none', 'grouped', 'grouped']
+VERDICT: PARITY OK
+EXIT=0

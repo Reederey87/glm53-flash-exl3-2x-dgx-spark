@@ -1,0 +1,73 @@
+# Task 42 layered image: opt-in register-cut variant of the fused `exl3_moe`
+# decode kernel.
+#
+# Rebuilds the whole `exllamav3_ext` module from the pinned v1.4.9 tarball with
+# the same patch set the production image uses (aarch64 stub -> fat kernel ->
+# ticket scheduler) plus `overlay/patch_exl3_moe_pipeline.py`. The variant is
+# additive: the stock `exl3_moe_kernel` and every stock instance are unchanged,
+# and with `GLM53_EXL3_MOE_PIPELINE=0` the dispatch selects the stock kernel
+# exactly as before.
+#
+# The geometry is a template argument, so it is a build arg. `GLM53_EXL3_MOE_PIPELINE`
+# then selects it at run time, which keeps A and B on ONE image: identical boot
+# layout, JIT shape hash, capture set, weights and pool, with the kernel as the
+# only independent variable. Task 42 lever 2 (`GLM53_EXL3_MOE_REUSE`) is a
+# second instance of the same cubin (`shared_input=true`); this layer recopies
+# overlay/exl3.py so the SUH pointer-table alias lands on the pipeline image.
+#
+# Build (from the kit root on spark1):
+#   docker build -f Dockerfile.e3-pipeline-layer \
+#     --build-arg BASE=glm53-selfbuild:e3-w3-zfill-v149 \
+#     --build-arg GLM53_EXL3_MOE_PIPELINE_FRAG=1 \
+#     --build-arg GLM53_EXL3_MOE_PIPELINE_SH=8 \
+#     -t glm53-selfbuild:e3-pipeline-f1s8 .
+#
+# The base image already carries the production patch scripts and the fat-kernel
+# sources under /opt/glm53, so this layer only adds its own overlay.
+ARG BASE=glm53-selfbuild:e3-w3-zfill-v149
+FROM ${BASE}
+
+COPY overlay/patch_exl3_moe_pipeline.py /opt/glm53/patch_exl3_moe_pipeline.py
+
+ARG EXLLAMAV3_COMMIT=5be886578ec80324c2c715269387be2058724b6e
+ARG EXLLAMAV3_VERSION=1.4.9
+ARG GLM53_EXL3_MOE_PIPELINE_FRAG=1
+ARG GLM53_EXL3_MOE_PIPELINE_SH=8
+
+ENV TORCH_CUDA_ARCH_LIST=12.1a
+ENV MAX_JOBS=8
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH=/usr/local/cuda/bin:${PATH}
+
+RUN set -eux; \
+    mkdir -p /tmp/exllamav3; \
+    curl -fsSL "https://github.com/turboderp-org/exllamav3/archive/${EXLLAMAV3_COMMIT}.tar.gz" \
+      | tar -xz -C /tmp/exllamav3 --strip-components=1; \
+    python3 -c "from pathlib import Path; p = Path('/tmp/exllamav3'); assert (p/'exllamav3/modules/quant/exl3.py').is_file(); ver = (p/'exllamav3/version.py').read_text(); assert '${EXLLAMAV3_VERSION}' in ver, ver"; \
+    python3 /opt/glm53/patch_exl3_ext_aarch64.py /tmp/exllamav3/exllamav3/exllamav3_ext; \
+    python3 /opt/glm53/patch_exl3_fat_kernel.py /tmp/exllamav3/exllamav3/exllamav3_ext /opt/glm53/exl3-fat-kernel; \
+    python3 /opt/glm53/patch_exl3_ticket_scheduler.py /tmp/exllamav3/exllamav3/exllamav3_ext; \
+    python3 /opt/glm53/patch_exl3_moe_pipeline.py /tmp/exllamav3/exllamav3/exllamav3_ext \
+        --frag "${GLM53_EXL3_MOE_PIPELINE_FRAG}" --sh "${GLM53_EXL3_MOE_PIPELINE_SH}"; \
+    python3 -c "from pathlib import Path; root = Path('/tmp/exllamav3/exllamav3/exllamav3_ext'); markers=(b'immintrin.h', b'__builtin_ia32_pause', b'_mm_pause', b'__attribute__((target(\"avx', b'target_clones(\"avx', b'__builtin_cpu_supports'); hits=[p for p in root.rglob('*') if p.suffix in {'.c','.cpp','.h','.hpp','.cu','.cuh'} and any(m in p.read_bytes() for m in markers)]; assert not hits, hits; moe=(root/'cpu'/'moe_mul1.cpp'); assert moe.is_file() and 'GLM53_AARCH64_CPU_MOE_STUB' in moe.read_text(); handoff=(root/'cpu'/'moe_handoff.cu').read_text(); assert 'GLM53_AARCH64_CPU_PAUSE_STUB' in handoff; assert 'is_f16c_supported' in (root/'avx2_target.h').read_text(); assert 'bool is_f16c_supported() { return false; }' in (root/'avx2_target.cpp').read_text(); bind=(root/'bindings.cpp').read_text(); assert 'exl3_fat_gemm' in bind and 'exl3_fat_moe' in bind and 'glm53_exl3_moe_pipeline_geometry' in bind; kern=(root/'quant'/'glm53_exl3_moe_pipeline_kernel.cuh').read_text(); assert 'bool shared_input' in kern and 'if constexpr (!shared_input)' in kern; unit=(root/'quant'/'comp_units'/'glm53_exl3_moe_pipeline.cu').read_text(); assert 'glm53_exl3_moe_pipeline_kernel<4, 256, 1, true>' in unit and 'glm53_exl3_moe_pipeline_kernel<4, 256, 1, false>' in unit"; \
+    export CPATH="/usr/local/lib/python3.12/dist-packages/nvidia/cu13/include${CPATH:+:$CPATH}"; \
+    export CPLUS_INCLUDE_PATH="/usr/local/lib/python3.12/dist-packages/nvidia/cu13/include${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}"; \
+    export C_INCLUDE_PATH="/usr/local/lib/python3.12/dist-packages/nvidia/cu13/include${C_INCLUDE_PATH:+:$C_INCLUDE_PATH}"; \
+    cd /tmp/exllamav3; \
+    TORCH_CUDA_ARCH_LIST=12.1a MAX_JOBS=8 \
+      pip install --no-deps --no-build-isolation --no-cache-dir .; \
+    python3 -c "import torch, exllamav3_ext; assert hasattr(exllamav3_ext, 'exl3_moe'), dir(exllamav3_ext); assert hasattr(exllamav3_ext, 'exl3_fat_gemm'), dir(exllamav3_ext); assert hasattr(exllamav3_ext, 'exl3_fat_gemm_scatter'), dir(exllamav3_ext); assert hasattr(exllamav3_ext, 'exl3_fat_moe_gather'), dir(exllamav3_ext); geom = exllamav3_ext.glm53_exl3_moe_pipeline_geometry(); assert geom == 'frag${GLM53_EXL3_MOE_PIPELINE_FRAG}_sh${GLM53_EXL3_MOE_PIPELINE_SH}', geom; print('exllamav3_ext', exllamav3_ext.__file__, 'exl3_moe=yes fat_gemm=yes fat_moe=yes pipeline_geometry=' + geom)"; \
+    python3 -c "import torch, exllamav3_ext; doc = exllamav3_ext.exl3_moe.__doc__ or ''; assert 'num_active' in doc or 'arg29' in doc or doc.count('arg') >= 30, 'ticket scheduler (d5e4361) not applied'; print('exl3_moe num_active=yes (ticket scheduler)')"; \
+    rm -rf /tmp/exllamav3 /root/.cache/pip
+
+# After the cubin compile so a Python-only SUH-alias change does not rebuild
+# exllamav3_ext. The overlay aliases the up-SUH pointer table onto the gate
+# table when GLM53_EXL3_MOE_REUSE=1 and the equality proof holds.
+COPY overlay/exl3.py /usr/local/lib/python3.12/dist-packages/vllm/model_executor/layers/quantization/exl3.py
+COPY tests/test_exl3_overlay.py /opt/glm53/test_exl3_overlay.py
+RUN EXL3_SELFCHECK_GPU=0 python3 /opt/glm53/test_exl3_overlay.py
+
+ARG GLM53_RECIPE_STAMP=unknown
+LABEL glm53.recipe.stamp=${GLM53_RECIPE_STAMP} \
+      glm53.task42.pipeline=${GLM53_EXL3_MOE_PIPELINE_FRAG}x${GLM53_EXL3_MOE_PIPELINE_SH} \
+      glm53.task42.reuse=1

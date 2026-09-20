@@ -103,6 +103,10 @@ _glm53_cli_apcns_set="${GLM53_APC_NO_STORE+a}"
 _glm53_cli_apcns_val="${GLM53_APC_NO_STORE-}"
 _glm53_cli_indexer_workspace_set="${GLM53_INDEXER_WORKSPACE+a}"
 _glm53_cli_indexer_workspace_val="${GLM53_INDEXER_WORKSPACE-}"
+_glm53_cli_moepipe_set="${GLM53_EXL3_MOE_PIPELINE+a}"
+_glm53_cli_moepipe_val="${GLM53_EXL3_MOE_PIPELINE-}"
+_glm53_cli_moereuse_set="${GLM53_EXL3_MOE_REUSE+a}"
+_glm53_cli_moereuse_val="${GLM53_EXL3_MOE_REUSE-}"
 # LOCAL: W41/W42 caller-wins capture (end)
 set -a
 # shellcheck disable=SC1091
@@ -118,6 +122,8 @@ unset _k _kv _flags _env_keys _caller_overrides
 [ -n "${_glm53_cli_kvlog_set}" ] && GLM53_KV_CAPACITY_LOG="$_glm53_cli_kvlog_val"
 [ -n "${_glm53_cli_apcns_set}" ] && GLM53_APC_NO_STORE="$_glm53_cli_apcns_val"
 [ -n "${_glm53_cli_indexer_workspace_set}" ] && GLM53_INDEXER_WORKSPACE="$_glm53_cli_indexer_workspace_val"
+[ -n "${_glm53_cli_moepipe_set}" ] && GLM53_EXL3_MOE_PIPELINE="$_glm53_cli_moepipe_val"
+[ -n "${_glm53_cli_moereuse_set}" ] && GLM53_EXL3_MOE_REUSE="$_glm53_cli_moereuse_val"
 # LOCAL: W41/W42 caller-wins restore (end)
 
 # ----------------------------- configuration -------------------------------
@@ -393,6 +399,26 @@ fi
 # the overlays re-validate in-process and fail closed at boot.
 GLM53_KV_CAPACITY_LOG="${GLM53_KV_CAPACITY_LOG-1}"
 GLM53_APC_NO_STORE="${GLM53_APC_NO_STORE-1}"
+# LOCAL: task 42 -- 1 = select the register-cut variant of the fused `exl3_moe`
+# decode kernel (shallow fragment pipeline, deeper smem pipeline) instead of the
+# stock 3/3 instance. The variant is compiled into the image and the geometry is
+# a build arg, so this knob is the only runtime variable and A/B stays on one
+# image. Unset-only default so "" stays a value and is rejected, like the two
+# above. Fail-closed beyond the kernel's own geometry check, because that check
+# only covers a process that reaches the patched dispatcher:
+# validate_numeric_config refuses the knob with EXL3_FUSED_MOE=0 (the fused
+# expert path is the only route to the variant) and ensure_image refuses an image
+# that carries no register-cut kernel. Default 0 leaves stock selection
+# untouched.
+GLM53_EXL3_MOE_PIPELINE="${GLM53_EXL3_MOE_PIPELINE-0}"
+# LOCAL: task 42 lever 2 -- 1 = skip the duplicate gate/up input Hadamard in
+# the fused pipeline kernel. Compiled as a second instance of the same
+# register-cut cubin (`shared_input=true`), so A/B stays on one image with
+# this knob the only extra runtime variable. Requires PIPELINE=1 (the skip
+# is not in the stock kernel), FUSED_MOE=1 (the fused expert path is the
+# only route), and an all-expert equal gate/up SUH proof that Python uses
+# to alias the pointer tables. Unset-only default so "" stays a value.
+GLM53_EXL3_MOE_REUSE="${GLM53_EXL3_MOE_REUSE-0}"
 # W28: stock is the shipped allocation; rightsize enables the GLM-5.3-only
 # reclaim. Default stays stock until the guarded A/B produces live receipts.
 GLM53_INDEXER_WORKSPACE="${GLM53_INDEXER_WORKSPACE-stock}"
@@ -525,10 +551,31 @@ validate_numeric_config() {
     # value and is rejected. Runs before start/restart and through `validate`:
     # a bad value fails before boot, never stop/status/logs on a running pair;
     # the overlays re-validate in-process and fail closed.
-    for _v in GLM53_KV_CAPACITY_LOG GLM53_APC_NO_STORE; do
+    for _v in GLM53_KV_CAPACITY_LOG GLM53_APC_NO_STORE GLM53_EXL3_MOE_PIPELINE GLM53_EXL3_MOE_REUSE; do
         case "${!_v}" in 0|1) ;; *) echo "$_v must be exactly 0 or 1 (got: '${!_v}')" >&2; return 2 ;; esac
     done
     unset _v
+    # LOCAL: task 42 -- the register-cut kernel is reachable only through the
+    # fused expert path (`apply_exl3_experts`); with EXL3_FUSED_MOE=0 the Python
+    # expert loop runs and the patched dispatcher is never reached, so an armed
+    # knob would silently measure stock. Refuse the contradiction rather than
+    # produce an uninterpretable arm. The image-capability half of the same
+    # contract is enforced in ensure_image().
+    if [ "${GLM53_EXL3_MOE_PIPELINE}" = "1" ] && [ "${EXL3_FUSED_MOE:-1}" = "0" ]; then
+        echo "GLM53_EXL3_MOE_PIPELINE=1 requires EXL3_FUSED_MOE=1 (the register-cut kernel is only reachable through the fused expert path; got EXL3_FUSED_MOE=${EXL3_FUSED_MOE})" >&2
+        return 2
+    fi
+    # LOCAL: task 42 lever 2 -- Hadamard reuse is compiled only into the
+    # pipeline cubin and is reachable only through the fused expert path.
+    # Either contradiction would boot with the knob armed and the skip inert.
+    if [ "${GLM53_EXL3_MOE_REUSE}" = "1" ] && [ "${GLM53_EXL3_MOE_PIPELINE}" != "1" ]; then
+        echo "GLM53_EXL3_MOE_REUSE=1 requires GLM53_EXL3_MOE_PIPELINE=1 (gate/up Hadamard reuse is compiled only into the pipeline variant; got GLM53_EXL3_MOE_PIPELINE=${GLM53_EXL3_MOE_PIPELINE})" >&2
+        return 2
+    fi
+    if [ "${GLM53_EXL3_MOE_REUSE}" = "1" ] && [ "${EXL3_FUSED_MOE:-1}" = "0" ]; then
+        echo "GLM53_EXL3_MOE_REUSE=1 requires EXL3_FUSED_MOE=1 (the skip is only reachable through the fused expert path; got EXL3_FUSED_MOE=${EXL3_FUSED_MOE})" >&2
+        return 2
+    fi
     case "${GLM53_INDEXER_WORKSPACE-stock}" in
         stock|rightsize) ;;
         *) echo "GLM53_INDEXER_WORKSPACE must be exactly one of: stock rightsize (got: '${GLM53_INDEXER_WORKSPACE-<unset>}')" >&2; return 2 ;;
@@ -1105,6 +1152,22 @@ image_platform() {
     printf '%s' "${p:-linux/arm64}"
 }
 
+# LOCAL: task 42 -- the register-cut kernel is compiled into the image (the
+# geometry is a build arg), so the knob alone cannot conjure it. The task-42
+# Dockerfile stamps `glm53.task42.pipeline=<frag>x<sh>`; an empty label means
+# this image carries no variant and an armed knob would serve stock silently.
+image_pipeline_geometry() {
+    docker image inspect -f '{{index .Config.Labels "glm53.task42.pipeline"}}' "$IMAGE" 2>/dev/null || true
+}
+
+# LOCAL: task 42 lever 2 -- the shared_input instances are compiled into the
+# cubin. A pipeline image built before this overlay still carries the
+# register-cut kernel but not the skip, so an armed reuse knob would measure
+# two Hadamards. The layer stamps `glm53.task42.reuse=1`.
+image_reuse_label() {
+    docker image inspect -f '{{index .Config.Labels "glm53.task42.reuse"}}' "$IMAGE" 2>/dev/null || true
+}
+
 build_image() {
     log "building ${IMAGE} from Dockerfile (log: $LOGDIR/build-sm121.log) ..."
     docker build -t "$IMAGE" "$SCRIPT_DIR" \
@@ -1227,6 +1290,28 @@ ensure_image() {
             >"$LOGDIR/overlay-verify.log" 2>&1 \
             || { tail -n 80 "$LOGDIR/overlay-verify.log" >&2; die "EXL3 overlay GPU self-check failed"; }
         log "overlay verify OK"
+    fi
+    # LOCAL: task 42 -- fail closed when the knob is armed but the pair cannot
+    # actually select the variant on BOTH nodes. The kernel is compiled into the
+    # image, so two things have to hold: the image must carry it (build-stamped
+    # label), and both nodes must be running that same image. The second half
+    # matters because ensure_image() above tolerates an unmatched worker when
+    # SKIP_SHIP=1 or after a failed post-ship key comparison -- either way the
+    # head would arm the variant while the worker served stock, and the arm would
+    # be uninterpretable. This is the last point before container creation.
+    if [ "${GLM53_EXL3_MOE_PIPELINE}" = "1" ]; then
+        local pipeline_geometry
+        pipeline_geometry="$(image_pipeline_geometry)"
+        [ -n "$pipeline_geometry" ] \
+            || die "GLM53_EXL3_MOE_PIPELINE=1 but ${IMAGE} carries no register-cut kernel (label glm53.task42.pipeline absent) -- set GLM53_EXL3_MOE_PIPELINE=0 or boot an image built from Dockerfile.e3-pipeline-layer"
+        images_match "$head_key" "$worker_key" \
+            || die "GLM53_EXL3_MOE_PIPELINE=1 requires the same image on both nodes (head=${head_key:-none} worker=${worker_key:-none}) -- the register-cut kernel is compiled into the image, so a heterogeneous pair would arm one node and not the other"
+        log "register-cut decode kernel present in ${IMAGE} on both nodes (pipeline geometry ${pipeline_geometry})"
+        if [ "${GLM53_EXL3_MOE_REUSE}" = "1" ]; then
+            [ "$(image_reuse_label)" = "1" ] \
+                || die "GLM53_EXL3_MOE_REUSE=1 but ${IMAGE} carries no gate/up Hadamard-reuse kernel (label glm53.task42.reuse absent) -- set GLM53_EXL3_MOE_REUSE=0 or rebuild from Dockerfile.e3-pipeline-layer"
+            log "gate/up Hadamard reuse armed on ${IMAGE} (GLM53_EXL3_MOE_REUSE=1; same cubin, shared_input instance)"
+        fi
     fi
     log "image ready on both nodes"
 }
@@ -1874,6 +1959,8 @@ launch_cluster() {
         -e "GLM53_EXPOSE_CACHE_RESET=$GLM53_EXPOSE_CACHE_RESET"
         -e "GLM53_ALIGN_FLOOR=$GLM53_ALIGN_FLOOR"
         -e "GLM53_APC_TAIL_FLOOR=$GLM53_APC_TAIL_FLOOR"
+        -e "GLM53_EXL3_MOE_PIPELINE=$GLM53_EXL3_MOE_PIPELINE"  # LOCAL: task 42 (both ranks select the kernel)
+        -e "GLM53_EXL3_MOE_REUSE=$GLM53_EXL3_MOE_REUSE"  # LOCAL: task 42 lever 2 (gate/up Hadamard reuse)
         -e "GLM53_ADAPTIVE_K=$GLM53_ADAPTIVE_K"
         -e "GLM53_ADAPTIVE_K_CAPTURE=$GLM53_ADAPTIVE_K_CAPTURE"
         -e "GLM53_ADAPTIVE_K_SET=$GLM53_ADAPTIVE_K_SET"

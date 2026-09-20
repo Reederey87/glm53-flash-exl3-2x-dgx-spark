@@ -1,0 +1,25 @@
+[probe] essay run 1/9: {"i": 1, "tok_s": 27.77951509872746, "prefill_tok_s": null, "ttft_s": 0.3414104799994675, "prompt_tokens": 61, "cached_tokens": null, "cache_queries_delta": null, "cache_hits_delta": null}
+[probe] essay run 2/9: {"i": 2, "tok_s": 26.399536105541728, "prefill_tok_s": null, "ttft_s": 0.324283480998929, "prompt_tokens": 61, "cached_tokens": null, "cache_queries_delta": null, "cache_hits_delta": null}
+[probe] essay run 3/9: {"i": 3, "tok_s": 24.39074451207969, "prefill_tok_s": null, "ttft_s": 0.29644304499925056, "prompt_tokens": 61, "cached_tokens": null, "cache_queries_delta": null, "cache_hits_delta": null}
+[probe] essay run 4/9: {"i": 4, "tok_s": 23.419898734283166, "prefill_tok_s": null, "ttft_s": 0.2970708730008482, "prompt_tokens": 61, "cached_tokens": null, "cache_queries_delta": null, "cache_hits_delta": null}
+[probe] essay run 5/9: {"i": 5, "tok_s": 25.3845255164251, "prefill_tok_s": null, "ttft_s": 0.2985950080001203, "prompt_tokens": 61, "cached_tokens": null, "cache_queries_delta": null, "cache_hits_delta": null}
+[probe] essay run 6/9: {"i": 6, "tok_s": 24.52398409258797, "prefill_tok_s": null, "ttft_s": 0.29991094899924065, "prompt_tokens": 61, "cached_tokens": null, "cache_queries_delta": null, "cache_hits_delta": null}
+[probe] essay run 7/9: {"i": 7, "tok_s": 25.59971577451328, "prefill_tok_s": null, "ttft_s": 0.29584122899905196, "prompt_tokens": 61, "cached_tokens": null, "cache_queries_delta": null, "cache_hits_delta": null}
+[probe] essay run 8/9: {"i": 8, "tok_s": 23.493962110709894, "prefill_tok_s": null, "ttft_s": 0.2954414710002311, "prompt_tokens": 61, "cached_tokens": null, "cache_queries_delta": null, "cache_hits_delta": null}
+[probe] essay run 9/9: {"i": 9, "tok_s": 25.51422688971866, "prefill_tok_s": null, "ttft_s": 0.3028871880014776, "prompt_tokens": 61, "cached_tokens": null, "cache_queries_delta": null, "cache_hits_delta": null}
+{
+ "schema": 1,
+ "kind": "essay",
+ "metric": "tok_s",
+ "base": "http://127.0.0.1:8000",
+ "model": "GLM-5.3-Flash-EXL3",
+ "valid_runs": 9,
+ "tok_s_median": 25.3845255164251,
+ "tok_s_min": 23.419898734283166,
+ "tok_s_max": 27.77951509872746,
+ "ttft_median_s": 0.2985950080001203,
+ "accepted_per_step_median": 1.512,
+ "accept_ratio_median": 0.4332,
+ "any_nan": false
+}
+[probe] wrote /home/nvidia/t42-window/ctrl2-essay.json
