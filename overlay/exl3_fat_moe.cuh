@@ -4,6 +4,11 @@
 
 // Grouped fat-expert MoE for EXL3 K4/MCG trellis experts (prefill).
 //
+// CUDA 13 `.pragma enable_smem_spilling` is illegal here: gateup/down launch
+// with `extern __shared__` + cudaFuncSetAttribute(MaxDynamicSharedMemorySize).
+// The gather kernel launches with 0 dynamic SMEM and is the only later
+// spilling candidate (needs SASS/STL/LDL proof; not this wave).
+//
 // One launch per phase covers every "fat" expert of a layer (an expert whose
 // token count exceeds the fused exl3_moe temp rows). Work is described by
 // device-side segment tables, so the host never synchronizes on routing.

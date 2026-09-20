@@ -6,14 +6,40 @@
 # processor wrapper still routed 5.3 through _get_video_second_idx_glm4v.
 from __future__ import annotations
 
+import os
+import stat
 import sys
 from pathlib import Path
 
 
-KPOOL = Path(
-    "/usr/local/lib/python3.12/dist-packages/vllm/model_executor/layers/"
-    "sparse_attn_indexer_kpool.py"
+SITEPACKAGES = Path(
+    os.environ.get(
+        "GLM53_SITEPACKAGES",
+        "/usr/local/lib/python3.12/dist-packages",
+    )
 )
+KPOOL = Path(
+    os.environ.get(
+        "GLM53_KPOOL_PY",
+        str(
+            SITEPACKAGES
+            / "vllm/model_executor/layers/sparse_attn_indexer_kpool.py"
+        ),
+    )
+)
+HOOK_DST = Path(
+    os.environ.get(
+        "GLM53_VIDEO_PATCH_PY",
+        str(SITEPACKAGES / "glm53_video_patch.py"),
+    )
+)
+PTH_DST = Path(
+    os.environ.get(
+        "GLM53_VIDEO_PTH",
+        str(SITEPACKAGES / "glm53_video.pth"),
+    )
+)
+PTH_BODY = "import glm53_video_patch\n"
 KPOOL_OLD = "if current_platform.is_cuda() and select_k in (512, 1024, 2048):"
 KPOOL_NEW = (
     "if False and current_platform.is_cuda() and "
@@ -137,44 +163,100 @@ def _install_import_hook() -> None:
     importlib.import_module = _im
 
 
+def prepare_kpool(source: str) -> tuple[str, str]:
+    """Compile-ready kpool text. Fail closed before any destination write."""
+    if KPOOL_NEW in source:
+        if source.count(KPOOL_NEW) != 1:
+            raise ValueError(
+                "glm53: persistent_topk disable is present more than once"
+            )
+        return source, "already present"
+    if source.count(KPOOL_OLD) != 1:
+        raise ValueError(
+            "glm53: kpool persistent_topk pattern not found — patch the file by hand"
+        )
+    patched = source.replace(KPOOL_OLD, KPOOL_NEW, 1)
+    if patched.count(KPOOL_NEW) != 1 or patched.count(KPOOL_OLD) != 0:
+        raise ValueError("glm53: kpool persistent_topk post-patch verification failed")
+    return patched, "patched"
+
+
+def replace_file(target: Path, source: str, mode_from: Path | None = None) -> None:
+    tmp = target.with_name(f".{target.name}.glm53-video.tmp")
+    try:
+        tmp.write_text(source)
+        src_mode = target if target.exists() else mode_from
+        if src_mode is not None and src_mode.exists():
+            os.chmod(tmp, stat.S_IMODE(src_mode.stat().st_mode))
+        os.replace(tmp, target)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+
+
+def clear_kpool_pyc(target: Path) -> None:
+    cache = target.parent / "__pycache__"
+    if not cache.is_dir():
+        return
+    for pyc in cache.glob("sparse_attn_indexer_kpool*.pyc"):
+        pyc.unlink(missing_ok=True)
+
+
 def _disable_gb10_persistent_topk() -> None:
     """Decode-path persistent_topk oversubscribes GB10 smem on long seqs."""
     if not KPOOL.is_file():
         raise FileNotFoundError(f"glm53: missing {KPOOL}")
-    text = KPOOL.read_text()
-    if KPOOL_NEW in text:
-        print("glm53: persistent_topk already disabled in kpool", file=sys.stderr)
-    elif KPOOL_OLD in text:
-        KPOOL.write_text(text.replace(KPOOL_OLD, KPOOL_NEW, 1))
+    patched, action = prepare_kpool(KPOOL.read_text())
+    compile(patched, str(KPOOL), "exec")
+    if patched != KPOOL.read_text():
+        replace_file(KPOOL, patched)
+        clear_kpool_pyc(KPOOL)
         print(
             "glm53: disabled GB10 persistent_topk (use top_k_per_row_decode)",
             file=sys.stderr,
         )
-    else:
-        raise RuntimeError(
-            "glm53: kpool persistent_topk pattern not found — patch the file by hand"
+    elif action == "already present":
+        print("glm53: persistent_topk already disabled in kpool", file=sys.stderr)
+
+
+# Runtime sitecustomize path only. Overlay tests import this file for
+# prepare_kpool() and must not install the process-wide import hook.
+if Path(__file__).name == "glm53_video_patch.py" or __name__ == "glm53_video_patch":
+    _install_import_hook()
+    try:
+        apply()
+    except Exception:
+        pass
+
+
+def main() -> int:
+    hook_src = Path(__file__).resolve()
+    hook_text = hook_src.read_text()
+    if not KPOOL.is_file():
+        raise SystemExit(f"glm53: missing {KPOOL}")
+    kpool_source = KPOOL.read_text()
+    try:
+        kpool_patched, kpool_action = prepare_kpool(kpool_source)
+    except ValueError as exc:
+        raise SystemExit(f"glm53: video kpool preflight failed: {exc}") from exc
+    compile(kpool_patched, str(KPOOL), "exec")
+    compile(hook_text, str(hook_src), "exec")
+    HOOK_DST.parent.mkdir(parents=True, exist_ok=True)
+    PTH_DST.parent.mkdir(parents=True, exist_ok=True)
+    replace_file(HOOK_DST, hook_text, mode_from=hook_src)
+    replace_file(PTH_DST, PTH_BODY)
+    if kpool_patched != kpool_source:
+        replace_file(KPOOL, kpool_patched)
+        clear_kpool_pyc(KPOOL)
+        print(
+            "glm53: disabled GB10 persistent_topk (use top_k_per_row_decode)",
+            file=sys.stderr,
         )
-    cache = KPOOL.parent / "__pycache__"
-    if cache.is_dir():
-        for pyc in cache.glob("sparse_attn_indexer_kpool*.pyc"):
-            pyc.unlink(missing_ok=True)
-
-
-_install_import_hook()
-try:
-    apply()
-except Exception:
-    pass
+    elif kpool_action == "already present":
+        print("glm53: persistent_topk already disabled in kpool", file=sys.stderr)
+    print("glm53: overlay install ok aligned=True", file=sys.stderr)
+    return 0
 
 
 if __name__ == "__main__":
-    import shutil
-
-    src = Path(__file__).resolve()
-    dst = Path("/usr/local/lib/python3.12/dist-packages/glm53_video_patch.py")
-    shutil.copy(src, dst)
-    Path("/usr/local/lib/python3.12/dist-packages/glm53_video.pth").write_text(
-        "import glm53_video_patch\n"
-    )
-    _disable_gb10_persistent_topk()
-    print("glm53: overlay install ok aligned=True", file=sys.stderr)
+    sys.exit(main())

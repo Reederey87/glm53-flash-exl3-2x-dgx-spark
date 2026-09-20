@@ -76,6 +76,8 @@ def main() -> int:
         extra_cuda_cflags=[
             "-O3",
             "-lineinfo",
+            # Deliberately without --use_fast_math: SwiGLU must match
+            # torch.sigmoid's full-precision expf/division.
             f"-gencode=arch=compute_{args.arch},code=sm_{args.arch}",
             "-Xcudafe", "--diag_suppress=177",
             "-Xcudafe", "--diag_suppress=20012",

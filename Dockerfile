@@ -464,14 +464,17 @@ RUN set -eux; \
 COPY overlay/exl3.py /usr/local/lib/python3.12/dist-packages/vllm/model_executor/layers/quantization/exl3.py
 COPY overlay/exl3_namespace.py /usr/local/lib/python3.12/dist-packages/vllm/model_executor/layers/quantization/exl3_namespace.py
 COPY overlay/patch_model_overrides.py /opt/glm53/patch_model_overrides.py
-COPY overlay/qwen3_dflash2.py /opt/glm53/qwen3_dflash2.py
+COPY overlay/dflash2_model.py /opt/glm53/dflash2_model.py
 COPY overlay/dflash2_speculator.py /opt/glm53/dflash2_speculator.py
 COPY overlay/patch_dflash2.py /opt/glm53/patch_dflash2.py
 COPY overlay/patch_glm_eagle3.py /opt/glm53/patch_glm_eagle3.py
+COPY tests/test_glm_eagle3.py /opt/glm53/test_glm_eagle3.py
 COPY overlay/patch_glm5_drafter_group.py /opt/glm53/patch_glm5_drafter_group.py
 COPY tests/test_exl3_overlay.py /opt/glm53/test_exl3_overlay.py
+COPY tests/test_dflash2.py /opt/glm53/test_dflash2.py
 COPY files/chat_template.jinja /opt/glm53/chat_template.jinja
 COPY overlay/patch_glm_video_placeholders.py /opt/glm53/patch_glm_video_placeholders.py
+COPY tests/test_glm_video_placeholders.py /opt/glm53/test_glm_video_placeholders.py
 COPY overlay/patch_suppress_stops_in_reasoning.py /opt/glm53/patch_suppress_stops_in_reasoning.py
 COPY tests/test_suppress_stops.py /opt/glm53/test_suppress_stops.py
 COPY overlay/patch_scheduler_decode_floor.py /opt/glm53/patch_scheduler_decode_floor.py
@@ -496,6 +499,9 @@ RUN python3 /opt/glm53/patch_cache_reset.py
 RUN python3 /opt/glm53/patch_kpool_tail_slotmap.py
 
 RUN EXL3_SELFCHECK_GPU=0 python3 /opt/glm53/test_exl3_overlay.py \
+    && python3 /opt/glm53/test_dflash2.py \
+    && python3 /opt/glm53/test_glm_eagle3.py \
+    && python3 /opt/glm53/test_glm_video_placeholders.py \
     && python3 /opt/glm53/test_suppress_stops.py \
     && python3 /opt/glm53/test_scheduler_decode_floor.py \
     && python3 /opt/glm53/test_hybrid_prefix_hit.py \

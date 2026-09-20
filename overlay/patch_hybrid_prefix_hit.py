@@ -28,6 +28,7 @@ Fail closed if the vLLM coordinator anchors drift.
 from __future__ import annotations
 
 import os
+import stat
 import sys
 from pathlib import Path
 
@@ -147,11 +148,39 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 
+def verified_state(text: str) -> bool:
+    return (
+        MARK in text
+        and "def _glm53_is_draft_swa_spec(" in text
+        and "swa_ids or set(" in text
+        and text.count(EAGLE_NEW) == 1
+        and text.count(MIN_NEW) == 1
+        and text.count(LOG_NEW) == 1
+        and text.count(EAGLE_OLD) == 0
+        and text.count(MIN_OLD) == 0
+    )
+
+
+def replace_file(target: Path, source: str) -> None:
+    tmp = target.with_name(f".{target.name}.glm53-hybrid-apc.tmp")
+    try:
+        tmp.write_text(source)
+        os.chmod(tmp, stat.S_IMODE(target.stat().st_mode))
+        os.replace(tmp, target)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+
+
 def main() -> int:
     if not P.is_file():
         raise SystemExit(f"missing {P}")
     text = P.read_text()
     if MARK in text:
+        if not verified_state(text):
+            raise SystemExit(
+                f"{P}: {MARK} present but hybrid APC patch is incomplete"
+            )
         print(f"{P.name}: {MARK} already present — skipping")
         return 0
     needle = "def _validate_prefix_cache_retention_interval(\n"
@@ -162,7 +191,10 @@ def main() -> int:
     text = replace_once(text, EAGLE_OLD, EAGLE_NEW, "eagle-fallback")
     text = replace_once(text, MIN_OLD, MIN_NEW, "hybrid-min")
     text = replace_once(text, LOG_OLD, LOG_NEW, "group-log")
-    P.write_text(text)
+    if not verified_state(text):
+        raise SystemExit(f"{P}: hybrid APC post-patch verification failed")
+    compile(text, str(P), "exec")
+    replace_file(P, text)
     print(f"patched {P.name} (hybrid APC: drafter SWA skipped in min, eagle on SWA only)")
     return 0
 

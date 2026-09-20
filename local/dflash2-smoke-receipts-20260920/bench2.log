@@ -1,0 +1,50 @@
+=== essay lane (warm 3 + settle + 9 measured) ===
+}
+wrote /home/nvidia/dflash2-smoke-20260920T142652/bench/warm-essay.json
+  "thinking": false,
+  "temperature": 0,
+  "tok_s_median": 25.68908334557885,
+  "tok_s_min": 16.24649071209131,
+  "tok_s_max": 27.41477723529143,
+  "ttft_median_s": 0.4162694770056987,
+  "completion_tokens_median": 200.0,
+  "accept_ratio_median": 0.4317,
+  "accepted_per_step_median": 1.427,
+  "any_nan": false,
+  "coherent": true,
+  "health_code_after": 200
+}
+wrote /home/nvidia/dflash2-smoke-20260920T142652/bench/essay.json
+
+=== hashmap repeat (stability check, 9 runs) ===
+  "thinking": false,
+  "temperature": 0,
+  "tok_s_median": 31.528959464868713,
+  "tok_s_min": 28.113309415357016,
+  "tok_s_max": 35.1469030639091,
+  "ttft_median_s": 0.35391760299535235,
+  "completion_tokens_median": 200.0,
+  "accept_ratio_median": 0.5171,
+  "accepted_per_step_median": 2.092,
+  "any_nan": false,
+  "coherent": true,
+  "health_code_after": 200
+}
+wrote /home/nvidia/dflash2-smoke-20260920T142652/bench/hashmap-rep.json
+
+=== structured repeat (9 runs) ===
+    "ttft_s": 0.3414944559990545,
+    "completion_tokens": 32
+  },
+  "tok_s_median": 73.87987779699196,
+  "tok_s_min": 72.07794118542598,
+  "tok_s_max": 74.30221281639193,
+  "ttft_median_s": 0.3407866950001335,
+  "completion_tokens_median": 200.0,
+  "accept_ratio_median": 1.0,
+  "accepted_per_step_median": 7.0,
+  "any_nan": false,
+  "health_code_after": 200
+}
+wrote /home/nvidia/dflash2-smoke-20260920T142652/bench/structured-rep.json
+=== BENCH2 DONE ===

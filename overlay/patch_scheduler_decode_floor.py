@@ -40,6 +40,7 @@ verbatim as byte-exact upgrade anchors.
 from __future__ import annotations
 
 import os
+import stat
 import sys
 from pathlib import Path
 
@@ -540,6 +541,17 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 
+def replace_file(target: Path, source: str) -> None:
+    tmp = target.with_name(f".{target.name}.glm53-decode-floor.tmp")
+    try:
+        tmp.write_text(source)
+        os.chmod(tmp, stat.S_IMODE(target.stat().st_mode))
+        os.replace(tmp, target)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+
+
 def validate_v31(text: str) -> None:
     """Fail closed unless the complete installed v3.1 contract is intact."""
     import ast as _ast
@@ -577,21 +589,24 @@ def main() -> int:
     if MARK_V3 in text:
         text = upgrade_v3_to_v31(text)
         validate_v31(text)
-        P.write_text(text)
+        compile(text, str(P), "exec")
+        replace_file(P, text)
         print(f"{P.name}: upgraded v3 -> v3.1 (split crawl wall/capped accounting active)")
         return 0
     if MARK_V2 in text:
         # v2 applied at start or baked into an older image: upgrade in place.
         text = upgrade_v2_to_v31(text)
         validate_v31(text)
-        P.write_text(text)
+        compile(text, str(P), "exec")
+        replace_file(P, text)
         print(f"{P.name}: upgraded v2 -> v3.1 (aging + split crawl accounting active)")
         return 0
     if MARK in text:
         # v1 baked into an older image: upgrade in place, v1 -> v2 -> v3.1.
         text = upgrade_v2_to_v31(upgrade_v1_to_v2(text))
         validate_v31(text)
-        P.write_text(text)
+        compile(text, str(P), "exec")
+        replace_file(P, text)
         print(f"{P.name}: upgraded v1 -> v3.1 (aging + split crawl accounting active)")
         return 0
     if "import os\n" not in text.split("import time\n", 1)[0]:
@@ -604,7 +619,8 @@ def main() -> int:
     text = replace_once(text, RUNNING_OLD, RUNNING_NEW, "running-prefill")
     text = replace_once(text, WAITING_OLD, WAITING_NEW, "waiting-prefill")
     validate_v31(text)
-    P.write_text(text)
+    compile(text, str(P), "exec")
+    replace_file(P, text)
     cap = os.environ.get("GLM53_MIXED_PREFILL_CHUNK", "skip")
     print(f"patched {P.name} (mixed prefill policy={cap})")
     return 0

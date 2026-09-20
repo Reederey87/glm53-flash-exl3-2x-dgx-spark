@@ -1,10 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
-"""DFlash2 draft: grouped dynamic conv + candidate selector.
+"""DFlash2 draft: fused Triton grouped conv + candidate selector.
 
-Port of vLLM main `qwen3_dflash2.py` onto this glm53-flash image. The image's
-LogitsProcessor has no `get_top_k_tokens`; candidate top-k uses gathered
-logits + `torch.topk` instead.
+# [glm53-dflash2] Kit source for incoai/GLM-5.3-Flash-DFlash2. vLLM still loads
+the installed module as ``qwen3_dflash2`` because architecture
+``DFlash2DraftModel`` maps to that path (DFlash2 was first published for
+Qwen3.8). Do not rename the installed destination or the checkpoint class
+names (``DFlash2Qwen3*``).
+
+Port of the fused grouped-conv custom op from LightSeek TokenSpeed PR #1399 /
+vLLM DFlash2. The pin's LogitsProcessor has no ``get_top_k_tokens``; candidate
+top-k uses gathered logits + ``torch.topk``.
 """
 
 import torch
@@ -17,6 +23,8 @@ from vllm.config import CacheConfig, VllmConfig
 from vllm.model_executor.layers.linear import ReplicatedLinear
 from vllm.model_executor.layers.logits_processor import LogitsProcessor
 from vllm.model_executor.layers.quantization.base_config import QuantizationConfig
+from vllm.triton_utils import tl, triton
+from vllm.utils.torch_utils import direct_register_custom_op
 
 from .qwen3_dflash import (
     DFlashQwen3DecoderLayer,
@@ -24,6 +32,125 @@ from .qwen3_dflash import (
     DFlashQwen3Model,
 )
 from .utils import maybe_prefix
+
+
+@triton.jit
+def _dflash2_grouped_conv_kernel(
+    x_ptr,
+    delta_ptr,
+    base_ptr,
+    output_ptr,
+    x_stride_row,
+    delta_stride_row,
+    delta_stride_tap,
+    base_stride_tap,
+    output_stride_row,
+    NUM_CHANNELS: tl.constexpr,
+    BLOCK_SIZE: tl.constexpr,
+    GROUP_SIZE: tl.constexpr,
+    TAPS: tl.constexpr,
+    ELEMENT_BLOCK: tl.constexpr,
+) -> None:
+    row = tl.program_id(0) // triton.cdiv(NUM_CHANNELS, ELEMENT_BLOCK)
+    col_block = tl.program_id(0) % triton.cdiv(NUM_CHANNELS, ELEMENT_BLOCK)
+    channels = col_block * ELEMENT_BLOCK + tl.arange(0, ELEMENT_BLOCK)
+    mask = channels < NUM_CHANNELS
+    groups = channels // GROUP_SIZE
+    position = row % BLOCK_SIZE
+
+    delta_row = delta_ptr + row * delta_stride_row
+    x_row = x_ptr + row * x_stride_row
+    accumulator = (
+        tl.load(base_ptr + channels, mask=mask, other=0.0).to(tl.float32)
+        + tl.load(delta_row + groups, mask=mask, other=0.0).to(tl.float32)
+    ) * tl.load(x_row + channels, mask=mask, other=0.0).to(tl.float32)
+
+    for tap in tl.static_range(1, TAPS):
+        tap_mask = mask & (position >= tap)
+        coefficient = tl.load(
+            base_ptr + tap * base_stride_tap + channels,
+            mask=tap_mask,
+            other=0.0,
+        ).to(tl.float32) + tl.load(
+            delta_row + tap * delta_stride_tap + groups,
+            mask=tap_mask,
+            other=0.0,
+        ).to(tl.float32)
+        x = tl.load(
+            x_ptr + (row - tap) * x_stride_row + channels,
+            mask=tap_mask,
+            other=0.0,
+        ).to(tl.float32)
+        accumulator += coefficient * x
+
+    tl.store(
+        output_ptr + row * output_stride_row + channels,
+        accumulator,
+        mask=mask,
+    )
+
+
+def dflash2_grouped_conv_impl(
+    x: torch.Tensor,
+    delta: torch.Tensor,
+    base: torch.Tensor,
+    block_size: int,
+    group_size: int,
+) -> torch.Tensor:
+    """DFlash2 grouped convolution adapted from LightSeek TokenSpeed PR #1399."""
+    num_rows, num_channels = x.shape
+    output = torch.empty_like(x)
+    if num_rows == 0:
+        return output
+
+    element_block = 1024 if num_rows >= 128 and num_channels % 1024 == 0 else 512
+    grid = (num_rows * triton.cdiv(num_channels, element_block),)
+    _dflash2_grouped_conv_kernel[grid](
+        x,
+        delta,
+        base,
+        output,
+        x.stride(0),
+        delta.stride(0),
+        delta.stride(1),
+        base.stride(0),
+        output.stride(0),
+        NUM_CHANNELS=num_channels,
+        BLOCK_SIZE=block_size,
+        GROUP_SIZE=group_size,
+        TAPS=base.shape[0],
+        ELEMENT_BLOCK=element_block,
+        num_warps=4,
+    )
+    return output
+
+
+def dflash2_grouped_conv_fake(
+    x: torch.Tensor,
+    delta: torch.Tensor,
+    base: torch.Tensor,
+    block_size: int,
+    group_size: int,
+) -> torch.Tensor:
+    return torch.empty_like(x)
+
+
+direct_register_custom_op(
+    op_name="dflash2_grouped_conv",
+    op_func=dflash2_grouped_conv_impl,
+    fake_impl=dflash2_grouped_conv_fake,
+    tags=(torch.Tag.needs_fixed_stride_order,),
+)
+
+
+def dflash2_grouped_conv(
+    x: torch.Tensor,
+    delta: torch.Tensor,
+    base: torch.Tensor,
+    block_size: int,
+    group_size: int,
+) -> torch.Tensor:
+    return torch.ops.vllm.dflash2_grouped_conv(x, delta, base, block_size, group_size)
 
 
 def _grouped_conv(
@@ -35,6 +162,9 @@ def _grouped_conv(
     group_size: int,
     taps: int,
 ) -> torch.Tensor:
+    if hidden_states.is_cuda:
+        return dflash2_grouped_conv(hidden_states, delta, base, block_size, group_size)
+
     blocks = hidden_states.unflatten(-1, (num_groups, group_size))
     coefficients = base.view(1, taps, num_groups, group_size) + delta.unsqueeze(-1)
     output = coefficients[:, 0] * blocks
@@ -150,11 +280,11 @@ class DFlash2Qwen3DecoderLayer(DFlashQwen3DecoderLayer):
         hidden_states: torch.Tensor,
         residual: torch.Tensor | None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        if residual is not None:
-            hidden_states, residual = self.input_layernorm(hidden_states, residual)
-        else:
+        if residual is None:
             residual = hidden_states
             hidden_states = self.input_layernorm(hidden_states)
+        else:
+            hidden_states, residual = self.input_layernorm(hidden_states, residual)
 
         hidden_states, coefficients = self.attention_conv.prepare(hidden_states)
         hidden_states = self.self_attn(positions=positions, hidden_states=hidden_states)
@@ -288,6 +418,8 @@ class DFlash2Qwen3ForCausalLM(DFlashQwen3ForCausalLM):
     def compute_candidates(
         self, hidden_states: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
+        # Pin LogitsProcessor has no get_top_k_tokens (FlashInfer radix top-k
+        # also JIT-fails on this CUDA 13 image). torch.topk is the pin path.
         logits = self.candidate_logits_processor(self.lm_head, hidden_states)
         assert logits is not None
         top_k = self.model.candidate_selector.top_k

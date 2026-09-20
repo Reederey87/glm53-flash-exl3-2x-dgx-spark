@@ -1,0 +1,30 @@
+# Python-only DFlash2 overlay layer. Copies kit model, speculator, and
+# fail-closed installers onto the adopted serving cubin without rebuilding
+# exllamav3_ext / fat-MoE. Vehicle for overlay/dflash2-triton-housekeep.
+#
+# Build (on the Spark, repo root of the experiment worktree):
+#   docker build -f Dockerfile.dflash2-overlay-layer \
+#     --build-arg BASE=glm53-selfbuild:e3-pipeline-f1s8-reuse \
+#     --build-arg GLM53_RECIPE_STAMP=$(git rev-parse --short HEAD) \
+#     -t glm53-selfbuild:dflash2-triton-housekeep .
+ARG BASE=glm53-selfbuild:e3-pipeline-f1s8-reuse
+FROM ${BASE}
+
+COPY overlay/dflash2_model.py /opt/glm53/dflash2_model.py
+COPY overlay/dflash2_speculator.py /opt/glm53/dflash2_speculator.py
+COPY overlay/patch_dflash2.py /opt/glm53/patch_dflash2.py
+COPY overlay/patch_glm_eagle3.py /opt/glm53/patch_glm_eagle3.py
+COPY overlay/patch_model_overrides.py /opt/glm53/patch_model_overrides.py
+COPY tests/test_dflash2.py /opt/glm53/test_dflash2.py
+COPY tests/test_glm_eagle3.py /opt/glm53/test_glm_eagle3.py
+COPY tests/test_exl3_overlay.py /opt/glm53/test_exl3_overlay.py
+
+RUN python3 /opt/glm53/patch_model_overrides.py \
+ && python3 /opt/glm53/patch_dflash2.py \
+ && python3 /opt/glm53/patch_glm_eagle3.py \
+ && python3 /opt/glm53/test_dflash2.py \
+ && python3 /opt/glm53/test_glm_eagle3.py \
+ && EXL3_SELFCHECK_GPU=0 python3 /opt/glm53/test_exl3_overlay.py
+
+ARG GLM53_RECIPE_STAMP=unknown
+LABEL glm53.recipe.stamp=${GLM53_RECIPE_STAMP} glm53.dflash2.triton=1
