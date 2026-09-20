@@ -84,8 +84,13 @@ latest_prompt_hash_boundary = (
 
 The scheduler stop is **additional**, not a replacement: the existing
 block-aligned stops and the shared-prefix junction stop are untouched, so no
-intermediate chunk can end off-grid. Replacing them is the state-poisoning
-failure mode (upstream #43559; 14 tests fail that way in the sibling lineage).
+intermediate chunk can end off-grid. Upstream's own test for this function asserts
+the same additive shape — `tests/v1/core/prefix_cache/test_partial_prefix_cache_hits.py`
+walks a 10,000-token prompt at hash unit 32 through stops
+`0 → 8192 → 9728 → 9984 → 10000`, where 9,984 is "the prompt's last hash
+boundary", and then asserts that with `mamba_partial_cache_hit` off the tail "runs
+in one chunk" with no extra stop. Replacing the existing stops instead of adding
+to them is the state-poisoning failure mode.
 
 ## Why it is safe
 
@@ -119,7 +124,7 @@ unchanged.
 | gate | result | receipt |
 |---|---|---|
 | boundary reachability | every exact replay reaches its ceiling; 2.67 s → 0.265 s | `local/task45-apc-tail-boundary-armed-20260919.json` |
-| correctness (26k needle, hash-grid prompt) | exact replay hits **26,176 = the exact ceiling**, right code, 2.041 s vs 19.76 s cold; no stale leak | `local/task45-apc-tail-correctness-20260919.json` |
+| correctness (26k needle, hash-grid prompt) | exact replay hits **26,176 = the exact ceiling**, right code, 1.377 s vs 19.086 s cold (**13.9×**); changed-needle returns the new code with **no stale leak**; cold is 0 hits | `local/task45-apc-tail-correctness-20260919.json` |
 | acceptance | 7/7, incl. the ~32k needle | `local/task45-gates-20260919.txt` |
 | serving | 6/6 | `local/task45-gates-20260919.txt` |
 | structured decode | median **71.20 tok/s** @ 1.0/7.0, no NaN (standing band 69–70) | `local/task45-armed-structured-20260919.json` |
@@ -127,36 +132,69 @@ unchanged.
 | MemFree | head 5 GiB, worker 3 GiB (floor 2.5 GiB) | `local/task45-gates-20260919.txt` |
 | boot | `Result=success`, `NRestarts=0`, 8 m 55 s, health 200 | — |
 
-Post-change ladder (`scripts/probe_apc_boundary_reachability.py`), same shapes:
+Post-change ladder (`scripts/probe_apc_boundary_reachability.py --case-repeats 3`),
+same shapes; wall times are medians of three whole reset→prime→measure sequences:
 
 | case | reused | ceiling | ratio | warm |
 |---|---:|---:|---:|---:|
-| `exact@6464` | 6,400 | 6,400 | 1.0000 | 0.260 s |
-| `exact@7168` | 7,104 | 7,104 | 1.0000 | 0.264 s |
-| `exact@7360` | 7,296 | 7,296 | 1.0000 | 0.264 s |
+| `exact@6464` | 6,400 | 6,400 | 1.0000 | 0.264 s |
+| `exact@7168` | 7,104 | 7,104 | 1.0000 | 0.265 s |
+| `exact@7360` | 7,296 | 7,296 | 1.0000 | 0.266 s |
 | `exact@10752` | 10,688 | 10,688 | 1.0000 | 0.265 s |
-| `exact@14336` | 14,272 | 14,272 | 1.0000 | 0.272 s |
-| `exact@6500` / `@10000` / `@20000` | unchanged | | 1.0000 | unchanged |
+| `exact@14336` | 14,272 | 14,272 | 1.0000 | 0.265 s |
+| `exact@6500` / `@10000` / `@20000` | unchanged | | 1.0000 | 0.218 / 0.200 / 0.254 s |
 
 ## The measured cost, stated plainly
 
-On the **append** shape (a longer consumer, `producer + 32` tokens) at a
+On the **append** shape (a consumer 32 tokens longer than its producer) at a
 hash-grid prompt length the deepest entry is now `n - 64` instead of `n`, so the
-consumer recomputes one extra hash unit:
+consumer recomputes one extra hash unit. That is a real change, and at request
+level it costs considerably more than the token arithmetic suggests.
 
-| case | before | after |
-|---|---:|---:|
-| `append32@6464` | 6,464 / 6,464 | 6,400 / 6,464 (−64) |
-| `append32@7360` | 7,360 / 7,360 | 7,296 / 7,360 (−64) |
-| `append32@6500` | 6,464 / 6,528 | 6,464 / 6,528 (unchanged) |
-| `append32@7168`, `@10000`, `@10752`, `@14336`, `@20000` | 1.0000 | 1.0000 |
+| case | baseline reused / ceiling | armed reused / ceiling | baseline wall | armed wall |
+|---|---:|---:|---:|---:|
+| `append32@6464` | 6,464 / 6,464 | 6,400 / 6,464 (−64) | 0.243 s | **0.495 s** |
+| `append32@7360` | 7,360 / 7,360 | 7,296 / 7,360 (−64) | 0.251 s | **0.497 s** |
+| `append32@6500` | 6,464 / 6,528 | 6,464 / 6,528 (**unchanged**) | 0.404 s | 0.393 s |
+| `append32@7168`, `@10000`, `@10752`, `@14336`, `@20000` | 1.0000 | 1.0000 | 0.24–0.29 s | 0.23–0.28 s |
 
-One hash unit is 64 tokens, about 20 ms of prefill, against 2,816–3,520 tokens
-(~2.4 s) recovered per exact replay. This is the same arithmetic upstream #53802
-adopts, and it is accepted deliberately. **Not** taken: registering both `n` and
-`n - 64` would remove the 64-token append cost but adds a cache entry per request
-on a pool that is the binding capacity constraint (14 aligned segments, 566 usable
-block ids).
+Two things follow, and the second matters more than the first:
+
+1. **The earlier "about 20 ms" figure is wrong and is withdrawn.** One extra
+   prefill chunk costs roughly **250 ms** at request level on this pair, not the
+   ~20 ms that 64 tokens of prefill arithmetic predicts. The tokens are 64; the
+   cost is a scheduler step, and it is not proportional to the token count.
+2. **The ~0.4–0.5 s append cost is not new.** `append32@6500` is the control: its
+   boundary is unchanged by this fix (6,500 is not a multiple of 64) and it costs
+   0.404 s before against 0.393 s after. What the fix changes is *which* append
+   lengths pay it. Stock registered its tail at `floor(n / 64) * 64`, so a
+   consumer could reuse up to its own ceiling only when the producer's length was
+   such that the two agreed; on the append shape that is a fraction of lengths,
+   and those lengths already recomputed a partial tail. The fix makes the
+   behaviour uniform and the hash-grid-aligned lengths join the group that pays.
+
+Net, for a prompt length drawn at random: the replay shape moves from 2.67 s to
+0.27 s on the 1/64 of lengths that are hash-grid aligned, and the append shape
+moves from 0.24 s to 0.49 s on the same 1/64. Caching becomes length-independent
+rather than alternating between two regimes. Accepted on that basis — and it is
+precisely the reason **45b** (register both `n - 64` and `n`) is worth doing,
+since it would remove this cost entirely. **Not** taken here: registering both
+positions adds a cache entry per request on a pool that is the binding capacity
+constraint.
+
+**Limitation, stated rather than implied.** No paired overlay-off A/B was taken
+for the append shape. The baseline column is the earlier single-run ladder plus
+this run's own `append32@6500` control, whose boundary is unchanged by
+construction. The 0.4–0.5 s vs 0.24 s split is measured within the armed run
+itself, so it is not an artefact of comparing across boots.
+
+**Measurement correction worth keeping.** An earlier revision of the probe
+repeated the *consumer* to time it. That measures the wrong request: only the
+first consumer can see the producer's tail, because a later identical consumer
+also sees the previous consumer's own registration. Averaging over both
+under-reported this shape's cost by 2× (0.23 s against the true 0.50 s). The probe
+now repeats the whole reset→prime→measure sequence, and reports whether every
+repetition landed on the same boundary.
 
 ## Not covered — task 45 remains partially open
 

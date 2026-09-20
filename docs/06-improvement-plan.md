@@ -3619,7 +3619,7 @@ emitted value is identical.
 | gate | result |
 |---|---|
 | boundary ladder | every `exact@*` ratio **1.0000**, warm 0.260–0.272 s |
-| correctness | 26,240-token hash-grid prompt: exact replay reuses **26,176 = the exact ceiling**, right code, 2.041 s vs 19.76 s cold (**9.7×**); changed-needle control returns the new code, **no stale leak** |
+| correctness | 26,240-token hash-grid prompt: exact replay reuses **26,176 = the exact ceiling**, right code, 1.377 s vs 19.086 s cold (**13.9×**); changed-needle returns the new code, **no stale leak**; cold is 0 hits |
 | acceptance | 7/7 |
 | serving | 6/6 |
 | structured decode | median **71.20 tok/s** @ 1.0/7.0, no NaN |
@@ -3644,13 +3644,49 @@ the drafter SWA group only (`eagle_group_ids=[6]`, MLA and mamba
 The probe measures it directly (`reused == ceiling` in every case), and taking
 the extra back-off would cost a unit for nothing.
 
-**Accepted cost, stated plainly.** On the **append** shape (a consumer 32 tokens
-longer than its producer) at a hash-grid prompt length the deepest entry is now
-`n - 64`, so the consumer recomputes one hash unit — 64 tokens, about **20 ms** —
-against the 2,816–3,520 tokens (~2.4 s) recovered per exact replay.
-`append32@6500` and every non-aligned append case are unchanged. Not taken:
-registering both `n` and `n - 64` would remove the cost but adds a cache entry per
-request on a pool that is the binding capacity constraint.
+**Accepted cost, stated plainly — and corrected after review.** On the **append**
+shape (a consumer 32 tokens longer than its producer) at a hash-grid prompt length
+the deepest entry is now `n - 64`, so the consumer recomputes one extra hash unit.
+That costs **~250 ms at request level**, not the ~20 ms the 64-token arithmetic
+predicts: the tokens are 64, the cost is a scheduler step. Measured as the median
+of three whole reset→prime→measure sequences (`--case-repeats 3`):
+`append32@6464` 0.243 s → **0.495 s**, `append32@7360` 0.251 s → **0.497 s**.
+
+The cost is **not new to this shape**. `append32@6500` is the control: its
+boundary is unchanged by the fix (6,500 is not a multiple of 64) and it costs
+0.404 s before against 0.393 s after. Stock registered its tail at
+`floor(n / 64) * 64`, so an appending consumer could reuse up to its own ceiling
+only for some lengths; others already recomputed a partial tail at the same
+~0.4–0.5 s. The fix makes the behaviour uniform and the aligned lengths join the
+group that pays. Net for a random length: replay 2.67 s → 0.27 s on the 1/64
+aligned lengths, append 0.24 s → 0.49 s on the same 1/64. No paired overlay-off
+A/B was taken for the append shape — stated as a limitation in `docs/17`. Not
+taken: registering both `n` and `n - 64` removes the cost but adds a cache entry
+per request on a pool that is the binding capacity constraint, which is why 45b
+carries it as its own candidate.
+
+**A measurement error caught in review, recorded because it nearly shipped.**
+An earlier revision of the boundary probe repeated the *consumer* to time it.
+That measures the wrong request: only the first consumer can see the producer's
+tail, because a later identical consumer also sees the previous consumer's own
+registration. The median over both states reported 0.23 s against a true 0.50 s —
+a 2× under-report that would have hidden the real cost. The probe now repeats the
+whole reset→prime→measure sequence and records whether every repetition landed on
+the same boundary.
+
+**The correctness gate was hardened for the same reason.** Its first revision
+asserted only that the answer was retrievable, which cannot distinguish a working
+cache from an inert one — prefix caching is prefill-only and a broken cache still
+returns the right answer. It also regenerated its leading pad per case, silently
+breaking the shared prefix, so two of its four cases ran with **zero** hits and
+were not testing reuse at all. The gate now asserts, per case, the exact hit
+boundary, the query delta against the prompt length, and a successful cache
+reset, with the answer as a second independent check. A unit-test file
+(`tests/test_apc_probe_gates.py`) proves each failure mode fails: removing the
+hit-boundary check from `evaluate()` fails 4 of its tests, including both that pin
+the defect. The append-continuation case's answer is explicitly **not** checked,
+because the extension necessarily lands after the question, and that is recorded
+in the case rather than left implicit.
 
 **A prior-art correction carried into the gate text.** The temp-0
 cold-vs-replay byte-identity check is **not usable as a correctness gate on this
@@ -3658,7 +3694,8 @@ stack.** `w18-fgapc-probe.py` Part B is 1/3 identical cold-vs-replay, and
 cold-vs-cold with a cache reset between is already **0/3** — pre-existing and
 arm-independent, so it is not a regression from this change. The gate used
 instead is a checkable long-context retrieval task plus a stale-leak negative
-control.
+control. Upstream's own design doc states the reason this class of gate needs
+counters rather than outputs: prefix caching "won't change model outputs".
 
 **Scope corrections.** The task-45 site that re-derived the registration bound
 from `num_finalized_computed_tokens` **does not exist in this lineage** — verified

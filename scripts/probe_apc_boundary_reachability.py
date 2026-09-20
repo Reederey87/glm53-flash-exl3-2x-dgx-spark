@@ -142,23 +142,42 @@ def complete(base: str, ids: list[int], max_tokens: int = 1) -> dict:
 
 
 def run_case(base: str, label: str, producer: list[int], consumer: list[int],
-             unit: int, reset: bool) -> dict:
-    """Cold-prime ``producer``, then measure what ``consumer`` reuses."""
-    if reset:
-        reset_cache(base)
-    prime = complete(base, producer)
-    n_prime = int(prime["usage"].get("prompt_tokens", len(producer)))
+             unit: int, reset: bool, case_repeats: int = 1) -> dict:
+    """Cold-prime ``producer``, then measure what the **first** consumer reuses.
 
-    m0 = metrics(base)
-    t0 = time.time()
-    warm = complete(base, consumer)
-    wall = time.time() - t0
-    m1 = metrics(base)
+    ``case_repeats`` repeats the whole reset -> prime -> measure sequence and the
+    reported wall time is the median of those first-consumer samples. Repeating
+    the *consumer* instead (an earlier revision of this probe did) silently
+    measures the wrong request: only the first consumer can see the producer's
+    tail, because a later identical consumer also sees the previous consumer's
+    own registration, which is a different and better cache state. That mistake
+    under-reported this shape's cost by 2x.
+    """
+    samples: list[dict] = []
+    for _ in range(max(1, case_repeats)):
+        if reset:
+            reset_cache(base)
+        prime = complete(base, producer)
+        m0 = metrics(base)
+        t0 = time.time()
+        warm = complete(base, consumer)
+        wall = time.time() - t0
+        m1 = metrics(base)
+        samples.append({
+            "hits": int(m1["hits"] - m0["hits"]),
+            "queries": int(m1["queries"] - m0["queries"]),
+            "warm_wall_s": round(wall, 3),
+            "prime_wall_s": prime["wall_s"],
+            "prompt_tokens": int(warm["usage"].get("prompt_tokens", len(consumer))),
+            "producer_tokens": int(prime["usage"].get("prompt_tokens", len(producer))),
+        })
 
-    n_cons = int(warm["usage"].get("prompt_tokens", len(consumer)))
-    hits = m1["hits"] - m0["hits"]
-    queries = m1["queries"] - m0["queries"]
-    # Deepest position the engine is allowed to hand back for this consumer.
+    first = samples[0]
+    walls = sorted(s["warm_wall_s"] for s in samples)
+    mid = len(walls) // 2
+    median = walls[mid] if len(walls) % 2 else (walls[mid - 1] + walls[mid]) / 2
+    n_cons = first["prompt_tokens"]
+    hits = first["hits"]
     ceiling = (n_cons - 1) // unit * unit
     shared = 0
     for a, b in zip(producer, consumer):
@@ -167,16 +186,21 @@ def run_case(base: str, label: str, producer: list[int], consumer: list[int],
         shared += 1
     return {
         "case": label,
-        "producer_tokens": n_prime,
+        "producer_tokens": first["producer_tokens"],
         "consumer_tokens": n_cons,
         "shared_prefix_tokens": shared,
-        "reused_tokens": int(hits),
-        "queried_tokens": int(queries),
+        "reused_tokens": hits,
+        "queried_tokens": first["queries"],
         "ceiling_tokens": ceiling,
         "reach_ratio": round(hits / ceiling, 4) if ceiling else None,
         "unreachable_tokens": int(ceiling - hits),
-        "prime_wall_s": prime["wall_s"],
-        "warm_wall_s": round(wall, 3),
+        "prime_wall_s": first["prime_wall_s"],
+        "warm_wall_s": round(median, 3),
+        "warm_wall_s_all": [s["warm_wall_s"] for s in samples],
+        "case_repeats": len(samples),
+        # Every repetition must land on the same boundary, or the median is
+        # averaging over different cache states.
+        "hits_stable": len({s["hits"] for s in samples}) == 1,
     }
 
 
@@ -188,6 +212,10 @@ def main() -> int:
     ap.add_argument("--page", type=int, default=3584)
     ap.add_argument("--ladder", default="7360,10752,14336,6464,6500,10000,20000,7168,10752")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--case-repeats", type=int, default=1,
+                    help="repeat each whole reset/prime/measure sequence this "
+                         "many times and report the median first-consumer wall "
+                         "time; >1 is needed before making a latency claim")
     ap.add_argument("--no-reset", action="store_true",
                     help="do not reset between cases (measures retention instead)")
     args = ap.parse_args()
@@ -225,17 +253,17 @@ def main() -> int:
         # exact replay: same prompt. Its own ceiling is (n-1)//unit*unit, so a
         # boundary registered at n is out of reach by construction.
         results.append(run_case(base, f"exact@{n}", producer, producer,
-                                args.unit, not args.no_reset))
+                                args.unit, not args.no_reset, args.case_repeats))
         # agentic follow-up: the same history plus new tokens. Ceiling rises
         # above n, so a boundary registered at n is reachable here.
         follow = pool[: n + 32]
         results.append(run_case(base, f"append32@{n}", producer, follow,
-                                args.unit, not args.no_reset))
+                                args.unit, not args.no_reset, args.case_repeats))
         # page-aligned producer: _cache_partial_tail_block refuses these
         # (num_tokens % block_size == 0), which is the second suspect.
         if n % args.page == 0:
             results.append(run_case(base, f"page_aligned@{n}", producer, producer,
-                                    args.unit, not args.no_reset))
+                                    args.unit, not args.no_reset, args.case_repeats))
 
     for r in results:
         print(
@@ -244,6 +272,8 @@ def main() -> int:
             f"reused={r['reused_tokens']:>6}  ceiling={r['ceiling_tokens']:>6}  "
             f"ratio={r['reach_ratio']}  short={r['unreachable_tokens']:>6}  "
             f"queries={r['queried_tokens']:>6}  warm={r['warm_wall_s']}s"
+            f"  n={r['case_repeats']}"
+            f"{'' if r['hits_stable'] else '  UNSTABLE-HITS'}"
         )
 
     payload = {
@@ -253,6 +283,7 @@ def main() -> int:
         "base": base,
         "unit": args.unit,
         "page": args.page,
+        "case_repeats": args.case_repeats,
         "reset_between_cases": not args.no_reset,
         "results": results,
     }
