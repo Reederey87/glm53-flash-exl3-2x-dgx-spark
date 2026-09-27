@@ -109,6 +109,20 @@ def test_cap_drops_the_deepest_page_of_the_oldest_mark():
         reset_grace_state()
 
 
+def test_confirm_uses_the_one_recent_snapshot_on_an_id_miss(monkeypatch, capsys):
+    monkeypatch.setenv("GLM53_TOOL_RETURN_GRACE", "1")
+    reset_grace_state()
+    kept = Block(0, 3_584)
+    pool = Pool([kept])
+    remember_snapshot("engine-id", [(0, kept.block_hash, 3_584)])
+    try:
+        assert confirm_tool_grace("chat-id", pool) == 1
+        assert grace_live(0, time.monotonic())
+        assert "recent snapshot" in capsys.readouterr().out
+    finally:
+        reset_grace_state()
+
+
 def test_confirm_skips_a_block_whose_hash_changed(monkeypatch):
     monkeypatch.setenv("GLM53_TOOL_RETURN_GRACE", "1")
     reset_grace_state()

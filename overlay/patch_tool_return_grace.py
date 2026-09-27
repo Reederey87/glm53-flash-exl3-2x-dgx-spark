@@ -79,7 +79,8 @@ FREE_NEW = """\
                 )
             _glm53_remember(request.request_id, _glm53_pairs)
         except Exception:
-            pass
+            import traceback
+            traceback.print_exc()
         pins = self._partial_tail_pins.pop(request.request_id, None)
 """
 
@@ -137,7 +138,8 @@ STREAM_NEW = """\
                         if finish_reason_ == "tool_calls":
                             try:
                                 await self.engine_client.engine_core.call_utility_async(
-                                    "glm53_mark_tool_grace", request_id
+                                    "glm53_mark_tool_grace",
+                                    getattr(res, "request_id", None) or request_id,
                                 )
                             except Exception:
                                 logger.exception(
@@ -164,7 +166,8 @@ FULL_NEW = """\
             if is_finish_reason_tool_calls:
                 try:
                     await self.engine_client.engine_core.call_utility_async(
-                        "glm53_mark_tool_grace", request_id
+                        "glm53_mark_tool_grace",
+                        getattr(final_res, "request_id", None) or request_id,
                     )
                 except Exception:
                     logger.exception(
