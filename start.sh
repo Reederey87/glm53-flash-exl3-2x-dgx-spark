@@ -368,7 +368,7 @@ CACHE_TAIL_EVICT_MODULE_HOST="${CACHE_TAIL_EVICT_MODULE_HOST:-$SCRIPT_DIR/overla
 GLM53_CACHE_HOT_PROTECT="${GLM53_CACHE_HOT_PROTECT:-0}"
 CACHE_HOT_PROTECT_PATCH_HOST="${CACHE_HOT_PROTECT_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_cache_hot_protect.py}"
 # LOCAL: 1 = a tool-call finish keeps its hashed pages ahead of one-shot
-# pages for 120s, capped at a quarter of the usable pool. A plain stop does
+# pages for 600s, capped at 141 pages on the tested pool. A plain stop does
 # not. 0 leaves the installed sources untouched. Python only.
 GLM53_TOOL_RETURN_GRACE="${GLM53_TOOL_RETURN_GRACE:-0}"
 TOOL_RETURN_GRACE_PATCH_HOST="${TOOL_RETURN_GRACE_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_tool_return_grace.py}"
@@ -587,10 +587,10 @@ validate_numeric_config() {
     # Defaults at the top of the file. ${var:-0} accepts an unset value in a
     # validate slice that does not include that top, and still rejects a set
     # non-boolean.
-    for _v in GLM53_TOOL_RETURN_GRACE; do
-        case "${!_v:-0}" in 0|1) ;; *) echo "$_v must be exactly 0 or 1 (got: '${!_v}')" >&2; return 2 ;; esac
-    done
-    unset _v
+    case "${GLM53_TOOL_RETURN_GRACE:-0}" in
+        0|1) ;;
+        *) echo "GLM53_TOOL_RETURN_GRACE must be exactly 0 or 1 (got: '${GLM53_TOOL_RETURN_GRACE}')" >&2; return 2 ;;
+    esac
     # LOCAL: task 42 -- the register-cut kernel is reachable only through the
     # fused expert path (`apply_exl3_experts`); with EXL3_FUSED_MOE=0 the Python
     # expert loop runs and the patched dispatcher is never reached, so an armed

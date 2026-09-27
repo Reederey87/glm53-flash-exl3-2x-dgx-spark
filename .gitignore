@@ -11,6 +11,11 @@ __pycache__/
 # Local working ledgers — maintained on disk, never tracked
 spec/
 local/
+AGENTS.md
+CLAUDE.md
+.claude/
+.factory/
+.mcp.json
 
 # Full live-image Python dump for local audits; never ship
 tests/fixtures/
