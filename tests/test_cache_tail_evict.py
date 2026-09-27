@@ -9,7 +9,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "overlay"))
 
-from cache_tail_evict import rank_key, select_blocks  # noqa: E402
+from cache_tail_evict import (  # noqa: E402
+    clear_reused,
+    mark_reused,
+    rank_key,
+    select_blocks,
+)
 
 INSTALLER = ROOT / "overlay" / "patch_cache_tail_evict.py"
 
@@ -92,6 +97,68 @@ def test_unhashed_goes_before_any_cached_page():
     taken = [block.block_id for block in select_blocks(queue, 1)]
     assert taken == [8]
     assert queue.ids() == [7]
+
+
+def test_reused_bit_sorts_after_the_same_page_when_cold():
+    cold = rank_key(True, 80_000, 0, reused=False)
+    hot = rank_key(True, 80_000, 0, reused=True)
+    assert cold < hot
+    assert rank_key(False, None, 0, reused=True) < cold
+
+
+def test_flag_off_still_spends_a_marked_deep_page(monkeypatch):
+    monkeypatch.delenv("GLM53_CACHE_HOT_PROTECT", raising=False)
+    deep = Block(1, 100_352)
+    shallow = Block(2, 3584)
+    mark_reused(1)
+    try:
+        queue = Queue([shallow, deep])
+        taken = [block.block_id for block in select_blocks(queue, 1)]
+        assert taken == [1]
+        assert queue.ids() == [2]
+    finally:
+        clear_reused(1)
+
+
+def test_reused_deep_page_outranks_every_cold_page(monkeypatch):
+    monkeypatch.setenv("GLM53_CACHE_HOT_PROTECT", "1")
+    deep_cold = Block(1, 100_352)
+    shallow_cold = Block(2, 3584)
+    deep_hot = Block(3, 80_000)
+    mark_reused(3)
+    try:
+        queue = Queue([deep_cold, shallow_cold, deep_hot])
+        taken = [block.block_id for block in select_blocks(queue, 2)]
+        assert taken == [1, 2]
+        assert queue.ids() == [3]
+    finally:
+        clear_reused(3)
+
+
+def test_clearing_the_mark_returns_the_page_to_the_cold_band(monkeypatch):
+    monkeypatch.setenv("GLM53_CACHE_HOT_PROTECT", "1")
+    marked = Block(4, 50_000)
+    other = Block(5, 3584)
+    mark_reused(4)
+    clear_reused(4)
+    queue = Queue([other, marked])
+    taken = [block.block_id for block in select_blocks(queue, 1)]
+    assert taken == [4]
+    assert queue.ids() == [5]
+
+
+def test_unhashed_still_goes_before_a_reused_page(monkeypatch):
+    monkeypatch.setenv("GLM53_CACHE_HOT_PROTECT", "1")
+    hot = Block(6, 40_000)
+    fresh = Block(7, None, hashed=False)
+    mark_reused(6)
+    try:
+        queue = Queue([hot, fresh])
+        taken = [block.block_id for block in select_blocks(queue, 1)]
+        assert taken == [7]
+        assert queue.ids() == [6]
+    finally:
+        clear_reused(6)
 
 
 def test_zero_blocks_does_not_touch_the_queue():
