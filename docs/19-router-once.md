@@ -60,8 +60,64 @@ deployment's attention state or expert kernels in the router window.
 
 ## Cluster qualification
 
-Pending the pre-registered control/candidate window. Gate and raw receipts:
-`local/router-once-20260927/`. Do not infer adoption from installer success.
+**Adopted on 2026-09-27 at measured parity.** Production runs
+`GLM53_ROUTER_ONCE=1` on both ranks. The portable kit keeps the knob opt-in
+because the installer targets the qualified fork. No 1–2% speedup is claimed.
+
+| Warm decode lane | Control tok/s | Candidate tok/s | Change |
+|---|---:|---:|---:|
+| Structured counting | 71.267 | 71.030 | −0.33% |
+| Hashmap prose | 32.505 | 32.693 | +0.58% |
+| Hard essay | 24.557 | 24.506 | −0.21% |
+
+Each median uses five runs after three full warmups, with the same benchmark
+and a 512-token cap (counting finishes naturally at 404 tokens). The gate was
+at least 97% of fresh control in every lane, plus historical floors of
+68.8/30/20 tok/s and correctness/health checks. All passed. These small changes
+are noise parity; removing duplicate work did not establish a throughput gain.
+
+Serving smoke passed **26/26**; all four tool finishes carried the requested
+arguments. Four concurrent requests finished in 1.752–2.228 s on warmed
+prefixes; this is a correctness observation, not a concurrency speedup claim.
+The decode log contained exactly 32 expected HTTP 200 requests, with sampled
+running requests at most one, zero waiting requests, and zero preemptions.
+No selected engine/CUDA/NCCL errors or NaN markers were found. Across 166
+inference telemetry samples, minimum MemFree was **4.453/4.068 GiB** on
+head/worker, above the unchanged 2.5 GiB inference floor.
+
+Candidate code was frozen at `eecd644`; both ranks loaded installer SHA256
+`b4b24e66bacd28a4d2375a5923899b5fde870ec9279f540e6eaaacd4dc89220e`
+and identical patched model sources. Image digest stayed
+`cb2541324e0a50e1ea8dcb491b3771f8e70762cb5681bbcf3cb86fcdf0b665ae`.
+Docker command and every existing environment value were unchanged; the only
+addition was the router flag. The physical pool stayed 567 blocks, page 3584,
+MAX_NUM_SEQS=4, async off, DFlash7 and EMA verification 2/4/7. New containers
+captured fresh graphs; this image uses CompilationMode.NONE.
+
+The first attempt was interrupted by the benchmark monitor during weight
+loading, before any serving result. Its 2.5 GiB check incorrectly covered
+startup. A control recovery showed the same loading-time free-memory dip with
+substantial reclaimable cache. The monitor was corrected to enforce that floor
+after `/health` became healthy, retaining the separate 90 GiB pre-start guard.
+Read-only, checkpoint-scoped `POSIX_FADV_DONTNEED` on idle nodes released clean
+file-cache pages so recovery could pass that guard; no weight bytes, sysctls,
+global cache settings or JIT caches changed. The control recovered and passed
+coherence before the unchanged candidate was retested. The earlier partial
+baseline using an outdated runtime benchmark was also excluded; both scored
+arms used the same current repository benchmark.
+
+The head owns the worker's launch configuration. The worker has no runtime
+`.env`; its actual container environment and `/tmp` launcher were snapshotted,
+and arm decisions mirrored as receipts. The head's append-only ledger records
+the aborted attempt, control recovery, retry and adoption. Rollback remains
+flag 0 plus a guarded unit restart with the same image. The unit and all three
+monitoring timers were active and `/health` returned 200 at close.
+
+Local validation: 945 passed, 8 skipped, 18 subtests; shellcheck and bash syntax
+passed. The final focused router/caller/numeric suite passed 27 tests.
+Sanitized [numeric receipt](receipts/router-once-20260927.json); full gate,
+raw runs, smoke responses, deployment snapshots and logs are under
+`local/router-once-20260927/` in the working folder and head runtime tree.
 
 The reusable serving smoke requires an idle endpoint and resets its prefix
 cache. It checks 26 requests: HTTP/SSE tools, 20 plain completions and four
