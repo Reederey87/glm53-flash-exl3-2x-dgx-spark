@@ -561,8 +561,12 @@ def test_launcher_argv_in_both_inner_scripts() -> None:
         "the profiler argv must be added to both the head and worker inner scripts"
     )
     assert src.count('--profiler-config.torch_profiler_dir=${GLM53_PROFILE_TORCH_DIR}') == 2
-    assert "GLM53_PROFILE_TORCH_DIR GLM53_PROFILE_MAX_ITERS; do" in src, (
-        "the worker serve_env transport must forward both knobs"
+    lines = src.splitlines()
+    start = next(i for i, ln in enumerate(lines)
+                 if ln.strip().startswith("for v in SERVED_MODEL_NAME"))
+    block = "\n".join(lines[start:start + 16])
+    assert "GLM53_PROFILE_TORCH_DIR" in block and "GLM53_PROFILE_MAX_ITERS" in block, (
+        "the worker serve_env transport must forward both profiler knobs"
     )
     assert src.count('-e GLM53_PROFILE_TORCH_DIR="${GLM53_PROFILE_TORCH_DIR:-}"') == 1
 
