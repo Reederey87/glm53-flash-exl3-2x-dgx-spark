@@ -145,7 +145,9 @@ def _grace_ids() -> set[int]:
 
 
 def _write_anchors(tmp: Path) -> None:
-    (tmp / "kv.py").write_text("def holder():\n" + FREE_ANCHOR)
+    (tmp / "kv.py").write_text(
+        "def free(self, request):\n        \"\"\"placeholder\n" + FREE_ANCHOR + "        return None\n"
+    )
     (tmp / "core.py").write_text(
         "class C:\n    def reset_prefix_cache(self):\n"
         + CORE_ANCHOR
@@ -174,6 +176,8 @@ def _run_installer(tmp: Path, flag: str, *, rewrite: bool = True) -> subprocess.
 
 
 FREE_ANCHOR = """\
+            request: The request to free the blocks.
+        \"\"\"
         pins = self._partial_tail_pins.pop(request.request_id, None)
 """
 CORE_ANCHOR = """\

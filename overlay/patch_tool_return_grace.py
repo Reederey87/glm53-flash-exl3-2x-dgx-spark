@@ -41,10 +41,14 @@ SERVING = Path(
 )
 
 FREE_OLD = """\
+            request: The request to free the blocks.
+        \"\"\"
         pins = self._partial_tail_pins.pop(request.request_id, None)
 """
 
 FREE_NEW = """\
+            request: The request to free the blocks.
+        \"\"\"
         # [glm53-tool-return-grace] snapshot hashed ids before they return
         # to the pool. The confirm is a later utility call, and only for a
         # tool-call finish. A failure here must not skip the free.
