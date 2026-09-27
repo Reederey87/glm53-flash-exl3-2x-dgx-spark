@@ -1,0 +1,115 @@
+{
+  "candidate_commit": "eecd6441bf838b62c55c66e9b467de852bd2e8c8",
+  "lanes": {
+    "structured": {
+      "control_median_tok_s": 71.26704420547767,
+      "candidate_median_tok_s": 71.03042316986289,
+      "delta_percent": -0.3320202742414291,
+      "historical_floor": 68.8,
+      "speed_gate_pass": true,
+      "control_runs_tok_s": [
+        71.52448109250938,
+        71.26704420547767,
+        71.36614608683172,
+        69.9897936592973,
+        70.71462828182837
+      ],
+      "control_acceptance": 0.967,
+      "candidate_runs_tok_s": [
+        71.03042316986289,
+        71.12314253483275,
+        71.25232056698177,
+        69.85289487515126,
+        70.94523284902475
+      ],
+      "candidate_acceptance": 0.967
+    },
+    "prose": {
+      "control_median_tok_s": 32.50525111374235,
+      "candidate_median_tok_s": 32.692546293524735,
+      "delta_percent": 0.5761997626998916,
+      "historical_floor": 30,
+      "speed_gate_pass": true,
+      "control_runs_tok_s": [
+        33.597622822202716,
+        31.242959728044738,
+        31.946932695273315,
+        32.50525111374235,
+        33.1421055139958
+      ],
+      "control_acceptance": 0.5557,
+      "candidate_runs_tok_s": [
+        32.4508704173041,
+        32.87537229674913,
+        30.67063525255676,
+        32.692546293524735,
+        33.53208528890073
+      ],
+      "candidate_acceptance": 0.5483
+    },
+    "essay": {
+      "control_median_tok_s": 24.557372668350393,
+      "candidate_median_tok_s": 24.506061510705404,
+      "delta_percent": -0.20894400365197852,
+      "historical_floor": 20,
+      "speed_gate_pass": true,
+      "control_runs_tok_s": [
+        25.32355415647878,
+        24.009566945828276,
+        25.40324062056662,
+        24.557372668350393,
+        24.005935122545434
+      ],
+      "control_acceptance": 0.4024,
+      "candidate_runs_tok_s": [
+        24.506061510705404,
+        24.787138172323083,
+        25.123759359588554,
+        23.965576042053325,
+        24.308470365921824
+      ],
+      "candidate_acceptance": 0.4059
+    }
+  },
+  "smoke_passed": 26,
+  "smoke_total": 26,
+  "speed_gate_pass": true,
+  "controls": {
+    "head": {
+      "image": "sha256:cb2541324e0a50e1ea8dcb491b3771f8e70762cb5681bbcf3cb86fcdf0b665ae",
+      "cmd_unchanged": true,
+      "env_delta": {
+        "GLM53_ROUTER_ONCE": [
+          null,
+          "1"
+        ]
+      }
+    },
+    "worker": {
+      "image": "sha256:cb2541324e0a50e1ea8dcb491b3771f8e70762cb5681bbcf3cb86fcdf0b665ae",
+      "cmd_unchanged": true,
+      "env_delta": {
+        "GLM53_ROUTER_ONCE": [
+          null,
+          "1"
+        ]
+      }
+    }
+  },
+  "audit": {
+    "inference_samples": 166,
+    "min_memfree_gib": {
+      "head": 4.452602386474609,
+      "worker": 4.067584991455078
+    },
+    "decode_max_running": 1.0,
+    "decode_max_waiting": 0.0,
+    "max_preemptions": 0.0,
+    "decode_http_count": 32,
+    "decode_http_all_200": true,
+    "selected_engine_errors": []
+  },
+  "decision": "ADOPT_AT_NOISE_PARITY",
+  "date": "2026-09-27",
+  "no_measured_speedup_claim": true
+}

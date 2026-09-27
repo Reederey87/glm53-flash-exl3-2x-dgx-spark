@@ -108,6 +108,8 @@ _glm53_cli_moepipe_val="${GLM53_EXL3_MOE_PIPELINE-}"
 _glm53_cli_moereuse_set="${GLM53_EXL3_MOE_REUSE+a}"
 _glm53_cli_moereuse_val="${GLM53_EXL3_MOE_REUSE-}"
 # LOCAL: W41/W42 caller-wins capture (end)
+_glm53_cli_router_once_set="${GLM53_ROUTER_ONCE+a}"
+_glm53_cli_router_once_val="${GLM53_ROUTER_ONCE-}"
 set -a
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/.env"
@@ -125,6 +127,7 @@ unset _k _kv _flags _env_keys _caller_overrides
 [ -n "${_glm53_cli_moepipe_set}" ] && GLM53_EXL3_MOE_PIPELINE="$_glm53_cli_moepipe_val"
 [ -n "${_glm53_cli_moereuse_set}" ] && GLM53_EXL3_MOE_REUSE="$_glm53_cli_moereuse_val"
 # LOCAL: W41/W42 caller-wins restore (end)
+[ -n "${_glm53_cli_router_once_set}" ] && GLM53_ROUTER_ONCE="$_glm53_cli_router_once_val"
 
 # ----------------------------- configuration -------------------------------
 _glm53_model_revision_set="${MODEL_REVISION+x}"
@@ -367,6 +370,10 @@ CACHE_TAIL_EVICT_MODULE_HOST="${CACHE_TAIL_EVICT_MODULE_HOST:-$SCRIPT_DIR/overla
 # tail-first eviction. Off leaves the hit path and reset_hash byte-identical.
 GLM53_CACHE_HOT_PROTECT="${GLM53_CACHE_HOT_PROTECT:-0}"
 CACHE_HOT_PROTECT_PATCH_HOST="${CACHE_HOT_PROTECT_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_cache_hot_protect.py}"
+# Skip the model's duplicate router GEMM only when the runner owns its gate.
+# Default off; opt in after a warmed decode and serving-correctness gate.
+GLM53_ROUTER_ONCE="${GLM53_ROUTER_ONCE-0}"
+ROUTER_ONCE_PATCH_HOST="${ROUTER_ONCE_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_router_once.py}"
 # LOCAL: 1 = floor a sub-block mixed-prefill chunk at the mixed cap instead of 0 when LPTT >= block_size
 # (scheduler livelock, dormant at LPTT=1792 — proven 0 mismatches over 608 combinations). Read once at import.
 GLM53_ALIGN_FLOOR="${GLM53_ALIGN_FLOOR:-1}"
@@ -531,6 +538,10 @@ _glm53_canonical_positive_int() {
 }
 
 validate_numeric_config() {
+    case "${GLM53_ROUTER_ONCE-0}" in
+        0|1) ;;
+        *) echo "GLM53_ROUTER_ONCE must be exactly 0 or 1 (got: '${GLM53_ROUTER_ONCE}')" >&2; return 2 ;;
+    esac
     if ! [[ "$GPU_MEM_UTIL" =~ ^(0([.][0-9]+)?|[.][0-9]+|1([.]0+)?)$ ]] \
        || ! awk -v u="$GPU_MEM_UTIL" 'BEGIN { exit !(u > 0 && u <= 1) }'; then
         echo "GPU_MEM_UTIL must be greater than 0 and at most 1 (got: $GPU_MEM_UTIL)" >&2
@@ -1680,6 +1691,10 @@ fi
 if [ -f /opt/glm53/patch_router_gemm_gb10.py ]; then
     python3 -S /opt/glm53/patch_router_gemm_gb10.py
 fi
+# Self-gated; flag off leaves model.py unchanged.
+if [ -f /opt/glm53/patch_router_once.py ]; then
+    python3 -S /opt/glm53/patch_router_once.py
+fi
 if [ -f /opt/glm53/patch_kpool_tail_slotmap.py ]; then
     python3 -S /opt/glm53/patch_kpool_tail_slotmap.py
 fi
@@ -1864,6 +1879,10 @@ fi
 if [ -f /opt/glm53/patch_router_gemm_gb10.py ]; then
     python3 -S /opt/glm53/patch_router_gemm_gb10.py
 fi
+# Self-gated; flag off leaves model.py unchanged.
+if [ -f /opt/glm53/patch_router_once.py ]; then
+    python3 -S /opt/glm53/patch_router_once.py
+fi
 if [ -f /opt/glm53/patch_kpool_tail_slotmap.py ]; then
     python3 -S /opt/glm53/patch_kpool_tail_slotmap.py
 fi
@@ -1963,6 +1982,8 @@ launch_cluster() {
     scp -q -o BatchMode=yes "$CACHE_RESET_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_cache_reset.py"
     [ -f "$ROUTER_GEMM_PATCH_HOST" ] || die "missing $ROUTER_GEMM_PATCH_HOST"
     scp -q -o BatchMode=yes "$ROUTER_GEMM_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_router_gemm_gb10.py"
+    [ -f "$ROUTER_ONCE_PATCH_HOST" ] || die "missing $ROUTER_ONCE_PATCH_HOST"
+    scp -q -o BatchMode=yes "$ROUTER_ONCE_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_router_once.py"
     [ -f "$KPOOL_TAIL_PATCH_HOST" ] || die "missing $KPOOL_TAIL_PATCH_HOST"
     scp -q -o BatchMode=yes "$KPOOL_TAIL_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_kpool_tail_slotmap.py"
     [ -f "$SPINWAIT_PATCH_HOST" ] || die "missing $SPINWAIT_PATCH_HOST"
@@ -2053,6 +2074,7 @@ launch_cluster() {
         -e "GLM53_DRAFT_COMPACT_PAGE=$GLM53_DRAFT_COMPACT_PAGE"
         -e "GLM53_CACHE_TAIL_EVICT=$GLM53_CACHE_TAIL_EVICT"
         -e "GLM53_CACHE_HOT_PROTECT=$GLM53_CACHE_HOT_PROTECT"
+        -e "GLM53_ROUTER_ONCE=$GLM53_ROUTER_ONCE"
         -e "DEFAULT_MAX_NEW_TOKENS=$DEFAULT_MAX_NEW_TOKENS"
         -e "TRITON_CACHE_DIR=$TRITON_CACHE_DIR"
         -e "TILELANG_CACHE_DIR=$TILELANG_CACHE_DIR"
@@ -2153,6 +2175,7 @@ launch_cluster() {
         -v '/tmp/patch_xgrammar_termination.py:/opt/glm53/patch_xgrammar_termination.py:ro' \
         -v '/tmp/patch_cache_reset.py:/opt/glm53/patch_cache_reset.py:ro' \
         -v '/tmp/patch_router_gemm_gb10.py:/opt/glm53/patch_router_gemm_gb10.py:ro' \
+        -v '/tmp/patch_router_once.py:/opt/glm53/patch_router_once.py:ro' \
         -v '/tmp/patch_kpool_tail_slotmap.py:/opt/glm53/patch_kpool_tail_slotmap.py:ro' \
         -v '/tmp/patch_spinwait_gb10.py:/opt/glm53/patch_spinwait_gb10.py:ro' \
         -v '/tmp/patch_fine_grained_apc.py:/opt/glm53/patch_fine_grained_apc.py:ro' \
@@ -2202,6 +2225,7 @@ launch_cluster() {
         -v "$XGRAMMAR_PATCH_HOST:/opt/glm53/patch_xgrammar_termination.py:ro" \
         -v "$CACHE_RESET_PATCH_HOST:/opt/glm53/patch_cache_reset.py:ro" \
         -v "$ROUTER_GEMM_PATCH_HOST:/opt/glm53/patch_router_gemm_gb10.py:ro" \
+        -v "$ROUTER_ONCE_PATCH_HOST:/opt/glm53/patch_router_once.py:ro" \
         -v "$KPOOL_TAIL_PATCH_HOST:/opt/glm53/patch_kpool_tail_slotmap.py:ro" \
         -v "$SPINWAIT_PATCH_HOST:/opt/glm53/patch_spinwait_gb10.py:ro" \
         -v "$FGAPC_PATCH_HOST:/opt/glm53/patch_fine_grained_apc.py:ro" \
