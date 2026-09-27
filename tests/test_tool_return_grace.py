@@ -142,10 +142,10 @@ def test_more_than_sixteen_unconfirmed_finishes_stay_bounded(monkeypatch):
     reset_grace_state()
     block = Block(0, 3_584)
     for index in range(128):
-        remember_snapshot(f"engine-{index}", [(0, block.block_hash, 3_584)], f"chat-{index}")
+        remember_snapshot(f"engine-{index}", [(0, block.block_hash, 3_584)])
         assert len(evict._SNAPSHOTS) <= evict._SNAPSHOT_LIMIT
-    assert confirm_tool_grace("chat-0", Pool([block])) == 0
-    assert confirm_tool_grace("chat-127", Pool([block])) == 1
+    assert confirm_tool_grace("engine-0", Pool([block])) == 0
+    assert confirm_tool_grace("engine-127", Pool([block])) == 1
     reset_grace_state()
 
 
