@@ -205,6 +205,9 @@ def test_no_per_knob_allowlist_remains() -> None:
         # task 42 lever 2: gate/up Hadamard reuse, same strict-bool contract.
         "_glm53_cli_moereuse_set",
         "_glm53_cli_moereuse_val",
+        # Router-once also rejects an explicitly empty caller value.
+        "_glm53_cli_router_once_set",
+        "_glm53_cli_router_once_val",
     }
     assert cli_tokens <= allowed, (
         f"the per-knob _cli_* allowlist must be gone (generic rule, #91); "
@@ -402,6 +405,7 @@ def test_strict_knob_caller_captures_are_setness_aware() -> None:
         ("GLM53_INDEXER_WORKSPACE", "rightsize", "stock"),
         ("GLM53_KV_CAPACITY_LOG", "1", "0"),
         ("GLM53_APC_NO_STORE", "1", "0"),
+        ("GLM53_ROUTER_ONCE", "1", "0"),
     )
     for knob, env_value, caller_value_ in cases:
         probe = f'\nprintf "V=[%s]\\n" "${{{knob}-UNSET}}"\n'
