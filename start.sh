@@ -362,6 +362,11 @@ DRAFT_COMPACT_PAGE_PATCH_HOST="${DRAFT_COMPACT_PAGE_PATCH_HOST:-$SCRIPT_DIR/over
 GLM53_CACHE_TAIL_EVICT="${GLM53_CACHE_TAIL_EVICT:-0}"
 CACHE_TAIL_EVICT_PATCH_HOST="${CACHE_TAIL_EVICT_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_cache_tail_evict.py}"
 CACHE_TAIL_EVICT_MODULE_HOST="${CACHE_TAIL_EVICT_MODULE_HOST:-$SCRIPT_DIR/overlay/cache_tail_evict.py}"
+# LOCAL: 1 = a cached block that a later request has already hit is evicted
+# only after every one-shot block. Depth still orders each band. Requires
+# tail-first eviction. Off leaves the hit path and reset_hash byte-identical.
+GLM53_CACHE_HOT_PROTECT="${GLM53_CACHE_HOT_PROTECT:-0}"
+CACHE_HOT_PROTECT_PATCH_HOST="${CACHE_HOT_PROTECT_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_cache_hot_protect.py}"
 # LOCAL: 1 = floor a sub-block mixed-prefill chunk at the mixed cap instead of 0 when LPTT >= block_size
 # (scheduler livelock, dormant at LPTT=1792 — proven 0 mismatches over 608 combinations). Read once at import.
 GLM53_ALIGN_FLOOR="${GLM53_ALIGN_FLOOR:-1}"
@@ -1658,6 +1663,11 @@ fi
 if [ -f /opt/glm53/patch_cache_tail_evict.py ]; then
     python3 -S /opt/glm53/patch_cache_tail_evict.py
 fi
+# Self-gated on GLM53_CACHE_HOT_PROTECT. Runs after tail-first. Flag off
+# does not edit installed sources.
+if [ -f /opt/glm53/patch_cache_hot_protect.py ]; then
+    python3 -S /opt/glm53/patch_cache_hot_protect.py
+fi
 if [ -f /opt/glm53/patch_apc_per_group_retention.py ]; then  # LOCAL: W25
     python3 -S /opt/glm53/patch_apc_per_group_retention.py
 fi
@@ -1837,6 +1847,11 @@ fi
 if [ -f /opt/glm53/patch_cache_tail_evict.py ]; then
     python3 -S /opt/glm53/patch_cache_tail_evict.py
 fi
+# Self-gated on GLM53_CACHE_HOT_PROTECT. Runs after tail-first. Flag off
+# does not edit installed sources.
+if [ -f /opt/glm53/patch_cache_hot_protect.py ]; then
+    python3 -S /opt/glm53/patch_cache_hot_protect.py
+fi
 if [ -f /opt/glm53/patch_apc_per_group_retention.py ]; then  # LOCAL: W25
     python3 -S /opt/glm53/patch_apc_per_group_retention.py
 fi
@@ -1938,6 +1953,8 @@ launch_cluster() {
     scp -q -o BatchMode=yes "$CACHE_TAIL_EVICT_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_cache_tail_evict.py"
     [ -f "$CACHE_TAIL_EVICT_MODULE_HOST" ] || die "missing $CACHE_TAIL_EVICT_MODULE_HOST"
     scp -q -o BatchMode=yes "$CACHE_TAIL_EVICT_MODULE_HOST" "${WORKER_SSH}:/tmp/cache_tail_evict.py"
+    [ -f "$CACHE_HOT_PROTECT_PATCH_HOST" ] || die "missing $CACHE_HOT_PROTECT_PATCH_HOST"
+    scp -q -o BatchMode=yes "$CACHE_HOT_PROTECT_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_cache_hot_protect.py"
     [ -f "$PERGROUP_PATCH_HOST" ] || die "missing $PERGROUP_PATCH_HOST"  # LOCAL: W25
     scp -q -o BatchMode=yes "$PERGROUP_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_apc_per_group_retention.py"
     [ -f "$XGRAMMAR_PATCH_HOST" ] || die "missing $XGRAMMAR_PATCH_HOST"
@@ -2035,6 +2052,7 @@ launch_cluster() {
         -e "GLM53_FINE_GRAINED_APC=$GLM53_FINE_GRAINED_APC"
         -e "GLM53_DRAFT_COMPACT_PAGE=$GLM53_DRAFT_COMPACT_PAGE"
         -e "GLM53_CACHE_TAIL_EVICT=$GLM53_CACHE_TAIL_EVICT"
+        -e "GLM53_CACHE_HOT_PROTECT=$GLM53_CACHE_HOT_PROTECT"
         -e "DEFAULT_MAX_NEW_TOKENS=$DEFAULT_MAX_NEW_TOKENS"
         -e "TRITON_CACHE_DIR=$TRITON_CACHE_DIR"
         -e "TILELANG_CACHE_DIR=$TILELANG_CACHE_DIR"
@@ -2130,6 +2148,7 @@ launch_cluster() {
         -v '/tmp/patch_draft_compact_page.py:/opt/glm53/patch_draft_compact_page.py:ro' \
         -v '/tmp/patch_cache_tail_evict.py:/opt/glm53/patch_cache_tail_evict.py:ro' \
         -v '/tmp/cache_tail_evict.py:/opt/glm53/cache_tail_evict.py:ro' \
+        -v '/tmp/patch_cache_hot_protect.py:/opt/glm53/patch_cache_hot_protect.py:ro' \
         -v '/tmp/patch_apc_per_group_retention.py:/opt/glm53/patch_apc_per_group_retention.py:ro' \
         -v '/tmp/patch_xgrammar_termination.py:/opt/glm53/patch_xgrammar_termination.py:ro' \
         -v '/tmp/patch_cache_reset.py:/opt/glm53/patch_cache_reset.py:ro' \
@@ -2178,6 +2197,7 @@ launch_cluster() {
         -v "$DRAFT_COMPACT_PAGE_PATCH_HOST:/opt/glm53/patch_draft_compact_page.py:ro" \
         -v "$CACHE_TAIL_EVICT_PATCH_HOST:/opt/glm53/patch_cache_tail_evict.py:ro" \
         -v "$CACHE_TAIL_EVICT_MODULE_HOST:/opt/glm53/cache_tail_evict.py:ro" \
+        -v "$CACHE_HOT_PROTECT_PATCH_HOST:/opt/glm53/patch_cache_hot_protect.py:ro" \
         -v "$PERGROUP_PATCH_HOST:/opt/glm53/patch_apc_per_group_retention.py:ro" \
         -v "$XGRAMMAR_PATCH_HOST:/opt/glm53/patch_xgrammar_termination.py:ro" \
         -v "$CACHE_RESET_PATCH_HOST:/opt/glm53/patch_cache_reset.py:ro" \
