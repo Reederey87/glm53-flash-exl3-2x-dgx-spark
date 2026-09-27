@@ -351,6 +351,11 @@ GLM53_MIXED_PREFILL_LATE_CAP_MAX="${GLM53_MIXED_PREFILL_LATE_CAP_MAX:-1792}"  # 
 GLM53_SPINWAIT_2MS="${GLM53_SPINWAIT_2MS:-0}"
 # LOCAL: 1 = exempt KpoolTailManager from the partial-hash veto -> hash-grain (64) prefix hits (W18). Off by default.
 GLM53_FINE_GRAINED_APC="${GLM53_FINE_GRAINED_APC:-0}"
+# LOCAL: 1 = one drafter block id per compact page (largest unsplit multiple
+# of 64 that divides the MLA block and fits the MLA page). Off = block 64.
+# The patch no-ops when this is not 1, so mounting it is byte-neutral.
+GLM53_DRAFT_COMPACT_PAGE="${GLM53_DRAFT_COMPACT_PAGE:-0}"
+DRAFT_COMPACT_PAGE_PATCH_HOST="${DRAFT_COMPACT_PAGE_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_draft_compact_page.py}"
 # LOCAL: 1 = floor a sub-block mixed-prefill chunk at the mixed cap instead of 0 when LPTT >= block_size
 # (scheduler livelock, dormant at LPTT=1792 — proven 0 mismatches over 608 combinations). Read once at import.
 GLM53_ALIGN_FLOOR="${GLM53_ALIGN_FLOOR:-1}"
@@ -1638,6 +1643,11 @@ fi
 if [ -f /opt/glm53/patch_hybrid_prefix_hit.py ]; then
     python3 -S /opt/glm53/patch_hybrid_prefix_hit.py
 fi
+# After the drafter-group patch and the hybrid min() skip. Self-gated on
+# GLM53_DRAFT_COMPACT_PAGE; flag off leaves both files byte-identical.
+if [ -f /opt/glm53/patch_draft_compact_page.py ]; then
+    python3 -S /opt/glm53/patch_draft_compact_page.py
+fi
 if [ -f /opt/glm53/patch_apc_per_group_retention.py ]; then  # LOCAL: W25
     python3 -S /opt/glm53/patch_apc_per_group_retention.py
 fi
@@ -1808,6 +1818,11 @@ fi
 if [ -f /opt/glm53/patch_hybrid_prefix_hit.py ]; then
     python3 -S /opt/glm53/patch_hybrid_prefix_hit.py
 fi
+# After the drafter-group patch and the hybrid min() skip. Self-gated on
+# GLM53_DRAFT_COMPACT_PAGE; flag off leaves both files byte-identical.
+if [ -f /opt/glm53/patch_draft_compact_page.py ]; then
+    python3 -S /opt/glm53/patch_draft_compact_page.py
+fi
 if [ -f /opt/glm53/patch_apc_per_group_retention.py ]; then  # LOCAL: W25
     python3 -S /opt/glm53/patch_apc_per_group_retention.py
 fi
@@ -1903,6 +1918,8 @@ launch_cluster() {
     scp -q -o BatchMode=yes "$DRAFTER_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_glm5_drafter_group.py"
     [ -f "$APC_PATCH_HOST" ] || die "missing $APC_PATCH_HOST"
     scp -q -o BatchMode=yes "$APC_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_hybrid_prefix_hit.py"
+    [ -f "$DRAFT_COMPACT_PAGE_PATCH_HOST" ] || die "missing $DRAFT_COMPACT_PAGE_PATCH_HOST"
+    scp -q -o BatchMode=yes "$DRAFT_COMPACT_PAGE_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_draft_compact_page.py"
     [ -f "$PERGROUP_PATCH_HOST" ] || die "missing $PERGROUP_PATCH_HOST"  # LOCAL: W25
     scp -q -o BatchMode=yes "$PERGROUP_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_apc_per_group_retention.py"
     [ -f "$XGRAMMAR_PATCH_HOST" ] || die "missing $XGRAMMAR_PATCH_HOST"
@@ -1998,6 +2015,7 @@ launch_cluster() {
         # LOCAL: W17/W18 opt-in overlays (both ranks read these at patch time)
         -e "GLM53_SPINWAIT_2MS=$GLM53_SPINWAIT_2MS"
         -e "GLM53_FINE_GRAINED_APC=$GLM53_FINE_GRAINED_APC"
+        -e "GLM53_DRAFT_COMPACT_PAGE=$GLM53_DRAFT_COMPACT_PAGE"
         -e "DEFAULT_MAX_NEW_TOKENS=$DEFAULT_MAX_NEW_TOKENS"
         -e "TRITON_CACHE_DIR=$TRITON_CACHE_DIR"
         -e "TILELANG_CACHE_DIR=$TILELANG_CACHE_DIR"
@@ -2090,6 +2108,7 @@ launch_cluster() {
         -v '/tmp/patch_scheduler_decode_floor.py:/opt/glm53/patch_scheduler_decode_floor.py:ro' \
         -v '/tmp/patch_glm5_drafter_group.py:/opt/glm53/patch_glm5_drafter_group.py:ro' \
         -v '/tmp/patch_hybrid_prefix_hit.py:/opt/glm53/patch_hybrid_prefix_hit.py:ro' \
+        -v '/tmp/patch_draft_compact_page.py:/opt/glm53/patch_draft_compact_page.py:ro' \
         -v '/tmp/patch_apc_per_group_retention.py:/opt/glm53/patch_apc_per_group_retention.py:ro' \
         -v '/tmp/patch_xgrammar_termination.py:/opt/glm53/patch_xgrammar_termination.py:ro' \
         -v '/tmp/patch_cache_reset.py:/opt/glm53/patch_cache_reset.py:ro' \
@@ -2135,6 +2154,7 @@ launch_cluster() {
         -v "$SCHED_PATCH_HOST:/opt/glm53/patch_scheduler_decode_floor.py:ro" \
         -v "$DRAFTER_PATCH_HOST:/opt/glm53/patch_glm5_drafter_group.py:ro" \
         -v "$APC_PATCH_HOST:/opt/glm53/patch_hybrid_prefix_hit.py:ro" \
+        -v "$DRAFT_COMPACT_PAGE_PATCH_HOST:/opt/glm53/patch_draft_compact_page.py:ro" \
         -v "$PERGROUP_PATCH_HOST:/opt/glm53/patch_apc_per_group_retention.py:ro" \
         -v "$XGRAMMAR_PATCH_HOST:/opt/glm53/patch_xgrammar_termination.py:ro" \
         -v "$CACHE_RESET_PATCH_HOST:/opt/glm53/patch_cache_reset.py:ro" \
