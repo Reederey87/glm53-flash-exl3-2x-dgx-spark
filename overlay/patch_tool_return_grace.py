@@ -77,7 +77,10 @@ FREE_NEW = """\
                         _glm53_block.block_hash_num_tokens or 0,
                     )
                 )
-            _glm53_remember(request.request_id, _glm53_pairs)
+            _glm53_remember(
+                request.request_id, _glm53_pairs,
+                getattr(request, "_glm53_external_request_id", None),
+            )
         except Exception:
             import traceback
             traceback.print_exc()
@@ -93,9 +96,16 @@ CORE_OLD = """\
 """
 
 CORE_NEW = """\
-        return self.scheduler.reset_prefix_cache(
+        _glm53_reset = self.scheduler.reset_prefix_cache(
             reset_running_requests, reset_connector
         )
+        if _glm53_reset:
+            import sys as _glm53_sys
+            if "/opt/glm53" not in _glm53_sys.path:
+                _glm53_sys.path.insert(0, "/opt/glm53")
+            from cache_tail_evict import reset_grace_state
+            reset_grace_state()
+        return _glm53_reset
 
     def glm53_mark_tool_grace(self, request_id: str) -> int:
         \"\"\"[glm53-tool-return-grace] Mark the request's still-matching pages.
@@ -115,6 +125,17 @@ CORE_NEW = """\
         )
 
     def reset_encoder_cache(self) -> None:
+"""
+
+ID_OLD = """\
+        req = Request.from_engine_core_request(request, self.request_block_hasher)
+        if req.use_structured_output:
+"""
+ID_NEW = """\
+        req = Request.from_engine_core_request(request, self.request_block_hasher)
+        # [glm53-tool-return-grace] preserve the explicit API/engine id mapping.
+        req._glm53_external_request_id = request.external_req_id
+        if req.use_structured_output:
 """
 
 STREAM_OLD = """\
@@ -203,30 +224,35 @@ def main() -> int:
         print(f"{MARK} missing {missing}", file=sys.stderr, flush=True)
         return 1
     texts = [path.read_text() for path in paths]
-    if all(MARK in text for text in texts):
+    installed = (
+        texts[0].count(FREE_NEW) == 1,
+        texts[1].count(CORE_NEW) == 1 and texts[1].count(ID_NEW) == 1,
+        texts[2].count(STREAM_NEW) == 1 and texts[2].count(FULL_NEW) == 1,
+    )
+    if all(installed):
         print(f"{MARK} already present", flush=True)
         return 0
     if any(MARK in text for text in texts):
         print(f"{MARK} partial install", file=sys.stderr, flush=True)
         return 1
-    olds = (FREE_OLD, CORE_OLD, STREAM_OLD, FULL_OLD)
     counts = (
         texts[0].count(FREE_OLD),
         texts[1].count(CORE_OLD),
         texts[2].count(STREAM_OLD),
         texts[2].count(FULL_OLD),
+        texts[1].count(ID_OLD),
     )
-    if counts != (1, 1, 1, 1):
+    if counts != (1, 1, 1, 1, 1):
         print(f"{MARK} anchor drift: {counts}", file=sys.stderr, flush=True)
         return 1
     new_kv = texts[0].replace(FREE_OLD, FREE_NEW, 1)
-    new_core = texts[1].replace(CORE_OLD, CORE_NEW, 1)
+    new_core = texts[1].replace(CORE_OLD, CORE_NEW, 1).replace(ID_OLD, ID_NEW, 1)
     new_serving = texts[2].replace(STREAM_OLD, STREAM_NEW, 1).replace(
         FULL_OLD, FULL_NEW, 1
     )
     if (
         new_kv.count(MARK) != 1
-        or new_core.count(MARK) != 1
+        or new_core.count(MARK) != 2
         or new_serving.count(MARK) != 4
     ):
         print(f"{MARK} replacement did not apply cleanly", file=sys.stderr, flush=True)

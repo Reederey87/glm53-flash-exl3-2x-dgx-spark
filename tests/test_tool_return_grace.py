@@ -109,18 +109,80 @@ def test_cap_drops_the_deepest_page_of_the_oldest_mark():
         reset_grace_state()
 
 
-def test_confirm_uses_the_one_recent_snapshot_on_an_id_miss(monkeypatch, capsys):
+def test_confirm_uses_explicit_external_id_with_overlapping_finishes(monkeypatch):
     monkeypatch.setenv("GLM53_TOOL_RETURN_GRACE", "1")
     reset_grace_state()
     kept = Block(0, 3_584)
-    pool = Pool([kept])
-    remember_snapshot("engine-id", [(0, kept.block_hash, 3_584)])
+    other = Block(1, 7_168)
+    pool = Pool([kept, other])
+    remember_snapshot("engine-id", [(0, kept.block_hash, 3_584)], "chat-id")
+    remember_snapshot("engine-other", [(1, other.block_hash, 7_168)], "chat-other")
     try:
         assert confirm_tool_grace("chat-id", pool) == 1
         assert grace_live(0, time.monotonic())
-        assert "recent snapshot" in capsys.readouterr().out
+        assert not grace_live(1, time.monotonic())
+        assert confirm_tool_grace("chat-other", pool) == 1
     finally:
         reset_grace_state()
+
+
+def test_unknown_id_cannot_claim_an_unrelated_recent_finish(monkeypatch):
+    monkeypatch.setenv("GLM53_TOOL_RETURN_GRACE", "1")
+    reset_grace_state()
+    block = Block(0, 3_584)
+    remember_snapshot("plain-stop", [(0, block.block_hash, 3_584)])
+    assert confirm_tool_grace("unrelated-tool-call", Pool([block])) == 0
+    assert not grace_live(0, time.monotonic())
+    reset_grace_state()
+
+
+def test_more_than_sixteen_unconfirmed_finishes_stay_bounded(monkeypatch):
+    import cache_tail_evict as evict
+    monkeypatch.setenv("GLM53_TOOL_RETURN_GRACE", "1")
+    reset_grace_state()
+    block = Block(0, 3_584)
+    for index in range(128):
+        remember_snapshot(f"engine-{index}", [(0, block.block_hash, 3_584)], f"chat-{index}")
+        assert len(evict._SNAPSHOTS) <= evict._SNAPSHOT_LIMIT
+    assert confirm_tool_grace("chat-0", Pool([block])) == 0
+    assert confirm_tool_grace("chat-127", Pool([block])) == 1
+    reset_grace_state()
+
+
+def test_duplicate_external_ids_fail_closed(monkeypatch):
+    monkeypatch.setenv("GLM53_TOOL_RETURN_GRACE", "1")
+    reset_grace_state()
+    blocks = [Block(0, 3_584), Block(1, 7_168)]
+    for index, block in enumerate(blocks):
+        remember_snapshot(str(index), [(index, block.block_hash, 3_584)], "duplicate")
+    assert confirm_tool_grace("duplicate", Pool(blocks)) == 0
+    assert confirm_tool_grace("duplicate", Pool(blocks)) == 0
+    assert not _grace_ids()
+    reset_grace_state()
+
+
+def test_pending_snapshot_expires_and_reset_drops_it(monkeypatch):
+    import cache_tail_evict as evict
+    monkeypatch.setenv("GLM53_TOOL_RETURN_GRACE", "1")
+    reset_grace_state()
+    block = Block(0, 3_584)
+    monkeypatch.setattr(evict.time, "monotonic", lambda: 1000.0)
+    remember_snapshot("engine", [(0, block.block_hash, 3_584)], "chat")
+    monkeypatch.setattr(evict.time, "monotonic", lambda: 1001.0 + GRACE_TTL_S)
+    assert confirm_tool_grace("chat", Pool([block])) == 0
+    remember_snapshot("engine", [(0, block.block_hash, 3_584)], "chat")
+    reset_grace_state()
+    assert confirm_tool_grace("chat", Pool([block])) == 0
+
+
+def test_snapshot_and_confirm_are_inert_when_disabled(monkeypatch):
+    import cache_tail_evict as evict
+    monkeypatch.setenv("GLM53_TOOL_RETURN_GRACE", "0")
+    reset_grace_state()
+    block = Block(0, 3_584)
+    remember_snapshot("engine", [(0, block.block_hash, 3_584)], "chat")
+    assert not evict._SNAPSHOTS
+    assert confirm_tool_grace("chat", Pool([block])) == 0
 
 
 def test_confirm_skips_a_block_whose_hash_changed(monkeypatch):
@@ -167,6 +229,9 @@ def _write_anchors(tmp: Path) -> None:
         "class C:\n    def reset_prefix_cache(self):\n"
         + CORE_ANCHOR
         + "        return None\n"
+        + "    def preprocess(self, request):\n"
+        + "        req = Request.from_engine_core_request(request, self.request_block_hasher)\n"
+        + "        if req.use_structured_output:\n            pass\n"
     )
     (tmp / "serving.py").write_text(
         "async def stream():\n" + STREAM_ANCHOR + "async def full():\n" + FULL_ANCHOR
@@ -247,3 +312,15 @@ def test_installer_rejects_garbage_and_drift(tmp_path: Path):
     garbage = _run_installer(tmp_path, "yes", rewrite=False)
     assert garbage.returncode == 1
     assert (tmp_path / "kv.py").read_text() == "drift\n"
+
+
+def test_installer_refuses_marker_only_or_incomplete_upgrade(tmp_path: Path):
+    assert _run_installer(tmp_path, "1").returncode == 0
+    path = tmp_path / "core.py"
+    path.write_text(path.read_text().replace(
+        "req._glm53_external_request_id = request.external_req_id", "pass"
+    ))
+    before = [(tmp_path / name).read_text() for name in ("kv.py", "core.py", "serving.py")]
+    result = _run_installer(tmp_path, "1", rewrite=False)
+    assert result.returncode == 1
+    assert [(tmp_path / name).read_text() for name in ("kv.py", "core.py", "serving.py")] == before

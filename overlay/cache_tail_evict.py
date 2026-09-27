@@ -42,10 +42,9 @@ _GRACE_LOGGED = False
 _REUSED: set[int] = set()
 # block_id -> (monotonic timestamp, hash token count)
 _GRACE: dict[int, tuple[float, int]] = {}
-# request_id -> list of (block_id, hash, hash token count)
-_SNAPSHOTS: dict[str, list[tuple[int, object, int]]] = {}
-# (request_id, pairs, monotonic time), newest at the right
-_RECENT: list[tuple[str, list[tuple[int, object, int]], float]] = []
+# internal request id -> (external request id, block/hash pairs, free time).
+# One bounded mapping owns all pending state; no separate recent-free queue.
+_SNAPSHOTS: dict[str, tuple[str, list[tuple[int, object, int]], float]] = {}
 GRACE_TTL_S = 600.0
 GRACE_CAP = 141  # quarter of the 566 usable blocks
 _SNAPSHOT_LIMIT = 16
@@ -75,28 +74,31 @@ def reset_grace_state() -> None:
     """Drop grace marks and snapshots. Tests use this between cases."""
     _GRACE.clear()
     _SNAPSHOTS.clear()
-    _RECENT.clear()
 
 
 def remember_snapshot(
-    request_id: str, pairs: list[tuple[int, object, int]]
+    request_id: str, pairs: list[tuple[int, object, int]],
+    external_request_id: str | None = None,
 ) -> None:
     """Keep hashed ids from a request that is about to be freed.
 
     The confirm arrives later, from the process that rewrites the finish
-    reason. Flag off stores nothing. The recent list lets a confirm whose
-    id does not match still claim the one snapshot from the last few
-    seconds, which is the gap between the scheduler id and the chat id.
+    reason. Flag off stores nothing. EngineCoreRequest.external_req_id is
+    carried into the scheduler Request explicitly: timing never establishes
+    request identity. Multiple pending requests with the same external id
+    are ambiguous and cannot be confirmed.
     """
     if not tool_grace_enabled():
         return
+    now = time.monotonic()
+    _expire_snapshots(now)
+    _SNAPSHOTS.pop(request_id, None)
+    if not pairs:
+        return
     stored = list(pairs)
-    _SNAPSHOTS[request_id] = stored
-    _RECENT.append((request_id, stored, time.monotonic()))
+    _SNAPSHOTS[request_id] = (external_request_id or request_id, stored, now)
     while len(_SNAPSHOTS) > _SNAPSHOT_LIMIT:
         _SNAPSHOTS.pop(next(iter(_SNAPSHOTS)))
-    while len(_RECENT) > _SNAPSHOT_LIMIT:
-        _RECENT.popleft()
     print(
         f"[glm53-tool-return-grace] stored {len(stored)} pages",
         flush=True,
@@ -117,33 +119,22 @@ def confirm_tool_grace(request_id: str, pool) -> int:
     """
     if not tool_grace_enabled():
         return 0
-    pairs = _SNAPSHOTS.pop(request_id, None)
-    if pairs:
-        _drop_recent(request_id)
-    else:
-        now = time.monotonic()
-        fresh = [
-            item for item in _RECENT if item[1] and now - item[2] <= 5.0
-        ]
-        # One recent free is the finish we just heard about under a
-        # different id. Two would be ambiguous, so leave both one-shot.
-        if len(fresh) == 1:
-            pairs = fresh[0][1]
-            _drop_recent(fresh[0][0])
-            _SNAPSHOTS.pop(fresh[0][0], None)
-            print(
-                "[glm53-tool-return-grace] confirm used the recent snapshot",
-                flush=True,
-            )
-        else:
-            print(
-                f"[glm53-tool-return-grace] no snapshot "
-                f"(recent={len(fresh)})",
-                flush=True,
-            )
-            return 0
-    blocks = pool.blocks
     now = time.monotonic()
+    _expire_snapshots(now)
+    matches = [key for key, (external, _, _) in _SNAPSHOTS.items()
+               if external == request_id]
+    if len(matches) != 1:
+        # Fail closed, including duplicate external ids. Never let a second
+        # confirm claim the remaining sibling after an ambiguous first one.
+        for key in matches:
+            _SNAPSHOTS.pop(key)
+        print(
+            f"[glm53-tool-return-grace] no unique snapshot (matches={len(matches)})",
+            flush=True,
+        )
+        return 0
+    _, pairs, _ = _SNAPSHOTS.pop(matches[0])
+    blocks = pool.blocks
     marked = 0
     for block_id, hashed, num_tokens in pairs:
         if not isinstance(block_id, int) or block_id < 0 or block_id >= len(blocks):
@@ -161,8 +152,10 @@ def confirm_tool_grace(request_id: str, pool) -> int:
     return marked
 
 
-def _drop_recent(request_id: str) -> None:
-    _RECENT[:] = [item for item in _RECENT if item[0] != request_id]
+def _expire_snapshots(now: float) -> None:
+    for key, (_, _, stamp) in list(_SNAPSHOTS.items()):
+        if now - stamp > GRACE_TTL_S:
+            _SNAPSHOTS.pop(key)
 
 
 def grace_live(block_id: int, now: float) -> bool:
