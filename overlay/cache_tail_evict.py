@@ -22,8 +22,11 @@ snapshots a request's hashed block ids when it frees them. The chat layer
 confirms the snapshot only after it rewrites ``finish_reason`` to
 ``tool_calls``, which is after the free and before the client runs the
 tool. Until that confirm, and for a plain stop, the pages stay one-shot.
-Grace is a lazy 120 second TTL checked at eviction, capped at a quarter of
-the 566 usable blocks. The cap drops the oldest mark first and, within one
+Grace is a lazy 600 second TTL checked at eviction, capped at a quarter of
+the 566 usable blocks. The lease has to outlast a competing prefill on
+this pool, not only the tool call itself: the eighteen-prompt flood takes
+about seven minutes, and a 120 second lease expired while that flood was
+still running. The cap drops the oldest mark first and, within one
 timestamp, the deepest page, so a prefix head outlives its own tail. A
 later real hit promotes the block through hot-protect and clears grace.
 No timer thread and no hard pin.
@@ -41,7 +44,7 @@ _REUSED: set[int] = set()
 _GRACE: dict[int, tuple[float, int]] = {}
 # request_id -> list of (block_id, hash, hash token count)
 _SNAPSHOTS: dict[str, list[tuple[int, object, int]]] = {}
-GRACE_TTL_S = 120.0
+GRACE_TTL_S = 600.0
 GRACE_CAP = 141  # quarter of the 566 usable blocks
 _SNAPSHOT_LIMIT = 16
 
@@ -103,6 +106,10 @@ def confirm_tool_grace(request_id: str, pool) -> int:
         return 0
     pairs = _SNAPSHOTS.pop(request_id, None)
     if not pairs:
+        print(
+            "[glm53-tool-return-grace] no snapshot for this finish",
+            flush=True,
+        )
         return 0
     blocks = pool.blocks
     now = time.monotonic()
@@ -116,6 +123,10 @@ def confirm_tool_grace(request_id: str, pool) -> int:
         _GRACE[block_id] = (now, num_tokens or 0)
         marked += 1
     _trim_grace()
+    print(
+        f"[glm53-tool-return-grace] confirmed {marked} of {len(pairs)} pages",
+        flush=True,
+    )
     return marked
 
 

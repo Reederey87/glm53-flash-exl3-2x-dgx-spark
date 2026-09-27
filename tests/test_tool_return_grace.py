@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "overlay"))
 
 from cache_tail_evict import (  # noqa: E402
     GRACE_CAP,
+    GRACE_TTL_S,
     confirm_tool_grace,
     grace_live,
     mark_reused,
@@ -83,7 +84,7 @@ def test_expired_grace_is_spent_as_one_shot(monkeypatch):
     # one-shot instead. Expired grace spends the deep page.
     paused = Block(1, 90_000)
     chaff = Block(2, 3_584)
-    note_grace(1, 90_000, now=time.monotonic() - 121)
+    note_grace(1, 90_000, now=time.monotonic() - (GRACE_TTL_S + 1))
     try:
         queue = Queue([chaff, paused])
         taken = [block.block_id for block in select_blocks(queue, 1)]
