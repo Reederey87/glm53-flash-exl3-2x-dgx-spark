@@ -62,3 +62,21 @@ deployment's attention state or expert kernels in the router window.
 
 Pending the pre-registered control/candidate window. Gate and raw receipts:
 `local/router-once-20260927/`. Do not infer adoption from installer success.
+
+The reusable serving smoke requires an idle endpoint and resets its prefix
+cache. It checks 26 requests: HTTP/SSE tools, 20 plain completions and four
+concurrent long prompts with mixed plain/tool and HTTP/SSE responses. It saves
+raw responses, parsed tool arguments, usage and before/after metrics:
+
+```bash
+uv sync --locked
+uv run python scripts/smoke_router_once.py --base http://127.0.0.1:8000 \
+  --out local/router-once-smoke
+```
+
+For each decode arm, use `tests/bench_decode.py` with `--max-tokens 512`,
+three warmup runs and five measured runs per lane. Use `--structured` for
+counting, no lane flag for hashmap prose, and `--essay` for hard essay.
+Keep warmups in separate output files; compare measured medians and inspect
+acceptance counters, engine logs and both-node memory. A successful HTTP
+response alone is not a correctness or speed gate.
