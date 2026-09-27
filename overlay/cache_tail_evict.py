@@ -16,28 +16,133 @@ one-shot block. Depth still orders each of those two bands, so the first
 return of a paused agent keeps the tail-first behavior. ``clear_reused``
 runs when the hash is dropped, because the physical block is about to hold
 different tokens.
+
+``GLM53_TOOL_RETURN_GRACE=1`` adds a band between those two. The engine
+snapshots a request's hashed block ids when it frees them. The chat layer
+confirms the snapshot only after it rewrites ``finish_reason`` to
+``tool_calls``, which is after the free and before the client runs the
+tool. Until that confirm, and for a plain stop, the pages stay one-shot.
+Grace is a lazy 120 second TTL checked at eviction, capped at a quarter of
+the 566 usable blocks. The cap drops the oldest mark first and, within one
+timestamp, the deepest page, so a prefix head outlives its own tail. A
+later real hit promotes the block through hot-protect and clears grace.
+No timer thread and no hard pin.
 """
 from __future__ import annotations
 
 import os
+import time
 
 _LOGGED = False
 _HOT_LOGGED = False
+_GRACE_LOGGED = False
 _REUSED: set[int] = set()
+# block_id -> (monotonic timestamp, hash token count)
+_GRACE: dict[int, tuple[float, int]] = {}
+# request_id -> list of (block_id, hash, hash token count)
+_SNAPSHOTS: dict[str, list[tuple[int, object, int]]] = {}
+GRACE_TTL_S = 120.0
+GRACE_CAP = 141  # quarter of the 566 usable blocks
+_SNAPSHOT_LIMIT = 16
 
 
 def hot_protect_enabled() -> bool:
     return os.environ.get("GLM53_CACHE_HOT_PROTECT", "0").strip() == "1"
 
 
+def tool_grace_enabled() -> bool:
+    return os.environ.get("GLM53_TOOL_RETURN_GRACE", "0").strip() == "1"
+
+
 def mark_reused(block_id: int) -> None:
     """Remember that some request has already hit this cached block."""
     _REUSED.add(block_id)
+    _GRACE.pop(block_id, None)
 
 
 def clear_reused(block_id: int) -> None:
     """Forget a block whose cached tokens are gone."""
     _REUSED.discard(block_id)
+    _GRACE.pop(block_id, None)
+
+
+def reset_grace_state() -> None:
+    """Drop grace marks and snapshots. Tests use this between cases."""
+    _GRACE.clear()
+    _SNAPSHOTS.clear()
+
+
+def remember_snapshot(
+    request_id: str, pairs: list[tuple[int, object, int]]
+) -> None:
+    """Keep hashed ids from a request that is about to be freed.
+
+    The confirm arrives later, from the process that rewrites the finish
+    reason. Flag off stores nothing.
+    """
+    if not tool_grace_enabled():
+        return
+    _SNAPSHOTS[request_id] = list(pairs)
+    while len(_SNAPSHOTS) > _SNAPSHOT_LIMIT:
+        _SNAPSHOTS.pop(next(iter(_SNAPSHOTS)))
+
+
+def note_grace(block_id: int, num_tokens: int, now: float | None = None) -> None:
+    """Put one block in the grace band and enforce the cap."""
+    _GRACE[block_id] = (time.monotonic() if now is None else now, num_tokens)
+    _trim_grace()
+
+
+def confirm_tool_grace(request_id: str, pool) -> int:
+    """Mark snapshotted blocks whose hash is still the one we freed.
+
+    A block that was overwritten since the free is left one-shot. Returns
+    how many blocks were marked.
+    """
+    if not tool_grace_enabled():
+        return 0
+    pairs = _SNAPSHOTS.pop(request_id, None)
+    if not pairs:
+        return 0
+    blocks = pool.blocks
+    now = time.monotonic()
+    marked = 0
+    for block_id, hashed, num_tokens in pairs:
+        if not isinstance(block_id, int) or block_id < 0 or block_id >= len(blocks):
+            continue
+        block = blocks[block_id]
+        if block.block_hash != hashed:
+            continue
+        _GRACE[block_id] = (now, num_tokens or 0)
+        marked += 1
+    _trim_grace()
+    return marked
+
+
+def grace_live(block_id: int, now: float) -> bool:
+    """True when the grace mark exists and is inside the TTL.
+
+    An expired mark is cleared here, so the block falls back to one-shot
+    without a timer thread.
+    """
+    row = _GRACE.get(block_id)
+    if row is None:
+        return False
+    if now - row[0] > GRACE_TTL_S:
+        _GRACE.pop(block_id, None)
+        return False
+    return True
+
+
+def _trim_grace() -> None:
+    overflow = len(_GRACE) - GRACE_CAP
+    if overflow <= 0:
+        return
+    # Oldest mark first. The same timestamp drops the deepest page first,
+    # so the head of a prefix is what the cap keeps.
+    victims = sorted(_GRACE.items(), key=lambda item: (item[1][0], -item[1][1]))
+    for block_id, _row in victims[:overflow]:
+        _GRACE.pop(block_id, None)
 
 
 def rank_key(
@@ -45,13 +150,21 @@ def rank_key(
     num_tokens: int | None,
     index: int,
     reused: bool = False,
+    grace: bool = False,
 ) -> tuple[int, int, int, int]:
     """Sort key. Smaller is evicted sooner.
 
-    The reused bit is 0 unless the caller passes it. With that bit held at
-    0 the order matches depth-only eviction.
+    Band 0 is one-shot, band 1 is an unexpired tool-return, band 2 is a
+    block a later request has hit. With both bits held at false the order
+    matches depth-only eviction. A reused block outranks grace.
     """
-    return (1 if hashed else 0, 1 if reused else 0, -(num_tokens or 0), index)
+    if reused:
+        band = 2
+    elif grace:
+        band = 1
+    else:
+        band = 0
+    return (1 if hashed else 0, band, -(num_tokens or 0), index)
 
 
 def select_blocks(queue, num_blocks: int) -> list:
@@ -61,7 +174,7 @@ def select_blocks(queue, num_blocks: int) -> list:
     ``fake_free_list_tail``, and ``remove``. The caller has already checked
     that at least ``num_blocks`` blocks are free.
     """
-    global _LOGGED, _HOT_LOGGED
+    global _LOGGED, _HOT_LOGGED, _GRACE_LOGGED
     if not _LOGGED:
         _LOGGED = True
         print(
@@ -76,8 +189,17 @@ def select_blocks(queue, num_blocks: int) -> list:
             "is evicted after one-shot blocks",
             flush=True,
         )
+    grace_on = tool_grace_enabled()
+    if grace_on and not _GRACE_LOGGED:
+        _GRACE_LOGGED = True
+        print(
+            "[glm53-tool-return-grace] a tool-call page is evicted after "
+            "one-shot blocks and before a reused page",
+            flush=True,
+        )
     if num_blocks == 0:
         return []
+    now = time.monotonic()
     ranked: list[tuple[tuple[int, int, int, int], object]] = []
     index = 0
     block = queue.fake_free_list_head.next_free_block
@@ -86,6 +208,12 @@ def select_blocks(queue, num_blocks: int) -> list:
         reused = bool(
             protect and block.block_hash is not None and block.block_id in _REUSED
         )
+        grace = bool(
+            grace_on
+            and not reused
+            and block.block_hash is not None
+            and grace_live(block.block_id, now)
+        )
         ranked.append(
             (
                 rank_key(
@@ -93,6 +221,7 @@ def select_blocks(queue, num_blocks: int) -> list:
                     block.block_hash_num_tokens,
                     index,
                     reused,
+                    grace,
                 ),
                 block,
             )

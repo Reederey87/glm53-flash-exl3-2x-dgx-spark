@@ -367,6 +367,11 @@ CACHE_TAIL_EVICT_MODULE_HOST="${CACHE_TAIL_EVICT_MODULE_HOST:-$SCRIPT_DIR/overla
 # tail-first eviction. Off leaves the hit path and reset_hash byte-identical.
 GLM53_CACHE_HOT_PROTECT="${GLM53_CACHE_HOT_PROTECT:-0}"
 CACHE_HOT_PROTECT_PATCH_HOST="${CACHE_HOT_PROTECT_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_cache_hot_protect.py}"
+# LOCAL: 1 = a tool-call finish keeps its hashed pages ahead of one-shot
+# pages for 120s, capped at a quarter of the usable pool. A plain stop does
+# not. 0 leaves the installed sources untouched. Python only.
+GLM53_TOOL_RETURN_GRACE="${GLM53_TOOL_RETURN_GRACE:-0}"
+TOOL_RETURN_GRACE_PATCH_HOST="${TOOL_RETURN_GRACE_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_tool_return_grace.py}"
 # LOCAL: 1 = floor a sub-block mixed-prefill chunk at the mixed cap instead of 0 when LPTT >= block_size
 # (scheduler livelock, dormant at LPTT=1792 — proven 0 mismatches over 608 combinations). Read once at import.
 GLM53_ALIGN_FLOOR="${GLM53_ALIGN_FLOOR:-1}"
@@ -577,6 +582,13 @@ validate_numeric_config() {
     # the overlays re-validate in-process and fail closed.
     for _v in GLM53_KV_CAPACITY_LOG GLM53_APC_NO_STORE GLM53_EXL3_MOE_PIPELINE GLM53_EXL3_MOE_REUSE; do
         case "${!_v}" in 0|1) ;; *) echo "$_v must be exactly 0 or 1 (got: '${!_v}')" >&2; return 2 ;; esac
+    done
+    unset _v
+    # Defaults at the top of the file. ${var:-0} accepts an unset value in a
+    # validate slice that does not include that top, and still rejects a set
+    # non-boolean.
+    for _v in GLM53_TOOL_RETURN_GRACE; do
+        case "${!_v:-0}" in 0|1) ;; *) echo "$_v must be exactly 0 or 1 (got: '${!_v}')" >&2; return 2 ;; esac
     done
     unset _v
     # LOCAL: task 42 -- the register-cut kernel is reachable only through the
@@ -1668,6 +1680,10 @@ fi
 if [ -f /opt/glm53/patch_cache_hot_protect.py ]; then
     python3 -S /opt/glm53/patch_cache_hot_protect.py
 fi
+# Self-gated on GLM53_TOOL_RETURN_GRACE. Flag off does not edit sources.
+if [ -f /opt/glm53/patch_tool_return_grace.py ]; then
+    python3 -S /opt/glm53/patch_tool_return_grace.py
+fi
 if [ -f /opt/glm53/patch_apc_per_group_retention.py ]; then  # LOCAL: W25
     python3 -S /opt/glm53/patch_apc_per_group_retention.py
 fi
@@ -1852,6 +1868,10 @@ fi
 if [ -f /opt/glm53/patch_cache_hot_protect.py ]; then
     python3 -S /opt/glm53/patch_cache_hot_protect.py
 fi
+# Self-gated on GLM53_TOOL_RETURN_GRACE. Flag off does not edit sources.
+if [ -f /opt/glm53/patch_tool_return_grace.py ]; then
+    python3 -S /opt/glm53/patch_tool_return_grace.py
+fi
 if [ -f /opt/glm53/patch_apc_per_group_retention.py ]; then  # LOCAL: W25
     python3 -S /opt/glm53/patch_apc_per_group_retention.py
 fi
@@ -1955,6 +1975,8 @@ launch_cluster() {
     scp -q -o BatchMode=yes "$CACHE_TAIL_EVICT_MODULE_HOST" "${WORKER_SSH}:/tmp/cache_tail_evict.py"
     [ -f "$CACHE_HOT_PROTECT_PATCH_HOST" ] || die "missing $CACHE_HOT_PROTECT_PATCH_HOST"
     scp -q -o BatchMode=yes "$CACHE_HOT_PROTECT_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_cache_hot_protect.py"
+    [ -f "$TOOL_RETURN_GRACE_PATCH_HOST" ] || die "missing $TOOL_RETURN_GRACE_PATCH_HOST"
+    scp -q -o BatchMode=yes "$TOOL_RETURN_GRACE_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_tool_return_grace.py"
     [ -f "$PERGROUP_PATCH_HOST" ] || die "missing $PERGROUP_PATCH_HOST"  # LOCAL: W25
     scp -q -o BatchMode=yes "$PERGROUP_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_apc_per_group_retention.py"
     [ -f "$XGRAMMAR_PATCH_HOST" ] || die "missing $XGRAMMAR_PATCH_HOST"
@@ -2053,6 +2075,7 @@ launch_cluster() {
         -e "GLM53_DRAFT_COMPACT_PAGE=$GLM53_DRAFT_COMPACT_PAGE"
         -e "GLM53_CACHE_TAIL_EVICT=$GLM53_CACHE_TAIL_EVICT"
         -e "GLM53_CACHE_HOT_PROTECT=$GLM53_CACHE_HOT_PROTECT"
+        -e "GLM53_TOOL_RETURN_GRACE=$GLM53_TOOL_RETURN_GRACE"
         -e "DEFAULT_MAX_NEW_TOKENS=$DEFAULT_MAX_NEW_TOKENS"
         -e "TRITON_CACHE_DIR=$TRITON_CACHE_DIR"
         -e "TILELANG_CACHE_DIR=$TILELANG_CACHE_DIR"
@@ -2149,6 +2172,7 @@ launch_cluster() {
         -v '/tmp/patch_cache_tail_evict.py:/opt/glm53/patch_cache_tail_evict.py:ro' \
         -v '/tmp/cache_tail_evict.py:/opt/glm53/cache_tail_evict.py:ro' \
         -v '/tmp/patch_cache_hot_protect.py:/opt/glm53/patch_cache_hot_protect.py:ro' \
+        -v '/tmp/patch_tool_return_grace.py:/opt/glm53/patch_tool_return_grace.py:ro' \
         -v '/tmp/patch_apc_per_group_retention.py:/opt/glm53/patch_apc_per_group_retention.py:ro' \
         -v '/tmp/patch_xgrammar_termination.py:/opt/glm53/patch_xgrammar_termination.py:ro' \
         -v '/tmp/patch_cache_reset.py:/opt/glm53/patch_cache_reset.py:ro' \
@@ -2198,6 +2222,7 @@ launch_cluster() {
         -v "$CACHE_TAIL_EVICT_PATCH_HOST:/opt/glm53/patch_cache_tail_evict.py:ro" \
         -v "$CACHE_TAIL_EVICT_MODULE_HOST:/opt/glm53/cache_tail_evict.py:ro" \
         -v "$CACHE_HOT_PROTECT_PATCH_HOST:/opt/glm53/patch_cache_hot_protect.py:ro" \
+        -v "$TOOL_RETURN_GRACE_PATCH_HOST:/opt/glm53/patch_tool_return_grace.py:ro" \
         -v "$PERGROUP_PATCH_HOST:/opt/glm53/patch_apc_per_group_retention.py:ro" \
         -v "$XGRAMMAR_PATCH_HOST:/opt/glm53/patch_xgrammar_termination.py:ro" \
         -v "$CACHE_RESET_PATCH_HOST:/opt/glm53/patch_cache_reset.py:ro" \
