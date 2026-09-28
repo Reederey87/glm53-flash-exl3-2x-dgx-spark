@@ -193,6 +193,16 @@ def test_synthesized_stock_carries_every_anchor() -> None:
     assert text.count("self._stream.wait_stream(current_stream())") == 1
 
 
+def test_whitespace_bearing_values_are_rejected(tmp_path: Path) -> None:
+    """A direct invocation must not be laxer than the launcher's strict bool."""
+    original = _fixture()
+    for bad in (" 1", "1 ", "1\r", "0 ", "\t1", "01", "true"):
+        result = _run(tmp_path, bad, original)
+        assert result.returncode == 1, (bad, result.returncode, result.stdout)
+        assert "must be exactly 0 or 1" in result.stderr, (bad, result.stderr)
+        assert (tmp_path / "shared_experts.py").read_text() == original, bad
+
+
 def test_flag_off_leaves_bytes_identical(tmp_path: Path) -> None:
     original = _fixture()
     result = _run(tmp_path, "0", original)

@@ -255,10 +255,60 @@ def _median_lane(receipt: dict, lane: str) -> float | None:
     return None
 
 
-def compare(args: argparse.Namespace) -> int:
-    control = json.loads(Path(args.compare[0]).read_text())
-    armed = json.loads(Path(args.compare[1]).read_text())
-    rows = []
+def gate_failures(control: dict, armed: dict) -> list[str]:
+    """Every prerequisite the pre-registered gate needs before a verdict.
+
+    Throughput alone is not the gate. An unhealthy pair, a failed or incoherent
+    lane, an unarmed container or a memory-starved node makes the comparison
+    unreadable, and reporting such a probe as adopted would be worse than
+    reporting nothing.
+    """
+    problems: list[str] = []
+    for label, receipt in (("control", control), ("armed", armed)):
+        for key in ("health_before", "health_after"):
+            if receipt.get(key) != 200:
+                problems.append(f"{label}: {key}={receipt.get(key)!r}, expected 200")
+        lanes = receipt.get("lanes") or []
+        if not lanes:
+            problems.append(f"{label}: no lane results")
+        for row in lanes:
+            lane = row.get("lane")
+            if row.get("returncode") != 0:
+                problems.append(f"{label}/{lane}: benchmark exit {row.get('returncode')!r}")
+            if row.get("tok_s_median") is None:
+                problems.append(f"{label}/{lane}: no median tok/s")
+            if row.get("any_nan"):
+                problems.append(f"{label}/{lane}: NaN in the generated text")
+            if lane in ("prose", "essay") and row.get("coherent") is not True:
+                problems.append(f"{label}/{lane}: coherence not confirmed")
+        mem = receipt.get("memfree") or {}
+        for node in ("head", "worker"):
+            entry = mem.get(node) or {}
+            low = entry.get("min_kib")
+            if low is None:
+                problems.append(f"{label}/{node}: no MemFree samples")
+            elif low < MEMFREE_FLOOR_KIB:
+                problems.append(
+                    f"{label}/{node}: MemFree min {low} KiB below the "
+                    f"{int(MEMFREE_FLOOR_KIB)} KiB floor"
+                )
+        expect = 3 if label == "armed" else 0
+        for node in ("head", "worker"):
+            count = (receipt.get("marker_counts") or {}).get(node)
+            if count != expect:
+                problems.append(
+                    f"{label}/{node}: installer marker count {count!r}, expected {expect}"
+                )
+    if (armed.get("effective_env") or {}).get("GLM53_SHARED_EXPERTS_EARLY") != "1":
+        problems.append(
+            "armed: GLM53_SHARED_EXPERTS_EARLY is not 1 in the container environment"
+        )
+    return problems
+
+
+def compare_rows(control: dict, armed: dict) -> tuple[list[dict], str]:
+    """Per-lane ratios and the throughput-only verdict."""
+    rows: list[dict] = []
     verdict = "ADOPT"
     for lane in LANES:
         c = _median_lane(control, lane)
@@ -284,17 +334,29 @@ def compare(args: argparse.Namespace) -> int:
         )
         if not (above_parity and above_floor):
             verdict = "REVERT"
+    if any(r.get("any_nan") for r in control.get("lanes", []) + armed.get("lanes", [])):
+        verdict = "REVERT"
+    return rows, verdict
+
+
+def compare(args: argparse.Namespace) -> int:
+    control = json.loads(Path(args.compare[0]).read_text())
+    armed = json.loads(Path(args.compare[1]).read_text())
+    problems = gate_failures(control, armed)
+    rows, verdict = compare_rows(control, armed)
     nan = any(
         r.get("any_nan") for r in control.get("lanes", []) + armed.get("lanes", [])
     )
-    if nan:
-        verdict = "REVERT"
+    # An unreadable probe is not a result, whatever the throughput says.
+    if problems:
+        verdict = "INVALID"
     out = {
         "control": args.compare[0],
         "armed": args.compare[1],
         "parity_floor": PARITY,
         "rows": rows,
         "any_nan": nan,
+        "gate_failures": problems,
         "verdict": verdict,
         "memfree": {"control": control.get("memfree"), "armed": armed.get("memfree")},
         "marker_counts": armed.get("marker_counts"),

@@ -197,7 +197,9 @@ def _state(text: str) -> str:
 
 
 def main() -> int:
-    flag = os.environ.get("GLM53_SHARED_EXPERTS_EARLY", "0").strip()
+    # No normalisation: the launcher's strict-bool contract rejects whitespace,
+    # so a direct invocation must not be more permissive than the launcher.
+    flag = os.environ.get("GLM53_SHARED_EXPERTS_EARLY", "0")
     if flag == "0":
         print(
             "GLM53_SHARED_EXPERTS_EARLY is off — installed sources unchanged",

@@ -78,6 +78,79 @@ REQUESTS = [
 ]
 
 
+# What each declared tool accepts, and the values the request actually asks for.
+# A tool call is only "correct" when the name is declared, the argument object
+# carries exactly the declared properties, and each value is the one requested.
+TOOL_CONTRACT = {
+    "get_weather": {
+        "properties": ("city", "units"),
+        "expected": {"city": "Lisbon", "units": "celsius"},
+    },
+    "add_numbers": {
+        "properties": ("a", "b"),
+        "expected": {"a": 4217, "b": 1938},
+    },
+}
+
+
+def _check_argument(tool: str, key: str, value: object) -> str:
+    """Return "" when the argument is acceptable, else the reason it is not."""
+    if key not in TOOL_CONTRACT[tool]["properties"]:
+        return f"undeclared property {key!r}"
+    expected = TOOL_CONTRACT[tool]["expected"][key]
+    if tool == "get_weather":
+        if not isinstance(value, str) or not value.strip():
+            return f"must be a non-empty string, got {value!r}"
+        if key == "city":
+            if expected.lower() not in value.lower():
+                return f"must name the requested city {expected!r}, got {value!r}"
+        elif key == "units":
+            if value not in ("celsius", "fahrenheit"):
+                return f"must be the declared enum, got {value!r}"
+            if value != expected:
+                return f"must be the requested {expected!r}, got {value!r}"
+        return ""
+    # add_numbers: bool is a subclass of int, so exclude it explicitly.
+    if isinstance(value, bool) or not isinstance(value, int):
+        return f"must be an integer, got {type(value).__name__}"
+    if value != expected:
+        return f"must be the requested {expected}, got {value!r}"
+    return ""
+
+
+def validate_call(call: dict) -> tuple[bool, list[str]]:
+    """Validate one tool call against the declared contract."""
+    fn = call.get("function") or {}
+    name = fn.get("name")
+    if name not in TOOL_CONTRACT:
+        return False, [f"undeclared function {name!r}"]
+    try:
+        parsed = json.loads(fn.get("arguments") or "")
+    except json.JSONDecodeError as exc:
+        return False, [f"{name}: unparseable arguments ({exc})"]
+    if not isinstance(parsed, dict):
+        return False, [f"{name}: arguments are not an object"]
+    declared = TOOL_CONTRACT[name]["properties"]
+    ok = True
+    detail: list[str] = []
+    missing = [key for key in declared if key not in parsed]
+    extra = [key for key in parsed if key not in declared]
+    if missing:
+        ok = False
+        detail.append(f"{name}: missing {missing}")
+    if extra:
+        ok = False
+        detail.append(f"{name}: undeclared properties {extra}")
+    for key, value in parsed.items():
+        reason = _check_argument(name, key, value)
+        if reason:
+            ok = False
+            detail.append(f"{name}.{key}: {reason}")
+    if not detail:
+        detail.append(f"{name} args ok: {parsed}")
+    return ok, detail
+
+
 def _post(payload: dict, timeout: int = 180) -> dict:
     body = json.dumps(payload).encode()
     req = urllib.request.Request(
@@ -122,31 +195,14 @@ def _one(name: str, prompt: str, wants_tool: bool) -> dict:
     record["nan"] = bool(NAN_RE.search(content))
 
     args_ok = True
-    arg_detail = []
+    arg_detail: list[str] = []
     for call in calls:
-        fn = (call.get("function") or {})
-        raw = fn.get("arguments") or ""
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            args_ok = False
-            arg_detail.append(f"{fn.get('name')}: unparseable arguments ({exc})")
-            continue
-        if not isinstance(parsed, dict):
-            args_ok = False
-            arg_detail.append(f"{fn.get('name')}: arguments are not an object")
-            continue
-        if fn.get("name") == "get_weather":
-            good = isinstance(parsed.get("city"), str) and parsed.get("units") in (
-                "celsius",
-                "fahrenheit",
-            )
-            args_ok &= good
-            arg_detail.append(f"get_weather args={parsed} ok={good}")
-        elif fn.get("name") == "add_numbers":
-            good = isinstance(parsed.get("a"), int) and isinstance(parsed.get("b"), int)
-            args_ok &= good
-            arg_detail.append(f"add_numbers args={parsed} ok={good}")
+        call_ok, detail = validate_call(call)
+        args_ok &= call_ok
+        arg_detail.extend(detail)
+    if wants_tool and len(calls) != 1:
+        args_ok = False
+        arg_detail.append(f"expected exactly 1 tool call, got {len(calls)}")
     record["tool_args_ok"] = args_ok if wants_tool else None
     record["tool_arg_detail"] = arg_detail
     record["tool_call_required"] = wants_tool
@@ -157,12 +213,26 @@ def _one(name: str, prompt: str, wants_tool: bool) -> dict:
     return record
 
 
-def _logs(container: str, host: str, since: float) -> str:
+def _logs(container: str, host: str, since: float) -> tuple[str, str]:
+    """Return ``(text, failure)``; a non-empty failure means the log is unknown."""
     argv = ["docker", "logs", "--since", str(int(since)), container]
     if host != "local":
         argv = ["ssh", "-o", "ConnectTimeout=10", host] + argv
-    done = subprocess.run(argv, capture_output=True, text=True, timeout=180, check=False)
-    return done.stdout + done.stderr
+    try:
+        done = subprocess.run(
+            argv, capture_output=True, text=True, timeout=180, check=False
+        )
+    except subprocess.TimeoutExpired:
+        return "", "timed out"
+    except OSError as exc:
+        return "", f"{type(exc).__name__}: {exc}"
+    if done.returncode != 0:
+        # Scanning ssh/docker diagnostics as if they were container logs would
+        # turn an unreachable worker into a clean receipt.
+        detail = (done.stderr or done.stdout or "").strip().splitlines()
+        tail = detail[-1] if detail else ""
+        return "", f"exit {done.returncode}: {tail[:200]}"
+    return done.stdout + done.stderr, ""
 
 
 def main() -> int:
@@ -197,12 +267,13 @@ def main() -> int:
             flush=True,
         )
 
-    head_log = _logs(HEAD_CONTAINER, "local", started)
-    worker_log = _logs(WORKER_CONTAINER, WORKER, started)
+    head_log, head_failure = _logs(HEAD_CONTAINER, "local", started)
+    worker_log, worker_failure = _logs(WORKER_CONTAINER, WORKER, started)
     log_errors = {
         "head": sorted(set(ERROR_RE.findall(head_log))),
         "worker": sorted(set(ERROR_RE.findall(worker_log))),
     }
+    log_failures = {"head": head_failure, "worker": worker_failure}
 
     bad = [r for r in results if not r.get("ok")]
     receipt = {
@@ -213,7 +284,8 @@ def main() -> int:
         "failed_names": [f"{r['name']}#{r.get('round')}" for r in bad],
         "any_nan": any(r.get("nan") for r in results),
         "log_errors": log_errors,
-        "ok": not bad and not any(log_errors.values()),
+        "log_failures": log_failures,
+        "ok": not bad and not any(log_errors.values()) and not any(log_failures.values()),
         "results": results,
     }
     path = Path(args.out)

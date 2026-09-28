@@ -232,3 +232,36 @@ replay re-runs recorded device work with no host state to re-enter. Index
 agreement holds because the sync point and `forward` run on the same thread
 inside one ubatch's call, and DBO is off on this deployment, so the index is
 always 0.
+
+The integration review then required four fixes, all landed and re-validated on
+the cluster. Three of them were holes in the window tooling rather than in the
+treatment, and they matter because those scripts are what decide an adoption:
+
+1. **The comparison could report ADOPT over an unreadable probe.**
+   `compare` checked throughput and NaN and nothing else, so a probe with failed
+   benchmarks, unhealthy serving, a starved node or an unarmed container still
+   returned ADOPT. It now enforces the gate's prerequisites — both health probes,
+   every lane's exit code and median, NaN, coherence, `MemFree` minima and the
+   presence of samples, the installer marker count on both ranks, and the flag in
+   the container environment — and returns `INVALID` rather than a verdict when
+   any is unmet.
+2. **The smoke accepted malformed tool calls.** An undeclared function left the
+   check passing, extra properties were ignored, and a boolean passed the integer
+   check. Calls are now validated against the declared contract: the name must be
+   declared, the argument object must carry exactly the declared properties, and
+   each value must be the one the request asked for, with `bool` excluded from
+   the integer check.
+3. **The smoke ignored log-collection failures.** `docker logs` through `ssh`
+   returned nothing on failure, and the empty result scanned as clean, so an
+   unreachable worker looked like a healthy one. Failures are now recorded per
+   rank and fail the smoke.
+4. **The installer was laxer than the launcher.** The flag read was stripped, so
+   a direct invocation accepted `" 1"`, `"1 "`, `"1\r"` and `"01"` while the
+   launcher rejects them. The read is now exact, and the contract was re-checked
+   inside the container against the stock bytes: `0` changes nothing, `1` applies,
+   and every malformed form is refused without a write.
+
+All five armed passes clear the stricter gate. The final confirmation pass on
+these bytes is structured 71.35, prose 32.92, essay 25.16 against the control's
+71.15 / 31.84 / 24.09, with an eight-request smoke clean and both log collections
+successful.
