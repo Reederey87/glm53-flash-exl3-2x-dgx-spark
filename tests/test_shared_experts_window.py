@@ -77,11 +77,13 @@ def _receipt(*, armed: bool, scale: float = 1.0) -> dict:
     }
 
 
-def _smoke() -> dict:
+def _smoke(requests: int = 8) -> dict:
     return {
         "ok": True,
         "failed": 0,
         "any_nan": False,
+        "requests": requests,
+        "results": [{"name": f"r{i}", "ok": True} for i in range(requests)],
         "log_errors": {"head": [], "worker": []},
         "log_failures": {"head": "", "worker": ""},
     }
@@ -152,6 +154,39 @@ def test_a_smoke_without_log_status_is_invalid(window) -> None:
     bad = _smoke()
     del bad["log_failures"]
     assert window.smoke_failures(bad)
+
+
+def test_a_smoke_that_made_no_requests_is_not_clean(window, verdict) -> None:
+    """`--repeat 0` yields a receipt that is ok, empty and worthless."""
+    empty = _smoke(requests=0)
+    assert empty["requests"] == 0 and empty["results"] == []
+    assert window.smoke_failures(empty)
+    out = verdict(_receipt(armed=False), _receipt(armed=True, scale=1.03), empty)
+    assert out["verdict"] == "INVALID"
+
+
+def test_a_smoke_without_recorded_results_is_not_clean(window) -> None:
+    for mutate in (
+        lambda s: s.pop("requests"),
+        lambda s: s.pop("results"),
+        lambda s: s.update(results=[]),
+        lambda s: s.update(results=[{"ok": True}]),
+        lambda s: s.update(results=[{"name": "tool-weather", "ok": False}]),
+        lambda s: s.update(requests="8"),
+    ):
+        bad = _smoke()
+        mutate(bad)
+        assert window.smoke_failures(bad), bad
+
+
+def test_a_smoke_missing_a_rank_status_is_not_clean(window) -> None:
+    for node in ("head", "worker"):
+        bad = _smoke()
+        del bad["log_errors"][node]
+        assert window.smoke_failures(bad), node
+        bad = _smoke()
+        del bad["log_failures"][node]
+        assert window.smoke_failures(bad), node
 
 
 def test_improvement_is_adoptable(window, verdict) -> None:
@@ -263,17 +298,20 @@ def test_absent_nan_evidence_is_not_clean_evidence(window) -> None:
     assert _fails(window, control, armed)
 
 
-def test_zero_sample_counts_are_not_evidence(window) -> None:
+def test_zero_sample_counts_are_not_evidence(window, verdict) -> None:
     control = _receipt(armed=False)
     armed = _receipt(armed=True)
     armed["memfree"]["head"]["samples"] = 0
     assert _fails(window, control, armed)
+    assert verdict(control, armed, _smoke())["verdict"] == "INVALID"
     armed = _receipt(armed=True)
     del armed["memfree"]["worker"]["samples"]
     assert _fails(window, control, armed)
+    assert verdict(control, armed, _smoke())["verdict"] == "INVALID"
 
 
-def test_a_missing_required_field_is_refused(window) -> None:
+def test_a_missing_required_field_is_refused(window, verdict) -> None:
+    control = _receipt(armed=False)
     for mutate in (
         lambda r: r.pop("health_before"),
         lambda r: r.pop("health_after"),
@@ -284,10 +322,11 @@ def test_a_missing_required_field_is_refused(window) -> None:
     ):
         armed = _receipt(armed=True)
         mutate(armed)
-        assert _fails(window, _receipt(armed=False), armed), mutate
+        assert _fails(window, control, armed), mutate
+        assert verdict(control, armed, _smoke())["verdict"] == "INVALID", mutate
 
 
-def test_malformed_shapes_are_refused_not_crashed(window) -> None:
+def test_malformed_shapes_are_refused_not_crashed(window, verdict) -> None:
     """A lane mapping or a non-list must yield a verdict, not an exception."""
     control = _receipt(armed=False)
     for armed in (
@@ -296,8 +335,56 @@ def test_malformed_shapes_are_refused_not_crashed(window) -> None:
         {"lanes": [None]},
         "not a receipt",
         None,
+        7,
+        [],
     ):
         assert _fails(window, control, armed), armed
+        # and the entry point must still emit a verdict rather than raise
+        out = verdict(control, armed, _smoke())
+        assert out["verdict"] == "INVALID", armed
+    # a malformed *control* must not crash the row calculation either
+    for control in ("not a receipt", None, {"lanes": "structured"}):
+        out = verdict(control, _receipt(armed=True), _smoke())
+        assert out["verdict"] == "INVALID", control
+
+
+def test_a_duplicate_lane_is_refused(window, verdict) -> None:
+    """A second row for a lane must not be able to shadow a failing one."""
+    control = _receipt(armed=False)
+    armed = _receipt(armed=True, scale=1.03)
+    duplicate = {
+        "lane": "prose",
+        "returncode": 2,
+        "tok_s_median": LANES["prose"] * 0.5,
+        "any_nan": True,
+        "coherent": False,
+    }
+    armed["lanes"].append(duplicate)
+    assert _fails(window, control, armed)
+    out = verdict(control, armed, _smoke())
+    assert out["verdict"] == "INVALID"
+    assert any("expected exactly 1" in problem for problem in out["gate_failures"])
+    # the same duplicate, otherwise healthy, is still refused
+    armed = _receipt(armed=True, scale=1.03)
+    armed["lanes"].append(dict(armed["lanes"][1]))
+    assert _fails(window, control, armed)
+
+
+def test_a_non_object_lane_entry_is_refused(window, verdict) -> None:
+    control = _receipt(armed=False)
+    armed = _receipt(armed=True, scale=1.03)
+    armed["lanes"].append(None)
+    assert _fails(window, control, armed)
+    out = verdict(control, armed, _smoke())
+    assert out["verdict"] == "INVALID"
+    assert any("is not an object" in problem for problem in out["gate_failures"])
+
+
+def test_a_lane_entry_without_a_name_is_refused(window) -> None:
+    control = _receipt(armed=False)
+    armed = _receipt(armed=True)
+    armed["lanes"].append({"returncode": 0, "tok_s_median": 99.0})
+    assert _fails(window, control, armed)
 
 
 def test_a_zero_or_invalid_median_is_refused(window, verdict) -> None:
@@ -423,6 +510,35 @@ def test_a_plain_request_accepts_an_answer_without_calls(smoke, monkeypatch) -> 
     record = smoke._one("plain-1", "say READY", None)
     assert record["ok"] is True
     assert record["tool_args_ok"] is None
+
+
+def test_a_plain_request_rejects_an_invented_tool_call(smoke, monkeypatch) -> None:
+    """No tools were offered, so any call in the answer is invented."""
+    monkeypatch.setattr(
+        smoke,
+        "_post",
+        lambda *a, **k: {
+            "choices": [
+                {
+                    "message": {
+                        "content": "READY",
+                        "tool_calls": [_call("add_numbers", {"a": 4217, "b": 1938})],
+                    }
+                }
+            ]
+        },
+    )
+    record = smoke._one("plain-1", "say READY", None)
+    assert record["ok"] is False
+    assert record["n_tool_calls"] == 1
+    assert any("no tools were offered" in line for line in record["tool_arg_detail"])
+
+
+def test_a_plain_request_still_needs_an_answer(smoke, monkeypatch) -> None:
+    monkeypatch.setattr(
+        smoke, "_post", lambda *a, **k: {"choices": [{"message": {"content": "  "}}]}
+    )
+    assert smoke._one("plain-1", "say READY", None)["ok"] is False
 
 
 def test_undeclared_function_is_rejected(smoke) -> None:

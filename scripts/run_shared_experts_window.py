@@ -272,13 +272,27 @@ def _positive_number(value: object) -> bool:
     )
 
 
-def _lane_rows(receipt: dict) -> dict[str, dict]:
-    """Lane rows keyed by lane; an unexpected shape yields no rows."""
+def _lane_entries(receipt: object) -> list:
+    """The raw lane list, or an empty list when the shape is not a list.
+
+    Callers that need one row per lane must go through this rather than
+    ``_lane_rows``, which keeps the first row per name and would hide a
+    duplicate or a malformed entry.
+    """
+    if not isinstance(receipt, dict):
+        return []
     lanes = receipt.get("lanes")
-    if not isinstance(lanes, list):
-        return {}
+    return lanes if isinstance(lanes, list) else []
+
+
+def _lane_rows(receipt: object) -> dict[str, dict]:
+    """Lane rows keyed by lane; an unexpected shape yields no rows.
+
+    Lossy on purpose: this is the numeric lookup, used only after
+    ``_receipt_failures`` has already rejected duplicates and malformed entries.
+    """
     out: dict[str, dict] = {}
-    for row in lanes:
+    for row in _lane_entries(receipt):
         if isinstance(row, dict) and isinstance(row.get("lane"), str):
             out.setdefault(row["lane"], row)
     return out
@@ -292,11 +306,37 @@ def _receipt_failures(label: str, receipt: object, expect_markers: int) -> list[
     for key in ("health_before", "health_after"):
         if receipt.get(key) != 200:
             problems.append(f"{label}: {key}={receipt.get(key)!r}, expected 200")
+
+    # Validate every raw entry and require exactly one result per expected lane,
+    # so a duplicate cannot shadow a failing row and a malformed entry cannot be
+    # dropped silently.
+    entries = _lane_entries(receipt)
+    if not isinstance(receipt.get("lanes"), list):
+        problems.append(f"{label}: lanes={receipt.get('lanes')!r}, expected a list")
+    seen: dict[str, int] = {}
+    for index, row in enumerate(entries):
+        if not isinstance(row, dict):
+            problems.append(f"{label}: lane entry {index} is not an object")
+            continue
+        lane = row.get("lane")
+        if not isinstance(lane, str):
+            problems.append(f"{label}: lane entry {index} has no lane name")
+            continue
+        seen[lane] = seen.get(lane, 0) + 1
+    for lane in LANES:
+        count = seen.get(lane, 0)
+        if count != 1:
+            problems.append(
+                f"{label}/{lane}: {count} results for this lane, expected exactly 1"
+            )
+    extra = sorted(set(seen) - set(LANES))
+    if extra:
+        problems.append(f"{label}: unexpected lanes {extra}")
+
     rows = _lane_rows(receipt)
     for lane in LANES:
         row = rows.get(lane)
         if row is None:
-            problems.append(f"{label}/{lane}: no result for this lane")
             continue
         if row.get("returncode") != 0:
             problems.append(f"{label}/{lane}: benchmark exit {row.get('returncode')!r}")
@@ -312,9 +352,6 @@ def _receipt_failures(label: str, receipt: object, expect_markers: int) -> list[
             )
         if lane in ("prose", "essay") and row.get("coherent") is not True:
             problems.append(f"{label}/{lane}: coherence not confirmed")
-    extra = sorted(set(rows) - set(LANES))
-    if extra:
-        problems.append(f"{label}: unexpected lanes {extra}")
 
     mem = receipt.get("memfree")
     if not isinstance(mem, dict):
@@ -360,7 +397,12 @@ def _receipt_failures(label: str, receipt: object, expect_markers: int) -> list[
 
 
 def smoke_failures(smoke: object) -> list[str]:
-    """Serving-correctness evidence, which is part of the gate, not an extra."""
+    """Serving-correctness evidence, which is part of the gate, not an extra.
+
+    A smoke that made no requests, or whose results were not recorded, is not
+    clean evidence: an empty result list and empty per-rank log dictionaries
+    would otherwise satisfy every check here.
+    """
     if not isinstance(smoke, dict):
         return ["smoke: receipt is not an object"]
     problems: list[str] = []
@@ -370,15 +412,44 @@ def smoke_failures(smoke: object) -> list[str]:
         problems.append(f"smoke: failed={smoke.get('failed')!r}, expected 0")
     if smoke.get("any_nan") is not False:
         problems.append(f"smoke: any_nan={smoke.get('any_nan')!r}, expected False")
+
+    # Coverage: the receipt must show the requests it claims to have made.
+    requests = smoke.get("requests")
+    if not isinstance(requests, int) or isinstance(requests, bool) or requests <= 0:
+        problems.append(f"smoke: requests={requests!r}, expected a positive count")
+    results = smoke.get("results")
+    if not isinstance(results, list):
+        problems.append(f"smoke: results={results!r}, expected a list")
+    else:
+        if isinstance(requests, int) and not isinstance(requests, bool):
+            if len(results) != requests:
+                problems.append(
+                    f"smoke: {len(results)} results for {requests} requests"
+                )
+        for index, result in enumerate(results):
+            if not isinstance(result, dict) or result.get("ok") is not True:
+                problems.append(f"smoke: result {index} is not a passing request")
+
+    # Both ranks must report a status explicitly; a missing key is not a pass.
     errors = smoke.get("log_errors")
-    if not isinstance(errors, dict) or any(errors.get(n) for n in ("head", "worker")):
-        problems.append(f"smoke: engine/CUDA/NCCL errors recorded: {errors!r}")
+    if not isinstance(errors, dict):
+        problems.append(f"smoke: no per-rank log scan status: {errors!r}")
+    else:
+        for node in ("head", "worker"):
+            if not isinstance(errors.get(node), list):
+                problems.append(f"smoke/{node}: no log scan status")
+            elif errors[node]:
+                problems.append(
+                    f"smoke/{node}: engine/CUDA/NCCL errors recorded: {errors[node]!r}"
+                )
     failures = smoke.get("log_failures")
     if not isinstance(failures, dict):
         problems.append("smoke: no per-rank log collection status")
     else:
         for node in ("head", "worker"):
-            if failures.get(node):
+            if node not in failures:
+                problems.append(f"smoke/{node}: no log collection status")
+            elif failures[node]:
                 problems.append(
                     f"smoke/{node}: log collection failed: {failures[node]!r}"
                 )
@@ -437,8 +508,8 @@ def compare_rows(control: dict, armed: dict) -> tuple[list[dict], str]:
         if not (above_parity and above_floor):
             verdict = "REVERT"
     if any(
-        r.get("any_nan") is not False
-        for r in list(_lane_rows(control).values()) + list(_lane_rows(armed).values())
+        not isinstance(r, dict) or r.get("any_nan") is not False
+        for r in _lane_entries(control) + _lane_entries(armed)
     ):
         verdict = "REVERT"
     return rows, verdict

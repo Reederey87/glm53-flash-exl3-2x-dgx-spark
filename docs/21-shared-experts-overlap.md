@@ -164,7 +164,7 @@ mean, every pass positive) and smallest on structured (accept ≈ 0.967, +0.4%),
 which invokes the MoE least often per token. The prose lane (accept ≈ 0.53) is
 the one lane the instrument cannot resolve: its run-to-run spread is roughly
 ±6%, and pass 1's −2.9% came with an anomalous acceptance ratio (0.526 against
-0.541 in the control) that no later pass reproduced. Four of five passes are
+0.541 in the control) that no later pass reproduced. Three of five passes are
 above control and none regresses reproducibly.
 
 **Serving smoke.** Eight concurrent requests over two rounds — two tool-calling
@@ -313,3 +313,41 @@ working, not a candidate failure, and the docstring now says so.
 
 Both scripts were staged to the runtime tree and their `sha256` matched the
 worktree bytes (`smoke e90f52cb…`, `window 394b9b6b…`) before either was run.
+
+### Third review round — evidence that exists but is empty
+
+The follow-up found the second round's checks still satisfied by evidence that
+is present but says nothing, and one more hole in the smoke:
+
+1. **An empty smoke passed.** `smoke_failures` never looked at the request count
+   or the result list, and empty per-rank log dictionaries satisfied the per-rank
+   checks. The script's own `--repeat 0` therefore produced a receipt with
+   `requests: 0`, `results: []` and `ok: true`, and the comparison adopted it.
+   The smoke is now required to show the requests it claims: a positive request
+   count, exactly that many recorded results, each passing, and an explicitly
+   typed status for **both** ranks, so a missing key is no longer a pass.
+2. **A duplicate lane could shadow a failing one.** `_lane_rows` kept the first
+   row per lane name and dropped malformed entries, so appending a second
+   `prose` row — with a failed exit, a NaN and half the throughput — still
+   produced ADOPT, contradicting the exactly-one-result rule. Every raw lane
+   entry is now validated and each expected lane must appear exactly once.
+3. **A malformed receipt could still crash the comparison.** `gate_failures`
+   rejected a scalar receipt, but `compare()` then reached the NaN check in
+   `compare_rows`, which indexed it. That path is guarded, and the malformed-shape
+   tests now assert the verdict the entry point emits rather than only the helper's
+   output.
+4. **A plain request could invent a tool call.** No tools are offered on the
+   plain requests, so any call in the answer is fabricated; the branch ignored
+   the call list. Plain responses must now return no calls.
+
+A documentation error was corrected as well: three, not four, of the five prose
+passes are above control.
+
+Eight of the tests guarding these fail against the pre-fix scripts.
+
+**Re-validation.** Both scripts re-staged and hash-checked (`smoke 84418229…`,
+`window 8d663d92…`). The five archived armed receipts still replay as `ADOPT`
+with no gate failures, and the fixed smoke returns 8/8 clean against live
+production. As a negative control, the empty-smoke receipt that the previous
+gate accepted now returns `INVALID` with `smoke: requests=0, expected a positive
+count` — the finding reproduced on the cluster, then refused.

@@ -244,6 +244,11 @@ def _one(name: str, prompt: str, expected_function: str | None) -> dict:
     if wants_tool and len(calls) != 1:
         args_ok = False
         arg_detail.append(f"expected exactly 1 tool call, got {len(calls)}")
+    if not wants_tool and calls:
+        # No tools were offered, so any call is invented. It would be dropped by
+        # the schema check below, which is why this is checked explicitly.
+        args_ok = False
+        arg_detail.append(f"no tools were offered, got {len(calls)} tool call(s)")
     for call in calls:
         call_ok, detail = validate_call(call, expected_function)
         args_ok &= call_ok
@@ -254,7 +259,7 @@ def _one(name: str, prompt: str, expected_function: str | None) -> dict:
     if wants_tool:
         record["ok"] = bool(calls) and args_ok and not record["nan"]
     else:
-        record["ok"] = bool(content.strip()) and not record["nan"]
+        record["ok"] = bool(content.strip()) and args_ok and not record["nan"]
     return record
 
 
