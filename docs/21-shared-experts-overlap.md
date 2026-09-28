@@ -351,3 +351,32 @@ with no gate failures, and the fixed smoke returns 8/8 clean against live
 production. As a negative control, the empty-smoke receipt that the previous
 gate accepted now returns `INVALID` with `smoke: requests=0, expected a positive
 count` — the finding reproduced on the cluster, then refused.
+
+### Fourth review round — the smoke receipt had to agree with itself
+
+The re-review confirmed the lane, top-level and plain-request fixes and found the
+smoke check still incomplete: a result only had to say `{"ok": true}`, and the
+per-rank statuses were tested by truthiness rather than by type. Four receipts
+that keep `ok: true` while the evidence is gone or contradictory still adopted.
+
+The check now reads the smoke script's own request list, so the two cannot drift
+apart. A receipt must cover every declared request exactly `repeat` times with no
+invented names; each result must carry its request name, `nan: false`, and a tool
+call count consistent with its kind (one call with valid arguments for a tool
+request, none and no argument report for a plain one); and each rank's collection
+status must be a **string**, with `""` the only success, while a scan status must
+be a list. A missing contract fails the gate rather than passing it.
+
+On the cluster with the exact candidate bytes (`window 480289e2…`; the smoke
+script was unchanged), all four of those receipts now return `INVALID`:
+
+| Tampered receipt | Verdict | First gate failure |
+|---|---|---|
+| one plain result, `requests: 1` | INVALID | `smoke/tool-weather: 0 results, expected 1` |
+| every result replaced by `{"ok": true}` | INVALID | `smoke: result 0 has no request name` |
+| a passing result with `nan: true`, `tool_args_ok: false`, `n_tool_calls: 0` | INVALID | `smoke: result 0 ('tool-weather') nan=True, expected False` |
+| `log_failures.worker = null` | INVALID | `smoke/worker: log collection status None is not a string` |
+
+The five archived armed receipts still replay as `ADOPT` against a fresh
+eight-request smoke, so the stricter check does not overturn the adoption. Four
+tests guard the new behaviour and fail against the previous revision.

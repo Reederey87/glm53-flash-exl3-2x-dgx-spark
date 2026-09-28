@@ -77,13 +77,27 @@ def _receipt(*, armed: bool, scale: float = 1.0) -> dict:
     }
 
 
-def _smoke(requests: int = 8) -> dict:
+def _smoke(repeat: int = 2) -> dict:
+    """A smoke receipt covering the smoke script's own declared requests."""
+    declared = [(name, fn) for name, _prompt, fn in _load(SMOKE, "smoke").REQUESTS]
+    results = [
+        {
+            "name": name,
+            "ok": True,
+            "nan": False,
+            "n_tool_calls": 1 if fn else 0,
+            "tool_args_ok": True if fn else None,
+        }
+        for _ in range(repeat)
+        for name, fn in declared
+    ]
     return {
         "ok": True,
         "failed": 0,
         "any_nan": False,
-        "requests": requests,
-        "results": [{"name": f"r{i}", "ok": True} for i in range(requests)],
+        "repeat": repeat,
+        "requests": len(results),
+        "results": results,
         "log_errors": {"head": [], "worker": []},
         "log_failures": {"head": "", "worker": ""},
     }
@@ -158,8 +172,10 @@ def test_a_smoke_without_log_status_is_invalid(window) -> None:
 
 def test_a_smoke_that_made_no_requests_is_not_clean(window, verdict) -> None:
     """`--repeat 0` yields a receipt that is ok, empty and worthless."""
-    empty = _smoke(requests=0)
-    assert empty["requests"] == 0 and empty["results"] == []
+    empty = _smoke()
+    empty["requests"] = 0
+    empty["repeat"] = 0
+    empty["results"] = []
     assert window.smoke_failures(empty)
     out = verdict(_receipt(armed=False), _receipt(armed=True, scale=1.03), empty)
     assert out["verdict"] == "INVALID"
@@ -169,6 +185,8 @@ def test_a_smoke_without_recorded_results_is_not_clean(window) -> None:
     for mutate in (
         lambda s: s.pop("requests"),
         lambda s: s.pop("results"),
+        lambda s: s.pop("repeat"),
+        lambda s: s.update(repeat=0),
         lambda s: s.update(results=[]),
         lambda s: s.update(results=[{"ok": True}]),
         lambda s: s.update(results=[{"name": "tool-weather", "ok": False}]),
@@ -187,6 +205,88 @@ def test_a_smoke_missing_a_rank_status_is_not_clean(window) -> None:
         bad = _smoke()
         del bad["log_failures"][node]
         assert window.smoke_failures(bad), node
+
+
+def test_an_untyped_rank_status_is_not_clean(window) -> None:
+    """`null`, `false`, `0` and `{}` are not a successful collection."""
+    untyped = (None, False, 0, {}, 0.0)
+    for value in untyped:
+        bad = _smoke()
+        bad["log_failures"]["worker"] = value
+        assert window.smoke_failures(bad), value
+    # a collection status must be a string: "" is success, anything else is not
+    for value in untyped + ("",):
+        bad = _smoke()
+        bad["log_errors"]["head"] = value
+        assert window.smoke_failures(bad), value
+    # an empty list is a real scan that found nothing, which is clean
+    ok = _smoke()
+    ok["log_errors"]["head"] = []
+    assert window.smoke_failures(ok) == []
+    ok = _smoke()
+    ok["log_failures"]["head"] = ""
+    assert window.smoke_failures(ok) == []
+
+
+def test_incomplete_request_coverage_is_not_clean(window, verdict) -> None:
+    """Dropping a request, or a whole kind of request, must not pass."""
+    control = _receipt(armed=False)
+    armed = _receipt(armed=True, scale=1.03)
+    # only one plain result, and the receipt claims only one request
+    partial = _smoke()
+    partial["results"] = [partial["results"][2]]
+    partial["requests"] = 1
+    partial["repeat"] = 1
+    assert window.smoke_failures(partial)
+    assert verdict(control, armed, partial)["verdict"] == "INVALID"
+    # every result kept, but one request missing from the round
+    missing = _smoke()
+    missing["results"] = [r for r in missing["results"] if r["name"] != "tool-add"]
+    missing["requests"] = len(missing["results"])
+    assert window.smoke_failures(missing)
+    # an invented request name
+    invented = _smoke()
+    invented["results"].append(dict(invented["results"][0], name="tool-nope"))
+    invented["requests"] = len(invented["results"])
+    assert window.smoke_failures(invented)
+
+
+def test_a_result_contradicting_its_own_flag_is_not_clean(window, verdict) -> None:
+    """A result marked ok while recording a failure is not passing evidence."""
+    control = _receipt(armed=False)
+    armed = _receipt(armed=True, scale=1.03)
+    for mutate in (
+        lambda r: r.update(nan=True),
+        lambda r: r.update(tool_args_ok=False),
+        lambda r: r.update(n_tool_calls=0),
+        lambda r: r.update(n_tool_calls=2),
+        lambda r: r.update(n_tool_calls=None),
+        lambda r: r.pop("nan"),
+    ):
+        bad = _smoke()
+        mutate(bad["results"][0])  # a tool request
+        assert window.smoke_failures(bad), mutate
+    for mutate in (
+        lambda r: r.update(n_tool_calls=1),
+        lambda r: r.update(tool_args_ok=True),
+        lambda r: r.pop("n_tool_calls"),
+    ):
+        bad = _smoke()
+        mutate(bad["results"][2])  # a plain request
+        assert window.smoke_failures(bad), mutate
+    bad = _smoke()
+    bad["results"][0]["ok"] = False
+    out = verdict(control, armed, bad)
+    assert out["verdict"] == "INVALID"
+
+
+def test_every_result_must_be_an_object(window) -> None:
+    bad = _smoke()
+    bad["results"][0] = "ok"
+    assert window.smoke_failures(bad)
+    bad = _smoke()
+    bad["results"][0] = None
+    assert window.smoke_failures(bad)
 
 
 def test_improvement_is_adoptable(window, verdict) -> None:

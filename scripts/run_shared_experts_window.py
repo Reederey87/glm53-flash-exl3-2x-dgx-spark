@@ -19,6 +19,7 @@ runner measures one phase and writes a receipt:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import math
 import subprocess
@@ -46,6 +47,11 @@ LANES = ("structured", "prose", "essay")
 FLOORS = {"structured": 68.8, "prose": 30.0, "essay": 20.0}
 PARITY = 0.97
 MEMFREE_FLOOR_KIB = 2.5 * 1024 * 1024
+
+# The smoke script's request list is the gate's coverage contract; loaded lazily
+# so a missing or unreadable contract fails the gate instead of the import.
+_UNLOADED = object()
+_SMOKE_MODULE: object = _UNLOADED
 
 
 def _ssh(host: str, command: str, timeout: int = 60) -> str:
@@ -396,12 +402,91 @@ def _receipt_failures(label: str, receipt: object, expect_markers: int) -> list[
     return problems
 
 
+def _smoke_module():
+    """The smoke script, so the gate and the smoke share one request list."""
+    global _SMOKE_MODULE
+    if _SMOKE_MODULE is _UNLOADED:
+        path = Path(__file__).resolve().parent / "smoke_shared_experts.py"
+        try:
+            spec = importlib.util.spec_from_file_location("smoke_shared_experts", path)
+            module = importlib.util.module_from_spec(spec) if spec else None
+            if module is None or spec.loader is None:
+                _SMOKE_MODULE = None
+            else:
+                spec.loader.exec_module(module)
+                _SMOKE_MODULE = module
+        except Exception:  # noqa: BLE001 - a missing contract is a gate failure
+            _SMOKE_MODULE = None
+    return _SMOKE_MODULE
+
+
+def _expected_requests() -> dict[str, str | None] | None:
+    """Request name -> the function it must call (None for a plain request)."""
+    module = _smoke_module()
+    if module is None:
+        return None
+    try:
+        return {name: fn for name, _prompt, fn in module.REQUESTS}
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _result_failures(
+    index: int, result: object, expected: dict[str, str | None] | None
+) -> list[str]:
+    """One recorded request must not contradict its own success flag."""
+    if not isinstance(result, dict):
+        return [f"smoke: result {index} is not an object"]
+    problems: list[str] = []
+    name = result.get("name")
+    if not isinstance(name, str) or not name:
+        problems.append(f"smoke: result {index} has no request name")
+    if result.get("ok") is not True:
+        problems.append(f"smoke: result {index} ({name!r}) is not a passing request")
+    if result.get("nan") is not False:
+        problems.append(
+            f"smoke: result {index} ({name!r}) nan={result.get('nan')!r}, expected False"
+        )
+    calls = result.get("n_tool_calls")
+    if not isinstance(calls, int) or isinstance(calls, bool) or calls < 0:
+        return problems + [
+            f"smoke: result {index} ({name!r}) n_tool_calls={calls!r}, "
+            "expected a non-negative count"
+        ]
+    # Only judge the request kind when the name is one this smoke declares; an
+    # unknown name is reported by the coverage check instead.
+    known = expected is not None and isinstance(name, str) and name in expected
+    if known and expected[name] is None:
+        if result.get("tool_args_ok") is not None:
+            problems.append(
+                f"smoke: result {index} ({name!r}) is a plain request but "
+                f"reports tool_args_ok={result.get('tool_args_ok')!r}"
+            )
+        if calls != 0:
+            problems.append(
+                f"smoke: result {index} ({name!r}) is a plain request but "
+                f"made {calls} tool call(s)"
+            )
+    elif known:
+        if result.get("tool_args_ok") is not True:
+            problems.append(
+                f"smoke: result {index} ({name!r}) tool_args_ok="
+                f"{result.get('tool_args_ok')!r}, expected True"
+            )
+        if calls != 1:
+            problems.append(
+                f"smoke: result {index} ({name!r}) made {calls} tool call(s), "
+                "expected exactly 1"
+            )
+    return problems
+
+
 def smoke_failures(smoke: object) -> list[str]:
     """Serving-correctness evidence, which is part of the gate, not an extra.
 
-    A smoke that made no requests, or whose results were not recorded, is not
-    clean evidence: an empty result list and empty per-rank log dictionaries
-    would otherwise satisfy every check here.
+    A smoke that made no requests, skipped a request, or recorded results that
+    contradict their own success flags is not clean evidence. Coverage is judged
+    against the smoke script's own request list, so the two cannot drift apart.
     """
     if not isinstance(smoke, dict):
         return ["smoke: receipt is not an object"]
@@ -413,10 +498,17 @@ def smoke_failures(smoke: object) -> list[str]:
     if smoke.get("any_nan") is not False:
         problems.append(f"smoke: any_nan={smoke.get('any_nan')!r}, expected False")
 
-    # Coverage: the receipt must show the requests it claims to have made.
+    expected = _expected_requests()
+    if expected is None:
+        problems.append("smoke: could not read the expected request list")
+
+    repeat = smoke.get("repeat")
+    if not isinstance(repeat, int) or isinstance(repeat, bool) or repeat <= 0:
+        problems.append(f"smoke: repeat={repeat!r}, expected a positive count")
     requests = smoke.get("requests")
     if not isinstance(requests, int) or isinstance(requests, bool) or requests <= 0:
         problems.append(f"smoke: requests={requests!r}, expected a positive count")
+
     results = smoke.get("results")
     if not isinstance(results, list):
         problems.append(f"smoke: results={results!r}, expected a list")
@@ -426,33 +518,52 @@ def smoke_failures(smoke: object) -> list[str]:
                 problems.append(
                     f"smoke: {len(results)} results for {requests} requests"
                 )
+        seen: dict[str, int] = {}
         for index, result in enumerate(results):
-            if not isinstance(result, dict) or result.get("ok") is not True:
-                problems.append(f"smoke: result {index} is not a passing request")
+            name = result.get("name") if isinstance(result, dict) else None
+            if isinstance(name, str):
+                seen[name] = seen.get(name, 0) + 1
+            problems += _result_failures(index, result, expected)
+        if expected is not None:
+            want = (
+                repeat
+                if isinstance(repeat, int) and not isinstance(repeat, bool)
+                else 1
+            )
+            for name in expected:
+                count = seen.get(name, 0)
+                if count != want:
+                    problems.append(f"smoke/{name}: {count} results, expected {want}")
+            extra = sorted(set(seen) - set(expected))
+            if extra:
+                problems.append(f"smoke: unexpected requests {extra}")
 
-    # Both ranks must report a status explicitly; a missing key is not a pass.
+    # Both ranks must report a status explicitly, typed, with "" meaning clean.
+    # A null or an empty container is not a successful collection.
     errors = smoke.get("log_errors")
     if not isinstance(errors, dict):
         problems.append(f"smoke: no per-rank log scan status: {errors!r}")
     else:
         for node in ("head", "worker"):
-            if not isinstance(errors.get(node), list):
-                problems.append(f"smoke/{node}: no log scan status")
-            elif errors[node]:
+            value = errors.get(node)
+            if not isinstance(value, list):
+                problems.append(f"smoke/{node}: log scan status is not a list")
+            elif value:
                 problems.append(
-                    f"smoke/{node}: engine/CUDA/NCCL errors recorded: {errors[node]!r}"
+                    f"smoke/{node}: engine/CUDA/NCCL errors recorded: {value!r}"
                 )
     failures = smoke.get("log_failures")
     if not isinstance(failures, dict):
         problems.append("smoke: no per-rank log collection status")
     else:
         for node in ("head", "worker"):
-            if node not in failures:
-                problems.append(f"smoke/{node}: no log collection status")
-            elif failures[node]:
+            value = failures.get(node)
+            if not isinstance(value, str):
                 problems.append(
-                    f"smoke/{node}: log collection failed: {failures[node]!r}"
+                    f"smoke/{node}: log collection status {value!r} is not a string"
                 )
+            elif value:
+                problems.append(f"smoke/{node}: log collection failed: {value!r}")
     return problems
 
 
