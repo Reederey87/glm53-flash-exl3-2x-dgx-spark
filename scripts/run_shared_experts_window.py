@@ -1,0 +1,327 @@
+#!/usr/bin/env python3
+"""Measure one shared-expert-launch arm on the cluster head.
+
+The service restart and the environment flip stay operator-controlled. This
+runner measures one phase and writes a receipt:
+
+* the three standing decode lanes (structured, hashmap prose, hard essay), each
+  with a short warmup and N measured runs at the standing 512-token cap;
+* per-lane medians plus min/max and the DFlash2 acceptance ratio;
+* sampled MemFree minima on both nodes for the whole phase;
+* the effective container environment and whether the candidate's marker is
+  present in the installed source, so "the run succeeded" is never mistaken for
+  "the treatment was active".
+
+``--compare`` reads two receipts and applies the pre-registered gate from
+``docs/21-shared-experts-overlap.md``.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import statistics
+import subprocess
+import sys
+import threading
+import time
+import urllib.request
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+BENCH = ROOT / "tests" / "bench_decode.py"
+BASE = "http://127.0.0.1:8000"
+# The head is "local": this runner executes on spark1 and spark1 cannot
+# self-ssh (the Sync key is not in its own authorized_keys).
+HEAD = "local"
+WORKER = "nvidia@192.168.177.11"
+HEAD_CONTAINER = "glm53-exl3-head"
+WORKER_CONTAINER = "glm53-exl3-worker"
+MARKER = "[glm53-shared-experts-early]"
+SHARED_EXPERTS_PY = (
+    "/usr/local/lib/python3.12/dist-packages/vllm/model_executor/layers/"
+    "fused_moe/runner/shared_experts.py"
+)
+LANES = ("structured", "prose", "essay")
+FLOORS = {"structured": 68.8, "prose": 30.0, "essay": 20.0}
+PARITY = 0.97
+MEMFREE_FLOOR_KIB = 2.5 * 1024 * 1024
+
+
+def _ssh(host: str, command: str, timeout: int = 60) -> str:
+    """Run ``command`` on ``host``; ``"local"`` runs it on this node."""
+    argv = (
+        ["bash", "-lc", command]
+        if host == "local"
+        else ["ssh", "-o", "ConnectTimeout=15", host, command]
+    )
+    done = subprocess.run(
+        argv,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+    return done.stdout
+
+
+def _health() -> int:
+    try:
+        with urllib.request.urlopen(f"{BASE}/health", timeout=10) as resp:
+            return resp.status
+    except Exception:
+        return 0
+
+
+class MemWatch:
+    """Sample MemFree on both nodes until stopped."""
+
+    def __init__(self) -> None:
+        self.samples: dict[str, list[int]] = {"head": [], "worker": []}
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def _loop(self) -> None:
+        while not self._stop.is_set():
+            for key, host in (("head", HEAD), ("worker", WORKER)):
+                out = _ssh(
+                    host,
+                    "awk '/MemFree/{print $2}' /proc/meminfo",
+                    timeout=30,
+                ).strip()
+                if out.isdigit():
+                    self.samples[key].append(int(out))
+            self._stop.wait(5.0)
+
+    def start(self) -> None:
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> dict[str, dict[str, int | None]]:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=30)
+        out: dict[str, dict[str, int | None]] = {}
+        for key, values in self.samples.items():
+            out[key] = {
+                "min_kib": min(values) if values else None,
+                "max_kib": max(values) if values else None,
+                "samples": len(values),
+            }
+        return out
+
+
+def _effective_env() -> dict[str, str]:
+    raw = _ssh(
+        HEAD,
+        f"docker inspect {HEAD_CONTAINER} "
+        "--format '{{range .Config.Env}}{{println .}}{{end}}'",
+    )
+    wanted = ("GLM53_SHARED_EXPERTS_EARLY", "GLM53_ROUTER_ONCE", "GLM53_INDEXER_WORKSPACE")
+    return {
+        k: v
+        for k, v in (line.split("=", 1) for line in raw.splitlines() if "=" in line)
+        if k in wanted
+    }
+
+
+def _marker_present(container: str, host: str) -> int:
+    # -F: the marker's brackets would otherwise parse as a character class.
+    out = _ssh(
+        host,
+        f"docker exec {container} grep -c -F -- {MARKER!r} {SHARED_EXPERTS_PY} "
+        "2>/dev/null || true",
+    ).strip()
+    return int(out) if out.isdigit() else -1
+
+
+def _run_lane(lane: str, out_dir: Path, phase: str, runs: int, cap: int) -> dict:
+    target = out_dir / f"{phase}-{lane}.json"
+    cmd = [
+        sys.executable,
+        str(BENCH),
+        "--phase",
+        f"{phase}-{lane}",
+        "--out",
+        str(target),
+        "--runs",
+        str(runs),
+        "--max-tokens",
+        str(cap),
+    ]
+    if lane == "structured":
+        cmd.append("--structured")
+    elif lane == "essay":
+        cmd.append("--essay")
+    print(f"[window] {phase} lane={lane} runs={runs} cap={cap}", flush=True)
+    done = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=1800)
+    if done.returncode != 0:
+        print(done.stdout[-2000:], flush=True)
+        print(done.stderr[-2000:], file=sys.stderr, flush=True)
+    payload = json.loads(target.read_text()) if target.is_file() else {}
+    return {
+        "lane": lane,
+        "returncode": done.returncode,
+        "tok_s_median": payload.get("tok_s_median"),
+        "tok_s_min": payload.get("tok_s_min"),
+        "tok_s_max": payload.get("tok_s_max"),
+        "ttft_median_s": payload.get("ttft_median_s"),
+        "accept_ratio_median": payload.get("accept_ratio_median"),
+        "accepted_per_step_median": payload.get("accepted_per_step_median"),
+        "completion_tokens_median": payload.get("completion_tokens_median"),
+        "any_nan": payload.get("any_nan"),
+        "coherent": payload.get("coherent"),
+        "health_code_after": payload.get("health_code_after"),
+        "receipt": str(target),
+    }
+
+
+def measure(args: argparse.Namespace) -> int:
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    before = _health()
+    if before != 200:
+        print(f"[window] /health={before} — refusing to measure", file=sys.stderr)
+        return 2
+
+    env = _effective_env()
+    armed = env.get("GLM53_SHARED_EXPERTS_EARLY", "<unset>")
+    marks = {
+        "head": _marker_present(HEAD_CONTAINER, HEAD),
+        "worker": _marker_present(WORKER_CONTAINER, WORKER),
+    }
+    expect = 3 if armed == "1" else 0
+    for node, count in marks.items():
+        if count != expect:
+            print(
+                f"[window] {node} marker count={count}, expected {expect} for "
+                f"GLM53_SHARED_EXPERTS_EARLY={armed} — refusing to measure",
+                file=sys.stderr,
+            )
+            return 2
+
+    watch = MemWatch()
+    watch.start()
+    lanes: list[dict] = []
+    try:
+        for lane in LANES:
+            if args.warmup:
+                warm = out_dir / f"{args.phase}-warmup-{lane}.json"
+                warm_cmd = [
+                    sys.executable,
+                    str(BENCH),
+                    "--phase",
+                    f"{args.phase}-warmup-{lane}",
+                    "--out",
+                    str(warm),
+                    "--runs",
+                    "1",
+                    "--max-tokens",
+                    "32",
+                    "--skip-coherence",
+                ]
+                if lane == "essay":
+                    warm_cmd.append("--essay")
+                subprocess.run(warm_cmd, capture_output=True, text=True, timeout=900, check=False)
+            lanes.append(_run_lane(lane, out_dir, args.phase, args.runs, args.cap))
+    finally:
+        mem = watch.stop()
+
+    after = _health()
+    receipt = {
+        "phase": args.phase,
+        "ts": time.time(),
+        "runs_per_lane": args.runs,
+        "cap": args.cap,
+        "health_before": before,
+        "health_after": after,
+        "effective_env": env,
+        "marker_counts": marks,
+        "memfree": mem,
+        "lanes": lanes,
+    }
+    path = out_dir / f"{args.phase}-receipt.json"
+    path.write_text(json.dumps(receipt, indent=2))
+    print(json.dumps(receipt, indent=2))
+    print("wrote", path)
+    return 0
+
+
+def _median_lane(receipt: dict, lane: str) -> float | None:
+    for row in receipt.get("lanes", []):
+        if row.get("lane") == lane:
+            return row.get("tok_s_median")
+    return None
+
+
+def compare(args: argparse.Namespace) -> int:
+    control = json.loads(Path(args.compare[0]).read_text())
+    armed = json.loads(Path(args.compare[1]).read_text())
+    rows = []
+    verdict = "ADOPT"
+    for lane in LANES:
+        c = _median_lane(control, lane)
+        a = _median_lane(armed, lane)
+        if c is None or a is None:
+            verdict = "NEED-MORE-DATA"
+            rows.append({"lane": lane, "control": c, "armed": a, "ratio": None})
+            continue
+        ratio = a / c
+        above_parity = ratio >= PARITY
+        above_floor = a >= FLOORS[lane]
+        rows.append(
+            {
+                "lane": lane,
+                "control": c,
+                "armed": a,
+                "delta_pct": (ratio - 1.0) * 100.0,
+                "ratio": ratio,
+                "parity": above_parity,
+                "above_floor": above_floor,
+                "floor": FLOORS[lane],
+            }
+        )
+        if not (above_parity and above_floor):
+            verdict = "REVERT"
+    nan = any(
+        r.get("any_nan") for r in control.get("lanes", []) + armed.get("lanes", [])
+    )
+    if nan:
+        verdict = "REVERT"
+    out = {
+        "control": args.compare[0],
+        "armed": args.compare[1],
+        "parity_floor": PARITY,
+        "rows": rows,
+        "any_nan": nan,
+        "verdict": verdict,
+        "memfree": {"control": control.get("memfree"), "armed": armed.get("memfree")},
+        "marker_counts": armed.get("marker_counts"),
+        "effective_env": armed.get("effective_env"),
+    }
+    print(json.dumps(out, indent=2))
+    if args.out:
+        Path(args.out).write_text(json.dumps(out, indent=2))
+    return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--phase", help="label for this arm, e.g. control / armed")
+    ap.add_argument("--out-dir", default=str(ROOT / "local" / "shared-experts-20260927"))
+    ap.add_argument("--runs", type=int, default=5)
+    ap.add_argument("--cap", type=int, default=512)
+    ap.add_argument("--warmup", action="store_true", default=True)
+    ap.add_argument("--compare", nargs=2, metavar=("CONTROL", "ARMED"))
+    ap.add_argument("--out", help="write the comparison verdict here")
+    args = ap.parse_args()
+    if args.compare:
+        return compare(args)
+    if not args.phase:
+        ap.error("--phase is required unless --compare is used")
+    return measure(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

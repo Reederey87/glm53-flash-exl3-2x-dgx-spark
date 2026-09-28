@@ -212,6 +212,9 @@ def test_no_per_knob_allowlist_remains() -> None:
         # caller value under the same strict-bool rule.
         "_glm53_cli_ptd_set",
         "_glm53_cli_ptd_val",
+        # Shared-expert early launch is a strict bool under the same rule.
+        "_glm53_cli_sxe_set",
+        "_glm53_cli_sxe_val",
     }
     assert cli_tokens <= allowed, (
         f"the per-knob _cli_* allowlist must be gone (generic rule, #91); "
@@ -410,6 +413,7 @@ def test_strict_knob_caller_captures_are_setness_aware() -> None:
         ("GLM53_KV_CAPACITY_LOG", "1", "0"),
         ("GLM53_APC_NO_STORE", "1", "0"),
         ("GLM53_ROUTER_ONCE", "1", "0"),
+        ("GLM53_SHARED_EXPERTS_EARLY", "1", "0"),
     )
     for knob, env_value, caller_value_ in cases:
         probe = f'\nprintf "V=[%s]\\n" "${{{knob}-UNSET}}"\n'

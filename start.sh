@@ -112,6 +112,8 @@ _glm53_cli_router_once_set="${GLM53_ROUTER_ONCE+a}"
 _glm53_cli_router_once_val="${GLM53_ROUTER_ONCE-}"
 _glm53_cli_ptd_set="${GLM53_PROMPT_TOKENS_DETAILS+a}"
 _glm53_cli_ptd_val="${GLM53_PROMPT_TOKENS_DETAILS-}"
+_glm53_cli_sxe_set="${GLM53_SHARED_EXPERTS_EARLY+a}"
+_glm53_cli_sxe_val="${GLM53_SHARED_EXPERTS_EARLY-}"
 set -a
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/.env"
@@ -131,6 +133,7 @@ unset _k _kv _flags _env_keys _caller_overrides
 # LOCAL: W41/W42 caller-wins restore (end)
 [ -n "${_glm53_cli_router_once_set}" ] && GLM53_ROUTER_ONCE="$_glm53_cli_router_once_val"
 [ -n "${_glm53_cli_ptd_set}" ] && GLM53_PROMPT_TOKENS_DETAILS="$_glm53_cli_ptd_val"
+[ -n "${_glm53_cli_sxe_set}" ] && GLM53_SHARED_EXPERTS_EARLY="$_glm53_cli_sxe_val"
 
 # ----------------------------- configuration -------------------------------
 _glm53_model_revision_set="${MODEL_REVISION+x}"
@@ -377,6 +380,7 @@ CACHE_HOT_PROTECT_PATCH_HOST="${CACHE_HOT_PROTECT_PATCH_HOST:-$SCRIPT_DIR/overla
 # Default off; opt in after a warmed decode and serving-correctness gate.
 GLM53_ROUTER_ONCE="${GLM53_ROUTER_ONCE-0}"
 ROUTER_ONCE_PATCH_HOST="${ROUTER_ONCE_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_router_once.py}"
+SHARED_EXPERTS_EARLY_PATCH_HOST="${SHARED_EXPERTS_EARLY_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_shared_experts_overlap.py}"
 # LOCAL: 1 = floor a sub-block mixed-prefill chunk at the mixed cap instead of 0 when LPTT >= block_size
 # (scheduler livelock, dormant at LPTT=1792 — proven 0 mismatches over 608 combinations). Read once at import.
 GLM53_ALIGN_FLOOR="${GLM53_ALIGN_FLOOR:-1}"
@@ -471,6 +475,12 @@ GLM53_EXL3_MOE_REUSE="${GLM53_EXL3_MOE_REUSE-0}"
 # W28: stock is the shipped allocation; rightsize enables the GLM-5.3-only
 # reclaim. Default stays stock until the guarded A/B produces live receipts.
 GLM53_INDEXER_WORKSPACE="${GLM53_INDEXER_WORKSPACE-stock}"
+# LOCAL: shared-expert overlap. 1 = enqueue the MoE shared experts on the
+# auxiliary CUDA stream at the sync point, before the gate and the routed
+# dispatch, instead of in forward() after the routed experts. Python-only; it
+# reorders work, it does not change the arithmetic. Unset-only default so ""
+# stays a value and is rejected, like the knobs above.
+GLM53_SHARED_EXPERTS_EARLY="${GLM53_SHARED_EXPERTS_EARLY-0}"
 # LOCAL: W41/W42 knob defaults (end)
 # LOCAL: task 29/31 decode-profile oracle (begin). Empty dir = profiler OFF
 # (production default). A non-empty value must be an absolute path under
@@ -560,6 +570,10 @@ validate_numeric_config() {
         0|1) ;;
         *) echo "GLM53_ROUTER_ONCE must be exactly 0 or 1 (got: '${GLM53_ROUTER_ONCE}')" >&2; return 2 ;;
     esac
+    case "${GLM53_SHARED_EXPERTS_EARLY-0}" in
+        0|1) ;;
+        *) echo "GLM53_SHARED_EXPERTS_EARLY must be exactly 0 or 1 (got: '${GLM53_SHARED_EXPERTS_EARLY}')" >&2; return 2 ;;
+    esac
     if ! [[ "$GPU_MEM_UTIL" =~ ^(0([.][0-9]+)?|[.][0-9]+|1([.]0+)?)$ ]] \
        || ! awk -v u="$GPU_MEM_UTIL" 'BEGIN { exit !(u > 0 && u <= 1) }'; then
         echo "GPU_MEM_UTIL must be greater than 0 and at most 1 (got: $GPU_MEM_UTIL)" >&2
@@ -604,7 +618,7 @@ validate_numeric_config() {
     # value and is rejected. Runs before start/restart and through `validate`:
     # a bad value fails before boot, never stop/status/logs on a running pair;
     # the overlays re-validate in-process and fail closed.
-    for _v in GLM53_KV_CAPACITY_LOG GLM53_APC_NO_STORE GLM53_PROMPT_TOKENS_DETAILS GLM53_EXL3_MOE_PIPELINE GLM53_EXL3_MOE_REUSE; do
+    for _v in GLM53_KV_CAPACITY_LOG GLM53_APC_NO_STORE GLM53_PROMPT_TOKENS_DETAILS GLM53_EXL3_MOE_PIPELINE GLM53_EXL3_MOE_REUSE GLM53_SHARED_EXPERTS_EARLY; do
         case "${!_v}" in 0|1) ;; *) echo "$_v must be exactly 0 or 1 (got: '${!_v}')" >&2; return 2 ;; esac
     done
     unset _v
@@ -1721,6 +1735,11 @@ fi
 if [ -f /opt/glm53/patch_router_once.py ]; then
     python3 -S /opt/glm53/patch_router_once.py
 fi
+# Self-gated on GLM53_SHARED_EXPERTS_EARLY. Flag off does not edit
+# shared_experts.py.
+if [ -f /opt/glm53/patch_shared_experts_overlap.py ]; then
+    python3 -S /opt/glm53/patch_shared_experts_overlap.py
+fi
 if [ -f /opt/glm53/patch_kpool_tail_slotmap.py ]; then
     python3 -S /opt/glm53/patch_kpool_tail_slotmap.py
 fi
@@ -1915,6 +1934,11 @@ fi
 if [ -f /opt/glm53/patch_router_once.py ]; then
     python3 -S /opt/glm53/patch_router_once.py
 fi
+# Self-gated on GLM53_SHARED_EXPERTS_EARLY. Flag off does not edit
+# shared_experts.py.
+if [ -f /opt/glm53/patch_shared_experts_overlap.py ]; then
+    python3 -S /opt/glm53/patch_shared_experts_overlap.py
+fi
 if [ -f /opt/glm53/patch_kpool_tail_slotmap.py ]; then
     python3 -S /opt/glm53/patch_kpool_tail_slotmap.py
 fi
@@ -2016,6 +2040,8 @@ launch_cluster() {
     scp -q -o BatchMode=yes "$ROUTER_GEMM_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_router_gemm_gb10.py"
     [ -f "$ROUTER_ONCE_PATCH_HOST" ] || die "missing $ROUTER_ONCE_PATCH_HOST"
     scp -q -o BatchMode=yes "$ROUTER_ONCE_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_router_once.py"
+    [ -f "$SHARED_EXPERTS_EARLY_PATCH_HOST" ] || die "missing $SHARED_EXPERTS_EARLY_PATCH_HOST"
+    scp -q -o BatchMode=yes "$SHARED_EXPERTS_EARLY_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_shared_experts_overlap.py"
     [ -f "$KPOOL_TAIL_PATCH_HOST" ] || die "missing $KPOOL_TAIL_PATCH_HOST"
     scp -q -o BatchMode=yes "$KPOOL_TAIL_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_kpool_tail_slotmap.py"
     [ -f "$SPINWAIT_PATCH_HOST" ] || die "missing $SPINWAIT_PATCH_HOST"
@@ -2108,6 +2134,7 @@ launch_cluster() {
         -e "GLM53_CACHE_TAIL_EVICT=$GLM53_CACHE_TAIL_EVICT"
         -e "GLM53_CACHE_HOT_PROTECT=$GLM53_CACHE_HOT_PROTECT"
         -e "GLM53_ROUTER_ONCE=$GLM53_ROUTER_ONCE"
+        -e "GLM53_SHARED_EXPERTS_EARLY=$GLM53_SHARED_EXPERTS_EARLY"
         -e "DEFAULT_MAX_NEW_TOKENS=$DEFAULT_MAX_NEW_TOKENS"
         -e "TRITON_CACHE_DIR=$TRITON_CACHE_DIR"
         -e "TILELANG_CACHE_DIR=$TILELANG_CACHE_DIR"
@@ -2174,6 +2201,7 @@ launch_cluster() {
              LANGUAGE_MODEL_ONLY SKIP_MM_PROFILING \
              LIMIT_MM CHAT_TEMPLATE ENFORCE_EAGER EXL3_FUSED_MOE EXL3_MOE_ROW_TILE EXL3_TEMP_ROWS_FUSED EXL3_FAT_SORTED EXL3_FAT_BATCHED EXL3_FAT_KERNEL EXL3_FAT_GROUPED MODEL_DIR EXTRA_ARGS \
              GLM53_PROFILE_TORCH_DIR GLM53_PROFILE_MAX_ITERS \
+             GLM53_SHARED_EXPERTS_EARLY \
              GLM53_PROMPT_TOKENS_DETAILS; do
         serve_env+=" -e $v='${!v:-}'"
     done
@@ -2210,6 +2238,7 @@ launch_cluster() {
         -v '/tmp/patch_cache_reset.py:/opt/glm53/patch_cache_reset.py:ro' \
         -v '/tmp/patch_router_gemm_gb10.py:/opt/glm53/patch_router_gemm_gb10.py:ro' \
         -v '/tmp/patch_router_once.py:/opt/glm53/patch_router_once.py:ro' \
+        -v '/tmp/patch_shared_experts_overlap.py:/opt/glm53/patch_shared_experts_overlap.py:ro' \
         -v '/tmp/patch_kpool_tail_slotmap.py:/opt/glm53/patch_kpool_tail_slotmap.py:ro' \
         -v '/tmp/patch_spinwait_gb10.py:/opt/glm53/patch_spinwait_gb10.py:ro' \
         -v '/tmp/patch_fine_grained_apc.py:/opt/glm53/patch_fine_grained_apc.py:ro' \
@@ -2260,6 +2289,7 @@ launch_cluster() {
         -v "$CACHE_RESET_PATCH_HOST:/opt/glm53/patch_cache_reset.py:ro" \
         -v "$ROUTER_GEMM_PATCH_HOST:/opt/glm53/patch_router_gemm_gb10.py:ro" \
         -v "$ROUTER_ONCE_PATCH_HOST:/opt/glm53/patch_router_once.py:ro" \
+        -v "$SHARED_EXPERTS_EARLY_PATCH_HOST:/opt/glm53/patch_shared_experts_overlap.py:ro" \
         -v "$KPOOL_TAIL_PATCH_HOST:/opt/glm53/patch_kpool_tail_slotmap.py:ro" \
         -v "$SPINWAIT_PATCH_HOST:/opt/glm53/patch_spinwait_gb10.py:ro" \
         -v "$FGAPC_PATCH_HOST:/opt/glm53/patch_fine_grained_apc.py:ro" \
