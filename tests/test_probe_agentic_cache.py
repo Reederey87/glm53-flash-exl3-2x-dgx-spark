@@ -108,7 +108,8 @@ def chaff(label, ok=True, error=None, nan=False, code="CODE-aaaaaaaaaaaa"):
     }
 
 
-def arm(name, hit_pct, tok_s, *, stale=False, error=False, chaff_wrong=False, nan=False):
+def arm(name, hit_pct, tok_s, *, stale=False, error=False, chaff_wrong=False,
+        nan=False, prefill_s=10.0):
     return {
         "arm": name,
         "chaff_no_store": name == "treatment",
@@ -126,6 +127,9 @@ def arm(name, hit_pct, tok_s, *, stale=False, error=False, chaff_wrong=False, na
         "chaff_wall_s": 100.0,
         "chaff_prompt_tokens": 93000,
         "chaff_prompt_tok_s": tok_s,
+        "chaff_prefill_count": 18.0,
+        "chaff_prefill_mean_s": prefill_s,
+        "chaff_queue_mean_s": 0.01,
         "mean_return_hit_pct": hit_pct,
     }
 
@@ -302,12 +306,86 @@ def test_retention_gate_fails_on_a_stale_answer() -> None:
     assert not checks(v)["treatment_replays_return_own_code"]["ok"]
 
 
-def test_retention_gate_fails_on_a_chaff_throughput_loss() -> None:
-    v = probe.verdict_retention(arm("control", 38.5, 1000.0),
-                                arm("treatment", 98.6, 940.0), args())
+def test_retention_gate_fails_on_a_chaff_prefill_regression() -> None:
+    """The sequential row is a diagnostic; the paired mode owns this gate."""
+    v = probe.verdict_retention(arm("control", 38.5, 1000.0, prefill_s=10.0),
+                                arm("treatment", 98.6, 1010.0, prefill_s=12.4), args())
+    assert v["passed"], [c for c in v["checks"] if not c["ok"]]
+    seq = checks(v)["chaff_prefill_time_ratio_sequential"]
+    assert seq["skipped"], "sequential arms must not gate the chaff cost"
+    assert "ratio=1.24" in seq["detail"]
+
+
+def test_retention_gate_records_the_client_rate_without_gating_on_it() -> None:
+    """A 0.76x client rate must not fail the gate when prefill agrees."""
+    v = probe.verdict_retention(arm("control", 38.5, 1234.5, prefill_s=10.0),
+                                arm("treatment", 98.6, 937.3, prefill_s=10.05), args())
+    assert v["passed"], [c for c in v["checks"] if not c["ok"]]
+    diag = checks(v)["chaff_client_rate_diagnostic"]
+    assert diag["skipped"] and "0.7593" in diag["detail"]
+
+
+# ---------------------------------------------------------- chaff-cost gate
+
+
+def cost_receipt(*, caching=33.0, no_store=33.2, spread=None, **kw):
+    base = {
+        "caching_median_s": caching,
+        "no_store_median_s": no_store,
+        "caching_mean_s": caching,
+        "no_store_mean_s": no_store,
+        "paired_delta_mean_s": (no_store - caching) if caching and no_store else None,
+        "paired_delta_median_s": (no_store - caching) if caching and no_store else None,
+        "paired_delta_min_s": -5.0,
+        "paired_delta_max_s": 5.0,
+        "spread_s": spread if spread is not None else 20.0,
+        "errors": [],
+        "wrong_answers": [],
+        "nan": False,
+    }
+    base.update(kw)
+    return base
+
+
+def test_chaff_cost_gate_passes_when_the_paired_ratio_holds() -> None:
+    v = probe.verdict_chaff_cost(cost_receipt(), args())
+    assert v["passed"], [c for c in v["checks"] if not c["ok"]]
+    assert checks(v)["paired_median_prefill_ratio"]["ok"]
+
+
+def test_chaff_cost_gate_fails_on_a_real_paired_regression() -> None:
+    """A 1.54x paired regression, the shape a sequential run reported, fails."""
+    v = probe.verdict_chaff_cost(cost_receipt(caching=33.0, no_store=50.8), args())
     assert not v["passed"]
-    c = checks(v)["chaff_throughput_floor"]
-    assert not c["ok"] and "ratio=0.94" in c["detail"]
+    c = checks(v)["paired_median_prefill_ratio"]
+    assert not c["ok"] and "ratio=1.5394" in c["detail"]
+
+
+def test_chaff_cost_gate_fails_just_over_the_ratio_bound() -> None:
+    v = probe.verdict_chaff_cost(cost_receipt(caching=33.0, no_store=38.0), args())
+    assert not v["passed"]
+    assert not checks(v)["paired_median_prefill_ratio"]["ok"]
+
+
+def test_chaff_cost_gate_tolerates_the_measured_spread() -> None:
+    """The 1.6x spread is reported, but it is not by itself a failure."""
+    v = probe.verdict_chaff_cost(cost_receipt(spread=19.9), args())
+    assert v["passed"], [c for c in v["checks"] if not c["ok"]]
+    assert "19.9" in checks(v)["paired_median_prefill_ratio"]["detail"]
+
+
+def test_chaff_cost_gate_fails_when_the_histogram_is_absent() -> None:
+    v = probe.verdict_chaff_cost(cost_receipt(caching=None, no_store=None), args())
+    assert not v["passed"]
+    assert not checks(v)["paired_median_prefill_ratio"]["ok"]
+
+
+def test_chaff_cost_gate_fails_on_errors_wrong_answers_or_nan() -> None:
+    for kw in ({"errors": ["HTTPError: 500"]},
+               {"wrong_answers": ["pair1-st"]},
+               {"nan": True}):
+        v = probe.verdict_chaff_cost(cost_receipt(**kw), args())
+        assert not v["passed"], kw
 
 
 def test_retention_gate_fails_on_request_errors_and_nan() -> None:

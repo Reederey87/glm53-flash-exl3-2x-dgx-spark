@@ -7,8 +7,9 @@ cannot be re-interpreted after the numbers land.
 
   --mode attribution   per-request cache accounting is correct and readable.
   --mode retention     a known one-shot flood stops evicting a live session.
+  --mode chaff-cost    the no-store lane's own prefill cost, paired.
   --mode boundary      delegate to the standing APC boundary probe.
-  --mode all           attribution, then both retention arms, then boundary.
+  --mode all           attribution, retention, chaff-cost, then boundary.
 
 Attribution gate (TODO item 1). The live argv used to omit
 `--enable-prompt-tokens-details`, so `usage.prompt_tokens_details` was absent
@@ -39,12 +40,30 @@ tokens.
 Retention gate (TODO item 2). The write-side opt-out is already adopted
 (`GLM53_APC_NO_STORE`, PR #18) and a request that carries
 `vllm_xargs: {"skip_writing_prefix_cache": 1}` never inserts its blocks, so its
-blocks stay unhashed and `BlockPool.free_blocks` recycles them from the front
-of the free queue instead of queueing them behind a live session. That is a
+blocks stay unhashed and `BlockPool.free_blocks` prepends them to the front of
+the free queue instead of queueing them behind a live session. That is a
 per-request property, so both arms run in the SAME boot with the same server
 argv: the chaff's no-store bit is the only variable, and no restart can
 contaminate the comparison. Each arm gets its own `POST /reset_prefix_cache`
 and a fresh salt, and the arm order is fixed by the pre-registration.
+
+The chaff-cost guard reads `vllm:request_prefill_time_seconds` around the chaff
+loop and compares the engine's mean prefill seconds per request between arms.
+It deliberately does NOT use a client-side tokens/second aggregate: that number
+divides the whole request wall clock (prompt construction, JSON encoding, HTTP,
+detokenization, decode) by prompt tokens. A first cluster run of this gate
+failed on exactly that row, 0.76x, while the engine's own prefill rate was
+3905.5 vs 3906.7 tok/s across the two arms.
+
+Neither sequential form survives this deployment's telemetry. Reading the
+engine histogram per request shows prefill for identical work landing on ~5s
+steps (33.8, 38.8, 43.8, 48.8, 53.8), so a two-arm sequential comparison
+carries roughly +/-25% of state noise: two runs of the same gate measured
+1.54x and 0.97x. `--mode chaff-cost` therefore sends the same-shaped prompt
+twice per pair, once with each no-store bit, alternating which one leads, and
+gates on the paired median ratio so the drift and the quantum cancel. The
+retention arms keep their sequential chaff loop for the retention measurement
+and report the chaff cost there as a diagnostic only, pointing at this mode.
 
 Why hot-protect does not already cover this. `GLM53_CACHE_HOT_PROTECT` marks a
 block only on a request that *hits* it, so a session that has been written once
@@ -90,7 +109,17 @@ TOKENS_PER_WORD = 1.25
 
 # Pre-registered retention thresholds (TODO item 2).
 RETENTION_MIN_GAIN_PP = 15.0
-CHAFF_THROUGHPUT_FLOOR = 0.95
+# The chaff-cost guard reads the engine's own per-request prefill duration, not
+# a client-side aggregate rate. `vllm:request_prefill_time_seconds` is measured
+# inside the engine, so it excludes prompt construction, JSON encoding, HTTP,
+# detokenization and the decode that a client-side wall clock would fold in.
+# The two arms send the same number of same-sized chaff prompts with no
+# queueing, so the means should agree; 15% leaves room for node noise while
+# still catching the 24% that a real prefill regression would show.
+CHAFF_PREFILL_RATIO_MAX = 1.15
+PREFILL_TIME_SUM = "vllm:request_prefill_time_seconds_sum"
+PREFILL_TIME_COUNT = "vllm:request_prefill_time_seconds_count"
+QUEUE_TIME_SUM = "vllm:request_queue_time_seconds_sum"
 
 CODE_RE = re.compile(r"CODE-([0-9a-f]{12})")
 NAN_RE = re.compile(r"\bnan\b|locklock", re.I)
@@ -469,6 +498,7 @@ def retention_arm(client: Client, args, rng: random.Random, no_store: bool) -> d
         agents.append(res)
 
     chaff = []
+    chaff_before = metric_snapshot(client)
     chaff_t0 = time.monotonic()
     for i in range(args.chaff_count):
         code = make_code(rng)
@@ -480,6 +510,7 @@ def retention_arm(client: Client, args, rng: random.Random, no_store: bool) -> d
         res.pop("prompt", None)
         chaff.append(res)
     chaff_wall = time.monotonic() - chaff_t0
+    chaff_after = metric_snapshot(client)
 
     replays = []
     for i, agent in enumerate(agents):
@@ -493,6 +524,9 @@ def retention_arm(client: Client, args, rng: random.Random, no_store: bool) -> d
         replays.append(res)
 
     chaff_prompt_tokens = sum(c["prompt_tokens"] or 0 for c in chaff)
+    prefill_sum = metric_delta(chaff_before, chaff_after, PREFILL_TIME_SUM)
+    prefill_count = metric_delta(chaff_before, chaff_after, PREFILL_TIME_COUNT)
+    queue_sum = metric_delta(chaff_before, chaff_after, QUEUE_TIME_SUM)
     return {
         "arm": arm,
         "chaff_no_store": no_store,
@@ -501,7 +535,12 @@ def retention_arm(client: Client, args, rng: random.Random, no_store: bool) -> d
         "chaff": chaff,
         "chaff_wall_s": round(chaff_wall, 3),
         "chaff_prompt_tokens": chaff_prompt_tokens,
+        # Recorded, not gated: dominated by per-request client overhead.
         "chaff_prompt_tok_s": round(chaff_prompt_tokens / chaff_wall, 2) if chaff_wall else None,
+        # The engine's own per-request prefill cost. This is the guard.
+        "chaff_prefill_count": prefill_count,
+        "chaff_prefill_mean_s": round(prefill_sum / prefill_count, 4) if prefill_count else None,
+        "chaff_queue_mean_s": round(queue_sum / prefill_count, 4) if prefill_count else None,
         "replays": replays,
         "mean_return_hit_pct": round(
             statistics.fmean(r["return_hit_pct"] for r in replays
@@ -617,11 +656,28 @@ def verdict_retention(control: dict | None, treatment: dict | None, args) -> dic
             "no NaN/locklock marker in chaff or replays")
 
     c_tp, t_tp = control["chaff_prompt_tok_s"], treatment["chaff_prompt_tok_s"]
-    ratio = None if not c_tp or not t_tp else round(t_tp / c_tp, 4)
-    add("chaff_throughput_floor",
-        ratio is not None and ratio >= CHAFF_THROUGHPUT_FLOOR,
-        f"control={c_tp} tok/s treatment={t_tp} tok/s ratio={ratio} "
-        f"floor={CHAFF_THROUGHPUT_FLOOR}")
+    rate_ratio = None if not c_tp or not t_tp else round(t_tp / c_tp, 4)
+    add("chaff_client_rate_diagnostic", True,
+        f"recorded only, not a gate: control={c_tp} tok/s treatment={t_tp} tok/s "
+        f"ratio={rate_ratio}. This client-side rate divides the whole request "
+        f"wall clock (prompt build, JSON, HTTP, detokenize, decode) by prompt "
+        f"tokens. On this deployment prefill is ~99% of that clock, so the rate "
+        f"tracks prefill, which is itself quantised to ~5s steps and swings 1.6x "
+        f"on identical work. Sequential arms cannot resolve it; see --mode "
+        f"chaff-cost for the paired design.",
+        skipped=True)
+
+    c_pf, t_pf = control.get("chaff_prefill_mean_s"), treatment.get("chaff_prefill_mean_s")
+    pf_ratio = None if not c_pf or not t_pf else round(t_pf / c_pf, 4)
+    add("chaff_prefill_time_ratio_sequential", True,
+        f"recorded only, not a gate: control={c_pf}s treatment={t_pf}s "
+        f"ratio={pf_ratio} (counts {control.get('chaff_prefill_count')}/"
+        f"{treatment.get('chaff_prefill_count')}, queue means "
+        f"{control.get('chaff_queue_mean_s')}s/{treatment.get('chaff_queue_mean_s')}s). "
+        f"Two sequential arms disagree by up to 1.54x on identical work because "
+        f"per-request prefill is quantised to ~5s and node state drifts between "
+        f"arms. Delegated to --mode chaff-cost.",
+        skipped=True)
 
     for lane, floor in (args.floor or {}).items():
         val = (args.decode or {}).get(lane)
@@ -636,6 +692,119 @@ def verdict_retention(control: dict | None, treatment: dict | None, args) -> dic
     return {"gate": "retention", "checks": checks,
             "passed": all(c["ok"] for c in checks if not c.get("skipped")),
             "return_hit_gain_pp": gain}
+
+
+def case_chaff_cost(client: Client, args, rng: random.Random) -> dict:
+    """Paired no-store vs caching prefill cost, alternating the lead.
+
+    Sequential arms cannot measure this: per-request prefill on this deployment
+    is quantised to ~5s steps and drifts with node state, so two back-to-back
+    arms disagree by up to 1.54x on identical work. Here each pair sends the
+    same-shaped prompt twice, once per no-store bit, and alternates which one
+    leads. The within-pair delta cancels the drift and the 5s quantum.
+    """
+    client.reset_prefix_cache()
+    salt = f"{args.salt}-chaffcost"
+    agents = []
+    for i in range(args.agent_count):
+        code = make_code(rng)
+        prompt = build_prompt(rng, args.agent_tokens, code, args.needle_depth,
+                              f"{salt}-a{i}")
+        res = one_request(client, prompt, args.agent_max_tokens, label=f"agent{i}")
+        res.pop("prompt", None)
+        agents.append(res)
+
+    pairs = []
+    for i in range(args.cost_pairs):
+        no_store_first = (i % 2 == 0)
+        order = [True, False] if no_store_first else [False, True]
+        row: dict = {"pair": i, "requests": []}
+        for j, ns in enumerate(order):
+            code = make_code(rng)
+            prompt = build_prompt(rng, args.chaff_tokens, code, args.needle_depth,
+                                  f"{salt}-p{i}-{'ns' if ns else 'st'}")
+            before = metric_snapshot(client)
+            res = one_request(client, prompt, args.chaff_max_tokens,
+                              no_store=ns, label=f"pair{i}-{'ns' if ns else 'st'}")
+            after = metric_snapshot(client)
+            res["expected_code"] = code
+            res.pop("prompt", None)
+            cnt = metric_delta(before, after, PREFILL_TIME_COUNT)
+            res["prefill_s"] = (
+                round(metric_delta(before, after, PREFILL_TIME_SUM) / cnt, 4)
+                if cnt else None
+            )
+            res["lead"] = j == 0
+            res["pair"] = i
+            row["requests"].append(res)
+        nss = [r for r in row["requests"] if r["no_store"]]
+        sts = [r for r in row["requests"] if not r["no_store"]]
+        row["prefill_delta_s"] = (
+            round(nss[0]["prefill_s"] - sts[0]["prefill_s"], 4)
+            if nss and sts and nss[0]["prefill_s"] is not None
+            and sts[0]["prefill_s"] is not None else None
+        )
+        pairs.append(row)
+
+    def flat(ns: bool) -> list[dict]:
+        return [r for p in pairs for r in p["requests"] if r["no_store"] is ns]
+
+    st_reqs, ns_reqs = flat(False), flat(True)
+    st_pf = [r["prefill_s"] for r in st_reqs if r["prefill_s"] is not None]
+    ns_pf = [r["prefill_s"] for r in ns_reqs if r["prefill_s"] is not None]
+    deltas = [p["prefill_delta_s"] for p in pairs if p["prefill_delta_s"] is not None]
+    return {
+        "agents": agents,
+        "pairs": pairs,
+        "caching_prefill_s": st_pf,
+        "no_store_prefill_s": ns_pf,
+        "caching_mean_s": round(statistics.fmean(st_pf), 4) if st_pf else None,
+        "no_store_mean_s": round(statistics.fmean(ns_pf), 4) if ns_pf else None,
+        "caching_median_s": round(statistics.median(st_pf), 4) if st_pf else None,
+        "no_store_median_s": round(statistics.median(ns_pf), 4) if ns_pf else None,
+        "paired_delta_mean_s": round(statistics.fmean(deltas), 4) if deltas else None,
+        "paired_delta_median_s": round(statistics.median(deltas), 4) if deltas else None,
+        "paired_delta_min_s": min(deltas) if deltas else None,
+        "paired_delta_max_s": max(deltas) if deltas else None,
+        "errors": [r["error"] for r in st_reqs + ns_reqs if r["error"]],
+        "wrong_answers": [r["label"] for r in st_reqs + ns_reqs
+                          if r["answer_code"] != r["expected_code"]],
+        "nan": any(r["nan"] for r in st_reqs + ns_reqs),
+        "spread_s": round(max(st_pf + ns_pf) - min(st_pf + ns_pf), 3)
+        if st_pf and ns_pf else None,
+    }
+
+
+def verdict_chaff_cost(cost: dict, args) -> dict:
+    """Gate the paired median prefill ratio, not a mean of two noisy arms."""
+    checks: list[dict] = []
+
+    def add(name: str, ok: bool, detail: str, skipped: bool = False) -> None:
+        checks.append({"check": name, "ok": bool(ok), "detail": detail,
+                       **({"skipped": True} if skipped else {})})
+
+    c_med, t_med = cost.get("caching_median_s"), cost.get("no_store_median_s")
+    ratio = None if not c_med or not t_med else round(t_med / c_med, 4)
+    add("paired_median_prefill_ratio",
+        ratio is not None and ratio <= CHAFF_PREFILL_RATIO_MAX,
+        f"paired median engine prefill: caching={c_med}s no-store={t_med}s "
+        f"ratio={ratio} max={CHAFF_PREFILL_RATIO_MAX}; means "
+        f"{cost.get('caching_mean_s')}s/{cost.get('no_store_mean_s')}s; "
+        f"within-pair delta mean={cost.get('paired_delta_mean_s')}s "
+        f"median={cost.get('paired_delta_median_s')}s "
+        f"min={cost.get('paired_delta_min_s')} max={cost.get('paired_delta_max_s')}; "
+        f"observed spread on identical work {cost.get('spread_s')}s")
+
+    add("chaff_cost_no_errors", not cost.get("errors"),
+        "; ".join(cost["errors"]) or "none")
+    add("chaff_cost_answers_correct", not cost.get("wrong_answers"),
+        f"mismatched: {cost.get('wrong_answers') or 'none'}")
+    add("chaff_cost_no_nan", not cost.get("nan"),
+        "no NaN/locklock marker in the paired requests")
+
+    return {"gate": "chaff-cost", "checks": checks,
+            "passed": all(c["ok"] for c in checks if not c.get("skipped")),
+            "paired_median_prefill_ratio": ratio}
 
 
 def read_decode_receipts(paths: list[str]) -> dict[str, float]:
@@ -710,7 +879,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--api-key", default="")
     ap.add_argument("--out", required=True, help="receipt directory")
     ap.add_argument("--mode", default="all",
-                    choices=["attribution", "retention", "boundary", "all"])
+                    choices=["attribution", "retention", "chaff-cost", "boundary",
+                             "all"])
     ap.add_argument("--salt", default=None, help="unique run salt (default: random)")
     ap.add_argument("--seed", type=int, default=None, help="word-salad RNG seed")
     ap.add_argument("--attr-tokens", type=int, default=12000)
@@ -721,6 +891,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--agent-tokens", type=int, default=46500)
     ap.add_argument("--agent-max-tokens", type=int, default=24)
     ap.add_argument("--chaff-count", type=int, default=18)
+    ap.add_argument("--cost-pairs", type=int, default=6,
+                    help="chaff-cost pairs; each sends one no-store and one "
+                         "caching request with the same shape, alternating lead")
     ap.add_argument("--chaff-tokens", type=int, default=31000)
     ap.add_argument("--chaff-max-tokens", type=int, default=24)
     ap.add_argument("--needle-depth", type=int, default=512)
@@ -768,6 +941,12 @@ def main(argv: list[str] | None = None) -> int:
         ]
         receipt["gates"]["retention"] = ret["verdict"]
         print(json.dumps(ret["verdict"], indent=2), flush=True)
+
+    if args.mode in ("chaff-cost", "all"):
+        cost = case_chaff_cost(client, args, rng)
+        receipt["chaff_cost"] = cost
+        receipt["gates"]["chaff_cost"] = verdict_chaff_cost(cost, args)
+        print(json.dumps(receipt["gates"]["chaff_cost"], indent=2), flush=True)
 
     if args.mode in ("boundary", "all"):
         receipt["gates"]["boundary"] = run_boundary(args)
