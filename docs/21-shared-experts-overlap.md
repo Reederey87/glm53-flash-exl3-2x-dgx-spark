@@ -380,3 +380,37 @@ script was unchanged), all four of those receipts now return `INVALID`:
 The five archived armed receipts still replay as `ADOPT` against a fresh
 eight-request smoke, so the stricter check does not overturn the adoption. Four
 tests guard the new behaviour and fail against the previous revision.
+
+### Fifth review round — the contract and the receipt's own identity
+
+Reading the smoke's request list introduced two ways to defeat the check, both
+found by the follow-up:
+
+1. **The contract itself was trusted.** The mapping was built straight from
+   `REQUESTS`, so a malformed list was accepted: the string `"abc"` indexes as a
+   three-character triple and became the request `a`, and two entries sharing a
+   name collapsed into one — either of which shrinks the coverage the gate
+   demands. The contract is now validated before use: it must be a non-empty list
+   of three-item sequences with a non-empty string name, a non-empty string
+   prompt, a unique name, and either `None` or the name of a declared tool. Any
+   other shape returns no contract, which the gate reports as a failure.
+2. **Coverage ignored the round, and identity was unchecked.** Counting results
+   per name let a second round-one `tool-weather` stand in for round two's, which
+   recorded no weather evidence at all. Coverage is now per `(request, round)`,
+   requiring exactly one result for every declared request in every round
+   `1..repeat`. Each result must also agree with the contract on
+   `expected_function`, `wants_tool` and `tool_call_required`, so a result cannot
+   claim one request while carrying another's metadata.
+
+On the cluster with the exact candidate bytes (`window 6b71a72f…`):
+
+| Tampered receipt | Verdict | First gate failure |
+|---|---|---|
+| round-two `tool-weather` relabelled round 1 | INVALID | `smoke/tool-weather round 1: 2 results, expected 1` |
+| a `tool-weather` result claiming `expected_function: "add_numbers"` | INVALID | `expected_function='add_numbers', contract says 'get_weather'` |
+| a `tool-weather` result claiming `wants_tool: false` | INVALID | `wants_tool=False, contract says True` |
+
+The contract loader returns no contract for `["abc"]`, for two entries sharing a
+name, and for a tool name that is not declared, so each fails the gate instead of
+passing. The five archived armed receipts still replay as `ADOPT` against a fresh
+smoke, and three further tests guard the new behaviour.

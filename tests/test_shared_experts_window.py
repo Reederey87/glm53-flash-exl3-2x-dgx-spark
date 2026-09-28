@@ -83,12 +83,16 @@ def _smoke(repeat: int = 2) -> dict:
     results = [
         {
             "name": name,
+            "round": rnd,
             "ok": True,
             "nan": False,
+            "expected_function": fn,
+            "wants_tool": fn is not None,
+            "tool_call_required": fn is not None,
             "n_tool_calls": 1 if fn else 0,
             "tool_args_ok": True if fn else None,
         }
-        for _ in range(repeat)
+        for rnd in range(1, repeat + 1)
         for name, fn in declared
     ]
     return {
@@ -287,6 +291,87 @@ def test_every_result_must_be_an_object(window) -> None:
     bad = _smoke()
     bad["results"][0] = None
     assert window.smoke_failures(bad)
+
+
+def test_round_coverage_is_checked_per_request(window, verdict) -> None:
+    """Round two's weather cannot be replaced by a second round-one weather."""
+    control = _receipt(armed=False)
+    armed = _receipt(armed=True, scale=1.03)
+    bad = _smoke()
+    round_two = [
+        i for i, r in enumerate(bad["results"]) if r["name"] == "tool-weather"
+    ][1]
+    bad["results"][round_two]["round"] = 1
+    assert window.smoke_failures(bad)
+    out = verdict(control, armed, bad)
+    assert out["verdict"] == "INVALID"
+    assert any("round 2: 0 results" in problem for problem in out["gate_failures"])
+    # an out-of-range round is refused too
+    bad = _smoke()
+    bad["results"][0]["round"] = 99
+    assert window.smoke_failures(bad)
+    # and a missing or malformed round
+    for value in (None, "1", 0, True):
+        bad = _smoke()
+        bad["results"][0]["round"] = value
+        assert window.smoke_failures(bad), value
+
+
+def test_a_result_must_match_the_declared_identity(window, verdict) -> None:
+    """A result cannot claim one request while carrying another's metadata."""
+    control = _receipt(armed=False)
+    armed = _receipt(armed=True, scale=1.03)
+    for mutate in (
+        lambda r: r.update(expected_function="add_numbers"),
+        lambda r: r.update(expected_function=None),
+        lambda r: r.update(wants_tool=False),
+        lambda r: r.update(tool_call_required=False),
+        lambda r: r.pop("expected_function"),
+        lambda r: r.pop("wants_tool"),
+        lambda r: r.pop("tool_call_required"),
+    ):
+        bad = _smoke()
+        mutate(bad["results"][0])  # tool-weather
+        assert window.smoke_failures(bad), mutate
+    bad = _smoke()
+    bad["results"][2]["wants_tool"] = True  # plain-1
+    assert window.smoke_failures(bad)
+    bad = _smoke()
+    bad["results"][0]["expected_function"] = "add_numbers"
+    out = verdict(control, armed, bad)
+    assert out["verdict"] == "INVALID"
+
+
+def test_a_malformed_contract_is_refused(window, verdict, monkeypatch) -> None:
+    """A contract the gate cannot read must fail it, not shrink it."""
+    control = _receipt(armed=False)
+    armed = _receipt(armed=True, scale=1.03)
+    good = window._expected_requests()
+    assert good and good["tool-weather"] == "get_weather"
+    for declared, contracts in (
+        (["abc"], None),
+        ([("plain-1", "p", None), ("plain-1", "q", None)], None),
+        ([("", "p", None)], None),
+        ([("a", "", None)], None),
+        ([("a", "p", "nope")], None),
+        ([("a", "p", None, "extra")], None),
+        ([("a", "p", None)], []),
+        ("not a list", None),
+        ([], None),
+    ):
+        fake = types.SimpleNamespace(
+            REQUESTS=declared,
+            TOOL_CONTRACT=contracts if contracts is not None else {"get_weather": {}},
+        )
+        monkeypatch.setattr(window, "_smoke_module", lambda m=fake: m)
+        assert window._expected_requests() is None, declared
+        bad = _smoke()
+        assert window.smoke_failures(bad), declared
+        out = verdict(control, armed, bad)
+        assert out["verdict"] == "INVALID", declared
+    # and a readable contract still works after the loader is restored
+    monkeypatch.undo()
+    assert window._expected_requests() == good
 
 
 def test_improvement_is_adoptable(window, verdict) -> None:

@@ -421,14 +421,43 @@ def _smoke_module():
 
 
 def _expected_requests() -> dict[str, str | None] | None:
-    """Request name -> the function it must call (None for a plain request)."""
+    """Request name -> the function it must call (None for a plain request).
+
+    Returns None when the contract is not the exact shape the gate requires, so
+    a malformed contract fails the gate instead of silently shrinking the
+    coverage it demands. A bare string would otherwise index as a triple, and a
+    repeated name would collapse, either of which hides a missing request.
+    """
     module = _smoke_module()
     if module is None:
         return None
     try:
-        return {name: fn for name, _prompt, fn in module.REQUESTS}
+        declared = module.REQUESTS
+        contracts = module.TOOL_CONTRACT
     except Exception:  # noqa: BLE001
         return None
+    if not isinstance(declared, list) or not declared:
+        return None
+    if not isinstance(contracts, dict):
+        return None
+    out: dict[str, str | None] = {}
+    for entry in declared:
+        if not isinstance(entry, (list, tuple)) or len(entry) != 3:
+            return None
+        name, prompt, function = entry
+        if not isinstance(name, str) or not name:
+            return None
+        if not isinstance(prompt, str) or not prompt:
+            return None
+        if function is not None:
+            if not isinstance(function, str) or not function:
+                return None
+            if function not in contracts:
+                return None
+        if name in out:
+            return None
+        out[name] = function
+    return out
 
 
 def _result_failures(
@@ -441,6 +470,12 @@ def _result_failures(
     name = result.get("name")
     if not isinstance(name, str) or not name:
         problems.append(f"smoke: result {index} has no request name")
+    round_no = result.get("round")
+    if not isinstance(round_no, int) or isinstance(round_no, bool) or round_no < 1:
+        problems.append(
+            f"smoke: result {index} ({name!r}) round={round_no!r}, "
+            "expected a positive round"
+        )
     if result.get("ok") is not True:
         problems.append(f"smoke: result {index} ({name!r}) is not a passing request")
     if result.get("nan") is not False:
@@ -456,6 +491,22 @@ def _result_failures(
     # Only judge the request kind when the name is one this smoke declares; an
     # unknown name is reported by the coverage check instead.
     known = expected is not None and isinstance(name, str) and name in expected
+    if known:
+        # The recorded identity must agree with the contract, so a result cannot
+        # claim one request while carrying another's metadata.
+        want_function = expected[name]
+        if result.get("expected_function") != want_function:
+            problems.append(
+                f"smoke: result {index} ({name!r}) expected_function="
+                f"{result.get('expected_function')!r}, contract says {want_function!r}"
+            )
+        wants_tool = want_function is not None
+        for field in ("wants_tool", "tool_call_required"):
+            if result.get(field) is not wants_tool:
+                problems.append(
+                    f"smoke: result {index} ({name!r}) {field}="
+                    f"{result.get(field)!r}, contract says {wants_tool}"
+                )
     if known and expected[name] is None:
         if result.get("tool_args_ok") is not None:
             problems.append(
@@ -518,23 +569,37 @@ def smoke_failures(smoke: object) -> list[str]:
                 problems.append(
                     f"smoke: {len(results)} results for {requests} requests"
                 )
-        seen: dict[str, int] = {}
+        # Coverage is per (request, round): a duplicated round cannot stand in
+        # for a round that recorded no evidence at all.
+        seen: dict[tuple[str, int], int] = {}
         for index, result in enumerate(results):
             name = result.get("name") if isinstance(result, dict) else None
-            if isinstance(name, str):
-                seen[name] = seen.get(name, 0) + 1
+            round_no = result.get("round") if isinstance(result, dict) else None
+            if (
+                isinstance(name, str)
+                and isinstance(round_no, int)
+                and not isinstance(round_no, bool)
+            ):
+                key = (name, round_no)
+                seen[key] = seen.get(key, 0) + 1
             problems += _result_failures(index, result, expected)
-        if expected is not None:
-            want = (
-                repeat
-                if isinstance(repeat, int) and not isinstance(repeat, bool)
-                else 1
-            )
+        if (
+            expected is not None
+            and isinstance(repeat, int)
+            and not isinstance(repeat, bool)
+        ):
             for name in expected:
-                count = seen.get(name, 0)
-                if count != want:
-                    problems.append(f"smoke/{name}: {count} results, expected {want}")
-            extra = sorted(set(seen) - set(expected))
+                for rnd in range(1, repeat + 1):
+                    count = seen.get((name, rnd), 0)
+                    if count != 1:
+                        problems.append(
+                            f"smoke/{name} round {rnd}: {count} results, expected 1"
+                        )
+            extra = sorted(
+                key
+                for key in seen
+                if key[0] not in expected or not 1 <= key[1] <= repeat
+            )
             if extra:
                 problems.append(f"smoke: unexpected requests {extra}")
 
