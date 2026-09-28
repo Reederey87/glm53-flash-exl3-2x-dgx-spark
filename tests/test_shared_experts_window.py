@@ -6,9 +6,9 @@ failed, unhealthy, incoherent, unarmed or memory-starved probe is worse than one
 that reports nothing, and a smoke that accepts a malformed tool call is not
 serving-correctness evidence.
 """
+
 from __future__ import annotations
 
-import copy
 import importlib.util
 import json
 import subprocess
@@ -66,48 +66,108 @@ def _receipt(*, armed: bool, scale: float = 1.0) -> dict:
         "health_before": 200,
         "health_after": 200,
         "effective_env": {KNOB: "1"} if armed else {"GLM53_ROUTER_ONCE": "1"},
-        "marker_counts": {"head": 3, "worker": 3} if armed else {"head": 0, "worker": 0},
+        "marker_counts": {"head": 3, "worker": 3}
+        if armed
+        else {"head": 0, "worker": 0},
         "memfree": {
-            "head": {"min_kib": 4 * 1024 * 1024},
-            "worker": {"min_kib": 4 * 1024 * 1024},
+            "head": {"min_kib": 4 * 1024 * 1024, "samples": 40},
+            "worker": {"min_kib": 4 * 1024 * 1024, "samples": 40},
         },
         "lanes": lanes,
     }
 
 
-def _write(tmp: Path, name: str, payload: dict) -> str:
+def _smoke() -> dict:
+    return {
+        "ok": True,
+        "failed": 0,
+        "any_nan": False,
+        "log_errors": {"head": [], "worker": []},
+        "log_failures": {"head": "", "worker": ""},
+    }
+
+
+def _write(tmp: Path, name: str, payload: object) -> str:
     path = tmp / name
     path.write_text(json.dumps(payload))
     return str(path)
 
 
-def _verdict(window, tmp: Path, control: dict, armed: dict) -> dict:
+def _verdict(
+    window, tmp: Path, control: object, armed: object, smoke: object = None, capsys=None
+) -> dict:
+    """Drive the compare() entry point and return the verdict it emitted."""
     args = types.SimpleNamespace(
         compare=[_write(tmp, "c.json", control), _write(tmp, "a.json", armed)],
+        smoke=_write(tmp, "s.json", smoke) if smoke is not None else None,
         out=None,
     )
     assert window.compare(args) == 0
-    # compare() prints; re-derive the verdict from the same helpers so the test
-    # asserts on the logic rather than on stdout formatting.
-    problems = window.gate_failures(control, armed)
-    return {"problems": problems, "invalid": bool(problems)}
+    return json.loads(capsys.readouterr().out)
 
 
-def test_clean_probe_has_no_gate_failures(window) -> None:
-    assert window.gate_failures(_receipt(armed=False), _receipt(armed=True)) == []
+@pytest.fixture
+def verdict(window, tmp_path, capsys):
+    def run(control: object, armed: object, smoke: object = None) -> dict:
+        return _verdict(window, tmp_path, control, armed, smoke, capsys)
+
+    return run
 
 
-def test_improvement_is_adoptable(window) -> None:
+def test_clean_probe_with_the_smoke_has_no_gate_failures(window) -> None:
+    assert (
+        window.gate_failures(_receipt(armed=False), _receipt(armed=True), _smoke())
+        == []
+    )
+
+
+def test_a_missing_smoke_is_a_partial_assessment(window, verdict) -> None:
+    """The smoke is part of the gate, so its absence must not read as ADOPT."""
+    out = verdict(_receipt(armed=False), _receipt(armed=True, scale=1.03))
+    assert out["verdict"] == "PARTIAL-GATE"
+    assert out["complete"] is False
+    assert any("smoke" in problem for problem in out["gate_failures"])
+
+
+def test_a_failed_smoke_is_invalid(window, verdict) -> None:
+    bad = _smoke()
+    bad["failed"] = 1
+    out = verdict(_receipt(armed=False), _receipt(armed=True, scale=1.03), bad)
+    assert out["verdict"] == "INVALID"
+
+
+def test_a_smoke_with_uncollected_logs_is_invalid(window) -> None:
+    bad = _smoke()
+    bad["log_failures"]["worker"] = "exit 255: Connection refused"
+    assert window.smoke_failures(bad)
+
+
+def test_a_smoke_with_engine_errors_is_invalid(window) -> None:
+    bad = _smoke()
+    bad["log_errors"]["head"] = ["CUDA error"]
+    assert window.smoke_failures(bad)
+
+
+def test_a_smoke_without_log_status_is_invalid(window) -> None:
+    bad = _smoke()
+    del bad["log_failures"]
+    assert window.smoke_failures(bad)
+
+
+def test_improvement_is_adoptable(window, verdict) -> None:
     control = _receipt(armed=False)
     armed = _receipt(armed=True, scale=1.03)
-    assert window.gate_failures(control, armed) == []
-    rows, verdict = window.compare_rows(control, armed)
-    assert verdict == "ADOPT"
-    assert all(row["parity"] and row["above_floor"] for row in rows)
+    assert window.gate_failures(control, armed, _smoke()) == []
+    out = verdict(control, armed, _smoke())
+    assert out["verdict"] == "ADOPT"
+    assert out["complete"] is True
+    assert all(row["parity"] and row["above_floor"] for row in out["rows"])
 
 
-def _fails(window, control: dict, armed: dict) -> bool:
-    return bool(window.gate_failures(control, armed))
+def _fails(window, control: object, armed: object, smoke: object = None) -> bool:
+    return bool(
+        window.gate_failures(control, armed, _smoke() if smoke is None else smoke)
+    )
 
 
 def test_unhealthy_pair_is_not_a_result(window) -> None:
@@ -187,9 +247,100 @@ def test_a_regressing_lane_is_not_adoptable(window) -> None:
     control = _receipt(armed=False)
     armed = _receipt(armed=True)
     armed["lanes"][1]["tok_s_median"] = LANES["prose"] * 0.90
-    assert window.gate_failures(control, armed) == []
+    assert window.gate_failures(control, armed, _smoke()) == []
     _rows, verdict = window.compare_rows(control, armed)
     assert verdict == "REVERT"
+
+
+# --------------------------------------------------------------------------
+# malformed receipts must be refused, not silently read as clean
+# --------------------------------------------------------------------------
+def test_absent_nan_evidence_is_not_clean_evidence(window) -> None:
+    control = _receipt(armed=False)
+    armed = _receipt(armed=True)
+    for row in armed["lanes"]:
+        del row["any_nan"]
+    assert _fails(window, control, armed)
+
+
+def test_zero_sample_counts_are_not_evidence(window) -> None:
+    control = _receipt(armed=False)
+    armed = _receipt(armed=True)
+    armed["memfree"]["head"]["samples"] = 0
+    assert _fails(window, control, armed)
+    armed = _receipt(armed=True)
+    del armed["memfree"]["worker"]["samples"]
+    assert _fails(window, control, armed)
+
+
+def test_a_missing_required_field_is_refused(window) -> None:
+    for mutate in (
+        lambda r: r.pop("health_before"),
+        lambda r: r.pop("health_after"),
+        lambda r: r.pop("marker_counts"),
+        lambda r: r.pop("memfree"),
+        lambda r: r.pop("effective_env"),
+        lambda r: r.pop("lanes"),
+    ):
+        armed = _receipt(armed=True)
+        mutate(armed)
+        assert _fails(window, _receipt(armed=False), armed), mutate
+
+
+def test_malformed_shapes_are_refused_not_crashed(window) -> None:
+    """A lane mapping or a non-list must yield a verdict, not an exception."""
+    control = _receipt(armed=False)
+    for armed in (
+        {"lanes": {"structured": 71.0}},
+        {"lanes": "structured"},
+        {"lanes": [None]},
+        "not a receipt",
+        None,
+    ):
+        assert _fails(window, control, armed), armed
+
+
+def test_a_zero_or_invalid_median_is_refused(window, verdict) -> None:
+    control = _receipt(armed=False)
+    armed = _receipt(armed=True)
+    armed["lanes"][1]["tok_s_median"] = 0
+    assert _fails(window, control, armed)
+    out = verdict(control, armed, _smoke())
+    assert out["verdict"] == "INVALID"
+    for bad in (None, "31.8", float("nan"), float("inf"), True, -1):
+        armed = _receipt(armed=True)
+        armed["lanes"][1]["tok_s_median"] = bad
+        assert _fails(window, control, armed), bad
+
+
+def test_a_missing_lane_is_refused(window) -> None:
+    control = _receipt(armed=False)
+    armed = _receipt(armed=True)
+    armed["lanes"] = [row for row in armed["lanes"] if row["lane"] != "essay"]
+    assert _fails(window, control, armed)
+
+
+def test_an_unexpected_lane_is_refused(window) -> None:
+    control = _receipt(armed=False)
+    armed = _receipt(armed=True)
+    armed["lanes"].append(
+        {
+            "lane": "prefill",
+            "returncode": 0,
+            "tok_s_median": 999.0,
+            "any_nan": False,
+            "coherent": True,
+        }
+    )
+    assert _fails(window, control, armed)
+
+
+def test_a_zero_control_median_does_not_crash_the_comparison(window, verdict) -> None:
+    control = _receipt(armed=False)
+    control["lanes"][1]["tok_s_median"] = 0
+    out = verdict(control, _receipt(armed=True), _smoke())
+    assert out["verdict"] == "INVALID"
+    assert any("median" in problem for problem in out["gate_failures"])
 
 
 # --------------------------------------------------------------------------
@@ -212,6 +363,66 @@ def test_valid_calls_are_accepted(smoke) -> None:
         _call("get_weather", {"city": "Lisbon, Portugal", "units": "celsius"})
     )
     assert ok, detail
+    # addition commutes, so either operand order answers the request
+    ok, detail = smoke.validate_call(_call("add_numbers", {"a": 1938, "b": 4217}))
+    assert ok, detail
+
+
+def test_a_swapped_function_is_rejected(smoke) -> None:
+    """Both tools are offered, so a valid call for the other one is still wrong."""
+    ok, detail = smoke.validate_call(
+        _call("add_numbers", {"a": 4217, "b": 1938}), "get_weather"
+    )
+    assert not ok
+    assert any("expected the 'get_weather' call" in line for line in detail)
+
+
+def _response(*calls: dict) -> dict:
+    return {"choices": [{"message": {"content": "", "tool_calls": list(calls)}}]}
+
+
+def test_one_associates_the_answer_with_the_request(smoke, monkeypatch) -> None:
+    """A weather request answered by the addition tool must not pass."""
+    monkeypatch.setattr(
+        smoke,
+        "_post",
+        lambda *a, **k: _response(_call("add_numbers", {"a": 4217, "b": 1938})),
+    )
+    record = smoke._one("tool-weather", "weather?", "get_weather")
+    assert record["ok"] is False
+    assert record["tool_args_ok"] is False
+    assert any(
+        "expected the 'get_weather' call" in line for line in record["tool_arg_detail"]
+    )
+
+    # the correct function still passes through the same path
+    monkeypatch.setattr(
+        smoke,
+        "_post",
+        lambda *a, **k: _response(
+            _call("get_weather", {"city": "Lisbon", "units": "celsius"})
+        ),
+    )
+    record = smoke._one("tool-weather", "weather?", "get_weather")
+    assert record["ok"] is True
+
+
+def test_one_requires_exactly_one_call(smoke, monkeypatch) -> None:
+    call = _call("get_weather", {"city": "Lisbon", "units": "celsius"})
+    for calls in ((), (call, call)):
+        monkeypatch.setattr(smoke, "_post", lambda *a, _c=calls, **k: _response(*_c))
+        record = smoke._one("tool-weather", "weather?", "get_weather")
+        assert record["ok"] is False, calls
+        assert any("exactly 1 tool call" in line for line in record["tool_arg_detail"])
+
+
+def test_a_plain_request_accepts_an_answer_without_calls(smoke, monkeypatch) -> None:
+    monkeypatch.setattr(
+        smoke, "_post", lambda *a, **k: {"choices": [{"message": {"content": "READY"}}]}
+    )
+    record = smoke._one("plain-1", "say READY", None)
+    assert record["ok"] is True
+    assert record["tool_args_ok"] is None
 
 
 def test_undeclared_function_is_rejected(smoke) -> None:
@@ -246,7 +457,7 @@ def test_wrong_argument_values_are_rejected(smoke) -> None:
 def test_wrong_operands_are_rejected(smoke) -> None:
     ok, detail = smoke.validate_call(_call("add_numbers", {"a": 4217, "b": 1939}))
     assert not ok
-    assert any("requested 1938" in line for line in detail)
+    assert any("do not add the requested" in line for line in detail)
 
 
 def test_boolean_operands_are_rejected(smoke) -> None:
@@ -257,7 +468,9 @@ def test_boolean_operands_are_rejected(smoke) -> None:
 
 
 def test_non_string_city_is_rejected(smoke) -> None:
-    ok, detail = smoke.validate_call(_call("get_weather", {"city": 7, "units": "celsius"}))
+    ok, detail = smoke.validate_call(
+        _call("get_weather", {"city": 7, "units": "celsius"})
+    )
     assert not ok
     assert any("non-empty string" in line for line in detail)
 

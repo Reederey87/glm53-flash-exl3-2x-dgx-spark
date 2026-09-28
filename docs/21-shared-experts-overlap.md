@@ -145,25 +145,27 @@ line and carried all three markers; the container environment showed
 `GLM53_SHARED_EXPERTS_EARLY=1` with `ROUTER_ONCE=1` and
 `INDEXER_WORKSPACE=rightsize` unchanged.
 
-| Lane | Control | Pass 1 (5) | Pass 2 (7) | Pass 3 (5) | Mean delta |
-|---|---|---|---|---|---|
-| structured | 71.15 | 71.89 | 71.66 | 71.14 | +0.6% |
-| prose | 31.84 | 30.93 | 32.60 | 32.11 | +0.1% |
-| essay | 24.09 | 24.50 | 24.70 | 24.96 | +2.6% |
+| Lane | Control | Pass 1 | Pass 2 | Pass 3 | Pass 4 | Pass 5 | Mean delta |
+|---|---|---|---|---|---|---|---|
+| structured | 71.15 | 71.89 | 71.66 | 71.14 | 71.04 | 71.35 | +0.4% |
+| prose | 31.84 | 30.93 | 32.60 | 32.11 | 31.50 | 32.92 | +0.5% |
+| essay | 24.09 | 24.50 | 24.70 | 24.96 | 25.44 | 25.16 | +3.6% |
 
 The control was measured on the unchanged standing boot before any restart;
 each armed pass is a separate boot of the same image. Every pass is at or above
 97% of the control on every lane and above the 68.8 / 30 / 20 floors, so the
-pre-registered gate is satisfied on all three.
+pre-registered gate is satisfied on all fifteen lane-passes. Five passes rather
+than one, because the essay lane's +3.6% mean is larger than the instrument's
+resolving power on a single boot and had to be shown to repeat.
 
 The shape matches the mechanism. The gain scales with the number of decode
-steps, so it is largest on the low-acceptance essay lane (accept ≈ 0.40, +2.6%)
-and smallest on structured (accept ≈ 0.967, +0.6%), which invokes the MoE least
-often per token. The prose lane (accept ≈ 0.53) is the one lane the instrument
-cannot resolve: its run-to-run spread is roughly ±6%, and pass 1's −2.9% came
-with an anomalous acceptance ratio (0.526 against 0.541 in the control) that
-passes 2 and 3 did not reproduce. Two of three passes are above control and none
-regresses reproducibly.
+steps, so it is largest on the low-acceptance essay lane (accept ≈ 0.40, +3.6%
+mean, every pass positive) and smallest on structured (accept ≈ 0.967, +0.4%),
+which invokes the MoE least often per token. The prose lane (accept ≈ 0.53) is
+the one lane the instrument cannot resolve: its run-to-run spread is roughly
+±6%, and pass 1's −2.9% came with an anomalous acceptance ratio (0.526 against
+0.541 in the control) that no later pass reproduced. Four of five passes are
+above control and none regresses reproducibly.
 
 **Serving smoke.** Eight concurrent requests over two rounds — two tool-calling
 and two plain per round — all returned schema-valid arguments for
@@ -265,3 +267,49 @@ All five armed passes clear the stricter gate. The final confirmation pass on
 these bytes is structured 71.35, prose 32.92, essay 25.16 against the control's
 71.15 / 31.84 / 24.09, with an eight-request smoke clean and both log collections
 successful.
+
+### Second review round — the gate's own inputs
+
+The re-review found that the first round's fixes were still reading malformed
+receipts as clean evidence, and that the smoke checked tool calls without
+checking them *against the request*. Three further gaps, all in the tooling:
+
+1. **Absent evidence read as good evidence.** `gate_failures` used `.get()` with
+   permissive defaults, so a receipt that simply omitted `any_nan`, or omitted
+   the `MemFree` sample counts, produced no complaint; a lane list that was a
+   mapping or a scalar raised `AttributeError`; and a zero control median divided
+   by zero. The gate now requires the fields it reads, demands a positive sample
+   count and a finite positive median per lane and per node, requires exactly one
+   result per expected lane and no unexpected ones, and refuses malformed shapes
+   with a verdict instead of an exception.
+2. **The smoke did not associate a call with its request.** Both tools are
+   offered on every tool request, so `validate_call` validated either declared
+   function independently: a weather request answered with `add_numbers` passed.
+   Each request now declares the one function it asked for and the answer must
+   call that function.
+3. **Correct addition was rejected.** `add_numbers(a=1938, b=4217)` was refused
+   for not matching the prompt's operand order, although it answers the request.
+   The contract now carries the accepted operand sets and either order passes.
+
+Each new test was confirmed to fail against the pre-fix scripts: stashing the two
+changed scripts and running the file gives 28 failures, including every case
+above.
+
+**Re-validation on the cluster.** The gate's verdict on an already-adopted
+treatment must not change just because the gate got stricter, so the five
+archived armed receipts were replayed through the fixed comparison on the head
+node. All five return `ADOPT`, `complete: true`, no gate failures, with the same
+per-lane numbers as the window — the adoption stands on the stricter gate. The
+smoke was re-run against live production with the request/function association
+in force: eight concurrent requests, both tool requests calling the function they
+asked for, both plain requests making no call, `ok: true`, both log collections
+successful.
+
+One invocation note came out of that re-run. The smoke talks to
+`127.0.0.1:8000` and reads the head container's log locally, so it belongs on the
+head node; run from the workstation it cannot reach either container's log and
+correctly reports `ok: false`. That is the log-failure fix from the first round
+working, not a candidate failure, and the docstring now says so.
+
+Both scripts were staged to the runtime tree and their `sha256` matched the
+worktree bytes (`smoke e90f52cb…`, `window 394b9b6b…`) before either was run.

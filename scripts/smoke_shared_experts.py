@@ -8,7 +8,18 @@ arguments and no engine, CUDA, NCCL or NaN errors.
 This fires a mixed concurrent batch — two tool-calling requests that must return
 parseable arguments for the declared schema, and two plain completions — then
 scans the head and worker container logs for engine-level errors.
+
+Each tool request declares the one function it asked for, and the answer must
+call *that* function: both tools are offered, so a well-formed call for the wrong
+one is a failure. ``add_numbers`` accepts either operand order, because addition
+commutes and both orders answer the request.
+
+**Run this on the head node** (`spark1`): it talks to ``127.0.0.1:8000`` and
+reads the head container's logs locally, reaching the worker over the fabric. Run
+from anywhere else, the log scan fails and the receipt is correctly reported as
+``ok: false`` — that is a broken invocation, not a broken candidate.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -70,17 +81,27 @@ ERROR_RE = re.compile(
     re.I,
 )
 
+# (label, prompt, the one tool the answer must call, or None for a plain reply)
 REQUESTS = [
-    ("tool-weather", "What is the weather in Lisbon right now? Use the tool, in celsius.", True),
-    ("tool-add", "Add 4217 and 1938. Use the tool.", True),
-    ("plain-1", "Reply with exactly the word READY.", False),
-    ("plain-2", "Name the three primary colours, comma separated. No other text.", False),
+    (
+        "tool-weather",
+        "What is the weather in Lisbon right now? Use the tool, in celsius.",
+        "get_weather",
+    ),
+    ("tool-add", "Add 4217 and 1938. Use the tool.", "add_numbers"),
+    ("plain-1", "Reply with exactly the word READY.", None),
+    (
+        "plain-2",
+        "Name the three primary colours, comma separated. No other text.",
+        None,
+    ),
 ]
 
 
 # What each declared tool accepts, and the values the request actually asks for.
-# A tool call is only "correct" when the name is declared, the argument object
-# carries exactly the declared properties, and each value is the one requested.
+# A tool call is only "correct" when it is the function the request asked for, the
+# argument object carries exactly the declared properties, and each value is the
+# one requested.
 TOOL_CONTRACT = {
     "get_weather": {
         "properties": ("city", "units"),
@@ -88,7 +109,8 @@ TOOL_CONTRACT = {
     },
     "add_numbers": {
         "properties": ("a", "b"),
-        "expected": {"a": 4217, "b": 1938},
+        # Addition commutes, so either operand order answers the request.
+        "operand_sets": ((4217, 1938), (1938, 4217)),
     },
 }
 
@@ -97,40 +119,49 @@ def _check_argument(tool: str, key: str, value: object) -> str:
     """Return "" when the argument is acceptable, else the reason it is not."""
     if key not in TOOL_CONTRACT[tool]["properties"]:
         return f"undeclared property {key!r}"
-    expected = TOOL_CONTRACT[tool]["expected"][key]
-    if tool == "get_weather":
-        if not isinstance(value, str) or not value.strip():
-            return f"must be a non-empty string, got {value!r}"
-        if key == "city":
-            if expected.lower() not in value.lower():
-                return f"must name the requested city {expected!r}, got {value!r}"
-        elif key == "units":
-            if value not in ("celsius", "fahrenheit"):
-                return f"must be the declared enum, got {value!r}"
-            if value != expected:
-                return f"must be the requested {expected!r}, got {value!r}"
+    if tool == "add_numbers":
+        # bool is a subclass of int, so exclude it explicitly. The operand values
+        # are checked as a set in validate_call, because addition commutes.
+        if isinstance(value, bool) or not isinstance(value, int):
+            return f"must be an integer, got {type(value).__name__}"
         return ""
-    # add_numbers: bool is a subclass of int, so exclude it explicitly.
-    if isinstance(value, bool) or not isinstance(value, int):
-        return f"must be an integer, got {type(value).__name__}"
-    if value != expected:
-        return f"must be the requested {expected}, got {value!r}"
+    expected = TOOL_CONTRACT[tool]["expected"][key]
+    if not isinstance(value, str) or not value.strip():
+        return f"must be a non-empty string, got {value!r}"
+    if key == "city":
+        if expected.lower() not in value.lower():
+            return f"must name the requested city {expected!r}, got {value!r}"
+    elif key == "units":
+        if value not in ("celsius", "fahrenheit"):
+            return f"must be the declared enum, got {value!r}"
+        if value != expected:
+            return f"must be the requested {expected!r}, got {value!r}"
     return ""
 
 
-def validate_call(call: dict) -> tuple[bool, list[str]]:
-    """Validate one tool call against the declared contract."""
+def validate_call(
+    call: dict, expected_function: str | None = None
+) -> tuple[bool, list[str]]:
+    """Validate one tool call against the declared contract.
+
+    ``expected_function`` is the function the request asked for; passing it makes
+    a correct-looking call for the *other* declared tool a failure, which is the
+    case a helper that only knows the contract cannot catch.
+    """
     fn = call.get("function") or {}
     name = fn.get("name")
     if name not in TOOL_CONTRACT:
         return False, [f"undeclared function {name!r}"]
+    if expected_function is not None and name != expected_function:
+        return False, [f"expected the {expected_function!r} call, got {name!r}"]
     try:
         parsed = json.loads(fn.get("arguments") or "")
     except json.JSONDecodeError as exc:
         return False, [f"{name}: unparseable arguments ({exc})"]
     if not isinstance(parsed, dict):
         return False, [f"{name}: arguments are not an object"]
-    declared = TOOL_CONTRACT[name]["properties"]
+    contract = TOOL_CONTRACT[name]
+    declared = contract["properties"]
     ok = True
     detail: list[str] = []
     missing = [key for key in declared if key not in parsed]
@@ -146,6 +177,14 @@ def validate_call(call: dict) -> tuple[bool, list[str]]:
         if reason:
             ok = False
             detail.append(f"{name}.{key}: {reason}")
+    if ok and "operand_sets" in contract:
+        got = tuple(parsed[key] for key in declared)
+        if got not in contract["operand_sets"]:
+            ok = False
+            detail.append(
+                f"{name}: operands {got} do not add the requested "
+                f"{contract['operand_sets'][0]}"
+            )
     if not detail:
         detail.append(f"{name} args ok: {parsed}")
     return ok, detail
@@ -163,7 +202,8 @@ def _post(payload: dict, timeout: int = 180) -> dict:
         return json.loads(resp.read())
 
 
-def _one(name: str, prompt: str, wants_tool: bool) -> dict:
+def _one(name: str, prompt: str, expected_function: str | None) -> dict:
+    wants_tool = expected_function is not None
     payload: dict = {
         "model": MODEL,
         "messages": [{"role": "user", "content": prompt}],
@@ -175,7 +215,12 @@ def _one(name: str, prompt: str, wants_tool: bool) -> dict:
         payload["tools"] = TOOLS
         payload["tool_choice"] = "auto"
     started = time.time()
-    record: dict = {"name": name, "wants_tool": wants_tool, "started": started}
+    record: dict = {
+        "name": name,
+        "wants_tool": wants_tool,
+        "expected_function": expected_function,
+        "started": started,
+    }
     try:
         data = _post(payload)
     except urllib.error.HTTPError as exc:
@@ -196,13 +241,13 @@ def _one(name: str, prompt: str, wants_tool: bool) -> dict:
 
     args_ok = True
     arg_detail: list[str] = []
-    for call in calls:
-        call_ok, detail = validate_call(call)
-        args_ok &= call_ok
-        arg_detail.extend(detail)
     if wants_tool and len(calls) != 1:
         args_ok = False
         arg_detail.append(f"expected exactly 1 tool call, got {len(calls)}")
+    for call in calls:
+        call_ok, detail = validate_call(call, expected_function)
+        args_ok &= call_ok
+        arg_detail.extend(detail)
     record["tool_args_ok"] = args_ok if wants_tool else None
     record["tool_arg_detail"] = arg_detail
     record["tool_call_required"] = wants_tool
@@ -285,7 +330,9 @@ def main() -> int:
         "any_nan": any(r.get("nan") for r in results),
         "log_errors": log_errors,
         "log_failures": log_failures,
-        "ok": not bad and not any(log_errors.values()) and not any(log_failures.values()),
+        "ok": not bad
+        and not any(log_errors.values())
+        and not any(log_failures.values()),
         "results": results,
     }
     path = Path(args.out)

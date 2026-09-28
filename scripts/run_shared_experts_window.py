@@ -15,12 +15,12 @@ runner measures one phase and writes a receipt:
 ``--compare`` reads two receipts and applies the pre-registered gate from
 ``docs/21-shared-experts-overlap.md``.
 """
+
 from __future__ import annotations
 
 import argparse
 import json
-import re
-import statistics
+import math
 import subprocess
 import sys
 import threading
@@ -117,7 +117,11 @@ def _effective_env() -> dict[str, str]:
         f"docker inspect {HEAD_CONTAINER} "
         "--format '{{range .Config.Env}}{{println .}}{{end}}'",
     )
-    wanted = ("GLM53_SHARED_EXPERTS_EARLY", "GLM53_ROUTER_ONCE", "GLM53_INDEXER_WORKSPACE")
+    wanted = (
+        "GLM53_SHARED_EXPERTS_EARLY",
+        "GLM53_ROUTER_ONCE",
+        "GLM53_INDEXER_WORKSPACE",
+    )
     return {
         k: v
         for k, v in (line.split("=", 1) for line in raw.splitlines() if "=" in line)
@@ -154,7 +158,9 @@ def _run_lane(lane: str, out_dir: Path, phase: str, runs: int, cap: int) -> dict
     elif lane == "essay":
         cmd.append("--essay")
     print(f"[window] {phase} lane={lane} runs={runs} cap={cap}", flush=True)
-    done = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=1800)
+    done = subprocess.run(
+        cmd, capture_output=True, text=True, check=False, timeout=1800
+    )
     if done.returncode != 0:
         print(done.stdout[-2000:], flush=True)
         print(done.stderr[-2000:], file=sys.stderr, flush=True)
@@ -223,7 +229,9 @@ def measure(args: argparse.Namespace) -> int:
                 ]
                 if lane == "essay":
                     warm_cmd.append("--essay")
-                subprocess.run(warm_cmd, capture_output=True, text=True, timeout=900, check=False)
+                subprocess.run(
+                    warm_cmd, capture_output=True, text=True, timeout=900, check=False
+                )
             lanes.append(_run_lane(lane, out_dir, args.phase, args.runs, args.cap))
     finally:
         mem = watch.stop()
@@ -248,61 +256,155 @@ def measure(args: argparse.Namespace) -> int:
     return 0
 
 
-def _median_lane(receipt: dict, lane: str) -> float | None:
-    for row in receipt.get("lanes", []):
-        if row.get("lane") == lane:
-            return row.get("tok_s_median")
-    return None
+def _median_lane(receipt: object, lane: str) -> float | None:
+    if not isinstance(receipt, dict):
+        return None
+    row = _lane_rows(receipt).get(lane)
+    return row.get("tok_s_median") if isinstance(row, dict) else None
 
 
-def gate_failures(control: dict, armed: dict) -> list[str]:
-    """Every prerequisite the pre-registered gate needs before a verdict.
+def _positive_number(value: object) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and value > 0
+    )
 
-    Throughput alone is not the gate. An unhealthy pair, a failed or incoherent
-    lane, an unarmed container or a memory-starved node makes the comparison
-    unreadable, and reporting such a probe as adopted would be worse than
-    reporting nothing.
-    """
+
+def _lane_rows(receipt: dict) -> dict[str, dict]:
+    """Lane rows keyed by lane; an unexpected shape yields no rows."""
+    lanes = receipt.get("lanes")
+    if not isinstance(lanes, list):
+        return {}
+    out: dict[str, dict] = {}
+    for row in lanes:
+        if isinstance(row, dict) and isinstance(row.get("lane"), str):
+            out.setdefault(row["lane"], row)
+    return out
+
+
+def _receipt_failures(label: str, receipt: object, expect_markers: int) -> list[str]:
+    """Structural and evidence checks for one side of the comparison."""
     problems: list[str] = []
-    for label, receipt in (("control", control), ("armed", armed)):
-        for key in ("health_before", "health_after"):
-            if receipt.get(key) != 200:
-                problems.append(f"{label}: {key}={receipt.get(key)!r}, expected 200")
-        lanes = receipt.get("lanes") or []
-        if not lanes:
-            problems.append(f"{label}: no lane results")
-        for row in lanes:
-            lane = row.get("lane")
-            if row.get("returncode") != 0:
-                problems.append(f"{label}/{lane}: benchmark exit {row.get('returncode')!r}")
-            if row.get("tok_s_median") is None:
-                problems.append(f"{label}/{lane}: no median tok/s")
-            if row.get("any_nan"):
-                problems.append(f"{label}/{lane}: NaN in the generated text")
-            if lane in ("prose", "essay") and row.get("coherent") is not True:
-                problems.append(f"{label}/{lane}: coherence not confirmed")
-        mem = receipt.get("memfree") or {}
+    if not isinstance(receipt, dict):
+        return [f"{label}: receipt is not an object"]
+    for key in ("health_before", "health_after"):
+        if receipt.get(key) != 200:
+            problems.append(f"{label}: {key}={receipt.get(key)!r}, expected 200")
+    rows = _lane_rows(receipt)
+    for lane in LANES:
+        row = rows.get(lane)
+        if row is None:
+            problems.append(f"{label}/{lane}: no result for this lane")
+            continue
+        if row.get("returncode") != 0:
+            problems.append(f"{label}/{lane}: benchmark exit {row.get('returncode')!r}")
+        median = row.get("tok_s_median")
+        if not _positive_number(median):
+            problems.append(
+                f"{label}/{lane}: median {median!r} is not a finite positive number"
+            )
+        # Absent evidence is not clean evidence.
+        if row.get("any_nan") is not False:
+            problems.append(
+                f"{label}/{lane}: any_nan={row.get('any_nan')!r}, expected False"
+            )
+        if lane in ("prose", "essay") and row.get("coherent") is not True:
+            problems.append(f"{label}/{lane}: coherence not confirmed")
+    extra = sorted(set(rows) - set(LANES))
+    if extra:
+        problems.append(f"{label}: unexpected lanes {extra}")
+
+    mem = receipt.get("memfree")
+    if not isinstance(mem, dict):
+        problems.append(f"{label}: no MemFree block")
+    else:
         for node in ("head", "worker"):
-            entry = mem.get(node) or {}
+            entry = mem.get(node)
+            if not isinstance(entry, dict):
+                problems.append(f"{label}/{node}: no MemFree entry")
+                continue
+            samples = entry.get("samples")
+            if (
+                not isinstance(samples, int)
+                or isinstance(samples, bool)
+                or samples <= 0
+            ):
+                problems.append(
+                    f"{label}/{node}: MemFree samples={samples!r}, expected a positive count"
+                )
             low = entry.get("min_kib")
-            if low is None:
-                problems.append(f"{label}/{node}: no MemFree samples")
+            if not isinstance(low, int) or isinstance(low, bool) or low <= 0:
+                problems.append(
+                    f"{label}/{node}: MemFree min {low!r} is not a positive number"
+                )
             elif low < MEMFREE_FLOOR_KIB:
                 problems.append(
                     f"{label}/{node}: MemFree min {low} KiB below the "
                     f"{int(MEMFREE_FLOOR_KIB)} KiB floor"
                 )
-        expect = 3 if label == "armed" else 0
+
+    marks = receipt.get("marker_counts")
+    if not isinstance(marks, dict):
+        problems.append(f"{label}: no installer marker counts")
+    else:
         for node in ("head", "worker"):
-            count = (receipt.get("marker_counts") or {}).get(node)
-            if count != expect:
+            count = marks.get(node)
+            if count != expect_markers:
                 problems.append(
-                    f"{label}/{node}: installer marker count {count!r}, expected {expect}"
+                    f"{label}/{node}: installer marker count {count!r}, "
+                    f"expected {expect_markers}"
                 )
-    if (armed.get("effective_env") or {}).get("GLM53_SHARED_EXPERTS_EARLY") != "1":
+    return problems
+
+
+def smoke_failures(smoke: object) -> list[str]:
+    """Serving-correctness evidence, which is part of the gate, not an extra."""
+    if not isinstance(smoke, dict):
+        return ["smoke: receipt is not an object"]
+    problems: list[str] = []
+    if smoke.get("ok") is not True:
+        problems.append(f"smoke: ok={smoke.get('ok')!r}, expected True")
+    if smoke.get("failed") != 0:
+        problems.append(f"smoke: failed={smoke.get('failed')!r}, expected 0")
+    if smoke.get("any_nan") is not False:
+        problems.append(f"smoke: any_nan={smoke.get('any_nan')!r}, expected False")
+    errors = smoke.get("log_errors")
+    if not isinstance(errors, dict) or any(errors.get(n) for n in ("head", "worker")):
+        problems.append(f"smoke: engine/CUDA/NCCL errors recorded: {errors!r}")
+    failures = smoke.get("log_failures")
+    if not isinstance(failures, dict):
+        problems.append("smoke: no per-rank log collection status")
+    else:
+        for node in ("head", "worker"):
+            if failures.get(node):
+                problems.append(
+                    f"smoke/{node}: log collection failed: {failures[node]!r}"
+                )
+    return problems
+
+
+def gate_failures(control: dict, armed: dict, smoke: object = None) -> list[str]:
+    """Every prerequisite the pre-registered gate needs before a verdict.
+
+    Throughput alone is not the gate. An unhealthy pair, a failed or incoherent
+    lane, an unarmed container, a memory-starved node or a malformed receipt
+    makes the comparison unreadable, and reporting such a probe as adopted would
+    be worse than reporting nothing. The serving smoke is part of the gate too,
+    so its absence is itself a failure rather than a silent omission.
+    """
+    problems = _receipt_failures("control", control, 0)
+    problems += _receipt_failures("armed", armed, 3)
+    env = armed.get("effective_env") if isinstance(armed, dict) else None
+    if not isinstance(env, dict) or env.get("GLM53_SHARED_EXPERTS_EARLY") != "1":
         problems.append(
             "armed: GLM53_SHARED_EXPERTS_EARLY is not 1 in the container environment"
         )
+    if smoke is None:
+        problems.append("smoke: no serving-smoke receipt supplied")
+    else:
+        problems += smoke_failures(smoke)
     return problems
 
 
@@ -313,7 +415,7 @@ def compare_rows(control: dict, armed: dict) -> tuple[list[dict], str]:
     for lane in LANES:
         c = _median_lane(control, lane)
         a = _median_lane(armed, lane)
-        if c is None or a is None:
+        if not _positive_number(c) or not _positive_number(a):
             verdict = "NEED-MORE-DATA"
             rows.append({"lane": lane, "control": c, "armed": a, "ratio": None})
             continue
@@ -334,7 +436,10 @@ def compare_rows(control: dict, armed: dict) -> tuple[list[dict], str]:
         )
         if not (above_parity and above_floor):
             verdict = "REVERT"
-    if any(r.get("any_nan") for r in control.get("lanes", []) + armed.get("lanes", [])):
+    if any(
+        r.get("any_nan") is not False
+        for r in list(_lane_rows(control).values()) + list(_lane_rows(armed).values())
+    ):
         verdict = "REVERT"
     return rows, verdict
 
@@ -342,25 +447,32 @@ def compare_rows(control: dict, armed: dict) -> tuple[list[dict], str]:
 def compare(args: argparse.Namespace) -> int:
     control = json.loads(Path(args.compare[0]).read_text())
     armed = json.loads(Path(args.compare[1]).read_text())
-    problems = gate_failures(control, armed)
+    smoke = json.loads(Path(args.smoke).read_text()) if args.smoke else None
+    problems = gate_failures(control, armed, smoke)
     rows, verdict = compare_rows(control, armed)
-    nan = any(
-        r.get("any_nan") for r in control.get("lanes", []) + armed.get("lanes", [])
-    )
-    # An unreadable probe is not a result, whatever the throughput says.
+    # An unreadable or incomplete probe is not a result, whatever the throughput
+    # says. Without the serving smoke this is a partial assessment, not a gate.
     if problems:
-        verdict = "INVALID"
+        verdict = "PARTIAL-GATE" if args.smoke is None else "INVALID"
     out = {
         "control": args.compare[0],
         "armed": args.compare[1],
+        "smoke": args.smoke,
         "parity_floor": PARITY,
         "rows": rows,
-        "any_nan": nan,
         "gate_failures": problems,
+        "complete": not problems,
         "verdict": verdict,
-        "memfree": {"control": control.get("memfree"), "armed": armed.get("memfree")},
-        "marker_counts": armed.get("marker_counts"),
-        "effective_env": armed.get("effective_env"),
+        "memfree": {
+            "control": control.get("memfree") if isinstance(control, dict) else None,
+            "armed": armed.get("memfree") if isinstance(armed, dict) else None,
+        },
+        "marker_counts": armed.get("marker_counts")
+        if isinstance(armed, dict)
+        else None,
+        "effective_env": armed.get("effective_env")
+        if isinstance(armed, dict)
+        else None,
     }
     print(json.dumps(out, indent=2))
     if args.out:
@@ -371,11 +483,20 @@ def compare(args: argparse.Namespace) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--phase", help="label for this arm, e.g. control / armed")
-    ap.add_argument("--out-dir", default=str(ROOT / "local" / "shared-experts-20260927"))
+    ap.add_argument(
+        "--out-dir", default=str(ROOT / "local" / "shared-experts-20260927")
+    )
     ap.add_argument("--runs", type=int, default=5)
     ap.add_argument("--cap", type=int, default=512)
     ap.add_argument("--warmup", action="store_true", default=True)
     ap.add_argument("--compare", nargs=2, metavar=("CONTROL", "ARMED"))
+    ap.add_argument(
+        "--smoke",
+        help=(
+            "serving-smoke receipt for the armed boot; it is part of the gate, so "
+            "without it the comparison reports PARTIAL-GATE rather than a verdict"
+        ),
+    )
     ap.add_argument("--out", help="write the comparison verdict here")
     args = ap.parse_args()
     if args.compare:
