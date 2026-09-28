@@ -193,3 +193,42 @@ floor (head 3.86 GiB, worker 3.31 GiB in the tightest pass).
 **Also observed, out of scope.** `local/task42-reuse-receipts-20260920/window.sh`
 fails `bash -n` under bash 3.2 because of a `;&` fallthrough; bash 5 (the CI
 image) accepts it. It is untouched by this change.
+
+## Independent review
+
+The change alters synchronization and stream ordering, so it went to the CUDA
+specialist rather than straight to the integration reviewer. It came back
+approved with one recorded robustness gap, since fixed.
+
+The event pair and the in-flight flag were allocated inside
+`if self._stream is not None:`, while `forward` reads the flag unconditionally.
+With `VLLM_DISABLE_SHARED_EXPERTS_STREAM=1`, or on a non-cuda-alike platform
+where `aux_stream()` returns `None`, the attribute would not exist and every
+matching `forward` would raise `AttributeError` — a configuration stock handles
+by running the layer inline. Dormant on this deployment (CUDA, the disable flag
+unset, `MULTI_STREAM_OVERLAPPED` reachable at every live shape) and loud rather
+than corrupting if ever hit, but it is a real gap, so the allocation now sits in
+`__init__` outside the branch.
+
+`tests/test_shared_experts_overlap.py::test_patched_survives_a_disabled_aux_stream`
+drives the disabled path: the layer must run inline exactly as stock does, with
+no launch pending. It fails against the old allocation
+(`AttributeError: 'SharedExperts' object has no attribute '_early_pending'`) and
+passes against this one. The corrected installer (`sha256 4f5c5d95…`) was
+re-staged, re-booted, and confirmed live on both ranks, with a further
+confirmation pass (structured 71.04, prose 31.50, essay 25.44) and a clean
+eight-request smoke.
+
+The specialist's remaining answers are worth recording because they are the
+parts a throughput window cannot show. The fork is complete: the activation is
+produced before the aux stream reads it, and the only consumer of the output
+waits on the output event. Allocator lifetime stays safe because
+`record_stream(aux)` is retained and the join happens before any consumer, so a
+later reuse is ordered behind it by the next launch's `input_ready` wait — the
+same edge stock relied on. Capture is safe because the events are created in
+`__init__` with `enable_timing=False`, both fork and join live inside the same
+custom-op call, and the in-flight flag is set and cleared within one pass, so
+replay re-runs recorded device work with no host state to re-enter. Index
+agreement holds because the sync point and `forward` run on the same thread
+inside one ubatch's call, and DBO is off on this deployment, so the index is
+always 0.

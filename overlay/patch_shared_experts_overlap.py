@@ -68,12 +68,15 @@ INIT_NEW = """\
             self._stream = aux_stream()
             if self._stream is not None:
                 logger.debug_once("Enabled separate cuda stream for MoE shared_experts")
-                # [glm53-shared-experts-early] One event pair and one in-flight
-                # flag per DBO ubatch id. Allocated here, at init, so nothing is
-                # created inside a captured region.
-                self._early_input_ready = [torch.cuda.Event(), torch.cuda.Event()]
-                self._early_output_ready = [torch.cuda.Event(), torch.cuda.Event()]
-                self._early_pending = [False, False]
+        # [glm53-shared-experts-early] One event pair and one in-flight flag per
+        # DBO ubatch id, allocated unconditionally: forward() reads the flag even
+        # when the aux stream is disabled (VLLM_DISABLE_SHARED_EXPERTS_STREAM) or
+        # unavailable on a non-cuda-alike platform, where stock runs the layer
+        # inline. Allocated at init, so nothing is created inside a captured
+        # region.
+        self._early_input_ready = [torch.cuda.Event(), torch.cuda.Event()]
+        self._early_output_ready = [torch.cuda.Event(), torch.cuda.Event()]
+        self._early_pending = [False, False]
 
     # TODO(bnell): Hack for elastic_ep. Get rid of this
 """

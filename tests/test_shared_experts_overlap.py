@@ -315,7 +315,9 @@ class _Module:
         pass
 
 
-def _install_stubs(monkeypatch: pytest.MonkeyPatch) -> None:
+def _install_stubs(
+    monkeypatch: pytest.MonkeyPatch, *, disable_stream: bool = False
+) -> None:
     torch = types.ModuleType("torch")
     nn = types.ModuleType("torch.nn")
     nn.Module = _Module  # type: ignore[attr-defined]
@@ -328,7 +330,7 @@ def _install_stubs(monkeypatch: pytest.MonkeyPatch) -> None:
     torch.Tensor = _Tensor  # type: ignore[attr-defined]
 
     envs = types.ModuleType("vllm.envs")
-    envs.VLLM_DISABLE_SHARED_EXPERTS_STREAM = False  # type: ignore[attr-defined]
+    envs.VLLM_DISABLE_SHARED_EXPERTS_STREAM = disable_stream  # type: ignore[attr-defined]
     envs.VLLM_SHARED_EXPERTS_STREAM_TOKEN_THRESHOLD = 256  # type: ignore[attr-defined]
 
     logger_mod = types.ModuleType("vllm.logger")
@@ -493,6 +495,36 @@ def test_knob_is_wired_on_both_nodes() -> None:
 def test_knob_is_documented_in_env_example() -> None:
     text = ENV_EXAMPLE.read_text()
     assert f"{KNOB}=0" in text, "env.example must ship the knob defaulted off"
+
+
+def test_patched_survives_a_disabled_aux_stream(tmp_path: Path, monkeypatch) -> None:
+    """Stock runs the layer inline with the aux stream off; so must the patch.
+
+    ``forward`` reads the in-flight flag unconditionally, so ``__init__`` has to
+    allocate it even when it takes the disabled branch (no aux stream, or a
+    non-cuda-alike platform where ``aux_stream()`` returns None).
+    """
+    _install_stubs(monkeypatch, disable_stream=True)
+    result = _run(tmp_path, "1", _fixture())
+    assert result.returncode == 0, result.stderr
+    module = _load(tmp_path / "shared_experts.py", "nostream")
+    layer = _Layer()
+    experts = module.SharedExperts(
+        layer=layer,
+        moe_config=_moe_config(),
+        enable_dbo=False,
+        mk_can_overlap_shared_experts=lambda: False,
+    )
+    assert experts._stream is None
+    activation = _Tensor(8)
+    experts.maybe_sync_shared_experts_stream(activation)
+    assert experts._early_pending == [False, False]
+    LOG.clear()
+    experts.forward(activation, module.SharedExpertsOrder.NO_OVERLAP)
+    # no aux stream, so the layer runs inline, exactly as stock does
+    assert layer.calls == 1
+    assert LOG == ["layer.run"]
+    assert experts.output is not None
 
 
 def test_patched_never_runs_the_layer_twice(tmp_path: Path, monkeypatch) -> None:
