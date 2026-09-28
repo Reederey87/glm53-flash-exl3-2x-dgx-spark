@@ -533,11 +533,13 @@ def test_knob_uses_an_unset_only_default_and_joins_the_strict_bool_loop():
     assert 'GLM53_EXL3_MOE_PIPELINE="${GLM53_EXL3_MOE_PIPELINE:-0}"' not in src
     assert 'GLM53_EXL3_MOE_REUSE="${GLM53_EXL3_MOE_REUSE-0}"' in src
     assert 'GLM53_EXL3_MOE_REUSE="${GLM53_EXL3_MOE_REUSE:-0}"' not in src
-    assert (
-        "for _v in GLM53_KV_CAPACITY_LOG GLM53_APC_NO_STORE "
-        "GLM53_EXL3_MOE_PIPELINE GLM53_EXL3_MOE_REUSE; do"
-        in src
+    loop_line = next(
+        ln for ln in src.splitlines()
+        if ln.strip().startswith("for _v in") and "GLM53_KV_CAPACITY_LOG" in ln
     )
+    for knob in ("GLM53_KV_CAPACITY_LOG", "GLM53_APC_NO_STORE",
+                 "GLM53_EXL3_MOE_PIPELINE", "GLM53_EXL3_MOE_REUSE"):
+        assert knob in loop_line, f"{knob} must be in the strict-bool loop: {loop_line}"
     assert '-e "GLM53_EXL3_MOE_PIPELINE=$GLM53_EXL3_MOE_PIPELINE"' in src
     assert '-e "GLM53_EXL3_MOE_REUSE=$GLM53_EXL3_MOE_REUSE"' in src
 

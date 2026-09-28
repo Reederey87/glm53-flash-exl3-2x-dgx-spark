@@ -208,6 +208,10 @@ def test_no_per_knob_allowlist_remains() -> None:
         # Router-once also rejects an explicitly empty caller value.
         "_glm53_cli_router_once_set",
         "_glm53_cli_router_once_val",
+        # W43 attribution: report-only, but it rejects an explicitly empty
+        # caller value under the same strict-bool rule.
+        "_glm53_cli_ptd_set",
+        "_glm53_cli_ptd_val",
     }
     assert cli_tokens <= allowed, (
         f"the per-knob _cli_* allowlist must be gone (generic rule, #91); "

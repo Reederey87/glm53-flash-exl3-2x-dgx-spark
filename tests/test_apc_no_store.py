@@ -927,6 +927,8 @@ def _run_defaults(knob: str, value: str | None) -> tuple[int, str, str]:
 STRICT_BOOL_DEFAULTS = {
     "GLM53_KV_CAPACITY_LOG": "1",
     "GLM53_APC_NO_STORE": "1",
+    # W43: report-only, but it rides the same strict-bool contract.
+    "GLM53_PROMPT_TOKENS_DETAILS": "1",
     "GLM53_EXL3_MOE_PIPELINE": "0",
     "GLM53_EXL3_MOE_REUSE": "0",
 }

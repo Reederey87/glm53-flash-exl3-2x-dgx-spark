@@ -110,6 +110,8 @@ _glm53_cli_moereuse_val="${GLM53_EXL3_MOE_REUSE-}"
 # LOCAL: W41/W42 caller-wins capture (end)
 _glm53_cli_router_once_set="${GLM53_ROUTER_ONCE+a}"
 _glm53_cli_router_once_val="${GLM53_ROUTER_ONCE-}"
+_glm53_cli_ptd_set="${GLM53_PROMPT_TOKENS_DETAILS+a}"
+_glm53_cli_ptd_val="${GLM53_PROMPT_TOKENS_DETAILS-}"
 set -a
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/.env"
@@ -128,6 +130,7 @@ unset _k _kv _flags _env_keys _caller_overrides
 [ -n "${_glm53_cli_moereuse_set}" ] && GLM53_EXL3_MOE_REUSE="$_glm53_cli_moereuse_val"
 # LOCAL: W41/W42 caller-wins restore (end)
 [ -n "${_glm53_cli_router_once_set}" ] && GLM53_ROUTER_ONCE="$_glm53_cli_router_once_val"
+[ -n "${_glm53_cli_ptd_set}" ] && GLM53_PROMPT_TOKENS_DETAILS="$_glm53_cli_ptd_val"
 
 # ----------------------------- configuration -------------------------------
 _glm53_model_revision_set="${MODEL_REVISION+x}"
@@ -430,6 +433,21 @@ fi
 # the overlays re-validate in-process and fail closed at boot.
 GLM53_KV_CAPACITY_LOG="${GLM53_KV_CAPACITY_LOG-1}"
 GLM53_APC_NO_STORE="${GLM53_APC_NO_STORE-1}"
+# LOCAL: W43 per-request prefix-cache attribution. Report-only: adds upstream's
+# own `--enable-prompt-tokens-details` so `usage.prompt_tokens_details` carries
+# this request's local prefix-cache hit count in HTTP and in the final SSE usage
+# chunk. Nothing about scheduling, eviction or numerics changes. It is NOT in
+# EXTRA_ARGS: the flag is parsed into the API-server args, so it cannot change
+# the engine's JIT shape hash. Unset-only default so "" stays a value and is
+# rejected, like the two knobs above.
+# Read the deployed tree before arming: this fork's `_make_prompt_tokens_details`
+# already distinguishes a real zero from missing data (it returns None only when
+# cached, created and mm counts are all None), which is the upstream fix for
+# issue #44377. Without that form a cold request's `cached_tokens: 0` would be
+# indistinguishable from an absent field, and the cold/replay gate would be
+# unreadable. This deployment is not disaggregated, so `cached_tokens` is the
+# local prefix hit (`num_local_cached_tokens`); see docs/20.
+GLM53_PROMPT_TOKENS_DETAILS="${GLM53_PROMPT_TOKENS_DETAILS-1}"
 # LOCAL: task 42 -- 1 = select the register-cut variant of the fused `exl3_moe`
 # decode kernel (shallow fragment pipeline, deeper smem pipeline) instead of the
 # stock 3/3 instance. The variant is compiled into the image and the geometry is
@@ -586,7 +604,7 @@ validate_numeric_config() {
     # value and is rejected. Runs before start/restart and through `validate`:
     # a bad value fails before boot, never stop/status/logs on a running pair;
     # the overlays re-validate in-process and fail closed.
-    for _v in GLM53_KV_CAPACITY_LOG GLM53_APC_NO_STORE GLM53_EXL3_MOE_PIPELINE GLM53_EXL3_MOE_REUSE; do
+    for _v in GLM53_KV_CAPACITY_LOG GLM53_APC_NO_STORE GLM53_PROMPT_TOKENS_DETAILS GLM53_EXL3_MOE_PIPELINE GLM53_EXL3_MOE_REUSE; do
         case "${!_v}" in 0|1) ;; *) echo "$_v must be exactly 0 or 1 (got: '${!_v}')" >&2; return 2 ;; esac
     done
     unset _v
@@ -1588,6 +1606,14 @@ ARGS=(
     --no-enable-flashinfer-autotune
 )
 [ "${ENFORCE_EAGER:-1}" = "1" ] && ARGS+=(--enforce-eager)
+# LOCAL: W43 attribution (begin) -- report-only, see the knob default. Added to
+# ARGS and not to EXTRA_ARGS so it stays out of the JIT shape hash. The same
+# flag must be present on both ranks: each rank parses the same CLI.
+if [ "${GLM53_PROMPT_TOKENS_DETAILS:-1}" = "1" ]; then
+    ARGS+=(--enable-prompt-tokens-details)
+    say "prompt-tokens-details armed: per-request usage.prompt_tokens_details.cached_tokens"
+fi
+# LOCAL: W43 attribution (end)
 [ -n "${QUANTIZATION:-}" ] && [ "${QUANTIZATION}" != "none" ] && ARGS+=(--quantization "${QUANTIZATION}")
 [ -n "${MAX_MODEL_LEN:-}" ] && ARGS+=(--max-model-len "${MAX_MODEL_LEN}")
 [ -n "${GPU_MEM_UTIL:-}" ]  && ARGS+=(--gpu-memory-utilization "${GPU_MEM_UTIL}")
@@ -1778,6 +1804,12 @@ ARGS=(
     --no-enable-flashinfer-autotune
 )
 [ "${ENFORCE_EAGER:-1}" = "1" ] && ARGS+=(--enforce-eager)
+# LOCAL: W43 attribution (begin) -- report-only; both ranks parse the same CLI.
+if [ "${GLM53_PROMPT_TOKENS_DETAILS:-1}" = "1" ]; then
+    ARGS+=(--enable-prompt-tokens-details)
+    say "prompt-tokens-details armed: per-request usage.prompt_tokens_details.cached_tokens"
+fi
+# LOCAL: W43 attribution (end)
 [ -n "${QUANTIZATION:-}" ] && [ "${QUANTIZATION}" != "none" ] && ARGS+=(--quantization "${QUANTIZATION}")
 [ -n "${MAX_MODEL_LEN:-}" ] && ARGS+=(--max-model-len "${MAX_MODEL_LEN}")
 [ -n "${GPU_MEM_UTIL:-}" ]  && ARGS+=(--gpu-memory-utilization "${GPU_MEM_UTIL}")
@@ -2064,6 +2096,7 @@ launch_cluster() {
         -e "GLM53_KDA_PREFILL_BACKEND=$GLM53_KDA_PREFILL_BACKEND"  # LOCAL: task 34 (both ranks read it at patch time)
         -e "GLM53_KV_CAPACITY_LOG=$GLM53_KV_CAPACITY_LOG"  # LOCAL: W41
         -e "GLM53_APC_NO_STORE=$GLM53_APC_NO_STORE"  # LOCAL: W42
+        -e "GLM53_PROMPT_TOKENS_DETAILS=$GLM53_PROMPT_TOKENS_DETAILS"  # LOCAL: W43 (both ranks select the flag)
         -e "GLM53_INDEXER_WORKSPACE=$GLM53_INDEXER_WORKSPACE"  # LOCAL: W28
         -e "KPOOL_TAIL_CORRECTNESS=$KPOOL_TAIL_CORRECTNESS"  # LOCAL: W29 (both ranks apply the tail patch at start)
         # LOCAL: W9 ablation — 0 restores stock router-GEMM eligibility exactly
@@ -2140,7 +2173,8 @@ launch_cluster() {
              DFLASH_DRAFT_TP \
              LANGUAGE_MODEL_ONLY SKIP_MM_PROFILING \
              LIMIT_MM CHAT_TEMPLATE ENFORCE_EAGER EXL3_FUSED_MOE EXL3_MOE_ROW_TILE EXL3_TEMP_ROWS_FUSED EXL3_FAT_SORTED EXL3_FAT_BATCHED EXL3_FAT_KERNEL EXL3_FAT_GROUPED MODEL_DIR EXTRA_ARGS \
-             GLM53_PROFILE_TORCH_DIR GLM53_PROFILE_MAX_ITERS; do
+             GLM53_PROFILE_TORCH_DIR GLM53_PROFILE_MAX_ITERS \
+             GLM53_PROMPT_TOKENS_DETAILS; do
         serve_env+=" -e $v='${!v:-}'"
     done
     # Omit empty EXL3_FAT_SCRATCH_ROWS so IMAGE=e3-grouped keeps MNBT×topk
