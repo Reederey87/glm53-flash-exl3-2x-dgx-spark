@@ -19,7 +19,9 @@ INIT_NEW = INIT_OLD + '''        # [glm53-role-token-cache] init
         if "/opt/glm53" not in _glm53_sys.path:
             _glm53_sys.path.insert(0, "/opt/glm53")
         from role_token_cache import make_cache
-        self._glm53_role_tokens = make_cache(tokenizer)
+        self._glm53_role_tokens = (
+            None if self.model_config.is_encoder_decoder else make_cache(tokenizer)
+        )
 '''
 ENCODE_OLD = '''        encoding = tokenizer(prompt["prompt"], **kwargs)
         return self._build_tokens_prompt(
@@ -33,6 +35,17 @@ ENCODE_NEW = '''        # [glm53-role-token-cache] encode
             encoding = tokenizer(prompt["prompt"], **kwargs)
         return self._build_tokens_prompt(
 '''
+SALT_SYNC_OLD = "        tok_prompts = self.tokenize_prompts(dict_prompts, tok_params)\n"
+SALT_ASYNC_OLD = "        tok_prompts = await self.tokenize_prompts_async(dict_prompts, tok_params)\n"
+SALT_PREFIX = '''        # [glm53-role-token-cache] request salt
+        if self._glm53_role_tokens is not None:
+            from role_token_cache import with_request_salt
+            dict_prompts = with_request_salt(dict_prompts, prompt_extras)
+'''
+SALT_SYNC_NEW = SALT_PREFIX + SALT_SYNC_OLD
+SALT_ASYNC_NEW = SALT_PREFIX + SALT_ASYNC_OLD
+PAIRS = ((INIT_OLD, INIT_NEW, 1), (ENCODE_OLD, ENCODE_NEW, 1),
+         (SALT_SYNC_OLD, SALT_SYNC_NEW, 2), (SALT_ASYNC_OLD, SALT_ASYNC_NEW, 2))
 
 
 def install(path: Path, enabled: str) -> bool:
@@ -41,19 +54,18 @@ def install(path: Path, enabled: str) -> bool:
     if enabled == "0":
         return False
     source = path.read_text()
-    pairs = ((INIT_OLD, INIT_NEW), (ENCODE_OLD, ENCODE_NEW))
-    installed = [source.count(new) == 1 for _, new in pairs]
+    installed = [source.count(new) == count for _, new, count in PAIRS]
     if all(installed):
-        if source.count("[glm53-role-token-cache]") != 2:
+        if source.count("[glm53-role-token-cache]") != 6:
             raise ValueError("unexpected token-cache markers")
         return False
     if any(installed) or "[glm53-role-token-cache]" in source:
         raise ValueError("partial token-cache installation")
-    for old, _ in pairs:
-        if source.count(old) != 1:
+    for old, _, count in PAIRS:
+        if source.count(old) != count:
             raise ValueError("renderer anchor drift")
-    for old, new in pairs:
-        source = source.replace(old, new, 1)
+    for old, new, _ in PAIRS:
+        source = source.replace(old, new)
     ast.parse(source)
     mode = stat.S_IMODE(path.stat().st_mode)
     fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")

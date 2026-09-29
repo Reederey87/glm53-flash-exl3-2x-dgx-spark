@@ -22,6 +22,7 @@ cache_module = load("overlay/role_token_cache.py")
 patch = load("overlay/patch_role_token_cache.py")
 wiring = load("scripts/wire_role_token_cache.py")
 api_probe = load("scripts/probe_role_token_api.py")
+salt_probe = load("scripts/probe_role_token_salts.py")
 
 
 class Adapter:
@@ -155,7 +156,9 @@ def test_bad_flags_are_rejected_before_source_read(tmp_path, value):
 def test_installer_off_is_byte_inert_and_on_is_atomic_idempotent(tmp_path):
     target = tmp_path / "base.py"
     target.write_text("class Renderer:\n    def init(self):\n" + patch.INIT_OLD
-                      + "    def encode(self):\n" + patch.ENCODE_OLD + "            [], {}\n        )\n")
+                      + "    def encode(self):\n" + patch.ENCODE_OLD + "            [], {}\n        )\n"
+                      + "".join(f"    def sync{i}(self):\n" + patch.SALT_SYNC_OLD for i in range(2))
+                      + "".join(f"    async def async{i}(self):\n" + patch.SALT_ASYNC_OLD for i in range(2)))
     target.chmod(0o640)
     original = target.read_bytes()
     assert not patch.install(target, "0")
@@ -213,3 +216,37 @@ def test_api_comparison_requires_complete_finite_exact_evidence():
         candidate[next(iter(candidate))][field] = value
         with pytest.raises(ValueError):
             api_probe.compare(baseline, candidate)
+
+
+def test_request_salt_overrides_only_salt_without_mutating_inputs():
+    prompts = [{"prompt": "text", "cache_salt": "raw"}]
+    extras = {"cache_salt": "request", "unrelated": "later"}
+    assert cache_module.with_request_salt(prompts, extras) == [{"prompt": "text", "cache_salt": "request"}]
+    assert prompts == [{"prompt": "text", "cache_salt": "raw"}]
+    assert extras == {"cache_salt": "request", "unrelated": "later"}
+    assert cache_module.with_request_salt(prompts, {"unrelated": "later"}) is prompts
+
+
+def test_actual_renderer_entrypoints_isolate_salts_across_executor_boundaries(tmp_path, monkeypatch):
+    import sys
+    monkeypatch.setitem(sys.modules, "role_token_cache", cache_module)
+    renderer = tmp_path / "base.py"
+    renderer.write_bytes((ROOT / "tests/role_renderer_contract.py").read_bytes())
+    assert patch.install(renderer, "1")
+    assert salt_probe.exercise(renderer.read_text(), Adapter, cache_module) == 24
+
+
+def test_encoder_decoder_renderer_does_not_use_segment_cache(tmp_path, monkeypatch):
+    import sys
+    monkeypatch.setitem(sys.modules, "role_token_cache", cache_module)
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    monkeypatch.setenv("GLM53_ROLE_TOKEN_CACHE", "1")
+    renderer = tmp_path / "base.py"
+    renderer.write_bytes((ROOT / "tests/role_renderer_contract.py").read_bytes())
+    patch.install(renderer, "1")
+    namespace = {}
+    exec(compile(renderer.read_text(), str(renderer), "exec"), namespace)
+    instance = namespace["BaseRenderer"].__new__(namespace["BaseRenderer"])
+    instance.model_config = type("Model", (), {"is_encoder_decoder": True})()
+    instance.__init__(Adapter())
+    assert instance._glm53_role_tokens is None

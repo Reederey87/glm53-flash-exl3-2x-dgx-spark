@@ -20,6 +20,13 @@ MAX_ENTRIES = 128
 MIN_CHARS = 1024
 
 
+def with_request_salt(prompts, extras):
+    """Copy only the salt into raw decoder prompts, before any tokenization."""
+    if not extras or "cache_salt" not in extras:
+        return prompts
+    return [{**prompt, "cache_salt": extras["cache_salt"]} for prompt in prompts]
+
+
 def make_cache(tokenizer):
     raw = os.environ.get(ENV, "0")
     if raw not in ("0", "1"):
