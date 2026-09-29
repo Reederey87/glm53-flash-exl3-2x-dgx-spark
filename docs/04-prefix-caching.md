@@ -136,6 +136,13 @@ otherwise invisible discarded reuse. Use the counter beside
 `vllm:prefix_cache_queries` and `vllm:prefix_cache_hits`, not as a replacement
 for either.
 
+Cluster validation on 2026-09-29 used commit `1dcb307` and the unchanged
+`glm53-selfbuild:e3-armc-guards` image. Both ranks carried marker counts
+`stats=1`, `manager=1`, `loggers=2`, `scheduler=0`; the metric exported
+successfully. A cold/warm 4,536-token replay moved prefix hits from 0 to 4,480
+(98.8%) while sparse-retention misses remained 0, as expected for the announced
+dense-Mamba posture. Health stayed 200 and all healers were re-enabled.
+
 The lifetime hit-rate on a dashboard hides all of this (it averages over benches and
 retries). Use the probes:
 
