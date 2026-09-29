@@ -13,7 +13,8 @@ silently retaining the file value. The launcher captures only exported,
 non-readonly names and never evaluates generated shell text.
 
 An empty caller export normally keeps the `.env` value, matching the historical
-launcher behavior. `GLM53_KV_CAPACITY_LOG`, `GLM53_APC_NO_STORE`, and
+launcher behavior. `GLM53_KV_CAPACITY_LOG`,
+`GLM53_PREFIX_CACHE_SPARSE_MISS_METRIC`, `GLM53_APC_NO_STORE`, and
 `GLM53_INDEXER_WORKSPACE` are deliberate exceptions: empty is invalid for those
 strict knobs, so it survives to `validate_numeric_config` and fails before any
 restart side effect.
@@ -131,6 +132,13 @@ cache is invisible to it). 0.87 demands 105.87 GiB free against boots measured a
   the stock "GPU KV cache size" number is a concurrency figure in token units
   for a multi-group hybrid, not a cache capacity. Derivation errors are logged,
   never boot-fatal. Not in the JIT shape hash.
+- `GLM53_PREFIX_CACHE_SPARSE_MISS_METRIC=1` — metric-only backport of vLLM
+  #52527. Exports `vllm:prefix_cache_sparse_retention_misses`, the number of
+  shared-prefix tokens matched by at least one participating KV group but
+  discarded when hybrid hit reconciliation selected a shorter common hit.
+  It records only after successful admission and changes no cache lookup,
+  retention, scheduling, allocation, eviction, or request output. `0` leaves
+  the three vLLM metric files byte-identical. Not in the JIT shape hash.
 - `GLM53_APC_NO_STORE=1` — kill switch for the per-request prefix-cache
   no-store surface (W42). A request sent with `vllm_xargs
   {"skip_writing_prefix_cache": 1}` (or the typed `SamplingParams` field) never

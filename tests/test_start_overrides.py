@@ -170,6 +170,7 @@ def caller_value(key: str) -> str:
         "GLM53_DEFAULT_REASONING_EFFORT": "max",
         "GLM53_INDEXER_WORKSPACE": "stock",
         "GLM53_KV_CAPACITY_LOG": "0",
+        "GLM53_PREFIX_CACHE_SPARSE_MISS_METRIC": "0",
         "GLM53_APC_NO_STORE": "0",
         "GLM53_EXL3_MOE_PIPELINE": "0",
         "GLM53_EXL3_MOE_REUSE": "0",
@@ -194,6 +195,8 @@ def test_no_per_knob_allowlist_remains() -> None:
     allowed = {
         "_glm53_cli_kvlog_set",
         "_glm53_cli_kvlog_val",
+        "_glm53_cli_sparsemiss_set",
+        "_glm53_cli_sparsemiss_val",
         "_glm53_cli_apcns_set",
         "_glm53_cli_apcns_val",
         "_glm53_cli_indexer_workspace_set",
