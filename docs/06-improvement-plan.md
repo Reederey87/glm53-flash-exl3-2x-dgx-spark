@@ -1019,10 +1019,11 @@ Cluster receipts remain on spark1 under
 The launcher now implements its general precedence contract instead of a
 per-knob allowlist. Before sourcing `.env`, it captures every non-empty,
 exported, non-readonly caller value for keys lexically assigned by the file,
-then replays those values without `eval`. The three strict runtime-overlay
-knobs (`GLM53_KV_CAPACITY_LOG`, `GLM53_APC_NO_STORE`, and
-`GLM53_INDEXER_WORKSPACE`) retain their setness-aware exception so an explicit
-empty caller value reaches validation and fails before a restart.
+then replays those values without `eval`. The strict runtime-overlay knobs
+(`GLM53_KV_CAPACITY_LOG`, `GLM53_PREFIX_CACHE_SPARSE_MISS_METRIC`,
+`GLM53_APC_NO_STORE`, and `GLM53_INDEXER_WORKSPACE`) retain their setness-aware
+exception so an explicit empty caller value reaches validation and fails before
+a restart.
 
 The decode-floor overlay advances from v3 to v3.1 without changing scheduling
 decisions. `late-done` now reports `crawl_wall_ms` and `crawl_capped_ms`

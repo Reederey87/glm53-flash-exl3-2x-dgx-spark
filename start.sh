@@ -99,6 +99,8 @@ done <<< "$_env_keys"
 # over .env. ${VAR+a} is non-empty iff the variable was set at entry.
 _glm53_cli_kvlog_set="${GLM53_KV_CAPACITY_LOG+a}"
 _glm53_cli_kvlog_val="${GLM53_KV_CAPACITY_LOG-}"
+_glm53_cli_sparsemiss_set="${GLM53_PREFIX_CACHE_SPARSE_MISS_METRIC+a}"
+_glm53_cli_sparsemiss_val="${GLM53_PREFIX_CACHE_SPARSE_MISS_METRIC-}"
 _glm53_cli_apcns_set="${GLM53_APC_NO_STORE+a}"
 _glm53_cli_apcns_val="${GLM53_APC_NO_STORE-}"
 _glm53_cli_indexer_workspace_set="${GLM53_INDEXER_WORKSPACE+a}"
@@ -126,6 +128,7 @@ done
 unset _k _kv _flags _env_keys _caller_overrides
 # LOCAL: W41/W42 caller-wins restore (begin)
 [ -n "${_glm53_cli_kvlog_set}" ] && GLM53_KV_CAPACITY_LOG="$_glm53_cli_kvlog_val"
+[ -n "${_glm53_cli_sparsemiss_set}" ] && GLM53_PREFIX_CACHE_SPARSE_MISS_METRIC="$_glm53_cli_sparsemiss_val"
 [ -n "${_glm53_cli_apcns_set}" ] && GLM53_APC_NO_STORE="$_glm53_cli_apcns_val"
 [ -n "${_glm53_cli_indexer_workspace_set}" ] && GLM53_INDEXER_WORKSPACE="$_glm53_cli_indexer_workspace_val"
 [ -n "${_glm53_cli_moepipe_set}" ] && GLM53_EXL3_MOE_PIPELINE="$_glm53_cli_moepipe_val"
@@ -273,6 +276,7 @@ ADAPTIVE_K_PATCH_HOST="${ADAPTIVE_K_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_adapti
 KDA_REC_PATCH_HOST="${KDA_REC_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_kda_recurrent.py}"
 # LOCAL: W41 (kit PR #94) block-level KV capacity boot log, log-only; W42 (kit PR #95) per-request APC no-store
 KV_CAPACITY_LOG_PATCH_HOST="${KV_CAPACITY_LOG_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_kv_capacity_log.py}"
+PREFIX_CACHE_SPARSE_MISS_PATCH_HOST="${PREFIX_CACHE_SPARSE_MISS_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_prefix_cache_sparse_miss_metric.py}"
 APC_NO_STORE_PATCH_HOST="${APC_NO_STORE_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_apc_no_store.py}"
 # LOCAL: W28 GLM-only indexer-workspace reclaim + bundled correctness backports
 INDEXER_WORKSPACE_PATCH_HOST="${INDEXER_WORKSPACE_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_indexer_workspace.py}"
@@ -436,6 +440,7 @@ fi
 # `validate`, so a bad value cannot block stop/status/logs on a running pair;
 # the overlays re-validate in-process and fail closed at boot.
 GLM53_KV_CAPACITY_LOG="${GLM53_KV_CAPACITY_LOG-1}"
+GLM53_PREFIX_CACHE_SPARSE_MISS_METRIC="${GLM53_PREFIX_CACHE_SPARSE_MISS_METRIC-1}"
 GLM53_APC_NO_STORE="${GLM53_APC_NO_STORE-1}"
 # LOCAL: W43 per-request prefix-cache attribution. Report-only: adds upstream's
 # own `--enable-prompt-tokens-details` so `usage.prompt_tokens_details` carries
@@ -443,7 +448,7 @@ GLM53_APC_NO_STORE="${GLM53_APC_NO_STORE-1}"
 # chunk. Nothing about scheduling, eviction or numerics changes. It is NOT in
 # EXTRA_ARGS: the flag is parsed into the API-server args, so it cannot change
 # the engine's JIT shape hash. Unset-only default so "" stays a value and is
-# rejected, like the two knobs above.
+# rejected, like the strict knobs above.
 # Read the deployed tree before arming: this fork's `_make_prompt_tokens_details`
 # already distinguishes a real zero from missing data (it returns None only when
 # cached, created and mm counts are all None), which is the upstream fix for
@@ -456,8 +461,8 @@ GLM53_PROMPT_TOKENS_DETAILS="${GLM53_PROMPT_TOKENS_DETAILS-1}"
 # decode kernel (shallow fragment pipeline, deeper smem pipeline) instead of the
 # stock 3/3 instance. The variant is compiled into the image and the geometry is
 # a build arg, so this knob is the only runtime variable and A/B stays on one
-# image. Unset-only default so "" stays a value and is rejected, like the two
-# above. Fail-closed beyond the kernel's own geometry check, because that check
+# image. Unset-only default so "" stays a value and is rejected, like the strict
+# knobs above. Fail-closed beyond the kernel's own geometry check, because that check
 # only covers a process that reaches the patched dispatcher:
 # validate_numeric_config refuses the knob with EXL3_FUSED_MOE=0 (the fused
 # expert path is the only route to the variant) and ensure_image refuses an image
@@ -618,7 +623,7 @@ validate_numeric_config() {
     # value and is rejected. Runs before start/restart and through `validate`:
     # a bad value fails before boot, never stop/status/logs on a running pair;
     # the overlays re-validate in-process and fail closed.
-    for _v in GLM53_KV_CAPACITY_LOG GLM53_APC_NO_STORE GLM53_PROMPT_TOKENS_DETAILS GLM53_EXL3_MOE_PIPELINE GLM53_EXL3_MOE_REUSE GLM53_SHARED_EXPERTS_EARLY; do
+    for _v in GLM53_KV_CAPACITY_LOG GLM53_PREFIX_CACHE_SPARSE_MISS_METRIC GLM53_APC_NO_STORE GLM53_PROMPT_TOKENS_DETAILS GLM53_EXL3_MOE_PIPELINE GLM53_EXL3_MOE_REUSE GLM53_SHARED_EXPERTS_EARLY; do
         case "${!_v}" in 0|1) ;; *) echo "$_v must be exactly 0 or 1 (got: '${!_v}')" >&2; return 2 ;; esac
     done
     unset _v
@@ -659,7 +664,7 @@ validate_numeric_config() {
         fi
     fi
     # Unset -> the launcher default (2000); an explicitly empty value is a
-    # value and is rejected, matching the W41/W42 strictness.
+    # value and is rejected, matching the strict-overlay behavior.
     _glm53_profile_iters="${GLM53_PROFILE_MAX_ITERS-2000}"
     if ! [[ "$_glm53_profile_iters" =~ ^[0-9]+$ ]] \
        || [ "${#_glm53_profile_iters}" -gt 8 ]; then
@@ -1130,6 +1135,7 @@ preflight() {
     [ -f "$ADAPTIVE_K_PATCH_HOST" ] || die "$ADAPTIVE_K_PATCH_HOST missing"  # LOCAL: task 25
     [ -f "$KDA_REC_PATCH_HOST" ] || die "$KDA_REC_PATCH_HOST missing"  # LOCAL: task 30
     [ -f "$KV_CAPACITY_LOG_PATCH_HOST" ] || die "$KV_CAPACITY_LOG_PATCH_HOST missing"  # LOCAL: W41
+    [ -f "$PREFIX_CACHE_SPARSE_MISS_PATCH_HOST" ] || die "$PREFIX_CACHE_SPARSE_MISS_PATCH_HOST missing"
     [ -f "$APC_NO_STORE_PATCH_HOST" ] || die "$APC_NO_STORE_PATCH_HOST missing"  # LOCAL: W42
     [ -f "$INDEXER_WORKSPACE_PATCH_HOST" ] || die "$INDEXER_WORKSPACE_PATCH_HOST missing"  # LOCAL: W28
     [ -f "$W28_CORRECTNESS_PATCH_HOST" ] || die "$W28_CORRECTNESS_PATCH_HOST missing"  # LOCAL: W28
@@ -1772,6 +1778,9 @@ fi
 if [ -f /opt/glm53/patch_kv_capacity_log.py ]; then  # LOCAL: W41 (after patch_hybrid_prefix_hit.py)
     python3 -S /opt/glm53/patch_kv_capacity_log.py
 fi
+if [ -f /opt/glm53/patch_prefix_cache_sparse_miss_metric.py ]; then
+    python3 -S /opt/glm53/patch_prefix_cache_sparse_miss_metric.py
+fi
 if [ -f /opt/glm53/patch_apc_no_store.py ]; then  # LOCAL: W42
     python3 -S /opt/glm53/patch_apc_no_store.py
 fi
@@ -1971,6 +1980,9 @@ fi
 if [ -f /opt/glm53/patch_kv_capacity_log.py ]; then  # LOCAL: W41 (after patch_hybrid_prefix_hit.py)
     python3 -S /opt/glm53/patch_kv_capacity_log.py
 fi
+if [ -f /opt/glm53/patch_prefix_cache_sparse_miss_metric.py ]; then
+    python3 -S /opt/glm53/patch_prefix_cache_sparse_miss_metric.py
+fi
 if [ -f /opt/glm53/patch_apc_no_store.py ]; then  # LOCAL: W42
     python3 -S /opt/glm53/patch_apc_no_store.py
 fi
@@ -2058,6 +2070,8 @@ launch_cluster() {
     scp -q -o BatchMode=yes "$KDA_REC_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_kda_recurrent.py"
     [ -f "$KV_CAPACITY_LOG_PATCH_HOST" ] || die "missing $KV_CAPACITY_LOG_PATCH_HOST"  # LOCAL: W41
     scp -q -o BatchMode=yes "$KV_CAPACITY_LOG_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_kv_capacity_log.py"
+    [ -f "$PREFIX_CACHE_SPARSE_MISS_PATCH_HOST" ] || die "missing $PREFIX_CACHE_SPARSE_MISS_PATCH_HOST"
+    scp -q -o BatchMode=yes "$PREFIX_CACHE_SPARSE_MISS_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_prefix_cache_sparse_miss_metric.py"
     [ -f "$APC_NO_STORE_PATCH_HOST" ] || die "missing $APC_NO_STORE_PATCH_HOST"  # LOCAL: W42
     scp -q -o BatchMode=yes "$APC_NO_STORE_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_apc_no_store.py"
     [ -f "$W28_CORRECTNESS_PATCH_HOST" ] || die "missing $W28_CORRECTNESS_PATCH_HOST"  # LOCAL: W28
@@ -2121,6 +2135,7 @@ launch_cluster() {
         -e "GLM53_KDA_REC_BV_CAP=$GLM53_KDA_REC_BV_CAP"
         -e "GLM53_KDA_PREFILL_BACKEND=$GLM53_KDA_PREFILL_BACKEND"  # LOCAL: task 34 (both ranks read it at patch time)
         -e "GLM53_KV_CAPACITY_LOG=$GLM53_KV_CAPACITY_LOG"  # LOCAL: W41
+        -e "GLM53_PREFIX_CACHE_SPARSE_MISS_METRIC=$GLM53_PREFIX_CACHE_SPARSE_MISS_METRIC"
         -e "GLM53_APC_NO_STORE=$GLM53_APC_NO_STORE"  # LOCAL: W42
         -e "GLM53_PROMPT_TOKENS_DETAILS=$GLM53_PROMPT_TOKENS_DETAILS"  # LOCAL: W43 (both ranks select the flag)
         -e "GLM53_INDEXER_WORKSPACE=$GLM53_INDEXER_WORKSPACE"  # LOCAL: W28
@@ -2248,6 +2263,7 @@ launch_cluster() {
         -v '/tmp/patch_kda_recurrent.py:/opt/glm53/patch_kda_recurrent.py:ro' \
         -v '/tmp/patch_flashkda_prefill.py:/opt/glm53/patch_flashkda_prefill.py:ro' \
         -v '/tmp/patch_kv_capacity_log.py:/opt/glm53/patch_kv_capacity_log.py:ro' \
+        -v '/tmp/patch_prefix_cache_sparse_miss_metric.py:/opt/glm53/patch_prefix_cache_sparse_miss_metric.py:ro' \
         -v '/tmp/patch_apc_no_store.py:/opt/glm53/patch_apc_no_store.py:ro' \
         -v '/tmp/patch_w28_correctness.py:/opt/glm53/patch_w28_correctness.py:ro' \
         -v '/tmp/patch_kpool_tail_correctness.py:/opt/glm53/patch_kpool_tail_correctness.py:ro' \
@@ -2299,6 +2315,7 @@ launch_cluster() {
         -v "$KDA_REC_PATCH_HOST:/opt/glm53/patch_kda_recurrent.py:ro" \
         -v "$FLASHKDA_PREFILL_PATCH_HOST:/opt/glm53/patch_flashkda_prefill.py:ro" \
         -v "$KV_CAPACITY_LOG_PATCH_HOST:/opt/glm53/patch_kv_capacity_log.py:ro" \
+        -v "$PREFIX_CACHE_SPARSE_MISS_PATCH_HOST:/opt/glm53/patch_prefix_cache_sparse_miss_metric.py:ro" \
         -v "$APC_NO_STORE_PATCH_HOST:/opt/glm53/patch_apc_no_store.py:ro" \
         -v "$W28_CORRECTNESS_PATCH_HOST:/opt/glm53/patch_w28_correctness.py:ro" \
         -v "$KPOOL_TAIL_CORRECTNESS_PATCH_HOST:/opt/glm53/patch_kpool_tail_correctness.py:ro" \

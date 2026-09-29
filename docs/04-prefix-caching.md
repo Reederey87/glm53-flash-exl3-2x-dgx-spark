@@ -112,6 +112,37 @@ prefer short lanes with a low `priority`.
 
 ## Verifying, not assuming
 
+### Shared-prefix reuse discarded by hybrid reconciliation
+
+The normal hit counter cannot distinguish “these requests share no prefix” from
+“one KV group found a reusable prefix, but another participating group had no
+checkpoint there, so reconciliation discarded the match.” The deployed fork
+already computes that difference to preserve shared-prefix junctions.
+`overlay/patch_prefix_cache_sparse_miss_metric.py` carries the existing value
+into `PrefixCacheStats` and exports:
+
+```text
+vllm:prefix_cache_sparse_retention_misses
+```
+
+The counter is in tokens. It increments only when the request is successfully
+admitted, including resumed requests, and stays zero when every participating
+group agrees on the hit. It is diagnostic only: the overlay does not change
+retention or cache behavior. Production currently announces
+`retention_by_group=[None,None,None,None,None,None,0]`, meaning the Mamba groups
+are dense and only the non-participating drafter SWA group is sparse. A sustained
+zero is therefore a healthy expected result, while a positive value identifies
+otherwise invisible discarded reuse. Use the counter beside
+`vllm:prefix_cache_queries` and `vllm:prefix_cache_hits`, not as a replacement
+for either.
+
+Cluster validation on 2026-09-29 used commit `1dcb307` and the unchanged
+`glm53-selfbuild:e3-armc-guards` image. Both ranks carried marker counts
+`stats=1`, `manager=1`, `loggers=2`, `scheduler=0`; the metric exported
+successfully. A cold/warm 4,536-token replay moved prefix hits from 0 to 4,480
+(98.8%) while sparse-retention misses remained 0, as expected for the announced
+dense-Mamba posture. Health stayed 200 and all healers were re-enabled.
+
 The lifetime hit-rate on a dashboard hides all of this (it averages over benches and
 retries). Use the probes:
 

@@ -142,6 +142,10 @@ base **by digest** and adds every capability explicitly, verified on the real pa
   long-generation kernel clamp.
 - **Hybrid-KDA prefix caching under speculation** — page-aligned geometry, sparse
   retention, drafter-group fixes; upstream is converging on the same (#54163).
+- **Discarded-reuse observability** — a metric-only vLLM #52527 backport exports
+  `vllm:prefix_cache_sparse_retention_misses`, so a shared prefix found by one
+  KV group and rejected by hybrid reconciliation is no longer a silent clean
+  miss. It changes no cache or scheduling behavior (`docs/04`).
 
 When official support merges, `docs/07`/`docs/09` are the map forward — with the
 known landmine flagged (upstream's Aug-22 refactor broke DFlash2 loading on main).
