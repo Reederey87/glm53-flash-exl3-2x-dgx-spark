@@ -6,3 +6,4 @@
 #     pip install -r requirements-dev.txt && pytest tests/ -q
 pytest
 jinja2
+tokenizers==0.22.2
