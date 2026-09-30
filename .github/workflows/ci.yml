@@ -14,10 +14,10 @@ jobs:
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
           # SC1091: sourced .env / notify.env are gitignored by design.
-          find . -name '*.sh' -not -path './.git/*' -print0 | xargs -0 shellcheck -e SC1091
+          git ls-files -z '*.sh' | xargs -0 shellcheck -e SC1091
 
       - name: bash syntax
-        run: find . -name '*.sh' -not -path './.git/*' -print0 | xargs -0 -n1 bash -n
+        run: git ls-files -z '*.sh' | xargs -0 -n1 bash -n
 
       - name: python syntax
         run: |
@@ -32,5 +32,10 @@ jobs:
         run: |
           # .env is the only file with site config (and possibly an HF token).
           test ! -f .env || { echo ".env is committed!"; exit 1; }
-          ! grep -rEn "BEGIN [A-Z ]*PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|hf_[A-Za-z0-9]{30,}" . --exclude-dir=.git
+          scan_status=0
+          git grep -q -E "BEGIN [A-Z ]*PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|hf_[A-Za-z0-9]{30,}" || scan_status=$?
+          if [ "$scan_status" -ne 1 ]; then
+            echo "secret scan matched a pattern or could not run"
+            exit 1
+          fi
           echo "secret scan OK"
