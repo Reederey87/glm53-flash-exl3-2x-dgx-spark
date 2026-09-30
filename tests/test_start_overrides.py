@@ -197,6 +197,8 @@ def test_no_per_knob_allowlist_remains() -> None:
         "_glm53_cli_kvlog_val",
         "_glm53_cli_sparsemiss_set",
         "_glm53_cli_sparsemiss_val",
+        "_glm53_cli_rolecache_set",
+        "_glm53_cli_rolecache_val",
         "_glm53_cli_apcns_set",
         "_glm53_cli_apcns_val",
         "_glm53_cli_indexer_workspace_set",

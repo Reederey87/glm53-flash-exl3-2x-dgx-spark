@@ -101,6 +101,8 @@ _glm53_cli_kvlog_set="${GLM53_KV_CAPACITY_LOG+a}"
 _glm53_cli_kvlog_val="${GLM53_KV_CAPACITY_LOG-}"
 _glm53_cli_sparsemiss_set="${GLM53_PREFIX_CACHE_SPARSE_MISS_METRIC+a}"
 _glm53_cli_sparsemiss_val="${GLM53_PREFIX_CACHE_SPARSE_MISS_METRIC-}"
+_glm53_cli_rolecache_set="${GLM53_ROLE_TOKEN_CACHE+a}"
+_glm53_cli_rolecache_val="${GLM53_ROLE_TOKEN_CACHE-}"
 _glm53_cli_apcns_set="${GLM53_APC_NO_STORE+a}"
 _glm53_cli_apcns_val="${GLM53_APC_NO_STORE-}"
 _glm53_cli_indexer_workspace_set="${GLM53_INDEXER_WORKSPACE+a}"
@@ -129,6 +131,7 @@ unset _k _kv _flags _env_keys _caller_overrides
 # LOCAL: W41/W42 caller-wins restore (begin)
 [ -n "${_glm53_cli_kvlog_set}" ] && GLM53_KV_CAPACITY_LOG="$_glm53_cli_kvlog_val"
 [ -n "${_glm53_cli_sparsemiss_set}" ] && GLM53_PREFIX_CACHE_SPARSE_MISS_METRIC="$_glm53_cli_sparsemiss_val"
+[ -n "${_glm53_cli_rolecache_set}" ] && GLM53_ROLE_TOKEN_CACHE="$_glm53_cli_rolecache_val"
 [ -n "${_glm53_cli_apcns_set}" ] && GLM53_APC_NO_STORE="$_glm53_cli_apcns_val"
 [ -n "${_glm53_cli_indexer_workspace_set}" ] && GLM53_INDEXER_WORKSPACE="$_glm53_cli_indexer_workspace_val"
 [ -n "${_glm53_cli_moepipe_set}" ] && GLM53_EXL3_MOE_PIPELINE="$_glm53_cli_moepipe_val"
@@ -277,6 +280,8 @@ KDA_REC_PATCH_HOST="${KDA_REC_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_kda_recurren
 # LOCAL: W41 (kit PR #94) block-level KV capacity boot log, log-only; W42 (kit PR #95) per-request APC no-store
 KV_CAPACITY_LOG_PATCH_HOST="${KV_CAPACITY_LOG_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_kv_capacity_log.py}"
 PREFIX_CACHE_SPARSE_MISS_PATCH_HOST="${PREFIX_CACHE_SPARSE_MISS_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_prefix_cache_sparse_miss_metric.py}"
+ROLE_TOKEN_CACHE_PATCH_HOST="${ROLE_TOKEN_CACHE_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_role_token_cache.py}"
+ROLE_TOKEN_CACHE_MODULE_HOST="${ROLE_TOKEN_CACHE_MODULE_HOST:-$SCRIPT_DIR/overlay/role_token_cache.py}"
 APC_NO_STORE_PATCH_HOST="${APC_NO_STORE_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_apc_no_store.py}"
 # LOCAL: W28 GLM-only indexer-workspace reclaim + bundled correctness backports
 INDEXER_WORKSPACE_PATCH_HOST="${INDEXER_WORKSPACE_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_indexer_workspace.py}"
@@ -441,6 +446,7 @@ fi
 # the overlays re-validate in-process and fail closed at boot.
 GLM53_KV_CAPACITY_LOG="${GLM53_KV_CAPACITY_LOG-1}"
 GLM53_PREFIX_CACHE_SPARSE_MISS_METRIC="${GLM53_PREFIX_CACHE_SPARSE_MISS_METRIC-1}"
+GLM53_ROLE_TOKEN_CACHE="${GLM53_ROLE_TOKEN_CACHE-0}"
 GLM53_APC_NO_STORE="${GLM53_APC_NO_STORE-1}"
 # LOCAL: W43 per-request prefix-cache attribution. Report-only: adds upstream's
 # own `--enable-prompt-tokens-details` so `usage.prompt_tokens_details` carries
@@ -623,7 +629,7 @@ validate_numeric_config() {
     # value and is rejected. Runs before start/restart and through `validate`:
     # a bad value fails before boot, never stop/status/logs on a running pair;
     # the overlays re-validate in-process and fail closed.
-    for _v in GLM53_KV_CAPACITY_LOG GLM53_PREFIX_CACHE_SPARSE_MISS_METRIC GLM53_APC_NO_STORE GLM53_PROMPT_TOKENS_DETAILS GLM53_EXL3_MOE_PIPELINE GLM53_EXL3_MOE_REUSE GLM53_SHARED_EXPERTS_EARLY; do
+    for _v in GLM53_KV_CAPACITY_LOG GLM53_PREFIX_CACHE_SPARSE_MISS_METRIC GLM53_ROLE_TOKEN_CACHE GLM53_APC_NO_STORE GLM53_PROMPT_TOKENS_DETAILS GLM53_EXL3_MOE_PIPELINE GLM53_EXL3_MOE_REUSE GLM53_SHARED_EXPERTS_EARLY; do
         case "${!_v}" in 0|1) ;; *) echo "$_v must be exactly 0 or 1 (got: '${!_v}')" >&2; return 2 ;; esac
     done
     unset _v
@@ -1136,6 +1142,8 @@ preflight() {
     [ -f "$KDA_REC_PATCH_HOST" ] || die "$KDA_REC_PATCH_HOST missing"  # LOCAL: task 30
     [ -f "$KV_CAPACITY_LOG_PATCH_HOST" ] || die "$KV_CAPACITY_LOG_PATCH_HOST missing"  # LOCAL: W41
     [ -f "$PREFIX_CACHE_SPARSE_MISS_PATCH_HOST" ] || die "$PREFIX_CACHE_SPARSE_MISS_PATCH_HOST missing"
+    [ -f "$ROLE_TOKEN_CACHE_PATCH_HOST" ] || die "$ROLE_TOKEN_CACHE_PATCH_HOST missing"
+    [ -f "$ROLE_TOKEN_CACHE_MODULE_HOST" ] || die "$ROLE_TOKEN_CACHE_MODULE_HOST missing"
     [ -f "$APC_NO_STORE_PATCH_HOST" ] || die "$APC_NO_STORE_PATCH_HOST missing"  # LOCAL: W42
     [ -f "$INDEXER_WORKSPACE_PATCH_HOST" ] || die "$INDEXER_WORKSPACE_PATCH_HOST missing"  # LOCAL: W28
     [ -f "$W28_CORRECTNESS_PATCH_HOST" ] || die "$W28_CORRECTNESS_PATCH_HOST missing"  # LOCAL: W28
@@ -1781,6 +1789,9 @@ fi
 if [ -f /opt/glm53/patch_prefix_cache_sparse_miss_metric.py ]; then
     python3 -S /opt/glm53/patch_prefix_cache_sparse_miss_metric.py
 fi
+if [ -f /opt/glm53/patch_role_token_cache.py ]; then
+    python3 -S /opt/glm53/patch_role_token_cache.py
+fi
 if [ -f /opt/glm53/patch_apc_no_store.py ]; then  # LOCAL: W42
     python3 -S /opt/glm53/patch_apc_no_store.py
 fi
@@ -1983,6 +1994,9 @@ fi
 if [ -f /opt/glm53/patch_prefix_cache_sparse_miss_metric.py ]; then
     python3 -S /opt/glm53/patch_prefix_cache_sparse_miss_metric.py
 fi
+if [ -f /opt/glm53/patch_role_token_cache.py ]; then
+    python3 -S /opt/glm53/patch_role_token_cache.py
+fi
 if [ -f /opt/glm53/patch_apc_no_store.py ]; then  # LOCAL: W42
     python3 -S /opt/glm53/patch_apc_no_store.py
 fi
@@ -2072,6 +2086,10 @@ launch_cluster() {
     scp -q -o BatchMode=yes "$KV_CAPACITY_LOG_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_kv_capacity_log.py"
     [ -f "$PREFIX_CACHE_SPARSE_MISS_PATCH_HOST" ] || die "missing $PREFIX_CACHE_SPARSE_MISS_PATCH_HOST"
     scp -q -o BatchMode=yes "$PREFIX_CACHE_SPARSE_MISS_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_prefix_cache_sparse_miss_metric.py"
+    [ -f "$ROLE_TOKEN_CACHE_PATCH_HOST" ] || die "missing $ROLE_TOKEN_CACHE_PATCH_HOST"
+    scp -q -o BatchMode=yes "$ROLE_TOKEN_CACHE_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_role_token_cache.py"
+    [ -f "$ROLE_TOKEN_CACHE_MODULE_HOST" ] || die "missing $ROLE_TOKEN_CACHE_MODULE_HOST"
+    scp -q -o BatchMode=yes "$ROLE_TOKEN_CACHE_MODULE_HOST" "${WORKER_SSH}:/tmp/role_token_cache.py"
     [ -f "$APC_NO_STORE_PATCH_HOST" ] || die "missing $APC_NO_STORE_PATCH_HOST"  # LOCAL: W42
     scp -q -o BatchMode=yes "$APC_NO_STORE_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_apc_no_store.py"
     [ -f "$W28_CORRECTNESS_PATCH_HOST" ] || die "missing $W28_CORRECTNESS_PATCH_HOST"  # LOCAL: W28
@@ -2136,6 +2154,7 @@ launch_cluster() {
         -e "GLM53_KDA_PREFILL_BACKEND=$GLM53_KDA_PREFILL_BACKEND"  # LOCAL: task 34 (both ranks read it at patch time)
         -e "GLM53_KV_CAPACITY_LOG=$GLM53_KV_CAPACITY_LOG"  # LOCAL: W41
         -e "GLM53_PREFIX_CACHE_SPARSE_MISS_METRIC=$GLM53_PREFIX_CACHE_SPARSE_MISS_METRIC"
+        -e "GLM53_ROLE_TOKEN_CACHE=$GLM53_ROLE_TOKEN_CACHE"
         -e "GLM53_APC_NO_STORE=$GLM53_APC_NO_STORE"  # LOCAL: W42
         -e "GLM53_PROMPT_TOKENS_DETAILS=$GLM53_PROMPT_TOKENS_DETAILS"  # LOCAL: W43 (both ranks select the flag)
         -e "GLM53_INDEXER_WORKSPACE=$GLM53_INDEXER_WORKSPACE"  # LOCAL: W28
@@ -2264,6 +2283,8 @@ launch_cluster() {
         -v '/tmp/patch_flashkda_prefill.py:/opt/glm53/patch_flashkda_prefill.py:ro' \
         -v '/tmp/patch_kv_capacity_log.py:/opt/glm53/patch_kv_capacity_log.py:ro' \
         -v '/tmp/patch_prefix_cache_sparse_miss_metric.py:/opt/glm53/patch_prefix_cache_sparse_miss_metric.py:ro' \
+        -v '/tmp/patch_role_token_cache.py:/opt/glm53/patch_role_token_cache.py:ro' \
+        -v '/tmp/role_token_cache.py:/opt/glm53/role_token_cache.py:ro' \
         -v '/tmp/patch_apc_no_store.py:/opt/glm53/patch_apc_no_store.py:ro' \
         -v '/tmp/patch_w28_correctness.py:/opt/glm53/patch_w28_correctness.py:ro' \
         -v '/tmp/patch_kpool_tail_correctness.py:/opt/glm53/patch_kpool_tail_correctness.py:ro' \
@@ -2316,6 +2337,8 @@ launch_cluster() {
         -v "$FLASHKDA_PREFILL_PATCH_HOST:/opt/glm53/patch_flashkda_prefill.py:ro" \
         -v "$KV_CAPACITY_LOG_PATCH_HOST:/opt/glm53/patch_kv_capacity_log.py:ro" \
         -v "$PREFIX_CACHE_SPARSE_MISS_PATCH_HOST:/opt/glm53/patch_prefix_cache_sparse_miss_metric.py:ro" \
+        -v "$ROLE_TOKEN_CACHE_PATCH_HOST:/opt/glm53/patch_role_token_cache.py:ro" \
+        -v "$ROLE_TOKEN_CACHE_MODULE_HOST:/opt/glm53/role_token_cache.py:ro" \
         -v "$APC_NO_STORE_PATCH_HOST:/opt/glm53/patch_apc_no_store.py:ro" \
         -v "$W28_CORRECTNESS_PATCH_HOST:/opt/glm53/patch_w28_correctness.py:ro" \
         -v "$KPOOL_TAIL_CORRECTNESS_PATCH_HOST:/opt/glm53/patch_kpool_tail_correctness.py:ro" \
