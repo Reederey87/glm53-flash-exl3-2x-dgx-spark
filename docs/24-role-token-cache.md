@@ -178,3 +178,44 @@ encoding, live-ID, serving, decode, memory, and rollback thresholds. Add 24
 actual-renderer salt boundary checks. Receipts live under
 `local/role-token-cache-20260929/v2/`. Do not reuse the initial performance
 screen as approval for changed runtime bytes.
+
+### Corrected qualification and decision
+
+**ADOPT**, explicitly approved on 2026-09-29. Runtime code **`90cdc2d`**,
+independent review **APPROVED**, complete scope identified by the 19-file
+manifest. Fresh restored control and armed boot passed the added salt gate,
+exactness, serving and memory gates. The initial arm remains a reverted
+historical version.
+
+| Lane | Restored control tok/s | Corrected arm tok/s | Ratio |
+| --- | --- | --- | --- |
+| Structured | 71.13 | 71.76 | 1.009 |
+| Hashmap prose | 32.32 | 32.12 | 0.994 |
+| Essay | 25.57 | 25.44 | 0.995 |
+
+Five measured runs per lane. These are **decode parity**, not a decode win.
+Armed MemFree minima: **5,379,152 KiB head / 4,279,544 KiB worker**.
+The 2.5 GiB floor, image identity and frozen geometry were preserved.
+
+Corrected encoding screen: 61 exact cases, ratios
+**0.01673 / 0.01253 / 0.01278**, same 9.8 MiB accounted payload.
+Live `/tokenize`: 30 exact cases, warm latency ratios
+**0.192 / 0.155 / 0.124**. Sixteen extra C4 tokenizations were exact;
+tool/plain smoke passed 8/8 and SSE finished correctly.
+Both a patched control copy and the actual installed renderer passed all
+**24 salt-boundary checks**. Actual renderer bytes equal the saved control plus
+the six registered edits; mounted head/worker module hashes equal the frozen
+candidate and the worker marker count is six.
+
+Local tests: **1112 passed, 9 skipped, 18 subtests**.
+Target corrected archive: **1111 passed, 9 skipped, 1 deselected, 18 subtests**,
+with only the previously documented real-RoCE fixture assumption excluded.
+All tracked shellcheck and supported target Bash syntax checks, compilation and
+diff checks passed. The changed runtime code has not been modified after review
+or cluster qualification.
+
+Final gate: `local/role-token-cache-20260929/v2/gate.json`; separate salt proofs
+are `salt-screen.json` and `salt-installed.json`. The `.env` ledger records both
+the rejected initial arm and the adopted corrected version. `decision.txt`
+records explicit approval. Health, unit and all three timers were active
+after qualification and adoption. The kit's default remains **off**.
