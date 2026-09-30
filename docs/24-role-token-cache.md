@@ -219,3 +219,10 @@ are `salt-screen.json` and `salt-installed.json`. The `.env` ledger records both
 the rejected initial arm and the adopted corrected version. `decision.txt`
 records explicit approval. Health, unit and all three timers were active
 after qualification and adoption. The kit's default remains **off**.
+
+CI follow-up: scope shell and secret checks to tracked files, excluding the
+installed `.venv` dependency scripts. Secret scanning is quiet and explicitly
+fails on a match or scan error. Four extra regressions raise final validation to
+**1116 passed locally** and **1115 passed on target**, with the same 9 skips,
+18 subtests and one target-only legacy GID deselection. This CI-only repair is
+independently approved; the adopted runtime code remains exactly `90cdc2d`.
