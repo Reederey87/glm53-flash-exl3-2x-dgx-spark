@@ -397,6 +397,11 @@ CACHE_HOT_PROTECT_PATCH_HOST="${CACHE_HOT_PROTECT_PATCH_HOST:-$SCRIPT_DIR/overla
 # Default off; opt in after a warmed decode and serving-correctness gate.
 GLM53_ROUTER_ONCE="${GLM53_ROUTER_ONCE-0}"
 ROUTER_ONCE_PATCH_HOST="${ROUTER_ONCE_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_router_once.py}"
+# 1 = hold a new request while a running partner is still publishing the
+# longest full page they share. Lookup runs once, so an early admit
+# recomputes the rest. Off leaves scheduler.py byte-identical.
+GLM53_PREFIX_ADMIT="${GLM53_PREFIX_ADMIT-0}"
+PREFIX_ADMIT_PATCH_HOST="${PREFIX_ADMIT_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_prefix_admit.py}"
 SHARED_EXPERTS_EARLY_PATCH_HOST="${SHARED_EXPERTS_EARLY_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_shared_experts_overlap.py}"
 # LOCAL: 1 = floor a sub-block mixed-prefill chunk at the mixed cap instead of 0 when LPTT >= block_size
 # (scheduler livelock, dormant at LPTT=1792 — proven 0 mismatches over 608 combinations). Read once at import.
@@ -588,6 +593,10 @@ validate_numeric_config() {
     case "${GLM53_ROUTER_ONCE-0}" in
         0|1) ;;
         *) echo "GLM53_ROUTER_ONCE must be exactly 0 or 1 (got: '${GLM53_ROUTER_ONCE}')" >&2; return 2 ;;
+    esac
+    case "${GLM53_PREFIX_ADMIT-0}" in
+        0|1) ;;
+        *) echo "GLM53_PREFIX_ADMIT must be exactly 0 or 1 (got: '${GLM53_PREFIX_ADMIT}')" >&2; return 2 ;;
     esac
     case "${GLM53_SHARED_EXPERTS_EARLY-0}" in
         0|1) ;;
@@ -1852,6 +1861,11 @@ fi
 if [ -f /opt/glm53/patch_kv_merge_assert.py ]; then  # LOCAL: #55234 inherited merge
     python3 -S /opt/glm53/patch_kv_merge_assert.py
 fi
+# Self-gated on GLM53_PREFIX_ADMIT. After every other scheduler edit.
+# Flag off leaves scheduler.py byte-identical.
+if [ -f /opt/glm53/patch_prefix_admit.py ]; then
+    python3 -S /opt/glm53/patch_prefix_admit.py
+fi
 say "launching: vllm serve ${MODEL_DIR} ${ARGS[*]}"
 exec vllm serve "${MODEL_DIR}" "${ARGS[@]}"
 EOF
@@ -2060,6 +2074,11 @@ fi
 if [ -f /opt/glm53/patch_kv_merge_assert.py ]; then  # LOCAL: #55234 inherited merge
     python3 -S /opt/glm53/patch_kv_merge_assert.py
 fi
+# Self-gated on GLM53_PREFIX_ADMIT. After every other scheduler edit.
+# Flag off leaves scheduler.py byte-identical.
+if [ -f /opt/glm53/patch_prefix_admit.py ]; then
+    python3 -S /opt/glm53/patch_prefix_admit.py
+fi
 say "joining TP2 at ${HEAD_IP}:${MASTER_PORT} as rank 1"
 exec vllm serve "${MODEL_DIR}" "${ARGS[@]}"
 EOF
@@ -2151,6 +2170,8 @@ launch_cluster() {
     [ -f "$FLASHKDA_PREFILL_PATCH_HOST" ] || die "missing $FLASHKDA_PREFILL_PATCH_HOST"  # LOCAL: task 34
     scp -q -o BatchMode=yes "$FLASHKDA_PREFILL_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_flashkda_prefill.py"
     scp -q -o BatchMode=yes "$KV_MERGE_ASSERT_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_kv_merge_assert.py"
+    [ -f "$PREFIX_ADMIT_PATCH_HOST" ] || die "missing $PREFIX_ADMIT_PATCH_HOST"
+    scp -q -o BatchMode=yes "$PREFIX_ADMIT_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_prefix_admit.py"
 
 
     local -a nccl_common=(
@@ -2214,6 +2235,7 @@ launch_cluster() {
         -e "GLM53_CACHE_TAIL_EVICT=$GLM53_CACHE_TAIL_EVICT"
         -e "GLM53_CACHE_HOT_PROTECT=$GLM53_CACHE_HOT_PROTECT"
         -e "GLM53_ROUTER_ONCE=$GLM53_ROUTER_ONCE"
+        -e "GLM53_PREFIX_ADMIT=$GLM53_PREFIX_ADMIT"
         -e "GLM53_SHARED_EXPERTS_EARLY=$GLM53_SHARED_EXPERTS_EARLY"
         -e "DEFAULT_MAX_NEW_TOKENS=$DEFAULT_MAX_NEW_TOKENS"
         -e "TRITON_CACHE_DIR=$TRITON_CACHE_DIR"
@@ -2338,6 +2360,7 @@ launch_cluster() {
         -v '/tmp/patch_indexer_workspace.py:/opt/glm53/patch_indexer_workspace.py:ro' \
         -v '/tmp/patch_mamba_null_gap_retirement.py:/opt/glm53/patch_mamba_null_gap_retirement.py:ro' \
         -v '/tmp/patch_kv_merge_assert.py:/opt/glm53/patch_kv_merge_assert.py:ro' \
+        -v '/tmp/patch_prefix_admit.py:/opt/glm53/patch_prefix_admit.py:ro' \
         ${worker_preload} \
         ${worker_nccl} \
         -e NCCL_SOCKET_IFNAME='$WORKER_CX7_IF' \
@@ -2393,6 +2416,7 @@ launch_cluster() {
         -v "$INDEXER_WORKSPACE_PATCH_HOST:/opt/glm53/patch_indexer_workspace.py:ro" \
         -v "$MAMBA_NULL_GAP_PATCH_HOST:/opt/glm53/patch_mamba_null_gap_retirement.py:ro" \
         -v "$KV_MERGE_ASSERT_PATCH_HOST:/opt/glm53/patch_kv_merge_assert.py:ro" \
+        -v "$PREFIX_ADMIT_PATCH_HOST:/opt/glm53/patch_prefix_admit.py:ro" \
         "${head_preload[@]}" \
         "${nccl_common[@]}" \
         -e NCCL_SOCKET_IFNAME="$HEAD_CX7_IF" \
