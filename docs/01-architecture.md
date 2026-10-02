@@ -6,11 +6,11 @@ Two NVIDIA DGX Spark nodes (GB10 Grace Blackwell superchip, aarch64, 121 GiB **u
 CPU+GPU memory, 3.7 TB NVMe, CUDA 13.0, DGX OS / Ubuntu 24.04). The GPU arch is Blackwell
 ~sm_121 — build for the right arch if you ever compile kernels.
 
-The nodes are linked directly over one QSFP port each (200Gb, RoCE, MTU 9000). This kit
-runs **single-rail deliberately**: `start.sh` hardcodes `NCCL_IB_MERGE_NICS=0` (a LOCAL
-patch makes it env-overridable; dual-rail measured +1% at MNBT 1024 — not worth it).
-⚠ On this hardware only rail 1 (`enp1s0f1np1` / `rocep1s0f1`) is UP on both nodes;
-upstream's asymmetric interface pins hang `ncclCommInitRank`.
+The nodes are linked over QSFP at 200 Gb/s, RoCE, MTU 9000. Production uses
+both live HCAs, `rocep1s0f1` and `roceP2p1s0f1`, with `NCCL_IB_MERGE_NICS=1`
+(adopted 2026-10-02). The launcher still boots one HCA when the second-device
+names are empty. `rocep1s0f0` and `roceP2p1s0f0` stay down, and pinning those
+names hangs NCCL. The socket interface stays the rail-1 netdev.
 
 ## Model stack
 

@@ -74,7 +74,7 @@ fork — its 142 commits shrink to a thin overlay once #53906 lands.
 | `patch_glm5_drafter_group.py` (slot-share) | **REWRITE, not rebase** — #51704/#51718 changed the backend↔spec KV-packing interface; the pool math (1.40×) must be re-derived on the new base. |
 | Retention env (`=0`) | **CONVERT** to explicit `prefix_cache_retention_interval` config; re-verify the multi-session fix (2×68k probe) under mainline semantics. |
 | `patch_suppress_stops_in_reasoning.py`, `patch_scheduler_decode_floor.py` | **CARRY**, re-anchor (fail-closed patches refuse on drift — that is the signal to re-derive). |
-| Long-prefill threshold (1792), loopback bind, MERGE_NICS=0, KV pin | **CARRY** — deployment policy, not engine code. The pin *value* must be re-derived (pool geometry changes with the base). |
+| Long-prefill threshold (1792), loopback bind, both live HCAs with MERGE_NICS=1, KV pin | **CARRY** — deployment policy, not engine code. The pin *value* must be re-derived (pool geometry changes with the base). |
 | GLM KDA kernels (fork) | **A/B against upstream FlashKDA** — swap only on numerical + throughput parity. |
 
 ## Validation battery (no re-pin without all of it)

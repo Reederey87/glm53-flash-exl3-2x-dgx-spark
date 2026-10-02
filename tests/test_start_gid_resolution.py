@@ -268,6 +268,15 @@ def test_preflight_resolves_instead_of_trusting_the_env_value():
     assert 'WORKER_GID="$gid_worker"' in block
 
 
+def test_second_hca_is_optional_and_passed_through_when_both_are_set():
+    assert 'HEAD_CX7_IB2="${HEAD_CX7_IB2:-}"' in START
+    assert 'WORKER_CX7_IB2="${WORKER_CX7_IB2:-}"' in START
+    assert "set HEAD_CX7_IB2 and WORKER_CX7_IB2 together, or leave both empty" in START
+    assert 'NCCL_IB_HCA="${HEAD_CX7_IB}${HEAD_CX7_IB2:+,$HEAD_CX7_IB2}"' in START
+    assert "NCCL_IB_HCA='$WORKER_CX7_IB${WORKER_CX7_IB2:+,$WORKER_CX7_IB2}'" in START
+    assert 'NCCL_IB_MERGE_NICS=${NCCL_IB_MERGE_NICS:-0}' in START
+
+
 def test_launch_rechecks_the_resolved_index_before_starting_containers():
     begin = START.index("# ------------------------------- launch")
     end = START.index("mkdir -p \"$CACHE_ROOT\"")
