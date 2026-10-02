@@ -1118,8 +1118,9 @@ preflight() {
     # The second device carries the other rail's address, so it must not be
     # matched against HEAD_IP. Require the same GID slot to be populated RoCE v2.
     if [ -n "$HEAD_CX7_IB2" ] || [ -n "$WORKER_CX7_IB2" ]; then
-        [ -n "$HEAD_CX7_IB2" ] && [ -n "$WORKER_CX7_IB2" ] \
-            || die "set HEAD_CX7_IB2 and WORKER_CX7_IB2 together, or leave both empty"
+        if [ -z "$HEAD_CX7_IB2" ] || [ -z "$WORKER_CX7_IB2" ]; then
+            die "set HEAD_CX7_IB2 and WORKER_CX7_IB2 together, or leave both empty"
+        fi
         local h2 w2 hg2 wg2 ht2 wt2
         h2="$(cat "/sys/class/infiniband/${HEAD_CX7_IB2}/ports/1/state" 2>/dev/null || true)"
         w2="$(worker_ssh "cat /sys/class/infiniband/${WORKER_CX7_IB2}/ports/1/state 2>/dev/null" 2>/dev/null || true)"
@@ -1135,10 +1136,12 @@ preflight() {
         ht2="$(cat "/sys/class/infiniband/${HEAD_CX7_IB2}/ports/1/gid_attrs/types/${HEAD_GID}" 2>/dev/null || true)"
         wg2="$(worker_ssh "cat /sys/class/infiniband/${WORKER_CX7_IB2}/ports/1/gids/${WORKER_GID} 2>/dev/null" 2>/dev/null || true)"
         wt2="$(worker_ssh "cat /sys/class/infiniband/${WORKER_CX7_IB2}/ports/1/gid_attrs/types/${WORKER_GID} 2>/dev/null" 2>/dev/null || true)"
-        [ -n "$hg2" ] && [ "$hg2" != "0000:0000:0000:0000:0000:0000:0000:0000" ] && [[ "$ht2" == *"RoCE v2"* ]] \
-            || die "head ${HEAD_CX7_IB2} gid${HEAD_GID} is '${hg2:-empty}' type '${ht2:-unreadable}', not populated RoCE v2"
-        [ -n "$wg2" ] && [ "$wg2" != "0000:0000:0000:0000:0000:0000:0000:0000" ] && [[ "$wt2" == *"RoCE v2"* ]] \
-            || die "worker ${WORKER_CX7_IB2} gid${WORKER_GID} is '${wg2:-empty}' type '${wt2:-unreadable}', not populated RoCE v2"
+        if [ -z "$hg2" ] || [ "$hg2" = "0000:0000:0000:0000:0000:0000:0000:0000" ] || [[ "$ht2" != *"RoCE v2"* ]]; then
+            die "head ${HEAD_CX7_IB2} gid${HEAD_GID} is '${hg2:-empty}' type '${ht2:-unreadable}', not populated RoCE v2"
+        fi
+        if [ -z "$wg2" ] || [ "$wg2" = "0000:0000:0000:0000:0000:0000:0000:0000" ] || [[ "$wt2" != *"RoCE v2"* ]]; then
+            die "worker ${WORKER_CX7_IB2} gid${WORKER_GID} is '${wg2:-empty}' type '${wt2:-unreadable}', not populated RoCE v2"
+        fi
         log "second HCA: head ${HEAD_CX7_IB2} gid${HEAD_GID} RoCE v2, worker ${WORKER_CX7_IB2} gid${WORKER_GID} RoCE v2"
     fi
 
