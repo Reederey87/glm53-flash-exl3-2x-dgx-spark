@@ -271,6 +271,8 @@ ROUTER_GEMM_PATCH_HOST="${ROUTER_GEMM_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_rout
 KPOOL_TAIL_PATCH_HOST="${KPOOL_TAIL_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_kpool_tail_slotmap.py}"
 # LOCAL: W17 (kit PR #69) SpinCondition 1 s -> 2 ms, opt-in GLM53_SPINWAIT_2MS=1
 SPINWAIT_PATCH_HOST="${SPINWAIT_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_spinwait_gb10.py}"
+# Lost-notify recheck 5000 ms -> 50 ms. Opt-in GLM53_SHM_RECHECK_50MS=1.
+SHM_RECHECK_PATCH_HOST="${SHM_RECHECK_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_shm_recheck.py}"
 # LOCAL: W18 (kit PR #59) fine-grained APC (KpoolTail veto exemption), opt-in GLM53_FINE_GRAINED_APC=1
 FGAPC_PATCH_HOST="${FGAPC_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_fine_grained_apc.py}"
 # LOCAL: align-floor -- stop the mamba align split zeroing a sub-block chunk when LPTT >= block_size
@@ -371,6 +373,8 @@ GLM53_MIXED_PREFILL_ESCALATE_MS="${GLM53_MIXED_PREFILL_ESCALATE_MS:-0}"  # LOCAL
 GLM53_MIXED_PREFILL_LATE_CAP_MAX="${GLM53_MIXED_PREFILL_LATE_CAP_MAX:-1792}"  # LOCAL: W26
 # LOCAL: 1 = shrink vLLM SpinCondition busy_loop_s 1 s -> 2 ms (GB10 core relief, W17). Off by default.
 GLM53_SPINWAIT_2MS="${GLM53_SPINWAIT_2MS:-0}"
+# 1 = SHM_READER_RECHECK_INTERVAL_MS 5000 -> 50. Off leaves the upstream cap.
+GLM53_SHM_RECHECK_50MS="${GLM53_SHM_RECHECK_50MS:-0}"
 # LOCAL: 1 = exempt KpoolTailManager from the partial-hash veto -> hash-grain (64) prefix hits (W18). Off by default.
 GLM53_FINE_GRAINED_APC="${GLM53_FINE_GRAINED_APC:-0}"
 # LOCAL: 1 = one drafter block id per compact page (largest unsplit multiple
@@ -1169,6 +1173,7 @@ preflight() {
     [ -f "$ROUTER_GEMM_PATCH_HOST" ] || die "$ROUTER_GEMM_PATCH_HOST missing"  # LOCAL: W9
     [ -f "$KPOOL_TAIL_PATCH_HOST" ] || die "$KPOOL_TAIL_PATCH_HOST missing"
     [ -f "$SPINWAIT_PATCH_HOST" ] || die "$SPINWAIT_PATCH_HOST missing"  # LOCAL: W17
+    [ -f "$SHM_RECHECK_PATCH_HOST" ] || die "$SHM_RECHECK_PATCH_HOST missing"
     [ -f "$FGAPC_PATCH_HOST" ] || die "$FGAPC_PATCH_HOST missing"  # LOCAL: W18
     [ -f "$ALIGN_FLOOR_PATCH_HOST" ] || die "$ALIGN_FLOOR_PATCH_HOST missing"  # LOCAL: align-floor
     [ -f "$APC_TAIL_FLOOR_PATCH_HOST" ] || die "$APC_TAIL_FLOOR_PATCH_HOST missing"  # LOCAL: task 45
@@ -1794,6 +1799,9 @@ fi
 if [ -f /opt/glm53/patch_spinwait_gb10.py ]; then
     python3 -S /opt/glm53/patch_spinwait_gb10.py
 fi
+if [ -f /opt/glm53/patch_shm_recheck.py ]; then
+    python3 -S /opt/glm53/patch_shm_recheck.py
+fi
 if [ -f /opt/glm53/patch_fine_grained_apc.py ]; then
     python3 -S /opt/glm53/patch_fine_grained_apc.py
 fi
@@ -1999,6 +2007,9 @@ fi
 if [ -f /opt/glm53/patch_spinwait_gb10.py ]; then
     python3 -S /opt/glm53/patch_spinwait_gb10.py
 fi
+if [ -f /opt/glm53/patch_shm_recheck.py ]; then
+    python3 -S /opt/glm53/patch_shm_recheck.py
+fi
 if [ -f /opt/glm53/patch_fine_grained_apc.py ]; then
     python3 -S /opt/glm53/patch_fine_grained_apc.py
 fi
@@ -2106,6 +2117,8 @@ launch_cluster() {
     scp -q -o BatchMode=yes "$KPOOL_TAIL_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_kpool_tail_slotmap.py"
     [ -f "$SPINWAIT_PATCH_HOST" ] || die "missing $SPINWAIT_PATCH_HOST"
     scp -q -o BatchMode=yes "$SPINWAIT_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_spinwait_gb10.py"
+    [ -f "$SHM_RECHECK_PATCH_HOST" ] || die "missing $SHM_RECHECK_PATCH_HOST"
+    scp -q -o BatchMode=yes "$SHM_RECHECK_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_shm_recheck.py"
     [ -f "$FGAPC_PATCH_HOST" ] || die "missing $FGAPC_PATCH_HOST"
     scp -q -o BatchMode=yes "$FGAPC_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_fine_grained_apc.py"
     [ -f "$ALIGN_FLOOR_PATCH_HOST" ] || die "missing $ALIGN_FLOOR_PATCH_HOST"
@@ -2195,6 +2208,7 @@ launch_cluster() {
         -e "GLM53_ROUTER_GEMM_CUBLAS=${GLM53_ROUTER_GEMM_CUBLAS:-1}"
         # LOCAL: W17/W18 opt-in overlays (both ranks read these at patch time)
         -e "GLM53_SPINWAIT_2MS=$GLM53_SPINWAIT_2MS"
+        -e "GLM53_SHM_RECHECK_50MS=$GLM53_SHM_RECHECK_50MS"
         -e "GLM53_FINE_GRAINED_APC=$GLM53_FINE_GRAINED_APC"
         -e "GLM53_DRAFT_COMPACT_PAGE=$GLM53_DRAFT_COMPACT_PAGE"
         -e "GLM53_CACHE_TAIL_EVICT=$GLM53_CACHE_TAIL_EVICT"
@@ -2307,6 +2321,7 @@ launch_cluster() {
         -v '/tmp/patch_shared_experts_overlap.py:/opt/glm53/patch_shared_experts_overlap.py:ro' \
         -v '/tmp/patch_kpool_tail_slotmap.py:/opt/glm53/patch_kpool_tail_slotmap.py:ro' \
         -v '/tmp/patch_spinwait_gb10.py:/opt/glm53/patch_spinwait_gb10.py:ro' \
+        -v '/tmp/patch_shm_recheck.py:/opt/glm53/patch_shm_recheck.py:ro' \
         -v '/tmp/patch_fine_grained_apc.py:/opt/glm53/patch_fine_grained_apc.py:ro' \
         -v '/tmp/patch_align_floor.py:/opt/glm53/patch_align_floor.py:ro' \
         -v '/tmp/patch_apc_tail_boundary.py:/opt/glm53/patch_apc_tail_boundary.py:ro' \
@@ -2361,6 +2376,7 @@ launch_cluster() {
         -v "$SHARED_EXPERTS_EARLY_PATCH_HOST:/opt/glm53/patch_shared_experts_overlap.py:ro" \
         -v "$KPOOL_TAIL_PATCH_HOST:/opt/glm53/patch_kpool_tail_slotmap.py:ro" \
         -v "$SPINWAIT_PATCH_HOST:/opt/glm53/patch_spinwait_gb10.py:ro" \
+        -v "$SHM_RECHECK_PATCH_HOST:/opt/glm53/patch_shm_recheck.py:ro" \
         -v "$FGAPC_PATCH_HOST:/opt/glm53/patch_fine_grained_apc.py:ro" \
         -v "$ALIGN_FLOOR_PATCH_HOST:/opt/glm53/patch_align_floor.py:ro" \
         -v "$APC_TAIL_FLOOR_PATCH_HOST:/opt/glm53/patch_apc_tail_boundary.py:ro" \
@@ -2515,7 +2531,7 @@ on_ready() {
     # APC, hits only land in 3584-token pages and sub-page prompts read as 0 hits (by design).
     local apc_grain="3584 (page; set GLM53_FINE_GRAINED_APC=1 for sub-page hits)"
     [ "${GLM53_FINE_GRAINED_APC}" = "1" ] && apc_grain="64 (fine-grained)"
-    log "  features   : tools=glm47+auto, reasoning=glm45, spec=${spec}, vision=${vision}, ${mt_line}, spinwait2ms=${GLM53_SPINWAIT_2MS}, fgapc=${GLM53_FINE_GRAINED_APC}, apc_grain=${apc_grain}"
+    log "  features   : tools=glm47+auto, reasoning=glm45, spec=${spec}, vision=${vision}, ${mt_line}, spinwait2ms=${GLM53_SPINWAIT_2MS}, shmrecheck50=${GLM53_SHM_RECHECK_50MS}, fgapc=${GLM53_FINE_GRAINED_APC}, apc_grain=${apc_grain}"
     local auth_line="none (VLLM_API_KEY empty)"
     if [ -n "${VLLM_API_KEY:-}" ]; then
         auth_line="bearer token set (VLLM_API_KEY) — send Authorization: Bearer <key> on /v1 requests"
