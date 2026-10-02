@@ -180,6 +180,10 @@ HEAD_CX7_IF="${HEAD_CX7_IF:-enp1s0f1np1}"
 WORKER_CX7_IF="${WORKER_CX7_IF:-enp1s0f0np0}"
 HEAD_CX7_IB="${HEAD_CX7_IB:-rocep1s0f1}"
 WORKER_CX7_IB="${WORKER_CX7_IB:-rocep1s0f0}"
+# Optional second RDMA device (the other PCIe half of the cabled port).
+# Empty keeps one HCA. Set both, or neither.
+HEAD_CX7_IB2="${HEAD_CX7_IB2:-}"
+WORKER_CX7_IB2="${WORKER_CX7_IB2:-}"
 NCCL_DEBUG="${NCCL_DEBUG:-WARN}"
 NCCL_IB_GID_INDEX="${NCCL_IB_GID_INDEX:-3}"
 # The RoCE v2 GID index is per-NIC: the usable entry is the one whose GID matches
@@ -1110,6 +1114,33 @@ preflight() {
     HEAD_GID="$gid_head"
     WORKER_GID="$gid_worker"
     log "RoCE v2 GID resolved from the fabric: head ${HEAD_CX7_IB} gid${HEAD_GID} (${HEAD_IP}), worker ${WORKER_CX7_IB} gid${WORKER_GID} (${WORKER_IP})"
+
+    # The second device carries the other rail's address, so it must not be
+    # matched against HEAD_IP. Require the same GID slot to be populated RoCE v2.
+    if [ -n "$HEAD_CX7_IB2" ] || [ -n "$WORKER_CX7_IB2" ]; then
+        [ -n "$HEAD_CX7_IB2" ] && [ -n "$WORKER_CX7_IB2" ] \
+            || die "set HEAD_CX7_IB2 and WORKER_CX7_IB2 together, or leave both empty"
+        local h2 w2 hg2 wg2 ht2 wt2
+        h2="$(cat "/sys/class/infiniband/${HEAD_CX7_IB2}/ports/1/state" 2>/dev/null || true)"
+        w2="$(worker_ssh "cat /sys/class/infiniband/${WORKER_CX7_IB2}/ports/1/state 2>/dev/null" 2>/dev/null || true)"
+        case "$h2" in
+            *ACTIVE*) ;;
+            *) die "head RDMA port ${HEAD_CX7_IB2} is not ACTIVE (${h2:-unreadable})" ;;
+        esac
+        case "$w2" in
+            *ACTIVE*) ;;
+            *) die "worker RDMA port ${WORKER_CX7_IB2} is not ACTIVE (${w2:-unreadable})" ;;
+        esac
+        hg2="$(cat "/sys/class/infiniband/${HEAD_CX7_IB2}/ports/1/gids/${HEAD_GID}" 2>/dev/null || true)"
+        ht2="$(cat "/sys/class/infiniband/${HEAD_CX7_IB2}/ports/1/gid_attrs/types/${HEAD_GID}" 2>/dev/null || true)"
+        wg2="$(worker_ssh "cat /sys/class/infiniband/${WORKER_CX7_IB2}/ports/1/gids/${WORKER_GID} 2>/dev/null" 2>/dev/null || true)"
+        wt2="$(worker_ssh "cat /sys/class/infiniband/${WORKER_CX7_IB2}/ports/1/gid_attrs/types/${WORKER_GID} 2>/dev/null" 2>/dev/null || true)"
+        [ -n "$hg2" ] && [ "$hg2" != "0000:0000:0000:0000:0000:0000:0000:0000" ] && [[ "$ht2" == *"RoCE v2"* ]] \
+            || die "head ${HEAD_CX7_IB2} gid${HEAD_GID} is '${hg2:-empty}' type '${ht2:-unreadable}', not populated RoCE v2"
+        [ -n "$wg2" ] && [ "$wg2" != "0000:0000:0000:0000:0000:0000:0000:0000" ] && [[ "$wt2" == *"RoCE v2"* ]] \
+            || die "worker ${WORKER_CX7_IB2} gid${WORKER_GID} is '${wg2:-empty}' type '${wt2:-unreadable}', not populated RoCE v2"
+        log "second HCA: head ${HEAD_CX7_IB2} gid${HEAD_GID} RoCE v2, worker ${WORKER_CX7_IB2} gid${WORKER_GID} RoCE v2"
+    fi
 
     [ "$TP" = "2" ] || warn "TP=${TP} on a 2×1-GPU cluster — expected TP=2"
     [ "$NNODES" = "2" ] || warn "NNODES=${NNODES} — expected 2"
@@ -2113,10 +2144,8 @@ launch_cluster() {
         -e NCCL_NET_PLUGIN=none
         -e NCCL_NVLS_ENABLE=0
         -e NCCL_CUMEM_ENABLE=0
-        # LOCAL: upstream hardcodes 0 (their receipt was measured single-NIC).
-        # This cluster has a second ACTIVE PCIe-twin rail (roceP2p1s0f1); the
-        # DeepSeek stack measured 23.1 GB/s with merge-NICs on. Overridable for
-        # the dual-rail A/B; default stays upstream's 0.
+        # Production .env sets 1 so NCCL can use both PCIe halves of the
+        # cabled port. Unset stays 0 (one HCA).
         -e "NCCL_IB_MERGE_NICS=${NCCL_IB_MERGE_NICS:-0}"
         -e "NCCL_CROSS_NIC=$NCCL_CROSS_NIC"
         -e NCCL_IGNORE_CPU_AFFINITY=1
@@ -2247,7 +2276,7 @@ launch_cluster() {
     # VLLM_API_KEY belongs only on rank 0, which owns the API server. Never send
     # the bearer credential to the headless worker.
 
-    log "starting worker on ${WORKER_SSH} (NCCL if=${WORKER_CX7_IF} hca=${WORKER_CX7_IB}) ..."
+    log "starting worker on ${WORKER_SSH} (NCCL if=${WORKER_CX7_IF} hca=${WORKER_CX7_IB}${WORKER_CX7_IB2:+,${WORKER_CX7_IB2}}) ..."
     worker_ssh "docker run -d --name '$CONTAINER_WORKER' \
         --gpus all --network host --ipc=host --shm-size 32g --stop-timeout 60 \
         --device /dev/infiniband --cap-add IPC_LOCK \
@@ -2295,13 +2324,13 @@ launch_cluster() {
         ${worker_nccl} \
         -e NCCL_SOCKET_IFNAME='$WORKER_CX7_IF' \
         -e GLOO_SOCKET_IFNAME='$WORKER_CX7_IF' \
-        -e NCCL_IB_HCA='$WORKER_CX7_IB' \
+        -e NCCL_IB_HCA='$WORKER_CX7_IB${WORKER_CX7_IB2:+,$WORKER_CX7_IB2}' \
         -e NCCL_IB_GID_INDEX='$WORKER_GID' \
         -e VLLM_HOST_IP='$WORKER_IP' \
         ${serve_env} \
         --entrypoint bash '$IMAGE' /start.sh" >/dev/null
 
-    log "starting head (vLLM API :${PORT}; NCCL if=${HEAD_CX7_IF} hca=${HEAD_CX7_IB}) ..."
+    log "starting head (vLLM API :${PORT}; NCCL if=${HEAD_CX7_IF} hca=${HEAD_CX7_IB}${HEAD_CX7_IB2:+,${HEAD_CX7_IB2}}) ..."
     docker run -d --name "$CONTAINER_HEAD" \
         --gpus all --network host --ipc=host --shm-size 32g --stop-timeout 60 \
         --device /dev/infiniband --cap-add IPC_LOCK \
@@ -2349,7 +2378,7 @@ launch_cluster() {
         "${nccl_common[@]}" \
         -e NCCL_SOCKET_IFNAME="$HEAD_CX7_IF" \
         -e GLOO_SOCKET_IFNAME="$HEAD_CX7_IF" \
-        -e NCCL_IB_HCA="$HEAD_CX7_IB" \
+        -e NCCL_IB_HCA="${HEAD_CX7_IB}${HEAD_CX7_IB2:+,$HEAD_CX7_IB2}" \
         -e NCCL_IB_GID_INDEX="$HEAD_GID" \
         -e VLLM_HOST_IP="$HEAD_IP" \
         -e SERVED_MODEL_NAME="$SERVED_MODEL_NAME" \

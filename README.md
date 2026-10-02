@@ -1,13 +1,13 @@
 # GLM-5.3-Flash-EXL3 on 2× NVIDIA DGX Spark
 
-Reproduction kit for a **production** deployment of GLM-5.3-Flash (320B MoE / 18B
-active) on two NVIDIA DGX Spark (GB10 Grace Blackwell, 121 GiB unified memory each):
-a **1,000,000-token context window** with DFlash2 speculative decoding, TP=2 over a
-direct 200Gb QSFP link, loopback-only by default.
+Reproduction kit for the production deployment of GLM-5.3-Flash (320B MoE, 18B
+active) on two NVIDIA DGX Spark machines. Each machine is a GB10 Grace Blackwell
+with 121 GiB of unified memory. The pair serves a 1,000,000-token context with
+DFlash2 speculative decoding, tensor-parallel 2, over the 200 Gb/s QSFP link.
+The API listens on loopback only.
 
-This is the deployment I actually run, with every gotcha written down. Since
-2026-08-30 the serving image is **built by this repo's `Dockerfile`** — production
-runs the local build, not a pulled artifact.
+This is the deployment that is running. The serving image is built from this
+repo's Dockerfile. Production does not pull a prebuilt image.
 
 ## Why this kit, in numbers
 
@@ -40,53 +40,55 @@ dashboard hides all of this): `docs/04-prefix-caching.md`,
 `docs/08-concurrent-prefill.md`; probes `local/cache-burst.py`,
 `local/cache-probe.sh`, `local/ttft-probe.py`.
 
-**Current production, same pair** (`glm53-selfbuild:e3-pipeline-f1s8-reuse`,
-2026-09-20):
+## What production is running
 
-| | |
-|---|---|
-| Context window | **1,000,000 tokens**, with speculation active — on two desk machines |
-| **Prose decode** | **~33 tok/s** at the 1M window (hashmap median **33.03**, 28.1–35.4, acc 0.55) — the most reliable real-workload figure here. Natural-prose acceptance is ~0.4–0.5, so this is what unstructured generation costs. Hard essay sits lower at **~26 tok/s** (median **25.92**, 24.5–27.2, acc 0.44) |
-| Structured decode | **~74 tok/s** at speculative acceptance **1.0000** (7/7 drafted tokens accepted; standing median **74.19**). Treat this as the **acceptance/quality gate, not the headline throughput** — near-ceiling structured prompts are the most favorable regime. Contended passes land wherever ambient traffic puts them; the durable invariant is the 7.0/1.000 profile |
-| Cold prefill | **~1408 tok/s** at 240k, **~1454 tok/s** at 60k (2026-09-09 stack; not re-measured on the 2026-09-20 decode image) |
-| Long-context decode | Structured acceptance **0.978** (6.85/step) through ~324k, **0.89–0.95** past ~415k; at ~519k, **31.3 tok/s** at 6.62/step. Compaction at 300k stands (2026-09-04) |
-| Short request behind a 240k read | **6.7–7.9 s** to first token (256 s without this kit's fairness cap) |
-| Multi-agent concurrency | **4 in-flight**, zero preemptions through 4×60k×3 (2026-09-05); warm aggregate **63.4–66.3 tok/s**, TTFT p95 **0.92–0.96 s**; a warm follow-up lands in **~2.6 s** behind a running generation. Plan below ≈ **50,176 tokens ≈ 14 sessions** of cached-conversation capacity |
-| Multi-session caching | 2×68k sessions retain **100%**; 4×60k concurrent retain **98.7%** |
-| Follow-up turns | reuse **96–99%** of the prompt at 64-token grain — even prompts under one 3,584-token page |
+Image `glm53-selfbuild:e3-armc-guards`, measured 2026-10-02. Both RDMA devices
+are on: `rocep1s0f1` and `roceP2p1s0f1`, with `NCCL_IB_MERGE_NICS=1`. The
+second device is the other PCIe half of the same cabled port. `rocep1s0f0`
+and `roceP2p1s0f0` are down.
 
-Prefill and content type: the prefill rows are natural-language (word-salad)
-probes. Prefill is compute-bound on this stack, so **tokens/second is
-essentially content-independent** — but **tokens per document is not**: code
-and JSON tokenize denser, so the same document can cost 20–50% more prompt
-tokens and proportionally longer TTFT. Read the rows as per-token rates, not
-per-document promises.
+Decode below is temperature 0, thinking off, 200 tokens, median of five runs.
+Prose is the everyday number. Structured is the quality check: it should
+accept all seven draft tokens. Essay is the hard lane.
 
-No other public recipe serves this model on this hardware with all six of:
-EXL3 (the quantization this stack is built and tuned around — see `docs/01`
-for why the NVFP4 route is target-gated rather than silicon-absent on GB10), a
-1M window that *coexists* with speculative decoding, prefix caching that
-survives the hybrid-KDA architecture and the drafter, perfect structured
-acceptance, verification-only adaptive-k on the target, and a hand-tuned MoE
-kernel stack (fat-expert GEMM, dynamic ticket scheduling, grouped fat-expert
-dispatch, a 3-stage `cp.async` pipeline, register-cut fused decode, gate/up
-Hadamard reuse). Each is a specific fix in this tree, and removing any one of
-them has a measured cost (`docs/10-selfbuild-production.md`, "load-bearing
-set").
+| Lane | tok/s |
+|---|---:|
+| Hashmap prose | 33.79 |
+| Structured count | 74.99, acceptance 7.0 of 7 |
+| Hard essay | 27.79 |
 
-Provenance: every decode row is a same-day A/B on this pair — a reference from
-another day or image drifts by a few percent, so each window runs its own
-control arm. The standing decode numbers are the 2026-09-20 stack
-(`glm53-selfbuild:e3-pipeline-f1s8-reuse`, last-wins
-`GLM53_EXL3_MOE_PIPELINE=1`, `GLM53_EXL3_MOE_REUSE=1`,
-`EXL3_TEMP_ROWS_FUSED=32`, `GLM53_ADAPTIVE_K=ema`). Prefill and concurrency
-rows are earlier same-pair windows and keep their dates. Isolated receipts,
-previous-stack figures (2026-09-09 `e3-w3-zfill`: prose ~29–32, structured
-~69–70) and every rejected arm are in `docs/06-improvement-plan.md`. Every
-bench and probe ships in `tests/` and `local/` — reproduce any row in minutes.
-Offline regression suite: `uv sync && uv run pytest tests/ -q` (dependencies
-are declared in `pyproject.toml`; `requirements-dev.txt` remains as a pip-only
-fallback).
+The cache is 567 blocks, 566 of them usable, on a 3,584-token page. A cached
+conversation holds about 222,208 tokens. Context stays at 1,000,000 tokens.
+
+The second HCA does not speed up decode-sized messages. It showed up in an
+earlier all-reduce sweep on this cable: about 11 GB/s with one device and
+about 21 GB/s with both, at 16–32 MB. Cold prefill on this boot was not
+re-measured. Older same-pair figures, kept because they still describe the
+workload:
+
+- Cold prefill about 1,408 tok/s at 240k and 1,454 tok/s at 60k (2026-09-09).
+- A short request behind a 240k read returns in 6.7–7.9 seconds.
+- Four requests in flight, warm aggregate about 63–66 tok/s (2026-09-05).
+- Long-context structured acceptance 0.978 through about 324k tokens, and
+  31.3 tok/s at about 519k (2026-09-04).
+
+Code and JSON use more tokens than prose for the same document, so time to
+first token grows with the token count even when tokens per second stay flat.
+
+The stack that is actually serving is EXL3 weights, a 1M window together with
+DFlash2, prefix caching that survives the hybrid KDA layers, structured
+acceptance of 7.0, verification-only adaptive-k, and the hand-tuned MoE
+kernels. `docs/01-architecture.md` says why this tree stays on EXL3.
+`docs/10-selfbuild-production.md` lists what breaks if a piece is removed.
+
+The 2026-10-02 decode numbers are from the boot immediately before and after
+the dual-HCA change. The single-HCA control on that same day was prose 32.46,
+structured 74.20, essay 25.63 tok/s. Older image tags and rejected arms are
+in `docs/06-improvement-plan.md`. Benches live in `tests/` and `local/`.
+
+```bash
+uv sync && uv run pytest tests/ -q
+```
 
 ## The serving image: preview vLLM, pinned and completed
 `download.sh` validates the selected snapshot's
@@ -205,9 +207,9 @@ CUDA device-free/host `MemFree`, then raise one dimension at a time.
 `MemAvailable` and `nvidia-smi` are not reliable admission signals on unified
 memory.
 
-This release is reproduce-tested: this exact tree was rebuilt on the production head
-and booted **as production**, passing acceptance 7/7, serving 6/6, a byte-identical
-KV pool (1,396,551 tokens), and 1.0000/7.0 structured acceptance on first boot.
+Dual-HCA did not need a new image. The 2026-10-02 boot kept
+`glm53-selfbuild:e3-armc-guards`, 567 cache blocks, and structured acceptance
+of 7.0.
 
 ## CUDA kernel changes in this tree
 
@@ -254,9 +256,10 @@ change here, oldest first:
   (`GLM53_EXL3_MOE_REUSE=1` on the same cubin). Isolated device time is a wash;
   warmed serving: structured **73.88 → 74.19 (+0.42%)**, hashmap **30.36 →
   33.03 (+8.79%)**, essay **25.18 → 25.92 (+2.94%)**. Same class of adopt;
-  essay still short of 5%. Production image
-  `glm53-selfbuild:e3-pipeline-f1s8-reuse`. Rollback: `GLM53_EXL3_MOE_REUSE=0`
-  on that image, or `IMAGE=glm53-selfbuild:e3-pipeline-f1s8`.
+  essay still short of 5%. That adopt's image was
+  `glm53-selfbuild:e3-pipeline-f1s8-reuse`. Rollback of the reuse knob is
+  `GLM53_EXL3_MOE_REUSE=0`. The image in production on 2026-10-02 is
+  `glm53-selfbuild:e3-armc-guards`.
 
 Measured and reverted, with numbers: W1 lazy grouped scratch (PR #54), W4 fused
 gather (PR #57, 60k −10.7%), the W4 successor persistent A-cache (PR #65), and W5
