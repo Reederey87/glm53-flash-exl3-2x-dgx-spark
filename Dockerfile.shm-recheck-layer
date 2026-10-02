@@ -1,0 +1,24 @@
+# Python-only layer. Bakes SHM_READER_RECHECK_INTERVAL_MS = 50 into the
+# adopted image with the same fail-closed rewrite as overlay/patch_shm_recheck.py.
+# Does not change busy_loop_s and does not rebuild the cubin.
+#
+# Build on the head after the serving unit is stopped:
+#   docker build -f Dockerfile.shm-recheck-layer \
+#     --build-arg BASE=glm53-selfbuild:e3-armc-guards \
+#     --build-arg GLM53_RECIPE_STAMP=$(git rev-parse --short HEAD) \
+#     -t glm53-selfbuild:e3-armc-shm50 .
+ARG BASE=glm53-selfbuild:e3-armc-guards
+FROM ${BASE}
+
+COPY overlay/patch_shm_recheck.py /opt/glm53/patch_shm_recheck.py
+
+# The flag is set only for this build step. It is not left in the image env.
+# A leftover 5000 ms assignment fails the build.
+RUN GLM53_SHM_RECHECK_50MS=1 python3 -S /opt/glm53/patch_shm_recheck.py \
+ && grep -Fqx 'SHM_READER_RECHECK_INTERVAL_MS = 50' \
+      /usr/local/lib/python3.12/dist-packages/vllm/distributed/device_communicators/shm_broadcast.py \
+ && ! grep -Fqx 'SHM_READER_RECHECK_INTERVAL_MS = 5000' \
+      /usr/local/lib/python3.12/dist-packages/vllm/distributed/device_communicators/shm_broadcast.py
+
+ARG GLM53_RECIPE_STAMP=unknown
+LABEL glm53.recipe.stamp=${GLM53_RECIPE_STAMP} glm53.shm.recheck=50

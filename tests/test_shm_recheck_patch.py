@@ -56,8 +56,22 @@ def test_start_wires_the_patch_six_ways() -> None:
     assert '-e "GLM53_SHM_RECHECK_50MS=$GLM53_SHM_RECHECK_50MS"' in start
 
 
+def test_image_layer_bakes_the_same_constant() -> None:
+    df = (ROOT / "Dockerfile.shm-recheck-layer").read_text(encoding="utf-8")
+    assert "ARG BASE=glm53-selfbuild:e3-armc-guards" in df
+    assert "COPY overlay/patch_shm_recheck.py /opt/glm53/patch_shm_recheck.py" in df
+    assert "GLM53_SHM_RECHECK_50MS=1 python3 -S /opt/glm53/patch_shm_recheck.py" in df
+    assert "ENV GLM53_SHM_RECHECK_50MS" not in df
+    assert "grep -Fqx 'SHM_READER_RECHECK_INTERVAL_MS = 50'" in df
+    assert "grep -Fqx 'SHM_READER_RECHECK_INTERVAL_MS = 5000'" in df
+    assert "glm53.shm.recheck=50" in df
+    assert "busy_loop_s =" not in df
+    assert "0.002" not in df
+
+
 if __name__ == "__main__":
     test_rewrite_is_not_a_prefix_of_the_upstream_constant()
     test_anchor_drift_fails_closed()
     test_start_wires_the_patch_six_ways()
+    test_image_layer_bakes_the_same_constant()
     print("shm recheck guards OK")
