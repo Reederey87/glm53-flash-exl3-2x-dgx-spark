@@ -402,6 +402,11 @@ ROUTER_ONCE_PATCH_HOST="${ROUTER_ONCE_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_rout
 # recomputes the rest. Off leaves scheduler.py byte-identical.
 GLM53_PREFIX_ADMIT="${GLM53_PREFIX_ADMIT-0}"
 PREFIX_ADMIT_PATCH_HOST="${PREFIX_ADMIT_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_prefix_admit.py}"
+# 1 = while a cached request still has a short resident tail, do not share
+# the step with a cold prefill, and do not apply the long-prefill cap to
+# that tail. Off leaves scheduler.py byte-identical.
+GLM53_RESIDENT_TAIL="${GLM53_RESIDENT_TAIL-0}"
+RESIDENT_TAIL_PATCH_HOST="${RESIDENT_TAIL_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_resident_tail.py}"
 SHARED_EXPERTS_EARLY_PATCH_HOST="${SHARED_EXPERTS_EARLY_PATCH_HOST:-$SCRIPT_DIR/overlay/patch_shared_experts_overlap.py}"
 # LOCAL: 1 = floor a sub-block mixed-prefill chunk at the mixed cap instead of 0 when LPTT >= block_size
 # (scheduler livelock, dormant at LPTT=1792 — proven 0 mismatches over 608 combinations). Read once at import.
@@ -597,6 +602,10 @@ validate_numeric_config() {
     case "${GLM53_PREFIX_ADMIT-0}" in
         0|1) ;;
         *) echo "GLM53_PREFIX_ADMIT must be exactly 0 or 1 (got: '${GLM53_PREFIX_ADMIT}')" >&2; return 2 ;;
+    esac
+    case "${GLM53_RESIDENT_TAIL-0}" in
+        0|1) ;;
+        *) echo "GLM53_RESIDENT_TAIL must be exactly 0 or 1 (got: '${GLM53_RESIDENT_TAIL}')" >&2; return 2 ;;
     esac
     case "${GLM53_SHARED_EXPERTS_EARLY-0}" in
         0|1) ;;
@@ -1866,6 +1875,11 @@ fi
 if [ -f /opt/glm53/patch_prefix_admit.py ]; then
     python3 -S /opt/glm53/patch_prefix_admit.py
 fi
+# Self-gated on GLM53_RESIDENT_TAIL. After prefix admit, so the in-flight
+# hold is already defined. Flag off leaves scheduler.py byte-identical.
+if [ -f /opt/glm53/patch_resident_tail.py ]; then
+    python3 -S /opt/glm53/patch_resident_tail.py
+fi
 say "launching: vllm serve ${MODEL_DIR} ${ARGS[*]}"
 exec vllm serve "${MODEL_DIR}" "${ARGS[@]}"
 EOF
@@ -2079,6 +2093,11 @@ fi
 if [ -f /opt/glm53/patch_prefix_admit.py ]; then
     python3 -S /opt/glm53/patch_prefix_admit.py
 fi
+# Self-gated on GLM53_RESIDENT_TAIL. After prefix admit, so the in-flight
+# hold is already defined. Flag off leaves scheduler.py byte-identical.
+if [ -f /opt/glm53/patch_resident_tail.py ]; then
+    python3 -S /opt/glm53/patch_resident_tail.py
+fi
 say "joining TP2 at ${HEAD_IP}:${MASTER_PORT} as rank 1"
 exec vllm serve "${MODEL_DIR}" "${ARGS[@]}"
 EOF
@@ -2172,6 +2191,8 @@ launch_cluster() {
     scp -q -o BatchMode=yes "$KV_MERGE_ASSERT_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_kv_merge_assert.py"
     [ -f "$PREFIX_ADMIT_PATCH_HOST" ] || die "missing $PREFIX_ADMIT_PATCH_HOST"
     scp -q -o BatchMode=yes "$PREFIX_ADMIT_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_prefix_admit.py"
+    [ -f "$RESIDENT_TAIL_PATCH_HOST" ] || die "missing $RESIDENT_TAIL_PATCH_HOST"
+    scp -q -o BatchMode=yes "$RESIDENT_TAIL_PATCH_HOST" "${WORKER_SSH}:/tmp/patch_resident_tail.py"
 
 
     local -a nccl_common=(
@@ -2236,6 +2257,7 @@ launch_cluster() {
         -e "GLM53_CACHE_HOT_PROTECT=$GLM53_CACHE_HOT_PROTECT"
         -e "GLM53_ROUTER_ONCE=$GLM53_ROUTER_ONCE"
         -e "GLM53_PREFIX_ADMIT=$GLM53_PREFIX_ADMIT"
+        -e "GLM53_RESIDENT_TAIL=$GLM53_RESIDENT_TAIL"
         -e "GLM53_SHARED_EXPERTS_EARLY=$GLM53_SHARED_EXPERTS_EARLY"
         -e "DEFAULT_MAX_NEW_TOKENS=$DEFAULT_MAX_NEW_TOKENS"
         -e "TRITON_CACHE_DIR=$TRITON_CACHE_DIR"
@@ -2361,6 +2383,7 @@ launch_cluster() {
         -v '/tmp/patch_mamba_null_gap_retirement.py:/opt/glm53/patch_mamba_null_gap_retirement.py:ro' \
         -v '/tmp/patch_kv_merge_assert.py:/opt/glm53/patch_kv_merge_assert.py:ro' \
         -v '/tmp/patch_prefix_admit.py:/opt/glm53/patch_prefix_admit.py:ro' \
+        -v '/tmp/patch_resident_tail.py:/opt/glm53/patch_resident_tail.py:ro' \
         ${worker_preload} \
         ${worker_nccl} \
         -e NCCL_SOCKET_IFNAME='$WORKER_CX7_IF' \
@@ -2417,6 +2440,7 @@ launch_cluster() {
         -v "$MAMBA_NULL_GAP_PATCH_HOST:/opt/glm53/patch_mamba_null_gap_retirement.py:ro" \
         -v "$KV_MERGE_ASSERT_PATCH_HOST:/opt/glm53/patch_kv_merge_assert.py:ro" \
         -v "$PREFIX_ADMIT_PATCH_HOST:/opt/glm53/patch_prefix_admit.py:ro" \
+        -v "$RESIDENT_TAIL_PATCH_HOST:/opt/glm53/patch_resident_tail.py:ro" \
         "${head_preload[@]}" \
         "${nccl_common[@]}" \
         -e NCCL_SOCKET_IFNAME="$HEAD_CX7_IF" \
