@@ -50,15 +50,6 @@ field reports, not a ranking. This kit optimizes for agentic traffic —
 cache hits across turns and sessions — on the vLLM stack. The others
 optimize for different things.
 
-- **The recipe this started from (MiaAI-Lab EXL3, 2× Spark).** Same
-  weights, same two machines, vLLM + DFlash2 k=7. Their published C1 is
-  structured ~62–63 and prose ~27 tok/s. This tree keeps that stack and
-  adds the hybrid prefix-cache fixes, the scheduler overlays, and the
-  adaptive verify trims. Production today reads structured ~75, prose
-  ~35, essay ~27. The structured gain is mostly the xgrammar termination
-  backports plus the fused MoE kernels; the prose and essay gains are
-  the verify trims. Their kit is the right starting point; this one is
-  what it looks like after two months of measured windows.
 - **TensorFold (exact speculative decoding).** A separate engine, not a
   vLLM patch set. Its promise is output byte-identical to serial
   decoding plus per-family kernels. Published two-Spark runs decode
