@@ -55,6 +55,7 @@ def test_env_defaults_off_and_reach_both_ranks() -> None:
         "GLM53_ADAPTIVE_K_SATURATE",
         "GLM53_ADAPTIVE_K_HIST",
         "GLM53_ADAPTIVE_K_BATCH_MARGIN",
+        "GLM53_ADAPTIVE_K_POS_TRIM",
     ):
         assert f'-e "{knob}=${knob}"' in START
     assert '"${nccl_common[@]}"' in START and 'for e in "${nccl_common[@]}"' in START
@@ -90,6 +91,7 @@ def test_prod_start_hashes_extra_args_not_policy_knobs() -> None:
     assert "GLM53_ADAPTIVE_K=" not in hash_line or "GLM53_ADAPTIVE_K_CAPTURE" in hash_line
     assert "GLM53_ADAPTIVE_K_SATURATE" not in hash_line
     assert "GLM53_ADAPTIVE_K_BATCH_MARGIN" not in hash_line
+    assert "GLM53_ADAPTIVE_K_POS_TRIM" not in hash_line
     assert "printf 'GLM53_ADAPTIVE_K_CAPTURE=%s" in PROD_START
 
 
@@ -102,6 +104,7 @@ def test_docs_and_env_example_name_the_knobs() -> None:
     assert "Task 32 REVERTED n" in ENV_EXAMPLE
     assert "GLM53_ADAPTIVE_K" in DOCS_02
     assert "BATCH_MARGIN" in DOCS_02
+    assert "POS_TRIM" in DOCS_02
     assert "B0" in DOCS_02
     assert "GLM53_ADAPTIVE_K_SATURATE" in DOCS_02
     assert "REVERTED 2026-09-09 at `n`" in DOCS_02

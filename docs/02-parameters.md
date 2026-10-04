@@ -216,6 +216,25 @@ cache is invisible to it). 0.87 demands 105.87 GiB free against boots measured a
   (EMA-only). Requires `GLM53_ADAPTIVE_K=ema`. Gate with the margin
   alone frozen; prose acceptance must not regress. Rollback: `0`
   through the guarded unit, no image rebuild.
+- `GLM53_ADAPTIVE_K_POS_TRIM=1` — concurrency-gated clamp of the
+  uniform batch row to the ladder floor (`min(SET)`, 2 on the standing
+  `2,4,7` set), but only when 2+ observed requests share the batch.
+  At C1 it is a no-op: a lone request keeps its warm EMA choice. Any
+  warmup pin (unseen, under MIN_STEPS) or any structured request also
+  disables it for that step, so mixed batches keep the batch-margin
+  width and C1 keeps the EMA width. Rationale: per-request trims alone
+  cannot move the uniform FULL-graph row on prose mixes (the +10.7%
+  margin arm still verified at ~2.5/step on prose), while upstream
+  D-Cut/adaptive-verify wins concentrate at concurrency ≥ 16 with
+  ~10% low-concurrency overhead. The gate is the shared row: at C1 the
+  treatment must be byte-identical to the control (hist parity), at C4
+  the row must drop toward k+1 = 3 without an accept/step regression.
+  Policy-only: no draft execution change, no new capture shapes, not
+  in the JIT shape hash (same rule as the EMA knob). Default `0`.
+  Requires `GLM53_ADAPTIVE_K=ema` **and**
+  `GLM53_ADAPTIVE_K_BATCH_MARGIN=1` (single verify-width policy;
+  `start.sh` refuses pos-trim without the margin). Rollback: `0`
+  through the guarded unit, no image rebuild.
 
 - `GLM53_PROFILE_TORCH_DIR` / `GLM53_PROFILE_MAX_ITERS` — Task 29/31
   decode-step profiler, **oracle only, not production**. Empty dir = off.
