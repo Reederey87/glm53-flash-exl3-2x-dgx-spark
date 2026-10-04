@@ -199,6 +199,23 @@ cache is invisible to it). 0.87 demands 105.87 GiB free against boots measured a
   70.51 → 70.23 @ 7.0/1.000 (−0.4%). Wash vs the ≥5% prose/agentic
   bar. Do not chain ALPHA/MARGIN/MIN_STEPS. Rollback: unset through
   the guarded unit (oneshot restart; `start` is a no-op).
+- `GLM53_ADAPTIVE_K_BATCH_MARGIN=1` — trims the uniform target batch
+  row to the min known choice when the batch mixes known EMA choices
+  with policy-warmup pins (unseen requests, MIN_STEPS). The uniform
+  FULL-graph row is `max(1 + k_i)`, so one warmup-pinned request
+  otherwise holds the whole batch at k=7 even after the EMA trimmed
+  the rest. Actual rule: with no structured request present, ignore
+  the warmup pins and take the minimum of the known choices; a single
+  known choice is enough (no majority needed). Any structured request
+  still pins the batch at full k (its rows passed grammar validation),
+  and an all-unseen batch stays at full k (nothing known to trim
+  toward). Saturating-accept requests return ordinary known choices
+  through `saturate=max`, not the `None` pin this branch handles.
+  Policy-only: no draft execution change, no new capture shapes, not
+  in the JIT shape hash (same rule as the EMA knob). Default `0`
+  (EMA-only). Requires `GLM53_ADAPTIVE_K=ema`. Gate with the margin
+  alone frozen; prose acceptance must not regress. Rollback: `0`
+  through the guarded unit, no image rebuild.
 
 - `GLM53_PROFILE_TORCH_DIR` / `GLM53_PROFILE_MAX_ITERS` — Task 29/31
   decode-step profiler, **oracle only, not production**. Empty dir = off.
