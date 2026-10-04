@@ -38,53 +38,106 @@ recipe it started from:
 Mechanism and how to verify on your own pair (a lifetime hit-rate on a
 dashboard hides all of this): `docs/04-prefix-caching.md`,
 `docs/08-concurrent-prefill.md`; probes `local/cache-burst.py`,
-`local/cache-probe.sh`, `local/ttft-probe.py`.
+`local/cache-probe.sh`, `local/ttft-probe.py`. The figures in the table
+are from the adoption windows recorded in `docs/06-improvement-plan.md`,
+each measured on this pair against its own same-boot control — not
+lifetime dashboard averages.
+
+## How this compares to the other GLM-on-Spark kits
+
+Nobody has run every kit on the same prompts, so read this as separate
+field reports, not a ranking. This kit optimizes for agentic traffic —
+cache hits across turns and sessions — on the vLLM stack. The others
+optimize for different things.
+
+- **TensorFold (exact speculative decoding).** A separate engine, not a
+  vLLM patch set. Its promise is output byte-identical to serial
+  decoding plus per-family kernels. Published two-Spark runs decode
+  faster than this kit on fresh prompts — community reports put chat
+  around 45–60 and code around 70–90 tok/s (their four-GPU workstation
+  recipe reports 264 prose / 540 structured at C1, on different
+  hardware). Younger codebase, narrow model support, different prompts
+  everywhere, so take the gap as real but uncalibrated. What this kit
+  takes from that direction is only the idea — verify-width discipline
+  from running acceptance, written as our own overlay. If raw decode on
+  fresh prompts is your whole game, TensorFold deserves a serious look;
+  if your agents re-read long histories, the cache behavior above is the
+  part its published numbers do not report.
+- **The NVFP4/MTP kits (tonyd2wild, kingjones30).** Different
+  quantization (NVFP4 dense instead of EXL3 with BF16 dense) and the
+  model's own MTP head instead of DFlash2: roughly 20–25 tok/s prose,
+  ~30 structured, mid-20s to high-40s code depending on drafter, at
+  262k context. Smaller patch surface on the stock vLLM image, shorter
+  proven context, no prefix-cache program. Pick those for minimal
+  patching; pick this one if you need the 1M window with warm
+  follow-ups.
+- **The capacity recipe (emihuang).** Reports roughly 4.7M cache tokens
+  on the same two machines through a compact FP8 layout — far above this
+  kit's ~1.7M-token pool — with no published decode numbers. Capacity
+  and decode speed are different games; this kit has not played that
+  one yet.
 
 ## What production is running
 
-Image `glm53-selfbuild:e3-armc-guards`, measured 2026-10-02. Both RDMA devices
+Image `glm53-selfbuild:e3-armc-shm50`, measured 2026-10-04. Both RDMA devices
 are on: `rocep1s0f1` and `roceP2p1s0f1`, with `NCCL_IB_MERGE_NICS=1`. The
 second device is the other PCIe half of the same cabled port. `rocep1s0f0`
-and `roceP2p1s0f0` are down.
+and `roceP2p1s0f0` are down. The image bakes in the 50 ms SHM recheck; the
+running knobs are `GLM53_ADAPTIVE_K=ema` with `BATCH_MARGIN=1` and
+`POS_TRIM=1`, plus `RESIDENT_TAIL=1` and `PREFIX_ADMIT=1`.
 
-Decode below is temperature 0, thinking off, 200 tokens, median of five runs.
-Prose is the everyday number. Structured is the quality check: it should
-accept all seven draft tokens. Essay is the hard lane.
+Decode below is temperature 0, thinking off, 200 tokens, median of five runs
+on the same boot. Prose is the everyday number. Structured is the quality
+check: it should accept all seven draft tokens. Essay is the hard lane. Read
+small differences as noise: everyday prose moves around a lot from run to
+run, and the pos-trim treatment is a no-op at one request by design, so the
+prose gap below is run spread, not a speedup claim.
 
-| Lane | tok/s |
-|---|---:|
-| Hashmap prose | 33.79 |
-| Structured count | 74.99, acceptance 7.0 of 7 |
-| Hard essay | 27.79 |
+| Lane | Production (arm) | Same-boot control |
+|---|---:|---:|
+| Hashmap prose | 34.76 | 32.11 |
+| Structured count | 74.73, acceptance 7.0 of 7 | 75.08, acceptance 7.0 of 7 |
+| Hard essay | 27.44 | 27.19 |
+
+Essay clears its pre-registered floor (97% of control, 26.38) and binds the
+decision. Structured is parity (-0.5%). A four-request wave of 200-token
+prose finished 4/4 clean with the queue drained. No bad output, coherence
+held, cache pool stayed empty, health stayed 200. Full receipts are
+`local/pos-trim-20261004/` on the cluster and the ledger is
+`docs/06-improvement-plan.md`.
 
 The cache is 567 blocks, 566 of them usable, on a 3,584-token page. A cached
 conversation holds about 222,208 tokens. Context stays at 1,000,000 tokens.
 
 The second HCA does not speed up decode-sized messages. It showed up in an
 earlier all-reduce sweep on this cable: about 11 GB/s with one device and
-about 21 GB/s with both, at 16–32 MB. Cold prefill on this boot was not
-re-measured. Older same-pair figures, kept because they still describe the
-workload:
+about 21 GB/s with both, at 16–32 MB. Cold prefill on the current boot was
+not re-measured. Older same-pair figures, kept because they still describe
+the workload (and marked with their dates so they are not read as current):
 
 - Cold prefill about 1,408 tok/s at 240k and 1,454 tok/s at 60k (2026-09-09).
-- A short request behind a 240k read returns in 6.7–7.9 seconds.
+- A short request behind a 240k read returns in 6.7–7.9 seconds (2026-09-09).
 - Four requests in flight, warm aggregate about 63–66 tok/s (2026-09-05).
 - Long-context structured acceptance 0.978 through about 324k tokens, and
   31.3 tok/s at about 519k (2026-09-04).
+- The dual-HCA reference point (2026-10-02): prose 33.79, structured 74.99,
+  essay 27.79 tok/s on `e3-armc-guards`. The current image only adds the
+  baked 50 ms SHM recheck on top of that stack.
 
 Code and JSON use more tokens than prose for the same document, so time to
 first token grows with the token count even when tokens per second stay flat.
 
 The stack that is actually serving is EXL3 weights, a 1M window together with
 DFlash2, prefix caching that survives the hybrid KDA layers, structured
-acceptance of 7.0, verification-only adaptive-k, and the hand-tuned MoE
-kernels. `docs/01-architecture.md` says why this tree stays on EXL3.
+acceptance of 7.0, verification-only adaptive-k with the batch-margin and
+concurrency-gated trims on, and the hand-tuned MoE kernels.
+`docs/01-architecture.md` says why this tree stays on EXL3.
 `docs/10-selfbuild-production.md` lists what breaks if a piece is removed.
 
-The 2026-10-02 decode numbers are from the boot immediately before and after
-the dual-HCA change. The single-HCA control on that same day was prose 32.46,
-structured 74.20, essay 25.63 tok/s. Older image tags and rejected arms are
-in `docs/06-improvement-plan.md`. Benches live in `tests/` and `local/`.
+The numbers above come from the one boot that carried both the control and
+the treatment, measured back to back with everything else frozen. Older
+image tags and rejected arms are in `docs/06-improvement-plan.md`. Benches
+live in `tests/` and `local/`.
 
 ```bash
 uv sync && uv run pytest tests/ -q
