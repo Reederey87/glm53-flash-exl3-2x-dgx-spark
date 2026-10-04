@@ -3739,3 +3739,38 @@ applies to all three files, idempotent, AST OK, markers present.
 backups: `.env.bak-pre-task45-apc-tail-20260919`,
 `start.sh.bak-pre-task45-apc-tail-20260919`,
 `env.example.bak-pre-task45-apc-tail-20260919`.
+
+## 2026-10-04: adaptive-k batch margin ADOPTED (PR #95)
+
+**One-line:** the EMA trims per-request verify prefixes, but the uniform
+FULL-graph row is `max(1 + k_i)`, so one warmup-pinned request holds the
+batch at k=7. `GLM53_ADAPTIVE_K_BATCH_MARGIN=1` ignores unseen/MIN_STEPS
+pins when no structured request is present and trims the uniform row to
+the min known EMA choice. Policy-only: no draft, capture, or JIT-key
+change. Same image `e3-armc-shm50`, no rebuild.
+
+**Why this is the middle path.** TensorFold wins single-stream with
+per-round drafter choice + per-arm depth from running acceptance + a
+confidence stop; vLLM wins concurrency with uniform saturated batches.
+The kit already has the per-request EMA trim; the missing piece was the
+batch row, not another depth policy. One known choice suffices (no
+majority); structured pins still hold (grammar rows); all-unseen stays
+full. Default 0 is EMA-only.
+
+**Gate (pre-registered):** essay median ≥ 97% of same-boot control;
+structured/prose noise parity; accept/step no regression; sub-7 trims in
+hist; no NaN; coherence; pool 0.0; health 200; C4 mixed wave clean.
+
+**Results (5 runs each, temp 0, 200 tok).** Control same boot: essay 26.88
+@~1.488; structured 76.07 @7.0; prose 32.99 @~2.159. Arm: essay 28.49
+(+6.0%, floor 26.07 PASS) @1.632; structured 75.45 (−0.8%, parity) @7.0;
+prose 36.53 (+10.7%, spread-dominated) @~2.5. No NaN 15/15, coherence true,
+pool 0.0, C4 4/4 × 200 tok wall 10.3 s. Receipts:
+`local/margin-20261004/` on spark1 (19 JSON).
+
+**Validation.** Focused 21 passed; full suite 1153 passed, 8 skipped,
+18 subtests; `bash -n` clean; ruff clean; final-reviewer APPROVED
+(staged-diff `290ab923…` after two prose-only doc repairs). CI lint green.
+
+**Rollback.** Append `GLM53_ADAPTIVE_K_BATCH_MARGIN=0` and restart through
+the guarded unit. Do not add `IMAGE=`.
