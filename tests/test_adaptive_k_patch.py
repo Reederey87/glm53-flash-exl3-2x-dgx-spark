@@ -209,6 +209,44 @@ def policy_tests(helper_src: str) -> None:
     p.apply([(a, False), (b, False)], {"a": a, "b": b})
     assert len(a.spec_token_ids) == 2 and len(b.spec_token_ids) == 2
 
+    # Batch margin: one pinned request must not hold the trimmed row at k=7.
+    p = make(
+        {
+            "GLM53_ADAPTIVE_K": "ema",
+            "GLM53_ADAPTIVE_K_HIST": "0",
+            "GLM53_ADAPTIVE_K_BATCH_MARGIN": "1",
+        }
+    )
+    assert p.batch_margin is True
+    a, u = _Req("a"), _Req("u")
+    for _ in range(15):
+        p.observe("a", 7, 1)
+    # "u" is unseen -> choose() returns None -> batch pinned at full k.
+    p.apply([(a, False), (u, False)], {"a": a, "u": u})
+    assert len(a.spec_token_ids) == 2, a.spec_token_ids
+    assert len(u.spec_token_ids) == 2, u.spec_token_ids
+    # Default 0 keeps the pinned behaviour (no repad).
+    p = make({"GLM53_ADAPTIVE_K": "ema", "GLM53_ADAPTIVE_K_HIST": "0"})
+    assert p.batch_margin is False
+    a, u = _Req("a"), _Req("u")
+    for _ in range(15):
+        p.observe("a", 7, 1)
+    p.apply([(a, False), (u, False)], {"a": a, "u": u})
+    assert len(a.spec_token_ids) == 7 and len(u.spec_token_ids) == 7
+    # Structured pins still pin the batch when the margin is on.
+    p = make(
+        {
+            "GLM53_ADAPTIVE_K": "ema",
+            "GLM53_ADAPTIVE_K_HIST": "0",
+            "GLM53_ADAPTIVE_K_BATCH_MARGIN": "1",
+        }
+    )
+    a, s = _Req("a"), _Req("s")
+    for _ in range(15):
+        p.observe("a", 7, 1)
+    p.apply([(a, False), (s, True)], {"a": a, "s": s})
+    assert len(a.spec_token_ids) == 7 and len(s.spec_token_ids) == 7
+
     with tempfile.TemporaryDirectory() as cfg_dir:
         cfg = Path(cfg_dir) / "glm53_adaptive_k.json"
         cfg.write_text('{"mode":"ema","set":"2,4,7","alpha":0.9,"min_steps":1}')

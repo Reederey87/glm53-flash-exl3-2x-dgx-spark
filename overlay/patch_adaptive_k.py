@@ -13,6 +13,13 @@ This overlay therefore:
   * captures extra **target** FULL graphs for verify query lens 3 and 5
   * **refuses** to write ``batch_k()`` into ``num_spec_tokens_to_schedule``
 
+Batch-margin effect (why per-request trims do not move wall-clock alone):
+the policy above keeps the batch uniform, so one policy-warmup-pinned
+request (unseen, or under MIN_STEPS) holds every request's row
+at k=7. The batch margin knob below restores the trimmed row width on
+mixed batches without touching draft execution. Structured pins are the
+exception: their rows passed grammar validation and still hold the batch.
+
 Knobs (read at container runtime):
   GLM53_ADAPTIVE_K            off (default) | ema | on | 1
   GLM53_ADAPTIVE_K_CAPTURE    0 (default) | 1  extra target graphs without
@@ -26,8 +33,19 @@ Knobs (read at container runtime):
   GLM53_ADAPTIVE_K_HIST       histogram every N steps, default 200
   GLM53_ADAPTIVE_K_FILE       optional JSON override; only when graphs existed
                               at boot
+  GLM53_ADAPTIVE_K_BATCH_MARGIN
+                              0 (default) | 1  trim the uniform batch row
+                              to the min known choice on mixed batches,
+                              so one policy-warmup-pinned request does
+                              not hold the target verify at k=7.
+                              Structured pins still hold. Policy-only
+                              padding; draft execution, capture shapes
+                              and the JIT key are unchanged. Requires
+                              the EMA policy on.
 
-Structured-output requests and MIN_STEPS stay at full k=7. Batch-min keeps
+Structured-output requests stay at full k=7 and still pin the batch.
+Unseen / MIN_STEPS requests stay at full k=7 unless the batch margin
+fires (see _margin_width). Batch-min keeps
 FLASHINFER_MLA_SPARSE_SM120 / KDA FULL graphs uniform.
 
 Install after patch_scheduler_decode_floor.py and patch_align_floor.py.
@@ -73,6 +91,9 @@ class _Glm53AdaptiveK:  # [glm53-adaptive-k]
         self.k_set = sorted({int(x) for x in raw.split(",") if x.strip()})
         self.saturate = os.environ.get("GLM53_ADAPTIVE_K_SATURATE", "max").strip().lower()
         self.hist_every = int(os.environ.get("GLM53_ADAPTIVE_K_HIST", "200"))
+        self.batch_margin = os.environ.get(
+            "GLM53_ADAPTIVE_K_BATCH_MARGIN", "0"
+        ).strip().lower() in ("1", "on", "true", "yes")
         self.state: dict[str, list[float]] = {}  # req_id -> [ema, observed_steps]
         self.hist: dict[int, int] = {}
         self.steps = 0
@@ -89,7 +110,8 @@ class _Glm53AdaptiveK:  # [glm53-adaptive-k]
             print(
                 f"[glm53-adaptive-k] enabled set={self.k_set} alpha={self.alpha} "
                 f"margin={self.margin} min_steps={self.min_steps} "
-                f"saturate={self.saturate} graphs={self.graphs_enabled}",
+                f"saturate={self.saturate} graphs={self.graphs_enabled} "
+                f"batch_margin={int(self.batch_margin)}",
                 flush=True,
             )
         elif self.graphs_enabled:
@@ -137,7 +159,8 @@ class _Glm53AdaptiveK:  # [glm53-adaptive-k]
             print(
                 f"[glm53-adaptive-k] reloaded {self.file}: enabled={self.enabled} "
                 f"set={self.k_set} alpha={self.alpha} margin={self.margin} "
-                f"min_steps={self.min_steps} saturate={self.saturate}",
+                f"min_steps={self.min_steps} saturate={self.saturate} "
+                f"batch_margin={int(self.batch_margin)}",
                 flush=True,
             )
         except Exception as exc:  # noqa: BLE001
@@ -177,26 +200,47 @@ class _Glm53AdaptiveK:  # [glm53-adaptive-k]
     def apply(self, reqs, live_ids) -> None:
         """Trim spec_token_ids to a uniform verified prefix.
 
-        Structured-output or not-yet-observed requests pin the batch at
-        the full length (uniform FULL graphs, nothing trimmed).
+        All-observed batches take the min choice. Pinned batches stay at
+        full k, except when the batch margin fires (see _margin_width):
+        then the uniform row is the trimmed width, so one warmup-pinned
+        request does not hold the target verify at k=7. Trimming only
+        drops trailing (rejected or never-committed) rows; every
+        request's accepted prefix is untouched.
         """
         if self.steps % 50 == 0:
             self._reload()
         if not self.enabled or not reqs:
             self.steps += 1
             return
-        ns = []
-        for r, s in reqs:
-            n_i = self.choose(r.request_id, len(r.spec_token_ids), s)
-            if n_i is None:
-                ns = None
-                break
-            ns.append(n_i)
-        n = max(len(r.spec_token_ids) for r, _ in reqs) if ns is None else min(ns)
+        picks = [
+            self.choose(r.request_id, len(r.spec_token_ids), s) for r, s in reqs
+        ]
+        if all(v is not None for v in picks):
+            n = min(picks)
+        else:
+            n = self._margin_width(reqs, picks)
+            if n is None:
+                n = max(len(r.spec_token_ids) for r, _ in reqs)
         for r, _ in reqs:
             if len(r.spec_token_ids) > n:
                 r.spec_token_ids = r.spec_token_ids[:n]
         self._count(n, live_ids)
+
+    def _margin_width(self, reqs, picks) -> int | None:
+        """Trimmed uniform width when the batch margin fires, else None.
+
+        Fires only when the margin knob is on and no request is
+        structured: a structured pin keeps the batch at full k because
+        its rows passed grammar validation. Policy-warmup pins
+        (unseen, or under MIN_STEPS) hold only droppable
+        tail, so the batch takes the min of the known choices. None
+        when nothing is known (all requests unseen) — nothing to trim
+        toward. Shorter rows are left alone. No draft execution changes.
+        """
+        if not self.batch_margin or any(s for _, s in reqs):
+            return None
+        known = [v for v in picks if v is not None]
+        return min(known) if known else None
 
     def batch_k(self, k: int, reqs, live_ids) -> int:
         """Policy-only helper. Do not wire this into the drafter count."""

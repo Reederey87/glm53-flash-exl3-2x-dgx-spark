@@ -427,6 +427,7 @@ GLM53_ADAPTIVE_K_MARGIN="${GLM53_ADAPTIVE_K_MARGIN:-1.0}"
 GLM53_ADAPTIVE_K_MIN_STEPS="${GLM53_ADAPTIVE_K_MIN_STEPS:-4}"
 GLM53_ADAPTIVE_K_SATURATE="${GLM53_ADAPTIVE_K_SATURATE:-max}"
 GLM53_ADAPTIVE_K_HIST="${GLM53_ADAPTIVE_K_HIST:-200}"
+GLM53_ADAPTIVE_K_BATCH_MARGIN="${GLM53_ADAPTIVE_K_BATCH_MARGIN:-0}"
 # LOCAL: task 30 fused_recurrent_kda launch. Empty = stock warps=1 / stages=3 / BV-cap=8.
 GLM53_KDA_REC_WARPS="${GLM53_KDA_REC_WARPS:-}"
 GLM53_KDA_REC_STAGES="${GLM53_KDA_REC_STAGES:-}"
@@ -752,6 +753,10 @@ validate_numeric_config() {
     case "${GLM53_ADAPTIVE_K_SATURATE:-max}" in
         max|n) ;;
         *) echo "GLM53_ADAPTIVE_K_SATURATE must be one of: max n (got: '${GLM53_ADAPTIVE_K_SATURATE}')" >&2; return 2 ;;
+    esac
+    case "${GLM53_ADAPTIVE_K_BATCH_MARGIN:-0}" in
+        0|1) ;;
+        *) echo "GLM53_ADAPTIVE_K_BATCH_MARGIN must be exactly 0 or 1 (got: '${GLM53_ADAPTIVE_K_BATCH_MARGIN}')" >&2; return 2 ;;
     esac
     _ak_set="${GLM53_ADAPTIVE_K_SET:-2,4,7}"
     if [ -z "$_ak_set" ] || ! [[ "$_ak_set" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
@@ -2235,6 +2240,7 @@ launch_cluster() {
         -e "GLM53_ADAPTIVE_K_MIN_STEPS=$GLM53_ADAPTIVE_K_MIN_STEPS"
         -e "GLM53_ADAPTIVE_K_SATURATE=$GLM53_ADAPTIVE_K_SATURATE"
         -e "GLM53_ADAPTIVE_K_HIST=$GLM53_ADAPTIVE_K_HIST"
+        -e "GLM53_ADAPTIVE_K_BATCH_MARGIN=$GLM53_ADAPTIVE_K_BATCH_MARGIN"
         -e "GLM53_KDA_REC_WARPS=$GLM53_KDA_REC_WARPS"
         -e "GLM53_KDA_REC_STAGES=$GLM53_KDA_REC_STAGES"
         -e "GLM53_KDA_REC_BV_CAP=$GLM53_KDA_REC_BV_CAP"
