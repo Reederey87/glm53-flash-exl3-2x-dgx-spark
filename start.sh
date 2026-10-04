@@ -428,6 +428,7 @@ GLM53_ADAPTIVE_K_MIN_STEPS="${GLM53_ADAPTIVE_K_MIN_STEPS:-4}"
 GLM53_ADAPTIVE_K_SATURATE="${GLM53_ADAPTIVE_K_SATURATE:-max}"
 GLM53_ADAPTIVE_K_HIST="${GLM53_ADAPTIVE_K_HIST:-200}"
 GLM53_ADAPTIVE_K_BATCH_MARGIN="${GLM53_ADAPTIVE_K_BATCH_MARGIN:-0}"
+GLM53_ADAPTIVE_K_POS_TRIM="${GLM53_ADAPTIVE_K_POS_TRIM:-0}"
 # LOCAL: task 30 fused_recurrent_kda launch. Empty = stock warps=1 / stages=3 / BV-cap=8.
 GLM53_KDA_REC_WARPS="${GLM53_KDA_REC_WARPS:-}"
 GLM53_KDA_REC_STAGES="${GLM53_KDA_REC_STAGES:-}"
@@ -758,6 +759,13 @@ validate_numeric_config() {
         0|1) ;;
         *) echo "GLM53_ADAPTIVE_K_BATCH_MARGIN must be exactly 0 or 1 (got: '${GLM53_ADAPTIVE_K_BATCH_MARGIN}')" >&2; return 2 ;;
     esac
+    case "${GLM53_ADAPTIVE_K_POS_TRIM:-0}" in
+        0|1) ;;
+        *) echo "GLM53_ADAPTIVE_K_POS_TRIM must be exactly 0 or 1 (got: '${GLM53_ADAPTIVE_K_POS_TRIM}')" >&2; return 2 ;;
+    esac
+    if [ "${GLM53_ADAPTIVE_K_POS_TRIM:-0}" = "1" ] && [ "${GLM53_ADAPTIVE_K_BATCH_MARGIN:-0}" != "1" ]; then
+        echo "GLM53_ADAPTIVE_K_POS_TRIM=1 requires GLM53_ADAPTIVE_K_BATCH_MARGIN=1 (single verify-width policy)" >&2; return 2
+    fi
     _ak_set="${GLM53_ADAPTIVE_K_SET:-2,4,7}"
     if [ -z "$_ak_set" ] || ! [[ "$_ak_set" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
         echo "GLM53_ADAPTIVE_K_SET must be comma-separated positive integers (got: '${GLM53_ADAPTIVE_K_SET}')" >&2
@@ -2241,6 +2249,7 @@ launch_cluster() {
         -e "GLM53_ADAPTIVE_K_SATURATE=$GLM53_ADAPTIVE_K_SATURATE"
         -e "GLM53_ADAPTIVE_K_HIST=$GLM53_ADAPTIVE_K_HIST"
         -e "GLM53_ADAPTIVE_K_BATCH_MARGIN=$GLM53_ADAPTIVE_K_BATCH_MARGIN"
+        -e "GLM53_ADAPTIVE_K_POS_TRIM=$GLM53_ADAPTIVE_K_POS_TRIM"
         -e "GLM53_KDA_REC_WARPS=$GLM53_KDA_REC_WARPS"
         -e "GLM53_KDA_REC_STAGES=$GLM53_KDA_REC_STAGES"
         -e "GLM53_KDA_REC_BV_CAP=$GLM53_KDA_REC_BV_CAP"

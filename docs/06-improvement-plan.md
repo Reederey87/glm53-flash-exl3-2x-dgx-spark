@@ -3774,3 +3774,42 @@ pool 0.0, C4 4/4 × 200 tok wall 10.3 s. Receipts:
 
 **Rollback.** Append `GLM53_ADAPTIVE_K_BATCH_MARGIN=0` and restart through
 the guarded unit. Do not add `IMAGE=`.
+
+## 2026-10-04: adaptive-k concurrency-gated verify trim ADOPTED
+
+**One-line:** on shared C2+ observed batches, clamp the uniform verify row
+to the ladder floor (`GLM53_ADAPTIVE_K_POS_TRIM=1`, requires
+`BATCH_MARGIN=1` — a single verify-width policy). C1 is a no-op (lone
+requests keep the warm EMA choice); warmup pins and structured pins hold.
+Policy-only: no draft, capture, or JIT-key change. Same image
+`e3-armc-shm50`, no rebuild.
+
+**Why this shape.** D-Cut-class per-request pruning wins at C≥16 but pays
+~10% at C1; prose still verifies ~2.5/step wide at C1, so the trim fires
+only where a shared row exists. Fires solely on the all-observed branch
+(any warmup pin leaves the batch-margin width untouched), then the row is
+`min(n, min(SET))` — 2 on SET=2,4,7.
+
+**Gate (pre-registered):** C1 three lanes ≥ 97% of the same-boot control
+(essay binds: floor 26.38; prose 31.15; structured 72.83); accept/step no
+regression; C4 wave clean with shared-row trims; no NaN; coherence;
+pool 0.0; health 200.
+
+**Results (5 runs each, temp 0, 200 tok).** Control same boot: essay 27.19
+@1.519; prose 32.11 @2.015; structured 75.08 @7.0. Arm (verified
+`pos_trim=1` in head boot log + both ranks' container env): essay 27.44
+(+0.9% parity) @1.551; prose 34.76 (+8.3%, C1 no-op path —
+run-spread-dominated, parity-or-better) @2.433; structured 74.73 (−0.5%
+parity) @7.0 intact. Hist at step 800 shows trims firing (2:169 4:510
+7:121 — 7s halved vs the margin control). No NaN; coherence true;
+pool 0.0; health 200. C4: 4/4 × 200 tok, wave wall 12.3 s, queue drained.
+Receipts: `local/pos-trim-20261004/` on spark1 (7 JSON). Adopt bar
+(+1–2% or noise parity) met on all three lanes.
+
+**Validation.** Focused 10 passed; full suite 1153 passed, 8 skipped,
+18 subtests; `bash -n` clean; final-reviewer APPROVED (plus
+base/candidate equivalence: 300 default-off + 300 C1 batches matched).
+Healers re-armed; unit active.
+
+**Rollback.** Append `GLM53_ADAPTIVE_K_POS_TRIM=0` and restart through
+the guarded unit. Do not add `IMAGE=`.

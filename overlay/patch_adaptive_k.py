@@ -42,6 +42,17 @@ Knobs (read at container runtime):
                               padding; draft execution, capture shapes
                               and the JIT key are unchanged. Requires
                               the EMA policy on.
+  GLM53_ADAPTIVE_K_POS_TRIM   0 (default) | 1  concurrency-gated verify
+                              trim: only when 2+ live requests share the
+                              batch AND every live request has at least
+                              MIN_STEPS of EMA observation, clamp the
+                              uniform batch row to min(choice, 2). At
+                              C1 (or with any warmup-pinned request) the
+                              policy is a no-op. Structured pins still
+                              hold the batch at full k. Policy-only;
+                              draft execution, capture shapes and the
+                              JIT key are unchanged. Requires the EMA
+                              policy on (and the batch-margin knob on).
 
 Structured-output requests stay at full k=7 and still pin the batch.
 Unseen / MIN_STEPS requests stay at full k=7 unless the batch margin
@@ -94,6 +105,9 @@ class _Glm53AdaptiveK:  # [glm53-adaptive-k]
         self.batch_margin = os.environ.get(
             "GLM53_ADAPTIVE_K_BATCH_MARGIN", "0"
         ).strip().lower() in ("1", "on", "true", "yes")
+        self.pos_trim = os.environ.get(
+            "GLM53_ADAPTIVE_K_POS_TRIM", "0"
+        ).strip().lower() in ("1", "on", "true", "yes")
         self.state: dict[str, list[float]] = {}  # req_id -> [ema, observed_steps]
         self.hist: dict[int, int] = {}
         self.steps = 0
@@ -111,7 +125,8 @@ class _Glm53AdaptiveK:  # [glm53-adaptive-k]
                 f"[glm53-adaptive-k] enabled set={self.k_set} alpha={self.alpha} "
                 f"margin={self.margin} min_steps={self.min_steps} "
                 f"saturate={self.saturate} graphs={self.graphs_enabled} "
-                f"batch_margin={int(self.batch_margin)}",
+                f"batch_margin={int(self.batch_margin)} "
+                f"pos_trim={int(self.pos_trim)}",
                 flush=True,
             )
         elif self.graphs_enabled:
@@ -160,7 +175,8 @@ class _Glm53AdaptiveK:  # [glm53-adaptive-k]
                 f"[glm53-adaptive-k] reloaded {self.file}: enabled={self.enabled} "
                 f"set={self.k_set} alpha={self.alpha} margin={self.margin} "
                 f"min_steps={self.min_steps} saturate={self.saturate} "
-                f"batch_margin={int(self.batch_margin)}",
+                f"batch_margin={int(self.batch_margin)} "
+                f"pos_trim={int(self.pos_trim)}",
                 flush=True,
             )
         except Exception as exc:  # noqa: BLE001
@@ -205,7 +221,10 @@ class _Glm53AdaptiveK:  # [glm53-adaptive-k]
         then the uniform row is the trimmed width, so one warmup-pinned
         request does not hold the target verify at k=7. Trimming only
         drops trailing (rejected or never-committed) rows; every
-        request's accepted prefix is untouched.
+        request's accepted prefix is untouched. The concurrency-gated
+        pos trim (see _pos_width) additionally clamps the row to the
+        ladder floor, but only when 2+ observed requests share the
+        batch; at C1 it is a no-op.
         """
         if self.steps % 50 == 0:
             self._reload()
@@ -217,6 +236,9 @@ class _Glm53AdaptiveK:  # [glm53-adaptive-k]
         ]
         if all(v is not None for v in picks):
             n = min(picks)
+            gated = self._pos_width(reqs, picks, n)
+            if gated is not None:
+                n = gated
         else:
             n = self._margin_width(reqs, picks)
             if n is None:
@@ -241,6 +263,30 @@ class _Glm53AdaptiveK:  # [glm53-adaptive-k]
             return None
         known = [v for v in picks if v is not None]
         return min(known) if known else None
+
+    def _pos_width(self, reqs, picks, n: int) -> int | None:
+        """Concurrency-gated clamp of the uniform row to the ladder floor.
+
+        Fires only when the pos-trim knob is on, the batch-margin knob is
+        on (both or neither: a single verify-width policy), no request is
+        structured, 2+ requests share the batch, and every request in the
+        batch already has a known EMA choice (all-observed branch; any
+        warmup pin leaves the batch-margin width untouched). Then the
+        uniform row is min(n, ladder floor) where the ladder floor is
+        min(k_set). C1 batches always return None (no-op), so lone
+        requests keep the warm EMA choice. Shorter rows are left alone.
+        No draft execution changes.
+        """
+        if not (self.pos_trim and self.batch_margin):
+            return None
+        if any(s for _, s in reqs):
+            return None
+        if len(reqs) < 2:
+            return None
+        if any(v is None for v in picks):
+            return None
+        floor = min(self.k_set) if self.k_set else n
+        return min(n, floor) if floor < n else None
 
     def batch_k(self, k: int, reqs, live_ids) -> int:
         """Policy-only helper. Do not wire this into the drafter count."""

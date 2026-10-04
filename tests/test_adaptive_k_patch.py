@@ -247,6 +247,57 @@ def policy_tests(helper_src: str) -> None:
     p.apply([(a, False), (s, True)], {"a": a, "s": s})
     assert len(a.spec_token_ids) == 7 and len(s.spec_token_ids) == 7
 
+    # Pos trim: C1 is a no-op (lone request keeps the warm EMA choice);
+    # C2 observed clamps the uniform row to the ladder floor (min SET).
+    p = make(
+        {
+            "GLM53_ADAPTIVE_K": "ema",
+            "GLM53_ADAPTIVE_K_HIST": "0",
+            "GLM53_ADAPTIVE_K_BATCH_MARGIN": "1",
+            "GLM53_ADAPTIVE_K_POS_TRIM": "1",
+        }
+    )
+    assert p.pos_trim is True
+    a = _Req("a")
+    for _ in range(15):
+        p.observe("a", 7, 4)  # warm EMA choice lands on 4 for SET=2,4,7
+    p.apply([(a, False)], {"a": a})
+    assert len(a.spec_token_ids) == 4, a.spec_token_ids
+    a, b = _Req("a"), _Req("b")
+    for _ in range(15):
+        p.observe("a", 7, 4)
+        p.observe("b", 7, 4)
+    p.apply([(a, False), (b, False)], {"a": a, "b": b})
+    assert len(a.spec_token_ids) == 2 and len(b.spec_token_ids) == 2
+    # Any warmup pin disables the clamp for that step (margin width kept).
+    a, u = _Req("a"), _Req("u")
+    for _ in range(15):
+        p.observe("a", 7, 4)
+    p.apply([(a, False), (u, False)], {"a": a, "u": u})
+    assert len(a.spec_token_ids) == 4 and len(u.spec_token_ids) == 4
+    # Structured pins still pin the batch when pos trim is on.
+    a, s = _Req("a"), _Req("s")
+    for _ in range(15):
+        p.observe("a", 7, 4)
+        p.observe("s", 7, 7)
+    p.apply([(a, False), (s, True)], {"a": a, "s": s})
+    assert len(a.spec_token_ids) == 7 and len(s.spec_token_ids) == 7
+    # Default 0 keeps the EMA width on shared C2 batches (no clamp).
+    p = make(
+        {
+            "GLM53_ADAPTIVE_K": "ema",
+            "GLM53_ADAPTIVE_K_HIST": "0",
+            "GLM53_ADAPTIVE_K_BATCH_MARGIN": "1",
+        }
+    )
+    assert p.pos_trim is False
+    a, b = _Req("a"), _Req("b")
+    for _ in range(15):
+        p.observe("a", 7, 4)
+        p.observe("b", 7, 4)
+    p.apply([(a, False), (b, False)], {"a": a, "b": b})
+    assert len(a.spec_token_ids) == 4 and len(b.spec_token_ids) == 4
+
     with tempfile.TemporaryDirectory() as cfg_dir:
         cfg = Path(cfg_dir) / "glm53_adaptive_k.json"
         cfg.write_text('{"mode":"ema","set":"2,4,7","alpha":0.9,"min_steps":1}')
