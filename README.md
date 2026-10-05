@@ -63,7 +63,7 @@ optimize for different things.
   fresh prompts is your whole game, TensorFold deserves a serious look;
   if your agents re-read long histories, the cache behavior above is the
   part its published numbers do not report.
-- **The NVFP4/MTP kits (tonyd2wild, kingjones30).** Different
+- **The NVFP4/MTP kits.** Different
   quantization (NVFP4 dense instead of EXL3 with BF16 dense) and the
   model's own MTP head instead of DFlash2: roughly 20–25 tok/s prose,
   ~30 structured, mid-20s to high-40s code depending on drafter, at
@@ -71,7 +71,7 @@ optimize for different things.
   proven context, no prefix-cache program. Pick those for minimal
   patching; pick this one if you need the 1M window with warm
   follow-ups.
-- **The capacity recipe (emihuang).** Reports roughly 4.7M cache tokens
+- **The capacity recipe.** Reports roughly 4.7M cache tokens
   on the same two machines through a compact FP8 layout — far above this
   kit's ~1.7M-token pool — with no published decode numbers. Capacity
   and decode speed are different games; this kit has not played that

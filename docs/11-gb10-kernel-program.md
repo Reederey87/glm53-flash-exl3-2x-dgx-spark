@@ -448,10 +448,9 @@ sign). Acceptance 7/7, serving 6/6, pool 1,396,551 / 1.40×,
 
 **W4 — fuse gather. REVERTED 2026-09-08.** Dropped `h13`; gate/up A-tile
 loaded from `x` + `row_token` + gate SUH (Hadamard on a 128-K slab,
-`__hmul2` before the fp32 Hadamard). Vehicle
-`Dockerfile.e3-w4-layer` on `e3-w3-zfill`, consuming **`overlay-w4/`
-only** (cubin + `exl3.py`; gather host entry removed). Default
-`overlay/` stays W3-matched so `Dockerfile`,
+`__hmul2` before the fp32 Hadamard). Vehicle was a layered variant on
+`e3-w3-zfill` (sources removed 2026-10-04; receipts stay here).
+Default `overlay/` stays W3-matched so `Dockerfile`,
 `Dockerfile.e3-cubin-layer`, and `Dockerfile.e3-py-layer` keep gather.
 `cuobjdump` LOCAL:0, gateup REG 125 / down 128,
 static SHARED:1024. Isolated microbench PARITY OK vs LinearEXL3/E2.
@@ -463,7 +462,8 @@ Idle MemFree did not rise (A post-ladder 10.6/10.4 vs B 5.6/4.0 GiB).
 The 8× redundant gather on a 16-row tile of a 128-K Hadamard is the
 speed cost; capture still holds `h2` at MNBT×topk (~56 MiB), and the
 224 MiB `h13` reclaim did not show at GiB granularity. Production
-restored `e3-w3-zfill`. Overlay stays in-tree. Do not re-run this
+restored `e3-w3-zfill`. Variant sources removed 2026-10-04; receipts
+stay here. Do not re-run this
 gather-as-reload. A later attempt needs a persistent SUH-scaled
 A-cache across K, not per-stage `x[row_token]` re-Hadamard.
 
