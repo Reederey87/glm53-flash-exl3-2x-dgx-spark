@@ -1117,9 +1117,9 @@ than by the window.
   `EXLLAMAV3_COMMIT`/`EXLLAMAV3_VERSION`. The three tests that pin those values
   moved with them. Leaving the default at v1.4.7 would have made the repository
   build a revision that is no longer production — the same class of
-  doc-versus-code contradiction task 33 existed to catch. `overlay-w4/` is a
-  historical snapshot consumed only by the reverted `Dockerfile.e3-w4-layer`, so
-  it keeps its version-matched v1.4.7 constants.
+  doc-versus-code contradiction task 33 existed to catch. The reverted W4
+  variant's sources were removed from the tree 2026-10-04, so nothing
+  keeps stale version-matched v1.4.7 constants anymore.
 - **The default path was cluster-validated.** A bare `docker build .` from the
   candidate tree (no build args) produced an extension with SHA-256
   `cfda5469202f2389…` — **identical** to the deployed image's — and every layer

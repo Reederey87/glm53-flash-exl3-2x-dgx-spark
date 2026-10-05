@@ -118,8 +118,8 @@ EXLLAMAV3_VERSION` instead of a hard-coded `'1.4.7'`. **The pin also moved in th
 tracked defaults** — `Dockerfile`'s `ARG EXLLAMAV3_COMMIT` and
 `overlay/exl3.py`'s recorded constants now name `5be8865` / `1.4.9`, as task 16
 established for v1.4.7 — so a bare `docker build .` reproduces production rather
-than the superseded revision. `overlay-w4/` keeps its version-matched v1.4.7
-constants because only the reverted `Dockerfile.e3-w4-layer` consumes it.
+than the superseded revision. The reverted W4 variant's sources were removed
+from the tree 2026-10-04 (receipts stay in this ledger and `docs/11`).
 
 ### 2026-09-09: task 24 W5 occupancy — STOP by measurement; counter lane unblocked without a reboot
 
@@ -682,9 +682,9 @@ only. Same-boot A vs B:
 `.env.bak-pre-task24-w3-20260908-052000` last-wins
 `IMAGE=glm53-selfbuild:e3-grouped`.
 
-**W4 fused gather REVERTED 2026-09-08.** Layered cubin+Python
-`Dockerfile.e3-w4-layer` on `e3-w3-zfill` (`glm53-selfbuild:e3-w4-fgather`
-`sha256:946d4feeeb2a…`). Gate/up A-tile loads from `x` + `row_token` +
+**W4 fused gather REVERTED 2026-09-08.** Layered cubin+Python variant on
+`e3-w3-zfill` (`glm53-selfbuild:e3-w4-fgather`
+`sha256:946d4feeeb2a…`), since removed from the tree. Gate/up A-tile loads from `x` + `row_token` +
 SUH; `h13` is not allocated. Gather host entry dropped. Down mainloop
 keeps the W3 zero-fill A-pad. Compile-time `CUDA_VISIBLE_DEVICES=` is a
 RUN prefix only. Cubin `exl3_fat_moe_ext.so` sha `76a077fbf081…` vs W3
@@ -709,10 +709,10 @@ is not higher than A. Capture still allocates `h2` at MNBT×topk
 (28,672 rows / ~56 MiB/rank). Scratch diag dumps once at boot
 (`grouped_scratch_bytes=0`); no later growth line. Both ranks
 `grouped_ok`. Watchdog re-armed. Production restored
-`IMAGE=glm53-selfbuild:e3-w3-zfill`, `EXL3_FAT_GROUPED=1`. W4 sources
-live in `overlay-w4/` + `Dockerfile.e3-w4-layer` only; default
-`overlay/` stays the W3-matched gather/h13 tree so `docker build .`
-and the W1/W3 layer recipes do not bake the revert. Do not re-run this
+`IMAGE=glm53-selfbuild:e3-w3-zfill`, `EXL3_FAT_GROUPED=1`. W4 sources were
+removed from the tree 2026-10-04 (receipts stay in this ledger and
+`docs/11`); default `overlay/` stays the W3-matched gather/h13 tree so
+`docker build .` and the W1/W3 layer recipes do not bake the revert. Do not re-run this
 8×-redundant A-tile gather as-is. Next E3 window is **W5 occupancy**
 (ncu gate), not W4 again.
 
