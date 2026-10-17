@@ -11,6 +11,7 @@ exactly what is pinned makes updates and rollbacks possible.
 | Launcher | `eugr/spark-vllm-docker` @ `0bdc9c94cd89843e1c8f7d7b33df2d5bc746c03d` | `SPARK_VLLM_REF` in `.env` |
 | Runtime image | `eugr/spark-vllm-b12x:latest` | `IMAGE_REF` in `.env` |
 | Tested image digest | `sha256:03a956544e9f9b4b7ba91690469fbe7848bdbef29a7d2e0f5788368467bb3595` (2026-10-15, arm64) | `local/image-digest.txt` after a pull |
+| Measured on this pair | 2,078,358 FP8 KV tokens, 4.16× at 500k, smoke pass (2026-10-17) | `docs/receipts/2026-10-17-fp4-bringup.md` |
 | Recipe | `recipes/glm-5.3-flash-fp4-local.yaml` | this repository |
 | vLLM/FlashInfer inside the image | B12X fork (`local-inference-lab`), `sm_121a` build | image, not this repository |
 

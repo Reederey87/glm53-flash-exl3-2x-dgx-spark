@@ -65,7 +65,7 @@ before continuing.
 ./launch.sh setup
 ```
 
-This pulls `eugr/spark-vllm-b12x:latest` (~10 GB), tags it `vllm-node-b12x`,
+This pulls `eugr/spark-vllm-b12x:latest` (~18 GB, ~9.7 GB compressed), tags it `vllm-node-b12x`,
 downloads the 42-file checkpoint (~166 GiB; 40 model shards plus input scales
 and `tensors/native-QB.safetensors`) into the HF cache, and copies both
 to the worker. It can take a long time on a cold cache.
@@ -190,7 +190,7 @@ unit that only stops the head leaves an orphan worker.
 
 ## 8. First-boot expectations
 
-- The image pull is ~10 GB; the checkpoint is ~166 GiB. Budget ~225 GiB free.
+- The image pull is ~18 GB (~9.7 GB compressed); the checkpoint is ~166 GiB. Budget ~225 GiB free.
 - The first boot compiles/loads AOT artifacts into `~/.cache/vllm`,
   `~/.cache/flashinfer`, `~/.cache/b12x`, and `~/.triton`. Later starts reuse
   them; do not clear these caches while debugging a performance change.

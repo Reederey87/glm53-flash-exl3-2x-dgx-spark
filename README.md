@@ -61,7 +61,7 @@ $EDITOR .env          # CLUSTER_NODES, ETH_IF, IB_IF
 ./launch.sh            # image + checkpoint + start
 ```
 
-The first run pulls a ~10 GB image and downloads ~166 GiB of weights, then
+The first run pulls a ~18 GB image and downloads ~166 GiB of weights, then
 copies both to the worker. It takes a while; subsequent starts reuse the
 cache. Once vLLM reports the API server is ready:
 
