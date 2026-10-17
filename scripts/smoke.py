@@ -74,6 +74,7 @@ def chat(
     max_tokens: int = 128,
     tools: list[dict[str, Any]] | None = None,
     timeout: float = 900.0,
+    template_kwargs: dict[str, Any] | None = None,
 ) -> tuple[int, dict[str, Any] | str]:
     payload: dict[str, Any] = {
         "model": model,
@@ -81,6 +82,8 @@ def chat(
         "max_tokens": max_tokens,
         "temperature": 0,
     }
+    if template_kwargs:
+        payload["chat_template_kwargs"] = template_kwargs
     if tools:
         payload["tools"] = tools
         payload["tool_choice"] = "auto"
@@ -121,8 +124,9 @@ def run(base: str, model: str, api_key: str, timeout: float) -> list[Check]:
         model,
         [{"role": "user", "content": "Reply with exactly: OK"}],
         api_key,
-        max_tokens=64,
+        max_tokens=128,
         timeout=timeout,
+        template_kwargs={"reasoning_effort": "low"},
     )
     elapsed = time.monotonic() - started
     message = message_of(body)
@@ -181,6 +185,7 @@ def run(base: str, model: str, api_key: str, timeout: float) -> list[Check]:
         max_tokens=256,
         tools=tools,
         timeout=timeout,
+        template_kwargs={"reasoning_effort": "low"},
     )
     tool_calls = message_of(body).get("tool_calls") or []
     checks.append(
@@ -198,10 +203,12 @@ def run(base: str, model: str, api_key: str, timeout: float) -> list[Check]:
         + ("The quick brown fox jumps over the lazy dog. " * 80)
     )
     first_status, first = chat(
-        base, model, [{"role": "user", "content": long_prompt}], api_key, max_tokens=16, timeout=timeout
+        base, model, [{"role": "user", "content": long_prompt}], api_key,
+        max_tokens=16, timeout=timeout, template_kwargs={"reasoning_effort": "low"},
     )
     second_status, second = chat(
-        base, model, [{"role": "user", "content": long_prompt}], api_key, max_tokens=16, timeout=timeout
+        base, model, [{"role": "user", "content": long_prompt}], api_key,
+        max_tokens=16, timeout=timeout, template_kwargs={"reasoning_effort": "low"},
     )
     cached = 0
     if isinstance(second, dict):
