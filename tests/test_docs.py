@@ -46,6 +46,20 @@ def test_docs_exist_and_cover_the_required_topics() -> None:
             assert needle in text, f"{name}: {needle}"
 
 
+def test_speed_receipts_are_present() -> None:
+    import json
+
+    matrix = ROOT / "docs" / "receipts" / "2026-10-17-speed-matrix.json"
+    repeat = ROOT / "docs" / "receipts" / "2026-10-17-speed-matrix-decode-rep2.json"
+    assert matrix.is_file() and repeat.is_file()
+    data = json.loads(matrix.read_text(encoding="utf-8"))
+    assert data["ok"] is True
+    assert len(data["cells"]) == 24
+    decode = [cell for cell in data["cells"] if cell["kind"] == "decode"]
+    assert [cell["concurrency"] for cell in decode] == [1, 2, 4, 8]
+    assert all(cell["completion_tokens_median"] == 200 for cell in decode)
+
+
 def test_status_records_the_replacement() -> None:
     text = (ROOT / "STATUS.md").read_text(encoding="utf-8")
     assert "GLM-5.3-Flash-FP4-Local" in text

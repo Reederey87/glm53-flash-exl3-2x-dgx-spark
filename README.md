@@ -132,6 +132,23 @@ GPU KV cache size: 2,078,358 tokens
 
 If it is below 2M, see [docs/04-kv-cache.md](docs/04-kv-cache.md).
 
+## Measured speed (2026-10-17)
+
+Same pair, 200-token decode, unique no-cache prompts:
+
+| Concurrency | Prefill (no cache) | Decode pass 1 / pass 2 | Aggregate decode 1 / 2 | Mean accept len 1 / 2 |
+|---:|---:|---:|---:|---:|
+| 1 | ~2,200 tok/s | 42.90 / 46.76 tok/s | 38.92 / 42.43 | 3.431 / 3.685 |
+| 2 | ~1,500 tok/s per stream | 41.73 / 44.54 tok/s | 66.07 / 77.08 | 5.103 / 4.914 |
+| 4 | ~880 tok/s per stream | 19.63 / 20.25 tok/s | 52.39 / 46.39 | 3.038 / 2.671 |
+| 8* | ~480 tok/s per stream | 26.60 / 29.77 tok/s | 72.30 / 81.80 | 3.651 / 3.873 |
+
+Aggregate prefill stays ~2.2–2.3k tok/s from 8k to 128k and from c=1 to c=8;
+per-stream prefill scales down as expected. `*` concurrency 8 exceeds
+`--max-num-seqs 4`, so those requests queue. The c=4 decode dip reproduced in
+both passes and is not explained. Full tables and the JSON receipt:
+[2026-10-17-speed-matrix.md](docs/receipts/2026-10-17-speed-matrix.md).
+
 ## What runs
 
 | | |
