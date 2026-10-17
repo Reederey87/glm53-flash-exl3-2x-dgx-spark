@@ -1,58 +1,83 @@
 # The 2M-token FP8 KV cache
 
 The model card validates this checkpoint on **2× DGX Spark 128 GB with 2M
-tokens of FP8 KV cache**. This page shows where that number comes from, how to
-verify it, and how to tune it without guessing.
+tokens of FP8 KV cache**. This page shows the measured geometry, the
+reservation, and the memory tradeoff. Every number below was measured on the
+pair documented in [receipts/2026-10-17-fp4-bringup.md](receipts/2026-10-17-fp4-bringup.md).
 
-## Geometry
+## What the image actually stores
 
-Only the full-attention layers own a paged KV cache. In this checkpoint:
-
-- 45 text layers total.
-- 11 full-attention layers (`deepseek_sparse_attention`).
-- 34 KDA linear-attention layers with a recurrent state, not a growing cache.
-- 1 MTP layer.
-- `kv_lora_rank = 512`, `qk_rope_head_dim = 0`.
-
-At FP8, the MLA latent costs 512 bytes per token per full-attention layer:
+The B12X `fp8_ds_mla` layout stores more than the 512-wide MLA latent. Per
+full-attention layer it keeps the latent plus the 256-wide V:
 
 ```
-11 × 512 B = 5,632 B/token
+11 × (512 + 256) B = 8,448 B/token
+11 × 128/4 B      =   352 B/token   (kpool indexer)
+                    8,800 B/token   ≈ 8.6 KiB/token
 ```
 
-For 2,000,000 tokens:
+That is why the naive `11 × 512 B = 5,632 B` estimate under-predicts the pool
+by about 1.6×. The measured cost at 17 GiB is:
 
 ```
-2,000,000 × 5,632 B = 11,264,000,000 B = 10.49 GiB
+17 × 1024³ B / 2,078,358 tokens = 8,781 B/token
 ```
 
-The recipe reserves **11 GiB per rank**. Conveniently, `11 GiB / 5,632 B`
-is exactly **2,097,152 tokens**, so the 11G reservation is the 2M target
-before any per-layer tail or padding. If the checkpoint's MTP layer contributes
-its own KV page, the printed number will be slightly lower; `./launch.sh kv`
-still requires 2,000,000.
+which matches the `fp8_ds_mla` layout above. The 42-file checkpoint is 165.3
+GiB; each rank loads 83.62 GiB.
 
-TP=2 replicates the MLA latent rather than sharding it, so the capacity is
-`num_gpu_blocks × block_size` for the cluster, not twice that.
+## Measured arms
 
-## Why not let vLLM infer it?
+All three boots used the same image (`eugr/spark-vllm-b12x:latest`,
+`sha256:03a956…`), the same 42-file snapshot, TP2, MTP-5, 500k, and the same
+pair.
 
-The upstream recipe sets `--gpu-memory-utilization 0.87` and carries an 8G
-`kv_cache_memory_bytes` in its defaults block but does not pass it to the
-command. The resulting pool is whatever the allocator leaves after weights,
-activations, graphs, and compile caches. That number moves with the image and
-with the workload's graph capture. The B12X maintainers' own TP2 script uses
-`10G` (about 1.9M tokens).
+| Arm | KV setting | `GPU KV cache size` | 500k concurrency | Free / available after boot |
+|---|---|---:|---:|---:|
+| 11 GiB cap | `--kv-cache-memory-bytes 11G` | 1,343,283 | 2.69× | ~10 / ~9.5 GiB |
+| Model-card command | `--gpu-memory-utilization 0.87`, no cap | 1,944,029 | 3.89× | ~4.8 / ~3.9 GiB |
+| **This recipe** | **`--kv-cache-memory-bytes 17G` + `--mm-processor-cache-gb 0`** | **2,078,358** | **4.16×** | **~4.9 / ~3.7 GiB** |
 
-This kit makes the target explicit:
+The 17 GiB reservation is the smallest round value that clears 2,000,000 with
+this image. 16G gives about 1.956M; 11G gives 1.343M.
 
-```yaml
---kv-cache-memory-bytes 11G
+## Why the model-card command is the control, not the default
+
+The card's DGX Spark command does not pin the pool; it lets
+`--gpu-memory-utilization 0.87` profile it. On this pair that produced
+1,944,029 tokens. The card's "2M" is a nominal validation figure; the pinned
+17 GiB arm is how this kit actually reaches it. The four 500k sequences
+(4 × 500,000 = 2,000,000) are the reason for the target.
+
+`--mm-processor-cache-gb 0` disables the 4 GiB multimodal processor cache so
+the extra reservation does not simply move memory out of the safety margin.
+Text serving is unaffected; image/video preprocessing is recomputed instead of
+cached.
+
+## Memory margin
+
+After the 2M boot:
+
+```
+Mem: 124610 total, 120910 used, 4877 free, 2205 buff/cache, 3699 available
 ```
 
-`--kv-cache-memory-bytes` is **per GPU** and, when set, overrides
-`--gpu-memory-utilization` for the KV allocation. It does not change the model
-loading budget.
+This is the hardware edge. The KV pool is preallocated, so vLLM will not grow
+it further, but only ~4.9 GiB is free and ~3.7 GiB is available. On GB10 there
+is no OOM killer; a large new allocation can stall or reset the node.
+
+Rules for this arm:
+
+- Do not co-locate other workloads (builds, downloads, other containers) on
+  the pair while the 2M pool is resident.
+- Do not run `docker build`, a second model, or a large `git` checkout on the
+  head during a serving window.
+- If the node becomes unstable, drop to `16G` (about 1.956M, ~6 GiB free) or
+  remove the cap and use the model-card 0.87 command (1.944M, ~4.8 GiB free).
+  Record the arm in `spec/CHANGELOG.md`.
+
+A 2M pool that hard-resets the node is not a 2M deployment. Treat the margin
+as a production constraint, not a benchmark detail.
 
 ## Verify
 
@@ -67,59 +92,38 @@ python3 scripts/verify_kv_pool.py --container vllm_node --min-tokens 2000000
 docker logs vllm_node 2>&1 | grep -E 'GPU KV cache size|GPU blocks'
 ```
 
-Expected:
+Expected on this recipe:
 
 ```
-KV pool: 2,097,152 tokens (10.50 GiB) (target >= 2,000,000) -> PASS
+GPU KV cache size: 2,078,358 tokens, Maximum concurrency for 500,000 tokens per request: 4.16x
+KV pool: 2,078,358 tokens (target >= 2,000,000) -> PASS
 ```
-
-The exact token count depends on block rounding; anything at or above
-2,000,000 passes.
-
-## If the pool is below 2M
-
-In order of preference:
-
-1. **Raise the reservation.** `12G` gives about 2.3M tokens. The per-rank
-   budget is weights 83.3 GiB + 12 GiB KV = 95.3 GiB, leaving ~25 GiB for
-   activations and graphs on a 121 GiB node.
-2. **Lower `--max-model-len`.** The pool is independent of the window, but a
-   smaller window reduces graph/activation memory and can free room for KV.
-3. **Lower `--max-num-seqs`.** This does not create KV, but it prevents the
-   scheduler from admitting four 500k requests that cannot all fit, which
-   otherwise shows up as preemption rather than a smaller pool.
-4. **Do not use `--gpu-memory-utilization` alone** for a capacity claim. It is
-   a budget, not a measurement.
-
-After any change, restart and re-run `./launch.sh kv`. Record the old and new
-line in `spec/CHANGELOG.md`.
 
 ## 1M context
 
-The checkpoint supports 1,048,576 tokens. The DGX Spark recipe is validated at
-500,000. A single 1M request uses about 5.5 GiB of the 11 GiB pool, so the
-capacity is not the blocker; graph and activation memory is. Try:
-
-```bash
-MAX_MODEL_LEN=1000000 ./launch.sh
-./launch.sh kv
-./launch.sh smoke
-```
-
-If the boot OOMs or the pool collapses, return to 500k. Do not raise the KV
-reservation and the context at the same time; one variable per window.
+The checkpoint supports 1,048,576 tokens; the DGX Spark recipe is validated at
+500,000. A single 1M request uses about 8.8 GiB of the 17 GiB pool, so one fits
+but leaves little room for a second long request. Try `MAX_MODEL_LEN=1000000`
+only after the 500k profile has run clean; re-run `./launch.sh kv` and
+`./launch.sh smoke`. Do not raise the context and the KV reservation in the
+same window.
 
 ## Concurrency and cache
 
-The pool holds four 500k requests, but the scheduler still enforces
-`--max-num-seqs 4`. Prefix caching consumes blocks from the same pool; a cache
-full of long agent histories reduces the room for new sequences. This is
-expected. Use `/metrics` (`vllm:gpu_cache_usage_perc`,
-`vllm:prefix_cache_hits_total`) and the smoke receipt to see the split.
+The pool holds four 500k requests, but `--max-num-seqs 4` still caps admission.
+Prefix caching consumes the same blocks; a cache full of long agent histories
+reduces room for new sequences. This is expected. Watch
+`vllm:gpu_cache_usage_perc` and `vllm:prefix_cache_hits_total`.
+
+The smoke script's `prefix_cache` check reports `WARN` when
+`usage.prompt_tokens_details.cached_tokens` is absent. The DGX Spark recipe
+does not set `--enable-prompt-tokens-details`, so that field is not exported;
+the warning is an observability gap, not evidence of a cache miss. Add the flag
+if you want the per-request number.
 
 ## What the pool is not
 
 - It is not the per-request window. That is `--max-model-len`.
 - It is not free memory. Weights and activations are separate.
-- It is not a guarantee of four concurrent 500k requests if the prefix cache is
-  full. The scheduler will evict or preempt.
+- It is not a guarantee of four concurrent 500k requests when the prefix cache
+  is full. The scheduler will evict or preempt.

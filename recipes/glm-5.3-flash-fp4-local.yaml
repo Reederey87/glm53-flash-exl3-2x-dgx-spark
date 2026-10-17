@@ -6,9 +6,13 @@
 # 0bdc9c94cd89843e1c8f7d7b33df2d5bc746c03d.
 #
 # Why every non-obvious flag is here is documented in docs/02-parameters.md.
-# The one deviation from the upstream recipe is the explicit
-# --kv-cache-memory-bytes 11G: it turns the "up to 2M tokens" claim into a
-# reproducible allocation. See docs/04-kv-cache.md for the arithmetic.
+#
+# The model card's DGX Spark command uses --gpu-memory-utilization 0.87 and no
+# explicit KV cap. On this pair that measured 1,944,029 tokens (3.89x at
+# 500k). To meet the card's 2M target we pin 17 GiB per rank, which measured
+# 2,078,358 tokens (4.16x), and disable the 4 GiB multimodal processor cache
+# to return headroom. Text serving is unaffected by that cache setting; see
+# docs/04-kv-cache.md and docs/receipts/2026-10-17-fp4-bringup.md.
 
 recipe_version: "1"
 name: GLM-5.3-Flash-FP4-Local
@@ -35,9 +39,10 @@ defaults:
   max_num_seqs: 4
   max_num_batched_tokens: 4096
   num_speculative_tokens: 5
-  # 11 GiB per rank: about 2.1M FP8 MLA tokens at 5,632 bytes/token, i.e.
-  # four 500k-token requests. 10G is the upstream default and gives ~1.9M.
-  kv_cache_bytes: 11G
+  # 17 GiB per rank: 2,078,358 FP8 tokens at this image's ~8.7 KiB/token,
+  # i.e. four 500k-token requests. The un-capped 0.87 command measured
+  # 1,944,029; 17G is the measured 2M reservation.
+  kv_cache_bytes: 17G
   gpu_memory_utilization: 0.87
 
 env:
@@ -65,6 +70,7 @@ command: |
     --decode-context-parallel-size {decode_context_parallel} \
     --mamba-cache-mode align \
     --enable-prefix-caching \
+    --mm-processor-cache-gb 0 \
     --enable-chunked-prefill \
     --dtype bfloat16 \
     --kv-cache-dtype fp8 \

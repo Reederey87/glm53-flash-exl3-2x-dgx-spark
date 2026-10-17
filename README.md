@@ -18,6 +18,13 @@ That command wraps the pinned
 There is no Dockerfile to build, no CUDA code in this repository, and no EXL3
 path. The previous EXL3 kit is preserved in git history.
 
+First bring-up on this pair, 2026-10-17: **2,078,358 FP8 KV tokens (4.16× at
+500k)**, all smoke hard checks passing. The exact boot log, image digest, and
+memory margin are in
+[the receipt](docs/receipts/2026-10-17-fp4-bringup.md). The 2M arm sits at the
+memory edge (~4.9 GiB free); read that section before treating it as a
+production default.
+
 ## What NVIDIA validated
 
 From the [model card](https://huggingface.co/nvidia/GLM-5.3-Flash-FP4-Local):
@@ -92,14 +99,17 @@ Set `HOST=0.0.0.0` only when the head is on a firewalled network you control.
 2. Clones `eugr/spark-vllm-docker` into `.vendor/` and checks out the commit
    pinned by `SPARK_VLLM_REF` (currently `0bdc9c9`).
 3. Pulls `eugr/spark-vllm-b12x:latest` and retags it as `vllm-node-b12x`.
-4. Runs `run-recipe.sh recipes/glm-5.3-flash-fp4-local.yaml --setup`, which
-   downloads/copies the checkpoint and launches both ranks.
+4. Runs `run-recipe.sh recipes/glm-5.3-flash-fp4-local.yaml --setup --daemon`,
+   which downloads/copies the checkpoint, dispatches both ranks in the
+   background, and returns.
 5. Prints the image digest and leaves the cluster running.
 
 The recipe itself is the single source of serving truth. It is derived from the
-model card's manual command and the upstream recipe, with one deliberate
-change: an explicit `--kv-cache-memory-bytes 11G` so the 2M-token pool is
-reproducible rather than an accident of memory pressure.
+model card's manual command and the upstream recipe, with two deliberate
+changes: an explicit `--kv-cache-memory-bytes 17G` and
+`--mm-processor-cache-gb 0` for headroom, so the 2M-token pool is reproducible
+rather than an accident of memory pressure. The un-capped model-card command measured 1,944,029 tokens on
+this pair; the pinned arm measured 2,078,358.
 
 ```bash
 ./launch.sh render    # print the exact vLLM command, no launch
@@ -117,7 +127,7 @@ reproducible rather than an accident of memory pressure.
 `./launch.sh kv` reads the authoritative startup line:
 
 ```
-GPU KV cache size: 2,097,152 tokens
+GPU KV cache size: 2,078,358 tokens
 ```
 
 If it is below 2M, see [docs/04-kv-cache.md](docs/04-kv-cache.md).
@@ -132,7 +142,7 @@ If it is below 2M, see [docs/04-kv-cache.md](docs/04-kv-cache.md).
 | Parallelism | TP=2, one rank per Spark, native multiprocessing (no Ray) |
 | Attention | B12X, block size 256, `mamba-cache-mode align` for the hybrid KDA layers |
 | MoE / linear | `b12x` |
-| KV cache | FP8, 11 GiB per rank, `--max-model-len 500000` |
+| KV cache | FP8, 17 GiB per rank, `--max-model-len 500000` |
 | Speculation | MTP, 5 draft tokens, `moe_backend=humming`, `attention_backend=B12X` |
 | API | OpenAI-compatible on `:8000`, `glm45` reasoning parser, `glm47` tool parser |
 | Build | none — the checkpoint's compressed scales require the published image |
@@ -151,10 +161,12 @@ The MLA latent is 512 wide and uses no RoPE dimension (`qk_rope_head_dim=0`).
 `--mamba-cache-mode align` and block size 256 keep the recurrent state and the
 paged attention cache consistent.
 
-**The 2M pool is arithmetic, not a slogan.** At FP8, one token costs
-`11 × 512 B = 5,632 B` across the full-attention layers. 2,000,000 tokens is
-about 10.5 GiB. The recipe reserves 11 GiB per rank to leave room for block
-padding and the MTP layer. See [docs/04-kv-cache.md](docs/04-kv-cache.md).
+**The 2M pool is arithmetic, not a slogan.** At FP8, the B12X
+`fp8_ds_mla` layout stores the 512-wide latent plus the 256-wide V per
+full-attention layer: `11 × (512 + 256) B = 8,448 B/token`, plus the
+kpool indexer (`11 × 128/4 B = 352 B/token`), about **8.8 KiB/token**.
+2,000,000 tokens is ~16.4 GiB. The measured 17 GiB reservation is
+**2,078,358 tokens**. See [docs/04-kv-cache.md](docs/04-kv-cache.md).
 
 **MTP, not a separate drafter.** The checkpoint ships its own next-token
 prediction head. The vendor recipe runs five draft tokens through it, with the
@@ -173,12 +185,14 @@ Per rank, at the default profile:
 | Item | Approximate size |
 |---|---:|
 | NVFP4/MXFP8 weights | 83.3 GiB |
-| KV cache (`--kv-cache-memory-bytes 11G`) | 11 GiB |
+| KV cache (`--kv-cache-memory-bytes 17G`) | 17 GiB |
 | Activations, CUDA graphs, MTP, workspace | remainder of the 121 GiB unified pool |
 | `--gpu-memory-utilization` | 0.87 |
 
-The 11 GiB is per rank. TP=2 replicates the MLA latent rather than sharding it,
-so `num_gpu_blocks × block_size` is the cluster-wide token capacity.
+The 17 GiB is per rank. TP=2 replicates the MLA latent rather than sharding it,
+so `num_gpu_blocks × block_size` is the cluster-wide token capacity. The
+measured free memory after boot is only ~4.8 GiB; see the warning in
+[docs/04-kv-cache.md](docs/04-kv-cache.md).
 
 ## Configuration
 
@@ -211,7 +225,7 @@ it. The DGX Spark recipe is validated at 500,000. To try 1M on this pair:
 MAX_MODEL_LEN=1000000 ./launch.sh
 ```
 
-Keep the 11 GiB KV reservation; a single 1M request uses about 5.5 GiB of it.
+Keep the 17 GiB KV reservation; a single 1M request uses about 8.8 GiB of it.
 Re-run `./launch.sh kv` and `./launch.sh smoke` before adopting.
 
 ## Operations

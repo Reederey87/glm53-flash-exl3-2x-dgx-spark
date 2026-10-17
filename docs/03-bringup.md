@@ -106,7 +106,7 @@ INFO ... API server listening on http://0.0.0.0:8000
 and the startup KV line:
 
 ```
-GPU KV cache size: 2,097,152 tokens
+GPU KV cache size: 2,078,358 tokens
 ```
 
 Follow the log:

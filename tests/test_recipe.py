@@ -37,7 +37,7 @@ def test_recipe_defaults_encode_two_million_token_pool() -> None:
     assert defaults["max_num_seqs"] == 4
     assert defaults["max_num_batched_tokens"] == 4096
     assert defaults["num_speculative_tokens"] == 5
-    assert defaults["kv_cache_bytes"] == "11G"
+    assert defaults["kv_cache_bytes"] == "17G"
     # Four 500k requests are the 2M pool.
     assert defaults["max_num_seqs"] * 500000 == 2_000_000
 
@@ -53,7 +53,8 @@ def test_command_contains_required_b12x_flags() -> None:
         "--enable-prefix-caching",
         "--enable-chunked-prefill",
         "--kv-cache-dtype fp8",
-        "--kv-cache-memory-bytes 11G",
+        "--kv-cache-memory-bytes 17G",
+        "--mm-processor-cache-gb 0",
         "--quantization modelopt_mixed",
         "--attention-backend B12X",
         "--block-size 256",

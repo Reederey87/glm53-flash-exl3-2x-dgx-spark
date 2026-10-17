@@ -35,8 +35,8 @@ docker logs vllm_node 2>&1 | grep -iE 'error|traceback|oom|killed|kv cache|block
 |---|---|---|
 | Container exits during weight load | Not enough free unified memory; another process holds pages | `./launch.sh down`, wait for memory to settle, confirm `free -g` shows the node idle, retry. |
 | `GPU KV cache size` line missing | Boot failed before cache allocation | Search the log for the first traceback or OOM; a missing line is a symptom, not the cause. |
-| `kv` says BELOW TARGET | `--kv-cache-memory-bytes` was overridden, or an old container is running | `./launch.sh render` to confirm `11G`; restart; see [04-kv-cache.md](04-kv-cache.md). |
-| OOM with 11G that disappears at 10G | Too little headroom for activations/graphs | Lower to 10G and accept ~1.9M, or lower `MAX_MODEL_LEN` and keep 11G. |
+| `kv` says BELOW TARGET | `--kv-cache-memory-bytes` was overridden, or an old container is running | `./launch.sh render` to confirm `17G`; restart; see [04-kv-cache.md](04-kv-cache.md). |
+| OOM or instability with 17G | The 2M arm is at the memory edge (~3.7 GiB available) | Drop to `16G` (~1.956M), or remove the cap and use the model-card 0.87 command (1.944M). See [04-kv-cache.md](04-kv-cache.md#memory-margin). |
 | Very slow first boot | AOT/JIT compilation into cold caches | Let it finish once; keep `~/.cache/vllm`, `~/.cache/flashinfer`, `~/.cache/b12x`, `~/.triton`. |
 
 ## Network and NCCL

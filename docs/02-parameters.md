@@ -33,20 +33,32 @@ at `0bdc9c9`.
 | `--enable-prefix-caching` | on | Vendor recipe; agentic follow-ups depend on it. |
 | `--enable-chunked-prefill` | on | Lets short requests interleave with long prefill. |
 | `--kv-cache-dtype` | `fp8` | The validated cache format. |
-| `--kv-cache-memory-bytes` | `11G` | Explicit 2M-token pool. See below. |
+| `--kv-cache-memory-bytes` | `17G` | Explicit 2M pool; measured 2,078,358 tokens. See below. |
+| `--mm-processor-cache-gb` | `0` | Returns the 4 GiB multimodal processor cache to offset the explicit KV reservation. Text serving is unaffected. |
 | `--max-model-len` | `500000` | Vendor-validated window on this hardware. The checkpoint supports 1M; see the README for the override. |
 | `--max-num-seqs` | `4` | Four 500k requests fill the 2M pool. |
 | `--max-num-batched-tokens` | `4096` | Vendor value; controls prefill chunk size. |
 | `--gpu-memory-utilization` | `0.87` | Vendor value. |
 
-### The one deliberate deviation: `--kv-cache-memory-bytes 11G`
+### Why 17G, and what the card's 0.87 measured
 
-The upstream recipe carries `kv_cache_memory_bytes: 8G` in its `defaults` map
-but does not interpolate it into the command, so the actual pool is whatever
-`--gpu-memory-utilization 0.87` leaves. The B12X maintainers' own TP2 script
-uses `10G`, which is about 1.9M tokens at 5,632 B/token. This kit makes the
-2M target explicit at 11 GiB per rank (about 2.1M tokens). The boot log is the
-authority; `./launch.sh kv` fails if the pool is below 2,000,000.
+The model card's DGX Spark command uses `--gpu-memory-utilization 0.87` and no
+`--kv-cache-memory-bytes`. The upstream recipe carries an 8G default but does
+not interpolate it into the command. On this pair the card's command measured
+**1,944,029 tokens** (3.89× at 500k). Pinning 17 GiB measured **2,078,358**
+(4.16×), and `--mm-processor-cache-gb 0` returns the 4 GiB processor cache to
+partly offset the extra reservation. The measured arms:
+
+| Arm | KV | Tokens | 500k concurrency | Free after boot |
+|---|---:|---:|---:|---:|
+| 11 GiB, model-card command otherwise | 11 GiB | 1,343,283 | 2.69× | ~10 GiB |
+| Model-card command (`0.87`, no cap) | 16.93 GiB | 1,944,029 | 3.89× | ~4.8 GiB |
+| **Pinned 2M arm (this recipe)** | **17 GiB** | **2,078,358** | **4.16×** | **~4.8 GiB** |
+
+The boot log is the authority; `./launch.sh kv` fails below 2,000,000. The
+17 GiB arm sits at the memory edge: ~4.8 GiB free, ~3.7 GiB available after
+startup. Do not co-locate other workloads on these nodes. See
+[docs/04-kv-cache.md](04-kv-cache.md#memory-margin).
 
 ## Speculative decoding
 

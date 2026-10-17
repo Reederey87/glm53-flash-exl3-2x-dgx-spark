@@ -63,16 +63,19 @@ vLLM does not read it yet.
 ## KV cache geometry
 
 Only the 11 full-attention layers keep a paged KV cache. The KDA layers keep a
-recurrent state, not a growing cache. With FP8 storage and `kv_lora_rank=512`,
-the per-token cost is:
+recurrent state, not a growing cache. With FP8 storage the B12X
+`fp8_ds_mla` layout stores the 512-wide latent plus the 256-wide V per layer:
 
 ```
-11 layers × 512 B = 5,632 B/token ≈ 5.5 KiB/token
+11 × (512 + 256) B = 8,448 B/token
+11 × 128/4 B      =   352 B/token  (kpool indexer)
+                    8,800 B/token  ≈ 8.6 KiB/token
 ```
 
-The recipe reserves 11 GiB per rank. That is about 2.1M tokens at this
-geometry, or four 500k-token requests. The boot log prints the exact block
-count and token count; `scripts/verify_kv_pool.py` parses it.
+The recipe reserves 17 GiB per rank. That measured **2,078,358 tokens**, or
+four 500k-token requests (4.16×). The un-capped model-card command
+(`--gpu-memory-utilization 0.87`) measured 1,944,029. The boot log prints the
+exact count; `scripts/verify_kv_pool.py` parses it.
 
 The MLA latent is replicated across the two TP ranks, so the cluster-wide
 capacity is `num_gpu_blocks × block_size`, not twice that.
@@ -96,8 +99,8 @@ Per rank, roughly:
 | Region | Size |
 |---|---:|
 | Weights (166 GiB total / 2) | 83.3 GiB |
-| KV cache | 11 GiB |
-| Activations, graphs, MTP workspace, JIT caches | remainder |
+| KV cache | 17 GiB |
+| Activations, graphs, MTP workspace, JIT caches | remainder (~4–5 GiB free) |
 | Reserved by the OS / other processes | ~5–10 GiB |
 
 `--gpu-memory-utilization 0.87` is the vendor value. Because

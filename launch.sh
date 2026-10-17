@@ -231,6 +231,18 @@ preflight() {
         fi
     fi
 
+    local mem_avail_kb=""
+    mem_avail_kb="$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null || true)"
+    if [ -n "$mem_avail_kb" ]; then
+        if [ "$mem_avail_kb" -lt 104857600 ]; then
+            pf_fail "less than 100 GiB MemAvailable on the head; stop the other model and wait"
+        elif [ "$mem_avail_kb" -lt 115343360 ]; then
+            pf_warn "less than 110 GiB MemAvailable on the head; the 2M arm needs ~115 GiB"
+        else
+            pf_ok "head MemAvailable: $((mem_avail_kb / 1048576)) GiB"
+        fi
+    fi
+
     local -a nodes=()
     local _node
     while IFS= read -r _node; do
@@ -239,6 +251,17 @@ preflight() {
     if [ "${#nodes[@]}" -gt 1 ]; then
         if ssh -o BatchMode=yes -o ConnectTimeout=8 "${nodes[1]}" true >/dev/null 2>&1; then
             pf_ok "passwordless ssh to worker ${nodes[1]}"
+            local worker_mem=""
+            worker_mem="$(ssh -o BatchMode=yes -o ConnectTimeout=8 "${nodes[1]}" "awk '/^MemAvailable:/ {print \$2}' /proc/meminfo" 2>/dev/null || true)"
+            if [ -n "$worker_mem" ]; then
+                if [ "$worker_mem" -lt 104857600 ]; then
+                    pf_fail "less than 100 GiB MemAvailable on ${nodes[1]}; stop the other model"
+                elif [ "$worker_mem" -lt 115343360 ]; then
+                    pf_warn "less than 110 GiB MemAvailable on ${nodes[1]}; the 2M arm needs ~115 GiB"
+                else
+                    pf_ok "worker MemAvailable: $((worker_mem / 1048576)) GiB"
+                fi
+            fi
         else
             pf_fail "cannot ssh to worker ${nodes[1]} (set up passwordless SSH)"
         fi

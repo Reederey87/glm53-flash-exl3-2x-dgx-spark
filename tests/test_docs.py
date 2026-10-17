@@ -12,7 +12,8 @@ def test_readme_names_the_new_checkpoint_and_runtime() -> None:
     assert "eugr/spark-vllm-b12x:latest" in text
     assert "https://github.com/eugr/spark-vllm-docker" in text
     assert "2,000,000" in text
-    assert "11G" in text
+    assert "17G" in text
+    assert "2,078,358" in text
     assert "127.0.0.1" in text
     assert "./launch.sh" in text
 
@@ -33,7 +34,7 @@ def test_docs_exist_and_cover_the_required_topics() -> None:
         "01-architecture.md": ("KV cache", "45 layers", "TP=2"),
         "02-parameters.md": ("kv-cache-memory-bytes", "modelopt_mixed", "B12X"),
         "03-bringup.md": ("preflight", "launch.sh setup", "smoke"),
-        "04-kv-cache.md": ("5,632", "2,000,000", "11 GiB"),
+        "04-kv-cache.md": ("8,800", "2,000,000", "17 GiB"),
         "05-troubleshooting.md": ("modelopt_mixed", "NCCL", "BELOW TARGET"),
         "06-upstream.md": ("0bdc9c94", "03a956", "MIT"),
     }
