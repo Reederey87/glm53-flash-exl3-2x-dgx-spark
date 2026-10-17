@@ -371,11 +371,11 @@ prepare_all() {
 
 # --- operations ---------------------------------------------------------------
 stop_all() {
-    "$SPARK_VLLM_DIR/launch-cluster.sh" --config "$ENV_FILE" stop
+    "$SPARK_VLLM_DIR/launch-cluster.sh" -t "$IMAGE_TAG" --config "$ENV_FILE" stop
 }
 
 status_all() {
-    "$SPARK_VLLM_DIR/launch-cluster.sh" --config "$ENV_FILE" status || true
+    "$SPARK_VLLM_DIR/launch-cluster.sh" -t "$IMAGE_TAG" --config "$ENV_FILE" status || true
     if curl -fsS --max-time 5 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
         log "health: ok  http://127.0.0.1:$PORT/health"
     else
