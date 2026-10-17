@@ -303,7 +303,7 @@ recipe_args() {
     shift
     local -a recipe_cmd=("$SPARK_VLLM_DIR/run-recipe.sh" "$RECIPE" --config "$ENV_FILE")
     case "$mode" in
-        up)       recipe_cmd+=(--setup) ;;
+        up)       recipe_cmd+=(--setup --daemon) ;;
         build)    recipe_cmd+=(--setup --build-only) ;;
         download) recipe_cmd+=(--download-only) ;;
         render)   recipe_cmd+=(--dry-run) ;;
