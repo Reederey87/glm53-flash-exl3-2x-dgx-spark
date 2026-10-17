@@ -27,7 +27,7 @@ From the [model card](https://huggingface.co/nvidia/GLM-5.3-Flash-FP4-Local):
 | Base model | [`zai-org/GLM-5.3-Flash`](https://huggingface.co/zai-org/GLM-5.3-Flash) |
 | Parameters | 320B total, 18B active (MoE) |
 | Quantization | ModelOpt **NVFP4 QAD** (`modelopt_mixed`), compressed `csf_32x2_v1` scales |
-| Checkpoint size | ~166 GiB (40 shards + `native-QB`) |
+| Checkpoint size | ~166 GiB (40 model shards + input scales + `native-QB`) |
 | Validated hardware | **2× NVIDIA DGX Spark 128 GB with 2M tokens of FP8 KV cache** |
 | Also validated | 2× RTX PRO 6000 Blackwell with 1.8M tokens of FP8 KV cache |
 | Context | up to 1,048,576 tokens |

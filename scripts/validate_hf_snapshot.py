@@ -9,7 +9,7 @@ that every referenced safetensors file contains its complete declared payload.
 Example:
   python3 scripts/validate_hf_snapshot.py \
       --repo ~/.cache/huggingface/hub/models--nvidia--GLM-5.3-Flash-FP4-Local \
-      --expected-shards 40
+      --expected-shards 42
 """
 from __future__ import annotations
 

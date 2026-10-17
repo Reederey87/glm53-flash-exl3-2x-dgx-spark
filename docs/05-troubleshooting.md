@@ -27,7 +27,7 @@ docker logs vllm_node 2>&1 | grep -iE 'error|traceback|oom|killed|kv cache|block
 | Error mentioning `csf_32x2_v1`, compressed scales, or an unknown `weight_scale_encoding` | Wrong image | Same fix. The format is only in the B12X container. |
 | `CUDA error: no kernel image is available` or an sm_121 compile failure | Wrong `CUTE_DSL_ARCH` or a non-B12X image | Keep `CUTE_DSL_ARCH=sm_121a` from the recipe; do not reuse the old `TORCH_CUDA_ARCH_LIST=12.1a`. |
 | Image IDs differ on head and worker | Worker has an older copy or a failed transfer | `./launch.sh setup` copies the matching image; if it persists, remove `vllm-node-b12x` on the worker and re-run. |
-| Checkpoint download stalls or a shard is truncated | Network or disk | Re-run `./launch.sh setup`; then `python3 scripts/validate_hf_snapshot.py --repo ~/.cache/huggingface/hub/models--nvidia--GLM-5.3-Flash-FP4-Local --expected-shards 40`. |
+| Checkpoint download stalls or a shard is truncated | Network or disk | Re-run `./launch.sh setup`; then `python3 scripts/validate_hf_snapshot.py --repo ~/.cache/huggingface/hub/models--nvidia--GLM-5.3-Flash-FP4-Local --expected-shards 42`. |
 
 ## Boot and memory
 

@@ -66,7 +66,8 @@ before continuing.
 ```
 
 This pulls `eugr/spark-vllm-b12x:latest` (~10 GB), tags it `vllm-node-b12x`,
-downloads the 40-shard checkpoint (~166 GiB) into the HF cache, and copies both
+downloads the 42-file checkpoint (~166 GiB; 40 model shards plus input scales
+and `tensors/native-QB.safetensors`) into the HF cache, and copies both
 to the worker. It can take a long time on a cold cache.
 
 Useful checks while it runs:
@@ -81,7 +82,7 @@ Validate the checkpoint after download:
 ```bash
 python3 scripts/validate_hf_snapshot.py \
   --repo ~/.cache/huggingface/hub/models--nvidia--GLM-5.3-Flash-FP4-Local \
-  --expected-shards 40
+  --expected-shards 42
 ```
 
 The validator follows the Hub's blob symlinks and checks every declared
