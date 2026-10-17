@@ -77,9 +77,34 @@ Upstream context:
 
 ## Verification (after restart)
 
-To be filled from the live pair after the recipe restart: expected
-`cached_tokens` equal to the prompt length on the second request, and
-`[PASS] prefix_cache` with `hits +…; cached_tokens=…`.
+The container's non-default args now include
+`'enable_prompt_tokens_details': True`. The same probe:
+
+```
+cache: block_size=4864 mamba_block_size=256 fine_grained_mamba=False
+       match_unit=None enabled=True
+    len req  prompt  cached   q_delta hit_delta
+   1024   1    1024       0      1024         0
+   1024   2    1024    1024      1024      1024
+   4096   1    4096       0      4096         0
+   4096   2    4096    4096      4096      4096
+   8192   1    8192       0      8192         0
+   8192   2    8192    8192      8192      8192
+  16384   1   16384       0     16384         0
+  16384   2   16384   16384     16384     16384
+```
+
+Second requests now report `cached_tokens` equal to the prompt length, and the
+field agrees with the counter. The smoke probe:
+
+```
+[PASS] prefix_cache: HTTP 200/200; hits +6029; cached_tokens=6029;
+       block=4864/mamba=256/fine_grained=False
+{"ok": true, "checks": 6}
+```
+
+No `WARN` remains. The fix is reporting-only: it does not change cache
+behavior, KV geometry, or the 2,078,358-token pool.
 
 ## Files
 

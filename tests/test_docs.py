@@ -60,6 +60,14 @@ def test_speed_receipts_are_present() -> None:
     assert all(cell["completion_tokens_median"] == 200 for cell in decode)
 
 
+def test_prefix_cache_receipt_is_present() -> None:
+    receipt = ROOT / "docs" / "receipts" / "2026-10-17-prefix-cache-fix.md"
+    assert receipt.is_file()
+    text = receipt.read_text(encoding="utf-8")
+    assert "enable-prompt-tokens-details" in text
+    assert "cached_tokens=6029" in text
+
+
 def test_status_records_the_replacement() -> None:
     text = (ROOT / "STATUS.md").read_text(encoding="utf-8")
     assert "GLM-5.3-Flash-FP4-Local" in text
