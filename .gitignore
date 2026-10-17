@@ -1,11 +1,7 @@
+# Site configuration and secrets
 .env
-.glm53-exl3-*.inner.sh
-logs/
-tool-eval-bench/
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.venv/
+.env.*
+!.env.example
 
 # Personal instructions, integrations and working ledgers are never published.
 AGENTS.md
@@ -14,14 +10,26 @@ CLAUDE.md
 .factory/
 .mcp.json
 
+# Pinned upstream launcher checkout (recreated by ./launch.sh)
+.vendor/
 
-# Local working ledgers — maintained on disk, never tracked
-spec/
+# Local receipts, logs, and working ledgers
 local/
+spec/
+logs/
+receipts/
+*.log
 
-# Full live-image Python dump for local audits; never ship
-tests/fixtures/
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.uv/
 
-# Profiler traces are large (2.2 GB decompressed per rank); the derived JSON
-# receipts under local/ are the tracked evidence, the traces stay on disk
-local/task29-traces-*/
+# Editor / OS
+.DS_Store
+*.swp
+
+# uv cache used when HOME is not writable
+.uv-cache/
