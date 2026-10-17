@@ -17,7 +17,7 @@ CLAUDE.md
 local/
 spec/
 logs/
-receipts/
+/receipts/
 *.log
 
 # Python
