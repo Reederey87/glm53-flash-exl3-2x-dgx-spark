@@ -115,11 +115,15 @@ Prefix caching consumes the same blocks; a cache full of long agent histories
 reduces room for new sequences. This is expected. Watch
 `vllm:gpu_cache_usage_perc` and `vllm:prefix_cache_hits_total`.
 
-The smoke script's `prefix_cache` check reports `WARN` when
-`usage.prompt_tokens_details.cached_tokens` is absent. The DGX Spark recipe
-does not set `--enable-prompt-tokens-details`, so that field is not exported;
-the warning is an observability gap, not evidence of a cache miss. Add the flag
-if you want the per-request number.
+The smoke script's `prefix_cache` check now uses
+`vllm:prefix_cache_hits_total` as the primary evidence and
+`usage.prompt_tokens_details.cached_tokens` when the server exports it. The
+recipe sets `--enable-prompt-tokens-details`, so both agree. The probe in
+[2026-10-17-prefix-cache-fix.md](receipts/2026-10-17-prefix-cache-fix.md)
+measured 100% hits on the second of two identical 1k, 4k, 8k, and 16k prompts;
+the cache geometry is block 4864 / mamba 256 / fine-grained mamba prefix cache
+off. Sub-block hits worked in this build, so the earlier `WARN` was a reporting
+gap, not a cache miss.
 
 ## What the pool is not
 

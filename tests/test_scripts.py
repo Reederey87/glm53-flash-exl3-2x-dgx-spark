@@ -104,7 +104,7 @@ def test_spec_acceptance_handles_counter_reset() -> None:
 
 @pytest.mark.parametrize(
     "script",
-    ["verify_kv_pool.py", "smoke.py", "spec_acceptance.py", "speed_matrix.py", "validate_hf_snapshot.py"],
+    ["verify_kv_pool.py", "smoke.py", "spec_acceptance.py", "speed_matrix.py", "probe_prefix_cache.py", "validate_hf_snapshot.py"],
 )
 def test_scripts_have_help(script: str) -> None:
     result = subprocess.run(
@@ -145,6 +145,58 @@ def test_scripts_are_stdlib_only() -> None:
         ]
         for module_name in imports:
             assert module_name in allowed, f"{path.name}: unexpected import {module_name}"
+
+
+def test_smoke_prefix_verdict_uses_metrics_fallback() -> None:
+    module = load_module("smoke")
+    check = module.prefix_cache_verdict(200, 200, 6144.0, None, False, "block=4864/mamba=256")
+    assert check.status == "pass"
+    assert "hits +6144" in check.detail
+    assert "field absent" in check.detail
+
+    check = module.prefix_cache_verdict(200, 200, 1024.0, 1024, True, "block=4864/mamba=256")
+    assert check.status == "pass"
+
+    check = module.prefix_cache_verdict(200, 200, 0.0, 0, True, "block=4864/mamba=256")
+    assert check.status == "warn"
+
+    check = module.prefix_cache_verdict(200, 200, 0.0, None, False, "block=4864/mamba=256")
+    assert check.status == "warn"
+    assert "enable-prompt-tokens-details" in check.detail
+
+
+def test_smoke_parses_cache_geometry_and_hits() -> None:
+    module = load_module("smoke")
+    text = "\n".join(
+        [
+            'vllm:cache_config_info{block_size="4864",mamba_block_size="256",'
+            'enable_mamba_fine_grained_prefix_cache="False"} 1.0',
+            'vllm:prefix_cache_hits_total{engine="0"} 829.0',
+        ]
+    )
+    hits, geometry = module._parse_cache_metrics(text)
+    assert hits == 829.0
+    assert geometry == "block=4864/mamba=256/fine_grained=False"
+
+
+def test_prefix_probe_parses_cache_geometry() -> None:
+    module = load_module("probe_prefix_cache")
+    text = "\n".join(
+        [
+            'vllm:cache_config_info{block_size="4864",mamba_block_size="256",'
+            'enable_mamba_fine_grained_prefix_cache="False",prefix_match_unit="None",'
+            'enable_prefix_caching="True"} 1.0',
+            "vllm:prefix_cache_queries_total 1870.0",
+            "vllm:prefix_cache_hits_total 829.0",
+        ]
+    )
+    counters, geometry, _ = module.parse_metrics(text)
+    assert counters[module.QUERIES] == 1870.0
+    assert counters[module.HITS] == 829.0
+    assert geometry.block_size == 4864
+    assert geometry.mamba_block_size == 256
+    assert geometry.fine_grained_mamba == "False"
+    assert geometry.enable_prefix_caching == "True"
 
 
 def test_speed_matrix_prompt_is_unique_and_exact() -> None:

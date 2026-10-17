@@ -51,6 +51,7 @@ def test_command_contains_required_b12x_flags() -> None:
         "--decode-context-parallel-size 1",
         "--mamba-cache-mode align",
         "--enable-prefix-caching",
+        "--enable-prompt-tokens-details",
         "--enable-chunked-prefill",
         "--kv-cache-dtype fp8",
         "--kv-cache-memory-bytes 17G",

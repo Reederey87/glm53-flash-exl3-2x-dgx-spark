@@ -31,6 +31,7 @@ at `0bdc9c9`.
 | `--block-size` | `256` | Vendor recipe and model card value. Must be a multiple of the indexer's kpool (4) and match the mamba alignment. |
 | `--mamba-cache-mode` | `align` | Keeps KDA recurrent state aligned with the paged cache. |
 | `--enable-prefix-caching` | on | Vendor recipe; agentic follow-ups depend on it. |
+| `--enable-prompt-tokens-details` | on | Populates `usage.prompt_tokens_details.cached_tokens`; without it the API returns null and a cache hit is invisible to the client. |
 | `--enable-chunked-prefill` | on | Lets short requests interleave with long prefill. |
 | `--kv-cache-dtype` | `fp8` | The validated cache format. |
 | `--kv-cache-memory-bytes` | `17G` | Explicit 2M pool; measured 2,078,358 tokens. See below. |

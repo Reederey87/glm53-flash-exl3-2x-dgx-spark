@@ -99,6 +99,91 @@ def message_of(body: dict[str, Any] | str) -> dict[str, Any]:
     return choices[0].get("message") or {}
 
 
+
+PREFIX_HITS = "vllm:prefix_cache_hits_total"
+
+
+def _parse_cache_metrics(text: str) -> tuple[float, str]:
+    """Return prefix-cache hits and a compact cache-geometry string."""
+    hits = 0.0
+    geometry = "geometry=unknown"
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("vllm:cache_config_info{"):
+            labels = line.split("{", 1)[1].split("}", 1)[0]
+            values: dict[str, str] = {}
+            for part in labels.split(","):
+                if "=" in part:
+                    key, value = part.split("=", 1)
+                    values[key] = value.strip('"')
+            geometry = (
+                f"block={values.get('block_size', '?')}"
+                f"/mamba={values.get('mamba_block_size', '?')}"
+                f"/fine_grained={values.get('enable_mamba_fine_grained_prefix_cache', '?')}"
+            )
+            continue
+        if line.startswith("#") or not line:
+            continue
+        if line.split("{", 1)[0].split(" ", 1)[0] == PREFIX_HITS:
+            try:
+                hits += float(line.rsplit(None, 1)[1])
+            except (IndexError, ValueError):
+                continue
+    return hits, geometry
+
+
+def scrape_prefix_metrics(base: str, api_key: str, timeout: float) -> tuple[float, str]:
+    url = f"{base.rstrip('/')}/metrics"
+    headers = {"Accept": "text/plain"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    request = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=min(timeout, 30)) as response:
+            return _parse_cache_metrics(response.read().decode("utf-8", errors="replace"))
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return 0.0, "geometry=unavailable"
+
+
+def prefix_cache_verdict(
+    first_status: int,
+    second_status: int,
+    hit_delta: float,
+    cached_tokens: int | None,
+    field_present: bool,
+    geometry: str,
+) -> Check:
+    """Judge the cache from the API field and the metrics counter."""
+    http = f"HTTP {first_status}/{second_status}"
+    if first_status != 200 or second_status != 200:
+        return Check("prefix_cache", "warn", f"{http}; {geometry}")
+    if hit_delta > 0:
+        api = f"cached_tokens={cached_tokens}" if field_present else "cached_tokens field absent"
+        return Check(
+            "prefix_cache",
+            "pass",
+            f"{http}; hits +{hit_delta:.0f}; {api}; {geometry}",
+        )
+    if cached_tokens is not None and cached_tokens > 0:
+        return Check(
+            "prefix_cache",
+            "pass",
+            f"{http}; cached_tokens={cached_tokens}; {geometry}",
+        )
+    if not field_present:
+        return Check(
+            "prefix_cache",
+            "warn",
+            f"{http}; no hit and cached_tokens field absent; start with "
+            f"--enable-prompt-tokens-details; {geometry}",
+        )
+    return Check(
+        "prefix_cache",
+        "warn",
+        f"{http}; no hit; cached_tokens={cached_tokens}; {geometry}",
+    )
+
+
 def run(base: str, model: str, api_key: str, timeout: float) -> list[Check]:
     checks: list[Check] = []
 
@@ -196,12 +281,15 @@ def run(base: str, model: str, api_key: str, timeout: float) -> list[Check]:
         )
     )
 
-    # A repeated prompt should report a prefix-cache hit. This is a soft check:
-    # the first two requests can race, and an eviction policy may decline a hit.
+    # A repeated prompt should hit the prefix cache. Probe a prompt longer than
+    # the hybrid attention block so a 0 is a real miss, not a sub-block prompt.
+    # `cached_tokens` needs --enable-prompt-tokens-details; the metrics counter
+    # is the fallback when the server does not export the field.
     long_prompt = (
         "You are a careful assistant. Read this line and reply with the word DONE.\n"
-        + ("The quick brown fox jumps over the lazy dog. " * 80)
+        + ("The quick brown fox jumps over the lazy dog. " * 600)
     )
+    hits_before, geometry = scrape_prefix_metrics(base, api_key, timeout)
     first_status, first = chat(
         base, model, [{"role": "user", "content": long_prompt}], api_key,
         max_tokens=16, timeout=timeout, template_kwargs={"reasoning_effort": "low"},
@@ -210,16 +298,27 @@ def run(base: str, model: str, api_key: str, timeout: float) -> list[Check]:
         base, model, [{"role": "user", "content": long_prompt}], api_key,
         max_tokens=16, timeout=timeout, template_kwargs={"reasoning_effort": "low"},
     )
-    cached = 0
+    hits_after, geometry_after = scrape_prefix_metrics(base, api_key, timeout)
+    deadline = time.monotonic() + 5.0
+    while hits_after <= hits_before and time.monotonic() < deadline:
+        time.sleep(0.2)
+        hits_after, geometry_after = scrape_prefix_metrics(base, api_key, timeout)
+    cached_tokens: int | None = None
+    field_present = False
     if isinstance(second, dict):
         usage = second.get("usage") or {}
-        details = usage.get("prompt_tokens_details") or {}
-        cached = int(details.get("cached_tokens") or 0)
+        details = usage.get("prompt_tokens_details")
+        field_present = isinstance(details, dict)
+        if field_present:
+            cached_tokens = details.get("cached_tokens")
     checks.append(
-        Check(
-            "prefix_cache",
-            "pass" if first_status == 200 and second_status == 200 and cached > 0 else "warn",
-            f"HTTP {first_status}/{second_status}; cached_tokens={cached}",
+        prefix_cache_verdict(
+            first_status,
+            second_status,
+            max(0.0, hits_after - hits_before),
+            cached_tokens,
+            field_present,
+            geometry_after if geometry_after != "geometry=unknown" else geometry,
         )
     )
 

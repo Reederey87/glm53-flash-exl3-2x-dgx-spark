@@ -70,6 +70,7 @@ command: |
     --decode-context-parallel-size {decode_context_parallel} \
     --mamba-cache-mode align \
     --enable-prefix-caching \
+    --enable-prompt-tokens-details \
     --mm-processor-cache-gb 0 \
     --enable-chunked-prefill \
     --dtype bfloat16 \
