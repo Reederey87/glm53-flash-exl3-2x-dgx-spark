@@ -104,7 +104,7 @@ def test_spec_acceptance_handles_counter_reset() -> None:
 
 @pytest.mark.parametrize(
     "script",
-    ["verify_kv_pool.py", "smoke.py", "spec_acceptance.py", "validate_hf_snapshot.py"],
+    ["verify_kv_pool.py", "smoke.py", "spec_acceptance.py", "speed_matrix.py", "validate_hf_snapshot.py"],
 )
 def test_scripts_have_help(script: str) -> None:
     result = subprocess.run(
@@ -131,6 +131,9 @@ def test_scripts_are_stdlib_only() -> None:
         "urllib",
         "__future__",
         "concurrent",
+        "math",
+        "random",
+        "statistics",
         "os",
     }
     for path in SCRIPTS.glob("*.py"):
@@ -142,6 +145,32 @@ def test_scripts_are_stdlib_only() -> None:
         ]
         for module_name in imports:
             assert module_name in allowed, f"{path.name}: unexpected import {module_name}"
+
+
+def test_speed_matrix_prompt_is_unique_and_exact() -> None:
+    module = load_module("speed_matrix")
+    prompt = module.make_prompt(8192, module.random.Random(7))
+    assert len(prompt) == 8192
+    assert all(1000 <= token < 150000 for token in prompt)
+    other = module.make_prompt(8192, module.random.Random(8))
+    assert prompt[:64] != other[:64]
+
+
+def test_speed_matrix_acceptance_from_counter_deltas() -> None:
+    module = load_module("speed_matrix")
+    before = {module.ACCEPTED: 100.0, module.DRAFTED: 200.0, module.DRAFTS: 20.0}
+    after = {module.ACCEPTED: 800.0, module.DRAFTED: 1200.0, module.DRAFTS: 120.0}
+    result = module.acceptance(before, after)
+    assert result.accepted == 700.0
+    assert result.mean_acceptance_length == pytest.approx(8.0)
+    assert result.draft_acceptance_rate == pytest.approx(0.7)
+
+
+def test_speed_matrix_acceptance_is_null_without_drafts() -> None:
+    module = load_module("speed_matrix")
+    result = module.acceptance({}, {})
+    assert result.mean_acceptance_length is None
+    assert result.draft_acceptance_rate is None
 
 
 def test_snapshot_validator_rejects_truncated_payload(tmp_path: Path) -> None:
