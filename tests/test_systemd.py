@@ -61,3 +61,19 @@ def test_systemd_doc_names_the_previous_unit() -> None:
     assert "systemctl --user disable --now vllm-dsv41-two-sparks.service" in text
     assert "Linger=yes" in text
     assert "3 in 6 hours" in text
+
+
+def test_tailscale_unit_and_proxy() -> None:
+    unit = (SYSTEMD / "vllm-glm53fp4-tailscale.service").read_text(encoding="utf-8")
+    assert "ExecStart=/usr/bin/python3 /home/nvidia/glm53-fp4-local/scripts/tailscale_proxy.py" in unit
+    assert "Restart=always" in unit
+    assert "WantedBy=default.target" in unit
+    proxy = ROOT / "scripts" / "tailscale_proxy.py"
+    assert proxy.is_file()
+
+
+def test_tailscale_doc_states_the_boundary() -> None:
+    text = (ROOT / "docs" / "10-tailscale.md").read_text(encoding="utf-8")
+    assert "100.125.23.98:8000" in text
+    assert "no built-in authentication" in text
+    assert "Funnel" in text

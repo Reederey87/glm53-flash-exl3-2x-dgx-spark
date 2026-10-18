@@ -115,6 +115,13 @@ watchdog exits without restarting it. Start it again to re-arm:
 systemctl --user start vllm-glm53fp4.service
 ```
 
+## Tailnet access
+
+The loopback API is exposed to the tailnet by the companion
+`vllm-glm53fp4-tailscale.service`, not by the serving unit. See
+[10-tailscale.md](10-tailscale.md). It is enabled the same way and is
+independent of the model's life cycle.
+
 ## What is not automated
 
 - The Mac-side SSH tunnel (for example `18000 -> head:8000`) is not a cluster

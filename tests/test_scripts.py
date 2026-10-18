@@ -104,7 +104,7 @@ def test_spec_acceptance_handles_counter_reset() -> None:
 
 @pytest.mark.parametrize(
     "script",
-    ["verify_kv_pool.py", "smoke.py", "spec_acceptance.py", "speed_matrix.py", "probe_prefix_cache.py", "validate_hf_snapshot.py"],
+    ["verify_kv_pool.py", "smoke.py", "spec_acceptance.py", "speed_matrix.py", "probe_prefix_cache.py", "tailscale_proxy.py", "validate_hf_snapshot.py"],
 )
 def test_scripts_have_help(script: str) -> None:
     result = subprocess.run(
@@ -131,6 +131,8 @@ def test_scripts_are_stdlib_only() -> None:
         "urllib",
         "__future__",
         "concurrent",
+        "asyncio",
+        "logging",
         "math",
         "random",
         "statistics",

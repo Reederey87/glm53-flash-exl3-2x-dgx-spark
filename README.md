@@ -262,6 +262,8 @@ Re-run `./launch.sh kv` and `./launch.sh smoke` before adopting.
 | `systemctl --user start vllm-glm53fp4.service` | cold start through the boot unit |
 | `systemctl --user stop vllm-glm53fp4.service` | stop through the boot unit |
 | `systemctl --user list-timers vllm-glm53fp4-watchdog.timer` | check the health canary |
+| `systemctl --user status vllm-glm53fp4-tailscale.service` | check tailnet exposure |
+| `curl http://100.125.23.98:8000/v1/models` | verify the tailnet endpoint from a tailnet host |
 
 The upstream container is `vllm_node`; weights and compile caches stay on disk,
 so `down` followed by `./launch.sh` is the normal restart.
@@ -270,6 +272,12 @@ Boot persistence and the health watchdog are in
 [`systemd/`](systemd/) and [docs/09-systemd.md](docs/09-systemd.md). The unit is
 enabled with linger on; the watchdog runs 15 minutes after boot and then every
 minute. Disable the previous production unit before the first reboot.
+
+The API stays loopback-only on the host. Tailnet access is a separate
+Tailscale-IPv4 TCP proxy, because Tailscale Serve is disabled on this tailnet:
+see [docs/10-tailscale.md](docs/10-tailscale.md). The other Mac uses
+`http://100.125.23.98:8000/v1` (or the MagicDNS name on port 8000); no SSH
+tunnel is needed there.
 
 ## Updating
 
