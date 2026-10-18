@@ -12,6 +12,12 @@
   smoke hard checks pass (tool call observed, reasoning parser observed,
   prefix-cache field unavailable -> WARN). Receipt:
   `docs/receipts/2026-10-17-fp4-bringup.md`.
+- 2026-10-17: Installed and enabled `vllm-glm53fp4.service` and the
+  `vllm-glm53fp4-watchdog.timer`; the previous DSV boot units are disabled,
+  linger is on, and a cold start through the unit reached `/health` 200 with
+  the 2,078,358-token pool. First watchdog run exited 0 healthy; the health-down
+  branch was exercised without restart. No physical reboot was performed.
+  Receipt: `docs/receipts/2026-10-17-systemd-boot-watchdog.md`.
 - 2026-10-17: Speed matrix (unique no-cache prompts, 200-token decode):
   prefill aggregate ~2.2–2.3k tok/s from 8k to 128k and c=1–8; decode
   42.90/41.73/19.63/26.60 tok/s at c=1/2/4/8 (repeat 46.76/44.54/20.25/29.77).

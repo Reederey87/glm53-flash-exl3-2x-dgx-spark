@@ -101,7 +101,8 @@ systemctl --user restart vllm-glm53fp4-watchdog.service
 ```
 
 A real reboot can then be scheduled; the unit is already enabled and the
-watchdog is armed.
+watchdog is armed. The executed cold start and watchdog evidence are in
+[the boot/watchdog receipt](receipts/2026-10-17-systemd-boot-watchdog.md).
 
 ## Manual stop is respected
 

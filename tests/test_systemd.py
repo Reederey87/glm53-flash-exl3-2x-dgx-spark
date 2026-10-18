@@ -46,6 +46,15 @@ def test_watchdog_script_parses_and_is_executable() -> None:
     assert result.returncode == 0, result.stderr
 
 
+def test_boot_watchdog_receipt_is_present() -> None:
+    receipt = ROOT / "docs" / "receipts" / "2026-10-17-systemd-boot-watchdog.md"
+    assert receipt.is_file()
+    text = receipt.read_text(encoding="utf-8")
+    assert "2,078,358" in text
+    assert "vllm-dsv41-two-sparks.service" in text
+    assert "No physical reboot" in text
+
+
 def test_systemd_doc_names_the_previous_unit() -> None:
     text = (ROOT / "docs" / "09-systemd.md").read_text(encoding="utf-8")
     assert "systemctl --user disable --now vllm-dsv41-two-sparks.service" in text
