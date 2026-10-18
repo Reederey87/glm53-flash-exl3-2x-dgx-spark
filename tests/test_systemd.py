@@ -23,6 +23,7 @@ def test_boot_unit_waits_for_memory_and_worker() -> None:
     assert "104857600" in text
     assert "192.168.177.11" in text
     assert "ExecStopPost=" in text
+    assert "ExecStartPre=-/home/nvidia/glm53-fp4-local/launch.sh down" in text
 
 
 def test_watchdog_timer_is_on_boot_and_minute() -> None:

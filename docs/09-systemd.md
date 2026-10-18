@@ -47,12 +47,14 @@ systemctl --user disable --now vllm-glm53exl3.service 2>/dev/null || true
 1. The user manager starts the enabled unit.
 2. `ExecStartPre` waits for the local Docker daemon (300 s), the worker's Docker
    over SSH (600 s), and **MemAvailable >= 100 GiB** on the head (600 s).
-3. `ExecStart=launch.sh` runs with `PULL_IMAGE=0`: it checks the pinned upstream
+3. `launch.sh down` clears any stale ranks (a head-only reboot can leave the
+   worker container running); it is a no-op on a clean boot.
+4. `ExecStart=launch.sh` runs with `PULL_IMAGE=0`: it checks the pinned upstream
    checkout, the local `vllm-node-b12x` image, the 42-file checkpoint, then
    dispatches both ranks in daemon mode.
-4. `ExecStartPost` polls `/health` for up to 900 s. The unit stays `activating`
+5. `ExecStartPost` polls `/health` for up to 900 s. The unit stays `activating`
    until the API is ready.
-5. If the start fails, `ExecStopPost` runs `launch.sh down` so a half-started
+6. If the start fails, `ExecStopPost` runs `launch.sh down` so a half-started
    pair does not hold the port or the pool, then systemd retries after 300 s
    (three attempts per hour).
 

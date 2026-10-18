@@ -24,6 +24,9 @@ KillMode=process
 # A user manager starts early at boot, before dockerd and the worker are ready.
 ExecStartPre=/bin/bash -c 'for i in $(seq 1 60); do docker info >/dev/null 2>&1 && exit 0; sleep 5; done; echo "docker not ready after 300s" >&2; exit 1'
 ExecStartPre=/bin/bash -c 'for i in $(seq 1 120); do ssh -o BatchMode=yes -o ConnectTimeout=5 nvidia@192.168.177.11 docker info >/dev/null 2>&1 && exit 0; sleep 5; done; echo "worker 192.168.177.11 unreachable after 600s" >&2; exit 1'
+# A head-only reboot can leave the worker's old vllm_node running. Clear
+# stale ranks before the memory gate; a no-op on a clean boot.
+ExecStartPre=-/home/nvidia/glm53-fp4-local/launch.sh down
 # The 2M arm needs the unified pool back after a crash or a manual stop. CUDA-free
 # excludes page cache, so wait for MemAvailable, not MemFree.
 ExecStartPre=/bin/bash -c 'for i in $(seq 1 120); do a=$(grep "^MemAvailable:" /proc/meminfo | tr -s " " | cut -d" " -f2); [ "${a:-0}" -ge 104857600 ] && exit 0; sleep 5; done; echo "head MemAvailable <100GiB after 600s" >&2; exit 1'
