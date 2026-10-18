@@ -72,6 +72,15 @@ def test_tailscale_unit_and_proxy() -> None:
     assert proxy.is_file()
 
 
+def test_tailscale_receipt_records_the_live_check() -> None:
+    receipt = ROOT / "docs" / "receipts" / "2026-10-17-tailscale-exposure.md"
+    assert receipt.is_file()
+    text = receipt.read_text(encoding="utf-8")
+    assert "100.125.23.98:8000" in text
+    assert "TAILNET_OK" in text
+    assert "tailnet ACL" in text
+
+
 def test_tailscale_doc_states_the_boundary() -> None:
     text = (ROOT / "docs" / "10-tailscale.md").read_text(encoding="utf-8")
     assert "100.125.23.98:8000" in text

@@ -19,7 +19,8 @@ the Spark's Tailscale IPv4.
 
 The proxy is [scripts/tailscale_proxy.py](../scripts/tailscale_proxy.py). It
 never binds `0.0.0.0` or the LAN interface. Tailscale encrypts the path with
-WireGuard; the proxy does not add TLS.
+WireGuard; the proxy does not add TLS. The executed verification is in
+[the Tailscale receipt](receipts/2026-10-17-tailscale-exposure.md).
 
 ## Install and arm
 

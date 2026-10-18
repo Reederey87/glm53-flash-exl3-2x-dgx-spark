@@ -12,6 +12,12 @@
   smoke hard checks pass (tool call observed, reasoning parser observed,
   prefix-cache field unavailable -> WARN). Receipt:
   `docs/receipts/2026-10-17-fp4-bringup.md`.
+- 2026-10-17: Exposed the loopback model to the tailnet because Tailscale
+  Serve is disabled on this tailnet. `vllm-glm53fp4-tailscale.service` binds
+  only `100.125.23.98:8000` and forwards to `127.0.0.1:8000`; health, models,
+  chat (`TAILNET_OK`), and SSE were verified through the Tailscale IP. The
+  other Mac uses `http://100.125.23.98:8000/v1`; tailnet ACL is the remaining
+  gate. Receipt: `docs/receipts/2026-10-17-tailscale-exposure.md`.
 - 2026-10-17: Installed and enabled `vllm-glm53fp4.service` and the
   `vllm-glm53fp4-watchdog.timer`; the previous DSV boot units are disabled,
   linger is on, and a cold start through the unit reached `/health` 200 with
