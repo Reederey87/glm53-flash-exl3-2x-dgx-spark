@@ -1,7 +1,40 @@
 # Status
 
-- 2026-10-03: Adopted the bounded resident-tail scheduler arm on both production ranks, retaining `glm53-selfbuild:e3-armc-shm50`; two same-shape races improved cached follow-up median by 3.68 s, all three five-run decode lanes cleared the pre-registered 97% floor, pool stayed at 567 blocks, and `/health` stayed 200. Receipts and gate details: `docs/24-resident-tail.md` and `local/resident-tail-20261003/` on spark1.
-
-- 2026-09-29: Adopted token-exact host segment caching from `90cdc2d` on both production ranks after fresh exact-byte qualification, salt-isolation tests, independent approval and explicit adoption approval. Same image/KV geometry; receipts: `local/role-token-cache-20260929/v2/`, gates and rollback: `docs/24-role-token-cache.md`. Initial arm `73d8fb2` remains reverted.
-
-- 2026-09-29: Adopted the metric-only sparse-retention miss overlay on both production ranks from commit `1dcb307`; exact-byte gate receipts are in `local/prefix-observability-20260928/` on spark1. See `docs/04-prefix-caching.md`.
+- 2026-10-17: Replaced the EXL3 kit with `nvidia/GLM-5.3-Flash-FP4-Local` on
+  `eugr/spark-vllm-b12x:latest` (digest `sha256:03a956…`), driven by the pinned
+  `eugr/spark-vllm-docker` launcher at `0bdc9c9`. The recipe pins a 17 GiB FP8
+  KV pool, MTP-5, 500k context, TP2. All EXL3 code, Dockerfiles, overlays, and
+  EXL3 receipts were removed from the tree; the old kit remains in git history.
+- 2026-10-17: Deployed on spark-a183 + spark-7829. DeepSeek V4.1 Flash was
+  stopped through its unit first; its rollback tree and units are intact.
+  The checkpoint validated as 42 indexed files / 165.3 GiB on both nodes.
+  Boot reports **2,078,358 FP8 KV tokens, 4.16× at 500k**; `/health` 200;
+  smoke hard checks pass (tool call observed, reasoning parser observed,
+  prefix-cache field unavailable -> WARN). Receipt:
+  `docs/receipts/2026-10-17-fp4-bringup.md`.
+- 2026-10-17: Exposed the loopback model to the tailnet because Tailscale
+  Serve is disabled on this tailnet. `vllm-glm53fp4-tailscale.service` binds
+  only `100.125.23.98:8000` and forwards to `127.0.0.1:8000`; health, models,
+  chat (`TAILNET_OK`), and SSE were verified through the Tailscale IP. The
+  other Mac uses `http://100.125.23.98:8000/v1`; tailnet ACL is the remaining
+  gate. Receipt: `docs/receipts/2026-10-17-tailscale-exposure.md`.
+- 2026-10-17: Installed and enabled `vllm-glm53fp4.service` and the
+  `vllm-glm53fp4-watchdog.timer`; the previous DSV boot units are disabled,
+  linger is on, and a cold start through the unit reached `/health` 200 with
+  the 2,078,358-token pool. First watchdog run exited 0 healthy; the health-down
+  branch was exercised without restart. No physical reboot was performed.
+  Receipt: `docs/receipts/2026-10-17-systemd-boot-watchdog.md`.
+- 2026-10-17: Speed matrix (unique no-cache prompts, 200-token decode):
+  prefill aggregate ~2.2–2.3k tok/s from 8k to 128k and c=1–8; decode
+  42.90/41.73/19.63/26.60 tok/s at c=1/2/4/8 (repeat 46.76/44.54/20.25/29.77).
+  The c=4 dip reproduced; open. Receipt: `docs/receipts/2026-10-17-speed-matrix.md`.
+- 2026-10-17: Fixed the false prefix-cache WARN. The cache was hitting
+  100% on repeated 1k/4k/8k/16k prompts; `cached_tokens` was null because the
+  recipe lacked `--enable-prompt-tokens-details`. The flag is now set, smoke
+  falls back to `vllm:prefix_cache_hits_total`, and the probe reports
+  `cached_tokens=6029` on the smoke pair. Receipt:
+  `docs/receipts/2026-10-17-prefix-cache-fix.md`.
+- 2026-10-17: Memory note for the 2M arm: ~4.9 GiB free / ~3.7 GiB available
+  after boot. Do not co-locate builds, downloads, or another model on the pair
+  while it is resident. Drop to `16G` (~1.956M) or the model-card `0.87`
+  command (1.944M) if stability is more important than the last 3.9%.

@@ -1,114 +1,118 @@
 # Architecture
 
-## Hardware
+## Hardware and topology
 
-Two NVIDIA DGX Spark nodes (GB10 Grace Blackwell superchip, aarch64, 121 GiB **unified**
-CPU+GPU memory, 3.7 TB NVMe, CUDA 13.0, DGX OS / Ubuntu 24.04). The GPU arch is Blackwell
-~sm_121 — build for the right arch if you ever compile kernels.
+Two NVIDIA DGX Spark nodes in a TP=2 pair. Each node has one GB10 Grace Blackwell superchip
+with 121 GiB of unified CPU+GPU memory, a 3.7 TB NVMe drive, and two ConnectX-7
+ports. The pair is cabled directly; this kit uses the CX7 link for tensor
+parallel collectives, not for the API.
 
-The nodes are linked over QSFP at 200 Gb/s, RoCE, MTU 9000. Production uses
-both live HCAs, `rocep1s0f1` and `roceP2p1s0f1`, with `NCCL_IB_MERGE_NICS=1`
-(adopted 2026-10-02). The launcher still boots one HCA when the second-device
-names are empty. `rocep1s0f0` and `roceP2p1s0f0` stay down, and pinning those
-names hangs NCCL. The socket interface stays the rail-1 netdev.
+```
+             ┌─────────────────────────────┐
+   client ──▶│ head (rank 0)               │
+   :8000     │  vllm_node container        │
+             │  TP rank 0 + API frontend   │
+             │  121 GiB unified            │
+             └──────────────┬──────────────┘
+                            │ CX7 / RoCE, NCCL + B12X RoCE all-reduce
+             ┌──────────────┴──────────────┐
+             │ worker (rank 1)             │
+             │  vllm_node container        │
+             │  TP rank 1, headless        │
+             │  121 GiB unified            │
+             └─────────────────────────────┘
+```
 
-## Model stack
+The upstream launcher starts one container per node on the host network. The
+head container runs `vllm serve`; the worker container runs the same command
+with the launcher-supplied distributed flags. There is no Ray process.
 
-- **GLM-5.3-Flash** — 320B MoE / 18B active, served as `GLM-5.3-Flash-EXL3`. This is a
-  **hybrid** architecture (`Glm5NextForConditionalGeneration`): KDA linear-attention
-  ("mamba") layers + dense MLA attention + MoE + a DSA sparse-attention indexer. The
-  hybrid part matters operationally — it dictates the 3584-token cache page geometry
-  (see `04-prefix-caching.md`).
-- **EXL3/TR3 uniform-K4 4bpw** routed experts, ~164 GiB / 120 shards; loads 82.01 GiB
-  per node at TP=2. That figure is the proof experts stayed packed EXL3 — a BF16
-  expansion would be far larger.
-- **DFlash2 drafter** (k=7, draft TP=1 on rank 0): 8-token verify batches, structured
-  acceptance ~0.98.
-- **KV cache** `fp8` → packed `fp8_ds_mla`; sparse MLA via `FLASHINFER_MLA_SPARSE_SM120`.
-- CUDA graphs FULL_AND_PIECEWISE; capture sizes `1 2 4 8 16 24 32` are **token batches**
-  (1–4 seqs × 8 spec tokens), not sequence counts.
+## Model
 
-## Why EXL3 — the NVFP4 route is target-gated, not silicon-absent
+`nvidia/GLM-5.3-Flash-FP4-Local` is a 320B-parameter MoE with 18B active
+parameters. The text model has 45 layers:
 
-The quantization choice is structural, but **not** because GB10 cannot express
-FP4. `cvt.rn.satfinite.e2m1x2.f32` is rejected on the family target `.target
-sm_121`, yet it **assembles and lowers to real SASS on `sm_121a`**
-(`F2FP.SATFINITE.E2M1.F32.PACK_AB_MERGE_C`, confirmed on this node's own ptxas
-13.0.88). The FP4 conversion alphabet is therefore **target-gated, not
-silicon-absent**. An earlier version of this section claimed the instruction is
-absent from the chip; that was wrong in its strong form. The likely origin of
-the observation is that nvcc 13.0 full `-c` compiles emit intermediate PTX
-carrying `.target sm_121`, so an FP4 intrinsic that only assembles under the
-`a` suffix fails in the default build. Treat "NVFP4 can never compile on GB10"
-as a toolchain claim about the default target, not a hardware fact.
+| Layer group | Count | Notes |
+|---|---:|---|
+| KDA (linear attention) | 34 | recurrent state, `mamba-cache-mode align` |
+| Full attention (MLA) | 11 | `kv_lora_rank=512`, no RoPE dimension |
+| MTP | 1 | next-token prediction head used as the speculator |
 
-**Silicon-confirmed 2026-09-11.** The instruction does not merely assemble, it
-*executes* correctly on both dies: 12/12 probe cases match the PTX ISA on spark1
-and spark2, with `a` in the upper nibble and `b` in the lower, saturating, and
-round-to-nearest-even on the exact midpoint. The probe
-(`scripts/probe_isa_e2m1_silicon.py`) JITs a one-kernel PTX module through the
-CUDA driver and needs no host compiler and no stopped window — a 1-byte
-allocation and a single-thread launch succeed with production running. Receipt
-`local/task38-isa-e2m1-silicon-20260911.txt`.
+Other relevant config values:
 
-The predecessor NVFP4 deployment of this same model ran through Marlin-style
-emulation and was deposed on memory and throughput grounds, not on an ISA
-impossibility. That decision stands; only its stated reason is corrected here.
-The reasons EXL3 remains the right fit are the ones below.
+- 288 routed experts, 8 active per token, 1 shared expert.
+- Hidden size 4096, MoE intermediate size 2048, 64 attention heads.
+- Context limit 1,048,576; this recipe exposes 500,000 by default.
+- Vision encoder present (24 blocks, 448 px patches); the same server accepts
+  image and video inputs through the chat template.
 
-EXL3 is the right fit for what GB10 actually has:
+The checkpoint is mixed precision:
 
-- **Blackwell-native kernels.** turboderp's exllamav3 ships a dedicated
-  `CC_BLACKWELL` GEMM/mGEMM dispatch family (K=1–8 bpw variants) — the trellis
-  kernels run natively on this architecture, no emulation layer.
-- **Quality per bit.** EXL3 is a QTIP-derived trellis format; at 4 bpw the
-  routed experts keep near-lossless quality (this deployment's acceptance,
-  needle, vision, and tool-call batteries all pass at temp 0), where 4-bit
-  scalar formats measurably degrade a 320B MoE.
-- **Memory truth.** Experts stay *packed* end-to-end — one fused `exl3_moe`
-  launch per layer, 82.01 GiB loaded per node. On a 121 GiB unified-memory
-  machine that headroom **is** the 1M-token KV pool.
-- **Fork-carried, deliberately.** No EXL3 code exists in vLLM mainline; the
-  integration is this kit's overlay lineage (see `07-rebase-plan.md` for the
-  plan to carry it as an out-of-tree plugin at the next rebase).
+| Component | Precision |
+|---|---|
+| Routed experts (decoder and MTP) | NVFP4, E4M3 block scales, compressed `csf_32x2_v1` |
+| Attention projections | MXFP8 or FP8_PB_WO |
+| Shared experts | FP8_PB_WO |
+| Vision attention | MXFP8 |
+| Vision MLP / merger | NVFP4 |
+| Norms, embeddings, other vision tensors | BF16 |
 
-### The weights, qualified (independent KLD panel)
+The compressed scale format is why the runtime is the B12X container. Upstream
+vLLM does not read it yet.
 
-The served checkpoint (`brandonmusic/GLM-5.3-Flash-tr3-4bpw`, uniform-K4 EXL3/TR3
-routed experts) sits on a community fidelity ladder measured on one sealed
-25-window / 51,175-position teacher-logit panel (malaiwah's GLM-5.3-Flash
-fidelity suite; KLD(BF16-teacher ‖ quant), five bitwise-deterministic cold runs):
+## KV cache geometry
 
-| Checkpoint | Mean KLD (nats) | Size | Fits 2×GB10 TP2 + 1M KV? |
-|---|---:|---:|---|
-| TR3 K8 (8bpw) | 0.0124 | 331 GB | no |
-| TR3 K6 (6bpw) | 0.0137 | 254 GB | no (127 GiB/node) |
-| Official FP8 (cross-stack) | 0.0206 | 328 GB | no (needs TP=4) |
-| **This checkpoint — TR3 4bpw** | **0.0246** | **176 GB** | **yes — 82 GiB/node** |
-| Official FP8 (same-stack measurement) | 0.0246 | 328 GB | — |
-| Dione selective Q4 | 0.0273 | 188 GB | marginal, kills the KV pool |
-| NVFP4 | 0.0605 | ~180 GB | runs only via Marlin dequant |
+Only the 11 full-attention layers keep a paged KV cache. The KDA layers keep a
+recurrent state, not a growing cache. With FP8 storage the B12X
+`fp8_ds_mla` layout stores the 512-wide latent plus the 256-wide V per layer:
 
-Read the ladder: the 4bpw **statistically ties the official FP8 release**
-(0.024555 vs 0.024629 measured on the same stack) at 54% of the bytes, and is
-**2.5× closer to BF16 than NVFP4 at the same size class** — while being the only
-row that leaves room for the 1M-token KV pool on two 121 GiB nodes. The
-better-KLD rows (K6/K8) are quality upgrades only for TP4-class fleets. One
-model-card caution: the upstream HF card describes the author's own SM120 B12X
-runtime (NVFP4 MLA KV, RTX 6000 Pro) — that is *not* this kit's GB10 path; a
-byte-identical mirror pinned for this recipe exists at
-`Mia-AiLab/GLM-5.3-Flash-EXL3-TR3-4bpw`.
+```
+11 × (512 + 256) B = 8,448 B/token
+11 × 128/4 B      =   352 B/token  (kpool indexer)
+                    8,800 B/token  ≈ 8.6 KiB/token
+```
 
-## Process model
+The recipe reserves 17 GiB per rank. That measured **2,078,358 tokens**, or
+four 500k-token requests (4.16×). The un-capped model-card command
+(`--gpu-memory-utilization 0.87`) measured 1,944,029. The boot log prints the
+exact count; `scripts/verify_kv_pool.py` parses it.
 
-ONE oneshot systemd user unit on the head owns BOTH ranks: `start.sh` launches the head
-container, ssh-launches the worker, and waits for `/health`. There is no worker-side
-unit. Unified memory means no separate VRAM: `vm.min_free_kbytes` reserves memory from
-the GPU (~1.25× the value) and must be **identical on both nodes** — asymmetry shows up
-as phantom GPU-memory startup failures.
+The MLA latent is replicated across the two TP ranks, so the cluster-wide
+capacity is `num_gpu_blocks × block_size`, not twice that.
 
-## Network exposure
+## Request path
 
-The API binds `127.0.0.1:8000` (LOCAL patch — upstream binds 0.0.0.0 under
-`--network host`). Clients reach it via SSH port-forwards. Residual, accepted: torch's
-TCPStore listens on `*:29521` while the pair runs.
+1. The client sends an OpenAI-compatible request to the head on `:8000`.
+2. The head tokenizer applies the checkpoint's `chat_template.jinja` (the
+   template is part of the weights repository, so no local copy is needed).
+3. The scheduler admits the request under `--max-num-seqs 4` and
+   `--max-num-batched-tokens 4096`.
+4. Prefix caching reuses full blocks; the hybrid cache keeps KDA state aligned
+   to the 256-token block.
+5. The MTP head drafts 5 tokens per step; the target model verifies them.
+6. The `glm45` reasoning parser and `glm47` tool parser shape the response.
+
+## Memory map
+
+Per rank, roughly:
+
+| Region | Size |
+|---|---:|
+| Weights (166 GiB total / 2) | 83.3 GiB |
+| KV cache | 17 GiB |
+| Activations, graphs, MTP workspace, JIT caches | remainder (~4–5 GiB free) |
+| Reserved by the OS / other processes | ~5–10 GiB |
+
+`--gpu-memory-utilization 0.87` is the vendor value. Because
+`--kv-cache-memory-bytes` is explicit, it controls the KV allocation; the
+utilization value still governs the model-loading budget. If you remove the
+explicit KV bytes, vLLM derives the pool from the utilization and the number
+becomes workload-dependent.
+
+## What is deliberately absent
+
+- No EXL3 / exllamav3 extension, no custom CUDA build, no Dockerfile.
+- No DFlash2 drafter; the checkpoint's MTP head is used.
+- No Ray; the upstream launcher's native multiprocess path is used.
+- No systemd unit in this repository; the upstream launcher owns containers.
+  Install a unit around `./launch.sh` if you need boot persistence.

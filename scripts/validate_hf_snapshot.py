@@ -5,6 +5,11 @@ The Hub cache stores snapshot files as symlinks into ``../../blobs``. Counting
 only regular files therefore reports zero for a healthy cache. This validator
 instead reads the selected snapshot's index, follows valid symlinks, and checks
 that every referenced safetensors file contains its complete declared payload.
+
+Example:
+  python3 scripts/validate_hf_snapshot.py \
+      --repo ~/.cache/huggingface/hub/models--nvidia--GLM-5.3-Flash-FP4-Local \
+      --expected-shards 42
 """
 from __future__ import annotations
 
@@ -163,10 +168,10 @@ def validate_snapshot(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repo", type=Path, required=True)
-    parser.add_argument("--revision", default="")
-    parser.add_argument("--expected-shards", type=int)
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--repo", type=Path, required=True, help="HF hub cache directory for the model")
+    parser.add_argument("--revision", default="", help="explicit commit (default: refs/main)")
+    parser.add_argument("--expected-shards", type=int, help="require this many indexed shards")
     parser.add_argument(
         "--field",
         choices=("count", "revision", "snapshot", "json"),

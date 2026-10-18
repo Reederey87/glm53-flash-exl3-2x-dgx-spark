@@ -1,0 +1,93 @@
+# Recipe: GLM-5.3-Flash-FP4-Local on 2x NVIDIA DGX Spark
+#
+# Derived from the NVIDIA model card
+# (https://huggingface.co/nvidia/GLM-5.3-Flash-FP4-Local) and the
+# eugr/spark-vllm-docker recipe at commit
+# 0bdc9c94cd89843e1c8f7d7b33df2d5bc746c03d.
+#
+# Why every non-obvious flag is here is documented in docs/02-parameters.md.
+#
+# The model card's DGX Spark command uses --gpu-memory-utilization 0.87 and no
+# explicit KV cap. On this pair that measured 1,944,029 tokens (3.89x at
+# 500k). To meet the card's 2M target we pin 17 GiB per rank, which measured
+# 2,078,358 tokens (4.16x), and disable the 4 GiB multimodal processor cache
+# to return headroom. Text serving is unaffected by that cache setting; see
+# docs/04-kv-cache.md and docs/receipts/2026-10-17-fp4-bringup.md.
+
+recipe_version: "1"
+name: GLM-5.3-Flash-FP4-Local
+description: vLLM B12X serving of nvidia/GLM-5.3-Flash-FP4-Local on a dual DGX Spark cluster
+
+model: nvidia/GLM-5.3-Flash-FP4-Local
+container: vllm-node-b12x
+
+build_args:
+  - --exp-b12x
+
+cluster_only: true
+mods: []
+
+defaults:
+  port: 8000
+  # Loopback by default: the server has no authentication. Use an SSH
+  # tunnel, or set HOST=0.0.0.0 explicitly for a firewalled LAN.
+  host: 127.0.0.1
+  tensor_parallel: 2
+  decode_context_parallel: 1
+  block_size: 256
+  max_model_len: 500000
+  max_num_seqs: 4
+  max_num_batched_tokens: 4096
+  num_speculative_tokens: 5
+  # 17 GiB per rank: 2,078,358 FP8 tokens at this image's ~8.7 KiB/token,
+  # i.e. four 500k-token requests. The un-capped 0.87 command measured
+  # 1,944,029; 17G is the measured 2M reservation.
+  kv_cache_bytes: 17G
+  gpu_memory_utilization: 0.87
+
+env:
+  CUTE_DSL_ARCH: "sm_121a"
+  SAFETENSORS_FAST_GPU: "1"
+  VLLM_ENABLE_ROCE_ALLREDUCE: "1"
+  VLLM_ROCE_ALLREDUCE_MAX_SIZE: "2MB"
+  NCCL_BUFFSIZE: "1048576"
+  NCCL_MAX_CTAS: "8"
+  VLLM_WORKER_MULTIPROC_METHOD: "spawn"
+  VLLM_SSM_CONV_STATE_LAYOUT: "DS"
+  VLLM_USE_AOT_COMPILE: "1"
+  VLLM_USE_MEGA_AOT_ARTIFACT: "1"
+  VLLM_USE_V2_MODEL_RUNNER: "1"
+  VLLM_ENABLE_PCIE_ALLREDUCE: "0"
+  B12X_POLICY_MODE: "auto"
+  VLLM_B12X_MOE_FP4_FORCE_A16: "1"
+  B12X_W4A16_A4_PREFILL: "1"
+
+command: |
+  vllm serve nvidia/GLM-5.3-Flash-FP4-Local \
+    --host {host} \
+    --port {port} \
+    --tensor-parallel-size {tensor_parallel} \
+    --decode-context-parallel-size {decode_context_parallel} \
+    --mamba-cache-mode align \
+    --enable-prefix-caching \
+    --enable-prompt-tokens-details \
+    --mm-processor-cache-gb 0 \
+    --enable-chunked-prefill \
+    --dtype bfloat16 \
+    --kv-cache-dtype fp8 \
+    --kv-cache-memory-bytes {kv_cache_bytes} \
+    --quantization modelopt_mixed \
+    --attention-backend B12X \
+    --block-size {block_size} \
+    --moe-backend b12x \
+    --linear-backend b12x \
+    --no-enable-flashinfer-autotune \
+    --load-format b12x \
+    --max-model-len {max_model_len} \
+    --max-num-seqs {max_num_seqs} \
+    --max-num-batched-tokens {max_num_batched_tokens} \
+    --speculative-config '{{"method":"mtp","num_speculative_tokens":{num_speculative_tokens},"moe_backend":"humming","attention_backend":"B12X"}}' \
+    --reasoning-parser glm45 \
+    --tool-call-parser glm47 \
+    --enable-auto-tool-choice \
+    --gpu-memory-utilization {gpu_memory_utilization}

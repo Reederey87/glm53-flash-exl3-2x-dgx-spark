@@ -7,13 +7,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
+
       - name: test dependencies
         run: uv sync --frozen
 
       - name: shellcheck
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
-          # SC1091: sourced .env / notify.env are gitignored by design.
+          # SC1091: .env is sourced by design; it is gitignored.
           git ls-files -z '*.sh' | xargs -0 shellcheck -e SC1091
 
       - name: bash syntax
@@ -21,16 +22,14 @@ jobs:
 
       - name: python syntax
         run: |
-          uv run python -m compileall -q local overlay tests scripts
+          uv run python -m compileall -q scripts tests
           echo "python OK"
 
       - name: python tests
-        run: |
-          uv run pytest tests/ -q
+        run: uv run pytest tests/ -q
 
       - name: no secrets or private config committed
         run: |
-          # .env is the only file with site config (and possibly an HF token).
           test ! -f .env || { echo ".env is committed!"; exit 1; }
           scan_status=0
           git grep -q -E "BEGIN [A-Z ]*PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|hf_[A-Za-z0-9]{30,}" || scan_status=$?
@@ -39,3 +38,16 @@ jobs:
             exit 1
           fi
           echo "secret scan OK"
+
+      - name: no EXL3 runtime code
+        run: |
+          scan_status=0
+          # Scan the runtime surface only. README/docs/tests may mention the
+          # previous kit as history; no runtime file may reference it.
+          git grep -n -i -E "exllamav3|exl3_fat|EXL3_FUSED|EXL3_TR3|brandonmusic|MiaAI-Lab|TR3-4bpw" -- \
+            launch.sh stop.sh status.sh download.sh env.example recipes scripts || scan_status=$?
+          if [ "$scan_status" -ne 1 ]; then
+            echo "EXL3 runtime reference found"
+            exit 1
+          fi
+          echo "no EXL3 runtime references"
