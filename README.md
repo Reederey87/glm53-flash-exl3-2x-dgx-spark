@@ -259,9 +259,17 @@ Re-run `./launch.sh kv` and `./launch.sh smoke` before adopting.
 | `./launch.sh spec` | MTP acceptance |
 | `./launch.sh preflight` | read-only checks |
 | `./launch.sh render` | print the vLLM command |
+| `systemctl --user start vllm-glm53fp4.service` | cold start through the boot unit |
+| `systemctl --user stop vllm-glm53fp4.service` | stop through the boot unit |
+| `systemctl --user list-timers vllm-glm53fp4-watchdog.timer` | check the health canary |
 
 The upstream container is `vllm_node`; weights and compile caches stay on disk,
 so `down` followed by `./launch.sh` is the normal restart.
+
+Boot persistence and the health watchdog are in
+[`systemd/`](systemd/) and [docs/09-systemd.md](docs/09-systemd.md). The unit is
+enabled with linger on; the watchdog runs 15 minutes after boot and then every
+minute. Disable the previous production unit before the first reboot.
 
 ## Updating
 
