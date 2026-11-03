@@ -1,6 +1,7 @@
 # GLM FP4-Local improvement queue
 
-Status: research and preparation; no cluster tests or adoption yet.
+Status (November 3): direct access restored, live qualification passed and the
+three-repetition incumbent matrix is running. No candidate adopted.
 Scope: NVIDIA `nvidia/GLM-5.3-Flash-FP4-Local`, unchanged checkpoint revision,
 two GB10 nodes over direct SSH and RoCE. No EXL3 quantization, replacement
 checkpoint, driver upgrade, or kernel upgrade. Each row is a hypothesis, not
@@ -15,6 +16,16 @@ identify `/home/nvidia/glm53-fp4-local`, `vllm-glm53fp4.service`, and
 `vllm-glm53fp4-watchdog.timer`. They record a 1,000,000-token request limit
 and 2,350,210 KV tokens. The October 17 kit records 500,000 / 2,078,358.
 Neither record proves today's state; inspect both live ranks before testing.
+
+November 3 inspection confirms the 1M request limit, 17 GiB per-rank KV
+reservation and 2,350,210 usable tokens. Both nodes use image
+`a7f76ae9f18c7701c9cde5f72c606393d9a21ca94dd8e53b27589935f64fcbe2`,
+vLLM `8244d1c...`, FlashInfer `9127175...`, Torch 2.13.0+cu130 and DSL 4.7.0.
+Checkpoint revision `76348ddb...` matches on both ranks. See
+[the MTP3 gate](gates/2026-11-03-mtp3.md) for complete identities.
+`ssh spark1` works; worker direct LAN access is
+`ssh -o HostName=10.0.0.35 spark2` while its mDNS name remains unresolved.
+No Tailscale connection is used.
 
 Direct access attempts on November 2: both mDNS names failed resolution and
 `10.0.0.214:22` timed out, including outside the sandbox. User requires direct
@@ -61,7 +72,7 @@ sweep is a separate arm against the same frozen baseline.
 | 03 | Persistent, version-scoped JIT/AOT caches | Reuse compilation across boots without cross-version cache contamination | Cold/warm boot times; fresh caches for changed attention or state paths |
 | 04 | MTP depth 3 versus current 5 | Investigate repeated c4 decode/acceptance dip | Real code/prose/tool workloads plus matrix; draft/accepted/drafts deltas |
 | 05 | MTP depth 1 versus current 5 | Reduce rejected draft work at concurrency | Separate arm; identical 200-token budget and prompts |
-| 06 | Adaptive draft length | Exllamav3 confidence calibration is a transferable idea; prefer existing vLLM support over a new implementation | Verify native MTP support, verifier distribution and graph coverage; no EXL3 loader |
+| 06 | Adaptive draft length | Incumbent already contains acceptance-window adaptation and batch-size schedules; no EXL3 loader needed | Static depth trial first; current scheduler counts prefill requests in batch lookup, and adaptation captures additional graph widths. Require mixed-load and unchanged-KV gates |
 | 07 | Batch token budget 2048 versus 4096 | Smaller chunks may improve mixed-load latency | Long prefill concurrent with short decode; report solo-prefill tradeoff |
 | 08 | Batch token budget 8192 versus 4096 | Larger chunks may improve prefill throughput | No reduction of KV bytes/tokens; capture memory and mixed-load latency |
 | 09 | Admission cap 8 versus 4 | Distinguish queued c8 from true concurrency | Per-request and aggregate decode, KV capacity and memory margin |
@@ -75,14 +86,14 @@ sweep is a separate arm against the same frozen baseline.
 | 17 | B12X offline kernel profiles | Prepare actual GLM geometry/capacities on GB10 rather than borrowing SM120 winners | Complete measured policy coverage, frozen kernel resolution, fixed storage |
 | 18 | MoE activation/prefill mode | Audit current FORCE_A16 and A4_PREFILL, test an eligible alternative separately | Preserve checkpoint scales/weights; quantization-aware oracle and model-quality gate |
 | 19 | Shared/routed expert overlap | Reuse B12X disjoint scratch and stream dependencies | Whole-layer profiling, no aliasing, no extra KV cost; no microbenchmark-only adoption |
-| 20 | Updated vLLM image | Native B12X warmup and current scheduler improvements | First establish CSF loader / GLM / MTP / DSL compatibility; full source rebuild, no blind Python overlay |
+| 20 | Updated vLLM image | Native B12X warmup and current scheduler improvements | Upstream checkout lacks incumbent b12x_loader.py, csf_utils.py and nvfp4_csf.py; exact recipe is not a drop-in. Resolve loader/scale semantics before a full source build |
 | 21 | Complete prefix-state reuse | TensorFold retains KV pages plus recurrent and MTP state; strengthen the kit's warmup/validation accordingly | Cold/hot two-turn branches, cancellation, recycled high pages, cached-vs-uncached logits |
 | 22 | Solo versus mixed-prefill policy | TensorFold distinguishes solo chunks from chunks while decode is active | Existing compatible vLLM knob preferred; mixed-load gate and immutable state |
 | 23 | Flare with this exact checkpoint | Prepared graphs and native scheduler may reduce CPU overhead | Separate engine window; native FP8_PB_WO/MXFP8/CSF support, exact weights, same KV pool, API/tool/reasoning/cancel parity |
 | 24 | Loading / preparation memory lifetime | Reuse packed storage, release temporary CPU/GPU owners | Peak and steady memory on both ranks; no changed quantization or KV reservation |
 | 25 | Startup and watchdog correctness | Transfer runtime fixes from October 21; avoid healers interrupting tests | Detect actual units, atomic script staging, rollback recovery, re-arm verification |
 | 26 | Both-node MemFree startup gate | Kit unit currently waits on head MemAvailable, contradicting the workspace's CUDA-free requirement | Verify live unit; gate both ranks on MemFree >=90GiB before build/start; test timeout and stale-worker cases |
-| 27 | DSA indexer publishing barrier | FlashInfer `37f5c4c1` synchronizes publishing warps before announcing CTA arrival; standalone b12x lacks it | Inspect incumbent first; delayed-warp regression, top-k oracle, fresh caches and graph replay on GB10 |
+| 27 | DSA indexer publishing barrier | FlashInfer `37f5c4c1` synchronizes publishing warps before announcing CTA arrival; standalone b12x lacks it | Already present in the live incumbent (source inspected November 3). No change/build required; adversarial regression remains a kernel qualification test |
 | 28 | Export-safe indexer selection extent | FlashInfer `6d7f238d` and current Flare derive an absent active-width input from page-table metadata | Flare-only integration qualification after exact-checkpoint support; zero all export-disposable scratch and test >16 verifier rows |
 
 Do not test PCIe peer-gather optimizations as cross-node RoCE improvements.
@@ -163,8 +174,13 @@ branch `work/b12x-stack-audit-20261102`, based on `33ff762` (existing PR #100
 is open against main). The original source checkouts were not edited.
 `uv sync --locked` and `uv run --locked pytest` completed: **71 passed**,
 including real loopback HTTP SSE and metrics tests. `git diff --check` passed.
-This validates measurement tooling only; no GPU or serving performance result
-exists for the candidates. Do not open the delivery PR before cluster receipts.
+This validates measurement tooling only. The revised harness subsequently
+passed 73 local tests and a live 8k/c1 qualification (2,269 prefill tok/s;
+code decode 39.38 tok/s, acceptance length 3.431). This short qualification
+does not decide adoption. The full baseline is running under user unit
+`glm53-ab-base-20261103.service`; incremental receipts are in runtime
+`local/ab-20261103/baseline.json`. Do not open the delivery PR before cluster
+receipts. A prior November 1 image trial was reverted and is not a new result.
 
 Further exact-checkpoint screening and named GPU regressions are recorded in
 [the compatibility findings](2026-11-02-compatibility-findings.md). Flare row

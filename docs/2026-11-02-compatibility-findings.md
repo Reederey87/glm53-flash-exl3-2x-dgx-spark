@@ -1,12 +1,19 @@
 # Exact-checkpoint and kernel screening
 
 This supplements the [experiment queue](2026-11-02-improvement-queue.md).
-No cluster configuration changed. Direct SSH remains unavailable; the Mac's
+Initial November 2 screening changed no cluster configuration. Direct SSH was
+then unavailable; the Mac's
 active LAN interface has `10.0.0.244`, but the recorded head address
 `10.0.0.214` has an incomplete ARP entry and SSH returns `No route to host`.
 Both configured Spark mDNS names fail resolution. Saved NVIDIA Sync config
 contains those same names; no replacement address was found. Tailscale is
 excluded by the user's instruction.
+
+November 3 update: both nodes are reachable directly after power-on. The live
+checkpoint matches revision `76348ddb...` on both ranks. The incumbent matrix
+is running, with its watchdog temporarily stopped; serving controls remain
+unchanged. Live source inspection confirms the DSA publishing barrier is
+already installed. The following earlier loader tests remain valid.
 
 ## NVIDIA checkpoint, not a substitute GLM quant
 
@@ -96,6 +103,28 @@ says it has not been rerun on Spark. Older exported packages need re-export.
 This is a Flare integration gate, not evidence that the current vLLM runtime
 has the same exporter bug.
 
+## Incumbent versus updated upstream vLLM
+
+Fetched the exact deployed LIL fork commit `8244d1c44348ae8a5bbfc9f1b607021652283ed4`
+for a local read-only comparison with upstream checkout `190df0b...`.
+The incumbent lazily registers `B12xModelLoader` for `--load-format b12x`
+and has `model_loader/csf_utils.py` plus `quantization/nvfp4_csf.py`.
+All three files are absent in the updated upstream tree. Its support for
+ordinary ModelOpt MXFP8 and FP8_PB_WO does not supply the missing CSF loader.
+Do not replace the image with this upstream checkout and expect the unchanged
+recipe to load. Porting the loader is a separate precision/packing contract
+change requiring numerical qualification, not a launcher-only update.
+
+The incumbent also already implements `adaptive_speculative_tokens_window`
+and `num_speculative_tokens_per_batch_size`. Its V2 graph manager captures
+reachable draft depths. Its scheduler still selects the depth from
+`len(num_scheduled_tokens)`, including prefills. The reported mixed-load
+threshold issue in [vLLM #49548](https://github.com/vllm-project/vllm/issues/49548)
+therefore warrants a dedicated gate, although that report uses another model
+and runner configuration. K=0 still needs draft-state synchronization;
+skipping its forward pass blindly is not a valid optimization. Static K=3
+is the first isolated trial; adaptive depth is a later arm.
+
 ## Sources and limits
 
 Exa lookup and local source inspection were both used. The specific dense
@@ -107,6 +136,6 @@ for an unrelated MLA split-K bug was treated as evidence for that commit.
 - [Flare's primary defect record](https://github.com/NVIDIA/flare-local-inference/blob/main/docs/glm-batched-speculation-defect.md): distinct export-state and grid-barrier defects; TP4/c16 NaN investigation remains open.
 - [FlashInfer MLA addressing fix](https://github.com/flashinfer-ai/flashinfer/pull/3136): corroborates the general large-pool offset hazard, but is a different kernel and fix.
 
-No checkpoint conversion, Flare deployment, new image build or GPU regression
-test has been performed. The next required evidence is the live incumbent's
-source/package identity followed by one isolated candidate window at a time.
+No checkpoint conversion, Flare deployment, new image build or dedicated GPU
+kernel regression test has been performed. Live source/package identity is
+now established; isolated candidate windows follow the full incumbent matrix.

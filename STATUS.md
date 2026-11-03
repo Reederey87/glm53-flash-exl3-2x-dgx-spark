@@ -1,5 +1,20 @@
 # Status
 
+- 2026-11-03: Verified exact tokenizer contract during baseline: this GLM
+  template ignores `enable_thinking=false`; all three flag variants tokenize
+  identically at default maximum effort. Corrected the MTP3 gate's mode label
+  before candidate measurement; kept both arms' frozen prompt/harness bytes.
+
+- 2026-11-03: Started the full incumbent matrix as persistent user unit
+  `glm53-ab-base-20261103.service`, using harness commit `318edd6`; private
+  snapshots and incremental receipts are in runtime `local/ab-20261103`.
+  FP4 watchdog temporarily stopped for the measurement window. MTP3 recipe
+  patch frozen separately; no serving treatment applied yet.
+- 2026-11-03: Verified direct worker access with `ssh -o HostName=10.0.0.35
+  spark2`. Confirmed incumbent already contains the DSA barrier fix; updated
+  upstream vLLM lacks its B12X/CSF loader files. Recorded native adaptive-MTP
+  controls and the mixed-prefill scheduling gate in compatibility findings.
+
 - 2026-11-03: Direct access restored via `spark1`; worker reached over
   `192.168.177.11` (LAN address `10.0.0.35`). Incumbent cold boot healthy at
   1M context / 2,350,210 KV tokens; exact NVIDIA checkpoint revision verified.
