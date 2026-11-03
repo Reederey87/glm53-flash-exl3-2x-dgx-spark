@@ -57,6 +57,7 @@ DRAFTED = "vllm:spec_decode_num_draft_tokens_total"
 DRAFTS = "vllm:spec_decode_num_drafts_total"
 CACHE_HITS = "vllm:prefix_cache_hits_total"
 DECODE_TEMPLATE_KWARGS = {"reasoning_effort": "max"}
+PROMPT_SEED_SCHEME = "sha256-json-tuple-v1"
 DECODE_TASKS = {
     "code": "Write a Python implementation of a bounded LRU cache with get, put, delete, and clear. Explain its invariants and include tests for eviction, updating an existing key, zero capacity, and missing keys. Do not use functools.lru_cache. Keep each operation O(1). Discuss thread safety and whether a lock belongs inside the cache or around the caller's transaction.",
     "prose": "Write a practical incident review for an inference service that became slow after a restart. The service uses two GPUs on separate hosts, a shared network, persistent compilation caches, and speculative decoding. Distinguish observed facts from hypotheses. Explain how to separate cold compilation, network congestion, batching, and draft acceptance effects. Include a reproducible measurement plan and a rollback decision, without inventing measured results.",
@@ -134,6 +135,15 @@ def make_prompt(length: int, rng: random.Random, vocab: int = 150000) -> list[in
     if length <= 0:
         raise ValueError("prompt length must be positive")
     return [rng.randrange(1000, vocab) for _ in range(length)]
+
+
+def prompt_rng(seed: int, kind: str, repetition: int, concurrency: int,
+               length: int, index: int, workload: str = "random") -> random.Random:
+    """Keep run/cell/request identities separate; seed+index overlaps runs."""
+    identity = [PROMPT_SEED_SCHEME, seed, kind, repetition, concurrency,
+                length, index, workload]
+    digest = hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).digest()
+    return random.Random(int.from_bytes(digest, "big"))
 
 
 def _request_json(url: str, payload: dict[str, Any] | None, api_key: str, timeout: float) -> tuple[int, Any]:
@@ -368,7 +378,7 @@ def run_cell(
     prompts: list[list[int]] = [] if prepared_prompts is None else prepared_prompts
     if prepared_prompts is None:
         for index in range(requests):
-            rng = random.Random(seed + concurrency * 100003 + length * 17 + index)
+            rng = prompt_rng(seed, kind, repetition, concurrency, length, index, workload)
             prompts.append(make_prompt(length, rng))
     if len(prompts) != requests:
         raise ValueError("prompt count must equal concurrency")
@@ -548,6 +558,7 @@ def main() -> int:
             "decode_tokens": args.decode_tokens,
             "max_seqs": args.max_seqs,
             "seed": args.seed,
+            "prompt_seed_scheme": PROMPT_SEED_SCHEME,
             "repetitions": args.repetitions,
             "expect_speculation": not args.no_speculation,
             "decode_workloads": workloads,
@@ -581,7 +592,7 @@ def main() -> int:
 
     if args.warmup:
         print("warmup ...", file=sys.stderr)
-        warm = stream_completion(args.base, args.model, make_prompt(512, random.Random(args.seed)), 16, args.api_key, args.timeout)
+        warm = stream_completion(args.base, args.model, make_prompt(512, prompt_rng(args.seed, "initial-warmup", 0, 1, 512, 0)), 16, args.api_key, args.timeout)
         if not warm.ok:
             print(f"warmup failed: {warm.error}", file=sys.stderr)
             return 2
@@ -591,13 +602,13 @@ def main() -> int:
     ):
         # Identical across arms, distinct across reps. Start each arm with fresh
         # server state; the prefix-counter check rejects accidentally hot runs.
-        cell_seed = args.seed + (repetition - 1) * 1000000007
+        cell_seed = args.seed
         if not args.skip_prefill:
             if args.warmup and repetition == 1:
                 print(f"prefill warmup c={concurrency} ...", file=sys.stderr)
                 warm_cell = run_cell(
                     args.base, args.model, args.api_key, "prefill", concurrency, prefill_lengths[0],
-                    args.decode_tokens, args.timeout, args.seed + 7000000021, args.max_seqs,
+                    args.decode_tokens, args.timeout, args.seed, args.max_seqs,
                     0, not args.no_speculation,
                 )
                 warmup_cells.append(warm_cell)

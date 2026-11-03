@@ -1,5 +1,11 @@
 # Status
 
+- 2026-11-03: Excluded the incomplete token-usage baseline after its c4 warmup
+  correctly detected 8192 cached tokens. Additive run-seed/request-index arithmetic
+  reused earlier prompts. Replaced it with deterministic SHA256 tuple namespaces;
+  maximum reasoning and continuous token timing are unchanged. New baseline and
+  candidate must share this harness, seed 2026110304, and zero-hit prefill gate.
+
 - 2026-11-03: Explicit-max baseline correctly stopped on an empty-text token.
   Live replay identified token 119 with valid usage; serving stayed healthy.
   Replaced text-only arrival timing with validated continuous token usage,

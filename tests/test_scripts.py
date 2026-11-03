@@ -211,6 +211,25 @@ def test_speed_matrix_prompt_is_unique_and_exact() -> None:
     assert prompt[:64] != other[:64]
 
 
+def test_speed_matrix_prompt_namespaces_do_not_overlap_neighboring_runs() -> None:
+    module = load_module("speed_matrix")
+    prefixes = set()
+    # Reproduce the failed shape: incrementing the run seed must not shift
+    # request i onto the previous run's request i+1, including warmups.
+    for seed in (2026110302, 2026110303, 2026110304):
+        for repetition in (0, 1, 2, 3):
+            for concurrency in (1, 2, 4, 8):
+                for length in (8192, 16384, 32768, 65536, 131072):
+                    for index in range(concurrency):
+                        args = (seed, "prefill", repetition, concurrency, length, index)
+                        prefix = tuple(module.make_prompt(256, module.prompt_rng(*args)))
+                        assert prefix not in prefixes
+                        assert prefix == tuple(module.make_prompt(256, module.prompt_rng(*args)))
+                        prefixes.add(prefix)
+    # Equal lengths cannot alias the random decode and prefill workloads.
+    assert module.prompt_rng(7, "prefill", 1, 1, 8192, 0).random() != module.prompt_rng(7, "decode", 1, 1, 8192, 0).random()
+
+
 def test_speed_matrix_acceptance_from_counter_deltas() -> None:
     module = load_module("speed_matrix")
     before = {module.ACCEPTED: 100.0, module.DRAFTED: 200.0, module.DRAFTS: 20.0}
@@ -430,6 +449,7 @@ def test_speed_matrix_cli_warms_each_real_text_cell_and_persists_receipt(sse_end
     assert receipt["decode_chat_template_kwargs"] == {"reasoning_effort": "max"}
     assert receipt["decode_token_scope"] == "generated_tokens_including_reasoning"
     assert receipt["timing_source"] == "continuous_completion_usage"
+    assert receipt["prompt_seed_scheme"] == "sha256-json-tuple-v1"
     assert "reasoning_effort=max" in markdown_out.read_text()
     assert len(receipt["warmup_cells"]) == len(receipt["cells"]) == 2
     assert server.completed == 4
