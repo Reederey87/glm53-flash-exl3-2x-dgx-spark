@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: The continuation stopped at FlashInfer checkout: normal clone
+  omitted the frozen commit. An isolated exact-SHA fetch succeeded and its
+  dense kernel hash matches. Prepared explicit pin fetching in the build-context
+  generator; source pins, treatment and native/serving gates remain unchanged.
+
 - 2026-11-03: Scoped recovery raised head MemFree from 89,364,996 to
   101,452,696 KiB; wheel SHA unchanged. Both-node idle gate passed again.
   Hash-identical source build resumed in `dense-int64-2157b70-resume1/context`
