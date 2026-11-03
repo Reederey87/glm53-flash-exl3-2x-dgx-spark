@@ -1,17 +1,20 @@
 # GLM FP4-Local improvement queue
 
-Status (November 3): direct access restored and live qualification passed.
-The incumbent matrix is being qualified with explicit maximum reasoning
-effort and per-chunk token-usage timing. Earlier incomplete runs (implicit
-effort and empty-token text timing) are archived and excluded. No candidate
-adopted.
+Status (November 3): the complete MTP5/MTP3 trial passed its registered gate;
+MTP3 adoption awaits the user's decision. Both arms used explicit maximum
+reasoning and cumulative token-usage timing. Earlier incomplete runs (implicit
+effort and empty-token text timing) are archived and excluded. MTP5 restoration
+was verified after that trial. Inference is now stopped for candidate 16's
+separate Int64 source build; native GPU and serving qualification remain
+pending. No candidate has been adopted. See the [MTP receipts](receipts/2026-11-03-mtp-depth/README.md)
+and [active build window](gates/2026-11-03-dense-int64.md).
 Scope: NVIDIA `nvidia/GLM-5.3-Flash-FP4-Local`, unchanged checkpoint revision,
 two GB10 nodes over direct SSH and RoCE. No EXL3 quantization, replacement
 checkpoint, driver upgrade, or kernel upgrade. Each row is a hypothesis, not
 a measured improvement. This is the candidate inventory found in the requested
 repositories; new profiling evidence can add candidates.
 
-## Baseline must be measured again
+## Verified baseline and historical discovery
 
 The `b12x` directory is a kernel-library checkout, not the runtime tree.
 The serving kit is `glm53-2x-dgx-spark`. Workspace receipts dated October 21
@@ -195,10 +198,13 @@ stopped on a cross-run prompt collision and is excluded. Harness `05c6023`
 uses separate hashed prompt identities; two neighboring seeds passed live
 c4/c8 qualification (24 requests, zero prefix hits). The full MTP5 baseline
 completed and passed strict validation: 96 measured cells and 40 warmups.
-The matched MTP3 matrix is in progress; partial candidate results do not
-decide adoption.
-Do not open the delivery PR before cluster
-receipts. A prior November 1 image trial was reverted and is not a new result.
+The matched MTP3 matrix also completed all 96 cells and 40 warmups and passed
+the registered gate. Complete receipts and the verified MTP5 restoration are
+published in [the results](receipts/2026-11-03-mtp-depth/README.md). Draft
+[PR #101](https://github.com/Reederey87/glm53-flash-exl3-2x-dgx-spark/pull/101)
+contains those receipts; final adoption remains pending. The current separate
+Int64 build does not change the completed MTP trial's results. A prior
+November 1 image trial was reverted and is not a new result.
 
 Further exact-checkpoint screening and named GPU regressions are recorded in
 [the compatibility findings](2026-11-02-compatibility-findings.md). Flare row

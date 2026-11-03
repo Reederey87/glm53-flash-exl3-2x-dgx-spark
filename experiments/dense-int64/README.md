@@ -160,3 +160,24 @@ reported errors. The [uv environment guide](https://docs.astral.sh/uv/pip/enviro
 describes isolated environments; this setup was also executed in the actual
 incumbent image. Local vLLM sanitizer tests, Exllamav3 architecture/cache
 selection and TensorFold native-artifact tests were reviewed before this plan.
+
+The reusable runner is in `qualification/`. Stage its four files together
+with this experiment's `manifest.json` into a new isolated checks directory,
+and write `sha256.txt` for those five files before transfer. The locked project
+files are staged separately under
+`/home/nvidia/glm53-native-tests/int64-20261103/harness`. Invoke `host-run.sh`
+with the exact built image ID, arm (`control` or `candidate`) and a new
+directory beneath `.../int64-20261103/results/`, only after the build completes
+and the common both-node idle gate passes. Execute one arm/node at a time.
+The runner refuses a live build/serving unit, existing result directory,
+wrong source bytes or non-GB10 GPU. It does not start or configure production.
+
+JUnit results, skip reasons, installed package/source identities, cache objects
+and resource reports are retained. Missing/skipped tests and absent/nonzero
+memcheck summaries fail the automated result check. Sanitizer communication
+failure terminates its test process (`--kill`); CUDA initialization is required.
+The [NVIDIA sanitizer manual](https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/)
+documents these controls. The runner's automated result is only one gate:
+inspect compiled artifacts and the [reported register/local-memory resources](https://docs.nvidia.com/cuda/cuda-binary-utilities/index.html)
+before claiming native qualification. Resource-report collection alone does
+not prove absence of spills, and none of these tests measures serving speed.

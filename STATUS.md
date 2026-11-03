@@ -1,5 +1,11 @@
 # Status
 
+- 2026-11-03: Prepared the Int64 native-test runner with installed-source/GPU
+  identity checks, fresh caches, strict skip/memcheck handling and retained
+  native resource reports. Locked test-project hashes match on both nodes;
+  GPU execution awaits the ongoing source build. All 157 repository tests,
+  runner ShellCheck and syntax checks pass. Updated queue status.
+
 - 2026-11-03: Int64 full-source build started on spark1 at 16:19:51 UTC as
   `glm53-build-dense-int64-20261103.service` after both-node snapshots and
   MemFree >90 GiB. Inference is stopped and watchdog disarmed for this window;
