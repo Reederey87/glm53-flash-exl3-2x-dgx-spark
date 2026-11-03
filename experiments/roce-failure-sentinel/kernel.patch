@@ -1,0 +1,369 @@
+diff --git a/flashinfer/experimental/b12x/comm/roce/_allgather_cute.py b/flashinfer/experimental/b12x/comm/roce/_allgather_cute.py
+index 89aab169f..3d6732b4d 100644
+--- a/flashinfer/experimental/b12x/comm/roce/_allgather_cute.py
++++ b/flashinfer/experimental/b12x/comm/roce/_allgather_cute.py
+@@ -34,6 +34,7 @@ from b12x._lib.program_cache import program_cache
+ from b12x._lib.runtime_control import raise_if_kernel_resolution_frozen
+ from b12x._lib.utils import current_cuda_stream, make_ptr
+ 
++from ._control import CTRL_FAILED
+ from ._cute_intrinsics import (
+     atomic_add_relaxed_gpu_u32,
+     fence_sc_gpu,
+@@ -158,7 +159,7 @@ class _RoceAllGatherLaunch:
+         # the host sees the failure without waiting another spin limit per op.
+         # The device poison word (fourth counter) is written by the same waiting
+         # threads that write the host error word and only ever goes from 0 to
+-        # the failed sequence, so a cheap GPU-scope load is enough here.
++        # 1, independently of sequence wrap, so a GPU-scope load is enough here.
+         poisoned = ld_relaxed_gpu_u32(poison_ptr)
+         if poisoned == Uint32(0):
+             # 1. stage the local shard into the pinned send slot
+@@ -210,7 +211,9 @@ class _RoceAllGatherLaunch:
+                         st_relaxed_sys_u32(ctrl_base + Int64(12), Uint32(peer))
+                         st_relaxed_sys_u32(ctrl_base + Int64(24), Uint32(hca))
+                         st_relaxed_sys_u32(ctrl_base + Int64(8), seq)
+-                        st_release_gpu_u32(poison_ptr, seq)
++                        fence_sc_sys()
++                        st_relaxed_sys_u32(ctrl_base + Int64(CTRL_FAILED), Uint32(1))
++                        st_release_gpu_u32(poison_ptr, Uint32(1))
+             cute.arch.sync_threads()
+             # A wait that timed out in this block leaves the peer slot unreliable:
+             # skip the data phase so nothing derived from it is stored.
+@@ -252,9 +255,9 @@ class _RoceAllGatherLaunch:
+                 if (prior + Uint32(1)) % Uint32(gdim) == Uint32(0):
+                     fence_sc_gpu()
+                     # Every block's timeout store precedes its tail arrival, so the
+-                    # error word is final here.  A failed sequence keeps the epoch,
++                    # sticky failure flag is final here.  A failed sequence keeps the epoch,
+                     # which makes every later launch a no-op until the host raises.
+-                    if ld_relaxed_sys_u32(ctrl_base + Int64(8)) == Uint32(0):
++                    if ld_relaxed_sys_u32(ctrl_base + Int64(CTRL_FAILED)) == Uint32(0):
+                         st_release_gpu_u32(epoch_ptr, seq)
+ 
+ 
+@@ -337,7 +340,7 @@ def get_launcher(
+         1,
+         1,
+         current_cuda_stream(),
+-        compile_spec=KernelCompileSpec.from_key("comm.roce.allgather", 5, cache_key),
++        compile_spec=KernelCompileSpec.from_key("comm.roce.allgather", 7, cache_key),
+     )
+ 
+     def run(
+diff --git a/flashinfer/experimental/b12x/comm/roce/_control.py b/flashinfer/experimental/b12x/comm/roce/_control.py
+new file mode 100644
+index 000000000..3538619bf
+--- /dev/null
++++ b/flashinfer/experimental/b12x/comm/roce/_control.py
+@@ -0,0 +1,8 @@
++"""Shared Python offsets for proxy ABI 8 (byte offsets unless named WORD).
++
++Words 8-13 remain per-slot operation/chunk metadata; readiness arrays begin
++at word 64. Keep CTRL_FAILED_WORD aligned with _roce_proxy.c.
++"""
++CTRL_FAILED_WORD = 14
++CTRL_FAILED = 4 * CTRL_FAILED_WORD
++CTRL_HOST_BYTES = CTRL_FAILED + 4
+diff --git a/flashinfer/experimental/b12x/comm/roce/_oneshot_cute.py b/flashinfer/experimental/b12x/comm/roce/_oneshot_cute.py
+index 72c73a03a..8a402209b 100644
+--- a/flashinfer/experimental/b12x/comm/roce/_oneshot_cute.py
++++ b/flashinfer/experimental/b12x/comm/roce/_oneshot_cute.py
+@@ -44,6 +44,7 @@ from b12x._lib.program_cache import program_cache
+ from b12x._lib.runtime_control import raise_if_kernel_resolution_frozen
+ from b12x._lib.utils import current_cuda_stream, make_ptr
+ 
++from ._control import CTRL_FAILED
+ from ._cute_intrinsics import (
+     atomic_add_relaxed_gpu_u32,
+     f32_as_u32,
+@@ -233,7 +234,7 @@ class _RoceOneshotLaunch:
+         # the host sees the failure without waiting another spin limit per op.
+         # The device poison word (fourth counter) is written by the same waiting
+         # threads that write the host error word and only ever goes from 0 to
+-        # the failed sequence, so a cheap GPU-scope load is enough here.
++        # 1, independently of sequence wrap, so a GPU-scope load is enough here.
+         poisoned = ld_relaxed_gpu_u32(poison_ptr)
+         if poisoned == Uint32(0):
+             # 1. stage the input into the pinned send slot
+@@ -283,7 +284,9 @@ class _RoceOneshotLaunch:
+                         st_relaxed_sys_u32(ctrl_base + Int64(12), Uint32(peer))
+                         st_relaxed_sys_u32(ctrl_base + Int64(24), Uint32(hca))
+                         st_relaxed_sys_u32(ctrl_base + Int64(8), seq)
+-                        st_release_gpu_u32(poison_ptr, seq)
++                        fence_sc_sys()
++                        st_relaxed_sys_u32(ctrl_base + Int64(CTRL_FAILED), Uint32(1))
++                        st_release_gpu_u32(poison_ptr, Uint32(1))
+             cute.arch.sync_threads()
+             # A wait that timed out in this block leaves the peer slot unreliable:
+             # skip the data phase so nothing derived from it is stored.
+@@ -318,9 +321,9 @@ class _RoceOneshotLaunch:
+                 if (prior + Uint32(1)) % Uint32(gdim) == Uint32(0):
+                     fence_sc_gpu()
+                     # Every block's timeout store precedes its tail arrival, so the
+-                    # error word is final here.  A failed sequence keeps the epoch,
++                    # sticky failure flag is final here.  A failed sequence keeps the epoch,
+                     # which makes every later launch a no-op until the host raises.
+-                    if ld_relaxed_sys_u32(ctrl_base + Int64(8)) == Uint32(0):
++                    if ld_relaxed_sys_u32(ctrl_base + Int64(CTRL_FAILED)) == Uint32(0):
+                         st_release_gpu_u32(epoch_ptr, seq)
+ 
+ 
+@@ -421,7 +424,7 @@ def get_launcher(
+         1,
+         1,
+         current_cuda_stream(),
+-        compile_spec=KernelCompileSpec.from_key("comm.roce.oneshot", 6, cache_key),
++        compile_spec=KernelCompileSpec.from_key("comm.roce.oneshot", 8, cache_key),
+     )
+ 
+     def run(
+diff --git a/flashinfer/experimental/b12x/comm/roce/_proxy.py b/flashinfer/experimental/b12x/comm/roce/_proxy.py
+index b58ac588a..7684d864a 100644
+--- a/flashinfer/experimental/b12x/comm/roce/_proxy.py
++++ b/flashinfer/experimental/b12x/comm/roce/_proxy.py
+@@ -23,7 +23,7 @@ _LIB: ctypes.CDLL | None = None
+ 
+ BLOB_STRUCT_ERR = "roce proxy blob size mismatch"
+ # Region layout and doorbell protocol of ``_roce_proxy.c``; native runtimes vendor the same file.
+-ABI_VERSION = 7
++ABI_VERSION = 8
+ 
+ 
+ def _traffic_class() -> int:
+diff --git a/flashinfer/experimental/b12x/comm/roce/_roce_proxy.c b/flashinfer/experimental/b12x/comm/roce/_roce_proxy.c
+index 30a15839c..5f1dc3095 100644
+--- a/flashinfer/experimental/b12x/comm/roce/_roce_proxy.c
++++ b/flashinfer/experimental/b12x/comm/roce/_roce_proxy.c
+@@ -76,7 +76,7 @@
+ #define ROCE_FLAG_STRIDE 128
+ #define ROCE_PORT 1
+ #define ROCE_SEND_DEPTH 512
+-#define ROCE_ABI_VERSION 7
++#define ROCE_ABI_VERSION 8
+ #define ROCE_MAX_CHUNKS 64
+ #define ROCE_VARLEN_MAX_CHUNKS 512
+ #define ROCE_CTRL_BYTES 4096
+@@ -88,7 +88,11 @@
+ #define CTRL_SLOT_KIND 8
+ #define CTRL_SLOT_CHUNK_PACKS 10
+ #define CTRL_SLOT_CHUNKS 12
++// Sticky failure flag; error sequence zero is valid after wrap.
++#define CTRL_FAILED 14
+ #define CTRL_READY_RS 64
++_Static_assert(CTRL_FAILED >= CTRL_SLOT_CHUNKS + 2 && CTRL_FAILED < CTRL_READY_RS,
++               "failure flag overlaps control metadata or readiness arrays");
+ #define CTRL_READY_AG 128
+ #define CTRL_READY_VL 256
+ #define KIND_ONESHOT 0
+@@ -715,7 +719,7 @@ static int run_pipe_op(roce_ctx_t* c, uint32_t seq, uint32_t nbytes, uint32_t ch
+         return -1;
+       }
+       // A kernel whose peer wait timed out publishes no further chunks.
+-      if (ctrl[CTRL_ERROR] != 0) {
++      if (__atomic_load_n(&ctrl[CTRL_FAILED], __ATOMIC_ACQUIRE) != 0) {
+         snprintf(c->err, sizeof(c->err), "two-shot op %u abandoned: kernel timed out at seq %u",
+                  seq, ctrl[CTRL_ERROR]);
+         return -1;
+@@ -786,7 +790,7 @@ static int run_varlen_op(roce_ctx_t* c, uint32_t seq, uint32_t nbytes, uint32_t
+       if (drain_all(c) != 0) {
+         return -1;
+       }
+-      if (ctrl[CTRL_ERROR] != 0) {
++      if (__atomic_load_n(&ctrl[CTRL_FAILED], __ATOMIC_ACQUIRE) != 0) {
+         snprintf(c->err, sizeof(c->err),
+                  "variable-length op %u abandoned: kernel stopped at seq %u", seq,
+                  ctrl[CTRL_ERROR]);
+diff --git a/flashinfer/experimental/b12x/comm/roce/_twoshot_cute.py b/flashinfer/experimental/b12x/comm/roce/_twoshot_cute.py
+index 53a6b64f4..0eefe178d 100644
+--- a/flashinfer/experimental/b12x/comm/roce/_twoshot_cute.py
++++ b/flashinfer/experimental/b12x/comm/roce/_twoshot_cute.py
+@@ -44,6 +44,7 @@ from b12x._lib.program_cache import program_cache
+ from b12x._lib.runtime_control import raise_if_kernel_resolution_frozen
+ from b12x._lib.utils import current_cuda_stream, make_ptr
+ 
++from ._control import CTRL_FAILED
+ from ._cute_intrinsics import (
+     atomic_add_relaxed_gpu_u32,
+     fence_sc_gpu,
+@@ -121,7 +122,9 @@ class _RoceTwoshotLaunch(_RoceOneshotLaunch):
+                     st_relaxed_sys_u32(ctrl_base + Int64(12), Uint32(peer))
+                     st_relaxed_sys_u32(ctrl_base + Int64(24), Uint32(hca))
+                     st_relaxed_sys_u32(ctrl_base + Int64(8), seq)
+-                    st_release_gpu_u32(poison_ptr, seq)
++                    fence_sc_sys()
++                    st_relaxed_sys_u32(ctrl_base + Int64(CTRL_FAILED), Uint32(1))
++                    st_release_gpu_u32(poison_ptr, Uint32(1))
+ 
+     @cute.jit
+     def _arrive(
+@@ -139,7 +142,7 @@ class _RoceTwoshotLaunch(_RoceOneshotLaunch):
+             prior = atomic_add_relaxed_gpu_u32(counter, Uint32(1))
+             if (prior + Uint32(1)) % Uint32(gdim) == Uint32(0):
+                 fence_sc_sys()
+-                if ld_relaxed_sys_u32(ctrl_base + Int64(8)) == Uint32(0):
++                if ld_relaxed_sys_u32(ctrl_base + Int64(CTRL_FAILED)) == Uint32(0):
+                     st_relaxed_sys_u32(ready, seq)
+ 
+     @cute.jit
+@@ -357,7 +360,7 @@ class _RoceTwoshotLaunch(_RoceOneshotLaunch):
+             prior = atomic_add_relaxed_gpu_u32(tail_counter, Uint32(1))
+             if (prior + Uint32(1)) % Uint32(gdim) == Uint32(0):
+                 fence_sc_gpu()
+-                if ld_relaxed_sys_u32(ctrl_base + Int64(8)) == Uint32(0):
++                if ld_relaxed_sys_u32(ctrl_base + Int64(CTRL_FAILED)) == Uint32(0):
+                     st_release_gpu_u32(epoch_ptr, seq)
+ 
+ 
+@@ -430,7 +433,7 @@ def get_launcher(
+         1,
+         1,
+         current_cuda_stream(),
+-        compile_spec=KernelCompileSpec.from_key("comm.roce.twoshot", 2, cache_key),
++        compile_spec=KernelCompileSpec.from_key("comm.roce.twoshot", 3, cache_key),
+     )
+ 
+     def run(
+diff --git a/flashinfer/experimental/b12x/comm/roce/_varlen_cute.py b/flashinfer/experimental/b12x/comm/roce/_varlen_cute.py
+index cd4a85c4b..b4ae5604a 100644
+--- a/flashinfer/experimental/b12x/comm/roce/_varlen_cute.py
++++ b/flashinfer/experimental/b12x/comm/roce/_varlen_cute.py
+@@ -40,6 +40,7 @@ from b12x._lib.program_cache import program_cache
+ from b12x._lib.runtime_control import raise_if_kernel_resolution_frozen
+ from b12x._lib.utils import current_cuda_stream, make_ptr
+ 
++from ._control import CTRL_FAILED
+ from ._cute_intrinsics import (
+     atomic_add_relaxed_gpu_u32,
+     fence_sc_gpu,
+@@ -133,7 +134,7 @@ class _RoceVarlenLaunch:
+             prior = atomic_add_relaxed_gpu_u32(counter, Uint32(1))
+             if (prior + Uint32(1)) % Uint32(gdim) == Uint32(0):
+                 fence_sc_sys()
+-                if ld_relaxed_sys_u32(ctrl_base + Int64(8)) == Uint32(0):
++                if ld_relaxed_sys_u32(ctrl_base + Int64(CTRL_FAILED)) == Uint32(0):
+                     st_relaxed_sys_u32(ready, seq)
+ 
+     @cute.jit
+@@ -229,7 +230,9 @@ class _RoceVarlenLaunch:
+                         ctrl_base + Int64(28), Uint32(ERROR_KIND_INVALID_COUNT)
+                     )
+                     st_relaxed_sys_u32(ctrl_base + Int64(8), seq)
+-                    st_release_gpu_u32(poison_ptr, seq)
++                    fence_sc_sys()
++                    st_relaxed_sys_u32(ctrl_base + Int64(CTRL_FAILED), Uint32(1))
++                    st_release_gpu_u32(poison_ptr, Uint32(1))
+             else:
+                 own_packs = self._packs(counts_base, Int32(self._rank))
+                 own_chunks = self._chunks(own_packs, chunk_packs)
+@@ -329,7 +332,9 @@ class _RoceVarlenLaunch:
+                                             ctrl_base + Int64(24), Uint32(hca)
+                                         )
+                                         st_relaxed_sys_u32(ctrl_base + Int64(8), seq)
+-                                        st_release_gpu_u32(poison_ptr, seq)
++                                        fence_sc_sys()
++                                        st_relaxed_sys_u32(ctrl_base + Int64(CTRL_FAILED), Uint32(1))
++                                        st_release_gpu_u32(poison_ptr, Uint32(1))
+                     cute.arch.sync_threads()
+                     if ld_relaxed_gpu_u32(poison_ptr) == Uint32(0):
+                         for peer in cutlass.range_constexpr(self._world_size):
+@@ -365,7 +370,7 @@ class _RoceVarlenLaunch:
+             prior = atomic_add_relaxed_gpu_u32(tail_counter, Uint32(1))
+             if (prior + Uint32(1)) % Uint32(gdim) == Uint32(0):
+                 fence_sc_gpu()
+-                if ld_relaxed_sys_u32(ctrl_base + Int64(8)) == Uint32(0):
++                if ld_relaxed_sys_u32(ctrl_base + Int64(CTRL_FAILED)) == Uint32(0):
+                     st_release_gpu_u32(epoch_ptr, seq)
+ 
+ 
+@@ -429,7 +434,7 @@ def get_launcher(
+         1,
+         1,
+         current_cuda_stream(),
+-        compile_spec=KernelCompileSpec.from_key("comm.roce.varlen", 1, cache_key),
++        compile_spec=KernelCompileSpec.from_key("comm.roce.varlen", 2, cache_key),
+     )
+ 
+     def run(
+diff --git a/flashinfer/experimental/b12x/comm/roce/roce_oneshot.py b/flashinfer/experimental/b12x/comm/roce/roce_oneshot.py
+index fbfa264df..86d40b553 100644
+--- a/flashinfer/experimental/b12x/comm/roce/roce_oneshot.py
++++ b/flashinfer/experimental/b12x/comm/roce/roce_oneshot.py
+@@ -41,6 +41,7 @@ import torch.distributed as dist
+ from torch.distributed import ProcessGroup
+ 
+ from . import _allgather_cute, _twoshot_cute, _varlen_cute
++from ._control import CTRL_FAILED, CTRL_FAILED_WORD, CTRL_HOST_BYTES
+ from ._oneshot_cute import PACK_BYTES, get_launcher
+ from ._proxy import Layout, Proxy, load as _load_proxy_library
+ from ._routes import MAX_RAILS, local_endpoints, plan_routes
+@@ -396,9 +397,10 @@ class RoceOneshotAllReduce:
+         # ctrl record (kernel-written): seq, nbytes, error seq, missing peer,
+         # nbytes per slot (the proxy uses these when it has to catch up), the
+         # missing rail index for timeout diagnostics (reported as error_hca), and
+-        # the reason a kernel failed without a timeout (error_kind).
++        # the reason a kernel failed without a timeout (error_kind). The host view
++        # also includes the independent sticky failure flag after slot metadata.
+         self._ctrl_words = self._region[
+-            self._layout.ctrl_off : self._layout.ctrl_off + 32
++            self._layout.ctrl_off : self._layout.ctrl_off + CTRL_HOST_BYTES
+         ].view(torch.int32)
+         self._error_word = self._ctrl_words[2:3]
+         # numpy view of the control words: reading it costs nanoseconds, so the
+@@ -899,8 +901,8 @@ class RoceOneshotAllReduce:
+ 
+         if self._proxy is not None and self._proxy.failed():
+             raise RuntimeError(f"RoCE proxy failed: {self._proxy.error()}")
+-        failed_seq = int(self._ctrl_np[2])
+-        if failed_seq != 0:
++        if int(self._ctrl_np[CTRL_FAILED_WORD]) != 0:
++            failed_seq = int(self._ctrl_np[2]) & 0xFFFFFFFF
+             peer = int(self._ctrl_np[3])
+             hca = int(self._ctrl_np[6])
+             if int(self._ctrl_np[7]) == _varlen_cute.ERROR_KIND_INVALID_COUNT:
+@@ -913,7 +915,7 @@ class RoceOneshotAllReduce:
+             raise RuntimeError(
+                 f"RoCE collective on rank {self.rank} timed out waiting for rank "
+                 f"{peer}, HCA {hca}, at sequence {failed_seq}; the runtime is "
+-                f"poisoned (its epoch stopped at {failed_seq - 1}, later launches "
++                f"poisoned (its epoch stopped at {(failed_seq - 1) & 0xFFFFFFFF}, later launches "
+                 "do nothing) and rank data is no longer trustworthy"
+             )
+ 
+@@ -926,7 +928,8 @@ class RoceOneshotAllReduce:
+         (local HCA index, peer HCA index per rail) are the ones this setup
+         verified; a restoring host must expose the same devices.  The proxy
+         ABI pins the region layout and the doorbell protocol.  The kernel's
+-        error word is ``ctrl_offset + 8`` in the region.
++        error sequence is at ``ctrl_offset + 8``; the independent sticky failure
++        flag is at ``failure_offset``. Both offsets are relative to the region.
+         """
+         if self._proxy is None:
+             raise RuntimeError("RoCE runtime is closed")
+@@ -947,6 +950,7 @@ class RoceOneshotAllReduce:
+             "pipe_bytes": layout.pipe_bytes,
+             "varlen_bytes": layout.varlen_bytes,
+             "ctrl_offset": layout.ctrl_off,
++            "failure_offset": layout.ctrl_off + CTRL_FAILED,
+             "hca_names": list(self.hca_names),
+             "gid_index": self.gid_index,
+             "traffic_class": self._proxy.traffic_class,
+@@ -959,7 +963,7 @@ class RoceOneshotAllReduce:
+         """True once a wait timed out or the proxy failed; the runtime cannot be reused."""
+ 
+         return (self._proxy is not None and self._proxy.failed()) or int(
+-            self._ctrl_np[2]
++            self._ctrl_np[CTRL_FAILED_WORD]
+         ) != 0
+ 
+     # -- all-gather ---------------------------------------------------------------
+@@ -1329,7 +1333,8 @@ class RoceOneshotAllReduce:
+             "varlen_blocks": self._varlen_blocks,
+             "varlen_chunk_bytes": self._varlen_chunk_packs * PACK_BYTES,
+             "epoch": int(self._counters[0].item()),
+-            "error_seq": int(self._error_word.item()),
++            "error_seq": int(self._error_word.item()) & 0xFFFFFFFF,
++            "failed": int(self._ctrl_np[CTRL_FAILED_WORD]) != 0,
+             "error_peer": int(self._ctrl_words[3].item()),
+             "error_hca": int(self._ctrl_words[6].item()),
+             "error_kind": int(self._ctrl_words[7].item()),

@@ -1,0 +1,57 @@
+{
+  "flashinfer_base": "91271757f7746f3dfb58f7c2aeb44a663389de9e",
+  "reference": "https://github.com/local-inference-lab/b12x/pull/438/files",
+  "files": [
+    {
+      "path": "flashinfer/experimental/b12x/comm/roce/_allgather_cute.py",
+      "base_sha256": "9f6a61a618aecff93ece0579c88e4e820069ffd8c6b811f88ee993942082afcf",
+      "candidate_sha256": "b27be02709ab84c174480ac0d87c039da2db87e9256f10cd8e221551dcdab17a"
+    },
+    {
+      "path": "flashinfer/experimental/b12x/comm/roce/_control.py",
+      "base_sha256": null,
+      "candidate_sha256": "f72a90a34424c76bee1757900e794ab89819b341e432479cef2621f53c5c8686"
+    },
+    {
+      "path": "flashinfer/experimental/b12x/comm/roce/_oneshot_cute.py",
+      "base_sha256": "080032d608229602b9cb871cb541e8ca1e7c2ba4fe5e88709eec166cdc2f1d10",
+      "candidate_sha256": "f7fcbc8dfe6b855b55e39ea80ad43dca987949e92f205242971e8d899c001a91"
+    },
+    {
+      "path": "flashinfer/experimental/b12x/comm/roce/_proxy.py",
+      "base_sha256": "ae1ba421414272302a501f7d2f070b46bce742884d798f0afe9bc5e82c02cfc0",
+      "candidate_sha256": "e1cf801788d1bf5e73ef42f416da854923cc844df1792b79af020dee587c9680"
+    },
+    {
+      "path": "flashinfer/experimental/b12x/comm/roce/_roce_proxy.c",
+      "base_sha256": "7d5e2f1c719275c230725a4353ca1b47ce38a7266d9eefa24074def21fe9900a",
+      "candidate_sha256": "afa97588cb16251ad27bd4fc9045ea02ef3b2e040f2deb92956bdccc8a9635e7"
+    },
+    {
+      "path": "flashinfer/experimental/b12x/comm/roce/_twoshot_cute.py",
+      "base_sha256": "4319525816ad8e5a92db370a7f9ee4322612f01920ba74d0d9c3747d3156ae97",
+      "candidate_sha256": "ffeef91e1a14744a6870c6e58d1804f728bfe2d6adbe96c2ea876b74536a0076"
+    },
+    {
+      "path": "flashinfer/experimental/b12x/comm/roce/_varlen_cute.py",
+      "base_sha256": "3a59ebe946242b9c7b24bd17ee0fbe256ea34d94e68351cb649695101297ccd9",
+      "candidate_sha256": "f431cd433838ebcdf8e947ec1e6895ca84052630fe072fa4c5d680cadb94f461"
+    },
+    {
+      "path": "flashinfer/experimental/b12x/comm/roce/roce_oneshot.py",
+      "base_sha256": "44802a72762a3af27ad5c97d138612c54f0f177256f3be316de248de83ae9931",
+      "candidate_sha256": "b80cefe97ee4283c92a64754f404ae925f991fed784f85d85dff57fcfda76ee3"
+    }
+  ],
+  "patch_sha256": "7760d4d331c1e7f691179d2a4f2723df8a5e1474d6f3cb6b5236e3a060812a8a",
+  "public_api_version": 1,
+  "proxy_abi": {
+    "control": 7,
+    "candidate": 8
+  },
+  "failure_word": 14,
+  "failure_byte_offset": 56,
+  "native_test_sha256": "1819c937bfe09c0ffe34093a3cd8082680229bd148bc133698ec5678b87d5c2c",
+  "gpu_qualified": false,
+  "scope": "independent sticky failure sentinel; all four kernel paths, host and C proxy; no single-block optimization, completion snapshot or early-clobber change"
+}

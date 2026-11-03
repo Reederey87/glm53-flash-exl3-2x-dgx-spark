@@ -1,8 +1,9 @@
 # RoCE sequence-zero failure sentinel — candidate 30 screening
 
-The source-level defect is reproduced; no kernel fix or live fault injection
-has been performed. This candidate is separate from the single-block speed
-optimization, which retains the affected protocol.
+The source-level defect is reproduced and an independent repair is prepared
+in `kernel.patch`. It has not been built, deployed or subjected to GPU fault
+injection. This candidate is separate from the single-block speed optimization,
+which retains the affected protocol.
 
 Both installed ranks' five source hashes match `audit_source.py`'s pinned
 FlashInfer revision `91271757`. The audit executes the exact `check_health`
@@ -95,3 +96,43 @@ stopping a real peer or running billions of collectives. This must run only
 in an idle qualification container, with guarded output, graph/eager modes
 and one/multiple blocks. It complements, rather than replaces, the actual
 two-node fabric and successful-wrap tests. No such GPU test has run yet.
+
+## Prepared implementation and qualification
+
+`kernel.patch` changes eight files against the pinned incumbent. The dedicated
+host failure flag is word 14 / byte 56, with a 60-byte host view. All four
+kernel paths publish this flag and constant device poison 1; their publication
+and epoch gates use the new flag. The C proxy's two waiting loops use it too.
+Diagnostics retain the real unsigned sequence and wrap the preceding epoch.
+The failure path fences diagnostic writes before publishing the host flag.
+The allocated 4096-byte control region and all existing metadata offsets stay
+the same. The internal proxy ABI advances to 8 in C and Python, while the
+adapter-facing API stays 1. All four kernel cache versions advance.
+
+This is a single reliability treatment. It excludes the one-block speed
+optimization, early-clobber change, and completion/snapshot enhancement.
+`manifest.json` records every original/resulting hash; a null base hash marks
+the new `_control.py` file, which must be absent in the base tree.
+
+`qualify_source.py` checks the exact candidate hashes and executes the real
+host methods for 12 combinations of sequence, failure flag and error kind.
+All 12 pass, including error sequence zero and signed int32 representation
+of `0xffffffff`. It also checks source coverage of all failure stores,
+publication gates and C predicates. These are source/CPU checks, not GPU or
+concurrency proof. The latest receipt is
+`local/build-audit/roce-wrap-audit/candidate-host-qualification-v3.json`.
+
+The standalone `test_wrap_sentinel_gpu.py` prepares 24 native tests: reduce
+and gather, one/two/four blocks, eager/graph execution, success/timeout at
+sequence zero. It checks guarded output, unchanged epoch on failure, sticky
+poison, host diagnostics and no-op relaunch after a peer becomes ready.
+Its synthetic pinned peer mailboxes need no live RDMA proxy. Use an external
+bounded supervisor as well as the short kernel spin budget; a post-sync
+elapsed-time assertion alone cannot interrupt a hung GPU.
+
+Run only the `success` cases against the known-broken control. Run the full
+module against the candidate in an idle SM121 qualification container. This
+does not complete the two-shot/varlen, C-proxy, actual fabric, mixed-ABI or
+full serving gates. No GPU tests have run. The full-source build context for
+this treatment still needs preparation; the other candidates' wrappers apply
+different patches and must not be reused unchanged.

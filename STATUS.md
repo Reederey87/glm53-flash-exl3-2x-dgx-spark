@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Prepared independent RoCE sentinel repair across all four kernel
+  paths, host and C proxy (internal ABI 8, public API 1). Twelve exact-source
+  CPU cases pass; 24 native cases prepared but not run. No runtime change.
+
 - 2026-11-03: Reproduced the installed RoCE host failure-sentinel defect at
   sequence zero with extracted methods and synthetic records, without GPU work.
   Added candidate 30; older PR438 offsets conflict with this newer protocol.
