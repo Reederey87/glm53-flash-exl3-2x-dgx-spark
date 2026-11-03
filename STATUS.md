@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Prepared candidate 05's isolated MTP1 recipe patch and gate after
+  Exa/local-source review. Actual temporary application changes exactly one
+  line and matches the recorded hashes. No runtime change or GPU trial yet.
+
 - 2026-11-03: Reviewed reported dependency alerts against the incumbent image:
   certifi 2026.7.22 and filelock 3.32.3. Existing build logs show newer versions;
   final-image inventory verification remains pending. No package/build change.
