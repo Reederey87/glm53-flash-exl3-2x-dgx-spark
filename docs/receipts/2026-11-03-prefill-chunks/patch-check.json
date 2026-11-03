@@ -1,0 +1,18 @@
+[
+  {
+    "chunk": 2048,
+    "baseline_sha256": "cd0d994a55ceeae6b7dab2d02d59f09e461c105d3c7c2effd79dc6c14141589a",
+    "patch_sha256": "5e1cc33e80da7475faa46f8b14c7643eb3da71fb04a3ac2cb046dc044f3c5890",
+    "candidate_sha256": "107e65d94e9f32f2b3c9689feaa4e1f9612953c334116d51761fca4aa6a32007",
+    "exact_single_field_change": true,
+    "reverse_restores_exact_bytes": true
+  },
+  {
+    "chunk": 8192,
+    "baseline_sha256": "cd0d994a55ceeae6b7dab2d02d59f09e461c105d3c7c2effd79dc6c14141589a",
+    "patch_sha256": "7648266f205e10ab6ad50acfd3e2e8e5b9867b83a9e02fd636af347002447eca",
+    "candidate_sha256": "b029ee807a61e28d89728f549cd1fec78b59c1b4d312e9fccd82e5bc2adcbb50",
+    "exact_single_field_change": true,
+    "reverse_restores_exact_bytes": true
+  }
+]

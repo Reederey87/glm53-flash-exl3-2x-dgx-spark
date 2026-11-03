@@ -1,0 +1,11 @@
+--- a/recipes/glm-5.3-flash-fp4-local.yaml
++++ b/recipes/glm-5.3-flash-fp4-local.yaml
+@@ -37,7 +37,7 @@
+   block_size: 256
+   max_model_len: 500000
+   max_num_seqs: 4
+-  max_num_batched_tokens: 4096
++  max_num_batched_tokens: 8192
+   num_speculative_tokens: 5
+   # 17 GiB per rank: 2,078,358 FP8 tokens at this image's ~8.7 KiB/token,
+   # i.e. four 500k-token requests. The un-capped 0.87 command measured

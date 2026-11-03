@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: Prepared separate 2048/8192 prefill-budget patches and gates
+  after Exa and pinned/local source review. Actual temporary application and
+  byte-exact rollback pass. Requires a valid 32k–128k mixed-load baseline pilot
+  before treatment; neither patch is staged or running on the cluster.
+
 - 2026-11-03: Staged frozen mixed-prefill probe `f5d049e` under spark1's
   `/home/nvidia/glm53-benchmarks/mixed-prefill-f5d049e`, including its own
   offline uv environment. All five file hashes and CLI import/help pass;
