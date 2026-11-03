@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: Corrected control passed all 271 bounded native GPU cases on
+  spark1, with no skips/missing cases. All 187 emitted B12X objects passed
+  SM121a/identity inspection. Candidate, worker and serving comparisons remain
+  pending; inference/watchdog remain off and production aliases unchanged.
+
 - 2026-11-03: Corrected Int64 control `40f4c522...` built successfully after
   both-node memory gates. Only frontend changed versus the rejected control:
   1.32.1 to 1.31.0; DSL4.7, OS inventory and treatment bytes identical.
