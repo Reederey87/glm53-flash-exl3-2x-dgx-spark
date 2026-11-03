@@ -60,7 +60,7 @@
   "gpu_qualified": false,
   "scope": "independent sticky failure sentinel; all four kernel paths, host and C proxy; no single-block optimization, completion snapshot or early-clobber change",
   "qualification_files": {
-    "test_extended_wrap_gpu.py": "d8782ccd8c6e12d113d40deb10497bbb211c1914faa32abaeeccd1eb3d87e86e",
+    "test_extended_wrap_gpu.py": "19af19322d81500b86336ced8236bc2549b5c0a462615f6b35da7d438cf7ae19",
     "proxy_failure_harness.c": "631fb194045d96dd175d064a5ec4c627105c3825ad7b463f90bd844eaae4ab01",
     "test_proxy_failure_native.py": "c320837cf3310bee2f011ee3807d45a5e2d15d0c8d0782b4574a3bb6cdf8b570",
     "test_mixed_abi_distributed.py": "548f93bdbabe998520d95b0151482060af189cbad76c641d707dea062ac620a6"

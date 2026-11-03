@@ -81,10 +81,15 @@ def test_extended_sequence_zero(scenario, blocks, graph_mode):
     else:
         # A local partial result can precede the later peer failure. The whole
         # result is unusable, and the host must report poison before returning it.
-        if scenario == "twoshot_ag_timeout":
-            expected[:8] = 3
-        if scenario == "varlen_timeout":
-            expected[:8] = 1
+        partial = {"twoshot_ag_timeout": 3, "varlen_timeout": 1}.get(scenario)
+        if partial is not None:
+            # Another block can publish poison before block zero writes its
+            # local pack. Both orderings are valid; the peer half must stay
+            # guarded, and a poisoned replay must preserve the observed bytes.
+            assert torch.all((out[:8] == -123) | (out[:8] == partial))
+            if blocks == 1:
+                assert torch.all(out[:8] == partial)
+            expected[:8] = out[:8]
         assert int(counters[0]) == -1 and int(counters[1]) == 1
         assert int(ctrl[2]) == 0 and int(ctrl[14]) == 1
         message = "unusable byte count" if scenario == "varlen_invalid" else "sequence 0;"

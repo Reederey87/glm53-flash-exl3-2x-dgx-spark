@@ -105,4 +105,12 @@ manifest SHA256 is
 all transferred files match. The active-cluster guard again refused with
 exit 2 and no build artifacts. MTP3 remained running with PID 188858.
 Receipts: `local/build-audit/roce-sentinel-v2-staging-receipt`. Use this
-context instead of the earlier `e6015c6` context for native qualification.
+context superseded the earlier `e6015c6` context.
+
+Pre-build review then corrected the extended test's multi-block partial-write
+assertion: a different block can publish poison before the local write. Both
+legal orderings are accepted, with untouched peer output and exact poisoned
+replay still required. Runtime patch bytes are unchanged. Eleven applier
+tests and Python compilation pass; native execution remains pending. The
+replacement local context is `local/build-audit/roce-sentinel-context-v3`,
+manifest SHA256 `e8f9eaeb161a83ff15c378a8bfa952c37671edfbb3473123c5fb8574021939ca`.

@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Corrected the prepared multi-block timeout test to accept both
+  legal partial-write orderings while checking guarded peer output and exact
+  poisoned replay. Runtime patch is unchanged; native execution remains pending.
+
 - 2026-11-03: Extended sentinel context `a26fe32` staged separately on spark1;
   all transferred hashes match. Active-cluster build refusal passed (exit 2,
   no artifacts), with MTP3 still running unchanged. No source build has run.

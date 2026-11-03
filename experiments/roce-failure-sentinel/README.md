@@ -175,7 +175,10 @@ reduce-scatter/all-gather timeout, variable-length timeout/invalid count, and
 successful wrapped sequences, each in eager/graph mode with one/two/four
 blocks. A later-stage failure can leave a local partial result; the test
 requires the host to mark the whole result unusable and prevents resumption
-after poison. Tail bookkeeping may advance on a captured poisoned launch;
+after poison. With multiple blocks, another block can publish poison before
+the local partial write: either the original guard or the correct partial
+value is allowed there, while the peer half must remain untouched. A poisoned
+replay must preserve the exact observed output. Tail bookkeeping may advance on a captured poisoned launch;
 payload, epoch and failure state must not recover.
 
 `test_proxy_failure_native.py` compiles the installed C proxy source with
