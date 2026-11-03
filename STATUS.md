@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: Started the frozen Int64 candidate source export after fresh
+  both-node memory gates; exact treatment hashes verified in its build log.
+  Prepared the same frontend1.31 constraint for both queued RoCE generators;
+  regenerated contexts preserve all compiler/kernel/test bytes. No RoCE build.
+
 - 2026-11-03: Corrected control passed all 271 bounded native GPU cases on
   spark1, with no skips/missing cases. All 187 emitted B12X objects passed
   SM121a/identity inspection. Candidate, worker and serving comparisons remain

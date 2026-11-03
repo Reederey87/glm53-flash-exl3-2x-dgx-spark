@@ -117,3 +117,20 @@ Local context: `local/build-audit/roce-explicit-fetch-context`.
 Use the replacement for the eventual separate build window. The earlier
 staging/refusal receipt remains valid for its original bytes; neither context
 has produced an image or native GPU result.
+
+## Common runtime dependency correction
+
+The [Int64 control's verified dependency repair](2026-11-03-dense-int64.md#common-runner-repair-and-completed-image-cache-recovery)
+now applies to both runner solves here: constrain cuDNN frontend to 1.31.0
+while retaining DSL 4.7. This prevents the observed frontend1.32 requirement
+conflict without changing the RoCE treatment. Exa release/package lookup and
+local vLLM, Exllamav3 and TensorFold dependency/artifact review preceded this
+change. Do not upgrade DSL within this trial.
+
+New local context: `local/build-audit/roce-frontend131-context`; manifest SHA256
+`0fa06d1c4b271c4fc17782d3904a2c49abfd0e011f2a8a1c4e8b7d8412c7d876`.
+Compared with the previous context, only Dockerfile, build metadata and
+manifest change. All bytes before the runner stage, kernel patches, native
+tests and build wrapper are identical. The shared constraint tests pass for
+all three experiment generators (21 cases). Freeze/stage separately; this
+preparation does not start a RoCE build or change the running Int64 build.

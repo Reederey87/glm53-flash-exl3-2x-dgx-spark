@@ -6,10 +6,10 @@ from pathlib import Path
 import pytest
 
 
-@pytest.fixture
-def preparer():
-    path = Path(__file__).resolve().parents[1] / "experiments/dense-int64/prepare_build.py"
-    spec = importlib.util.spec_from_file_location("dense_prepare", path)
+@pytest.fixture(params=("dense-int64", "roce-single-block", "roce-failure-sentinel"))
+def preparer(request):
+    path = Path(__file__).resolve().parents[1] / "experiments" / request.param / "prepare_build.py"
+    spec = importlib.util.spec_from_file_location("experiment_prepare", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

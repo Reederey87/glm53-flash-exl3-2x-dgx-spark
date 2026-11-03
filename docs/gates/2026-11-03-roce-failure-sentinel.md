@@ -132,3 +132,17 @@ Replacement context manifest SHA256:
 Local context: `local/build-audit/sentinel-explicit-fetch-context`.
 Use this replacement for an eventual independent build. All preceding
 contexts and receipts are preserved; no sentinel image or GPU result exists.
+
+## Common runtime dependency correction
+
+Both runner dependency solves now use the [verified frontend1.31 constraint](2026-11-03-dense-int64.md#common-runner-repair-and-completed-image-cache-recovery)
+with DSL4.7 retained. This prevents the observed unpinned-frontend conflict;
+it does not alter the eight-file sentinel treatment or its native gates.
+The same Exa and local-tree dependency review applies to both RoCE generators.
+
+New local context: `local/build-audit/sentinel-frontend131-context`; manifest
+SHA256 `ba2a487faa6401d17c9e5cbf04de0d50931807cb8a5e13b6c9faee4da56bc651`.
+Only Dockerfile, build metadata and manifest differ from the previous context;
+all compiler-stage, kernel, test and wrapper bytes are preserved. Shared
+constraint/anchor tests pass across all three generators. Freeze this context
+before separate staging. No sentinel build or GPU qualification has run.

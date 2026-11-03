@@ -17,12 +17,30 @@ CUDA_IMAGE = "nvidia/cuda:13.0.2-devel-ubuntu24.04@sha256:450d11555d20ac8ebbbc13
 NCCL_COMMIT = "12df1a11afad322be5a204a2db890161cbf8131d"
 VLLM_COMMIT = "8244d1c44348ae8a5bbfc9f1b607021652283ed4"
 FLASHINFER_COMMIT = "91271757f7746f3dfb58f7c2aeb44a663389de9e"
+CUDNN_FRONTEND_VERSION = "1.31.0"
 
 
 def replace_once(text: str, old: str, new: str) -> str:
     if text.count(old) != 1:
         raise ValueError(f"expected exactly one Dockerfile anchor: {old!r}")
     return text.replace(old, new, 1)
+
+
+def pin_runtime_frontend(text: str) -> str:
+    """Constrain both runner solves without changing any source-build stage."""
+    marker = "FROM ${CUDA_IMAGE} AS runner\n"
+    if text.count(marker) != 1:
+        raise ValueError("expected one runner stage")
+    build, runner = text.split(marker)
+    anchor = "RUN --mount=type=bind,from=flashinfer_wheels,target=/workspace/flashinfer-wheels"
+    runner = replace_once(runner, anchor,
+        "# Keep the incumbent frontend compatible with the frozen DSL 4.7 toolchain.\n"
+        f'RUN echo "nvidia-cudnn-frontend=={CUDNN_FRONTEND_VERSION}" > /tmp/glm53-runtime-constraints.txt\n\n'
+        + anchor)
+    for name in ("wheel", "torch"):
+        runner = replace_once(runner, f"--override /tmp/{name}-override.txt",
+                              f"--override /tmp/{name}-override.txt --constraint /tmp/glm53-runtime-constraints.txt")
+    return build + marker + runner
 
 
 def prepare(repo: Path, destination: Path) -> dict:
@@ -73,6 +91,7 @@ COPY --from=flashinfer_wheels /kernel-tests/ /opt/roce-failure-sentinel-tests/
 ARG ROCE_FAILURE_SENTINEL_ARM=control
 LABEL glm53.roce-failure-sentinel.arm=$ROCE_FAILURE_SENTINEL_ARM
 """
+    text = pin_runtime_frontend(text)
     (destination / "Dockerfile").write_text(text)
     bundle = destination / "roce-failure-sentinel"
     bundle.mkdir()
@@ -90,6 +109,7 @@ LABEL glm53.roce-failure-sentinel.arm=$ROCE_FAILURE_SENTINEL_ARM
                 "cuda_image": CUDA_IMAGE, "nccl_commit": NCCL_COMMIT,
                 "vllm_commit": VLLM_COMMIT, "flashinfer_commit": FLASHINFER_COMMIT,
                 "torch": "2.13.0+cu130", "cutlass_dsl": "4.7.0", "architecture": "12.1a",
+                "cudnn_frontend": CUDNN_FRONTEND_VERSION,
                 "gpu_qualified": False}
     # JSON is also valid YAML; the upstream Dockerfile retains this provenance.
     (destination / "build-metadata.yaml").write_text(json.dumps(metadata, indent=2) + "\n")
