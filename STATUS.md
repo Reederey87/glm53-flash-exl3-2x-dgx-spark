@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Prepared the isolated single-block RoCE patch and graph regression
+  at `experiments/roce-single-block`. Exact base/result hashes and patch parsing
+  pass; native paired-GPU and serving qualification remain pending.
+
 - 2026-11-03: Full repository validation passes: 100 Python tests, ShellCheck,
   Bash syntax and Python compilation. Added standard-library `collections`
   to the helper import allowlist; the full cluster baseline is still running.

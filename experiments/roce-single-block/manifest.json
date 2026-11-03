@@ -1,0 +1,32 @@
+{
+  "flashinfer_base": "91271757f7746f3dfb58f7c2aeb44a663389de9e",
+  "upstream_fix": "ad7027cafe8a000a265b0534b94824c4aea28700",
+  "files": [
+    {
+      "path": "flashinfer/experimental/b12x/comm/roce/_oneshot_cute.py",
+      "base_sha256": "080032d608229602b9cb871cb541e8ca1e7c2ba4fe5e88709eec166cdc2f1d10",
+      "candidate_sha256": "dde2e53281405056d9c5fd4535cb316b6c903ef32c06d45d3c24a5b7c9e2b495"
+    },
+    {
+      "path": "flashinfer/experimental/b12x/comm/roce/_allgather_cute.py",
+      "base_sha256": "9f6a61a618aecff93ece0579c88e4e820069ffd8c6b811f88ee993942082afcf",
+      "candidate_sha256": "c2934000f5d7e98aa2c1e4eb32fdac34257a2a59f164fd9089002daf4294f8c0"
+    },
+    {
+      "path": "tests/experimental/b12x/comm/test_roce_oneshot_gpu.py",
+      "base_sha256": "ba7024857c6b41e81d79924454fa4486defb7c4371982d729f6ce8a38872a5ce",
+      "candidate_sha256": "a9a90db81b6e851cf9b03f9182c00a2fe9523bfe4a465761eca3d33054218346"
+    }
+  ],
+  "patch_sha256": "029104a6a64e44024ad3b972a8df0bc547fa8d180491863eaa78fcd01d24e70d",
+  "status": "prepared; paired SM121 compilation and GPU/serving gates pending",
+  "scope": "single-block arrival bypass only; preserve publication fence, timeout handling and API version",
+  "default_grid_blocks_by_message_bytes": {
+    "16": 1,
+    "8192": 1,
+    "16384": 1,
+    "32768": 2,
+    "49152": 4,
+    "65536": 4
+  }
+}

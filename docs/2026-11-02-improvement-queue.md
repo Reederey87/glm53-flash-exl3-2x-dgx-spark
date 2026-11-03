@@ -102,6 +102,8 @@ sweep is a separate arm against the same frozen baseline.
 | 29 | Single-block RoCE synchronization | FlashInfer `ad7027caf` bypasses inter-block arrival counters for one-block collectives while preserving system-fence publication | Absent in live kernel (oneshot cache version 6); paired GB10 graph tests alternating grid sizes, allocator stability and full serving gate; independent of threshold tuning |
 
 Do not test PCIe peer-gather optimizations as cross-node RoCE improvements.
+Candidate 29's isolated patch, source hashes and local qualification gates are
+in `experiments/roce-single-block`; it has not been built or deployed.
 Do not transplant standard NVFP4 attention into GLM sparse MLA/KDA: the
 layouts and recurrence contracts differ. NVFP4 KV, a smaller KV pool, EXL3,
 new checkpoints, and driver 610.43.02/kernel 7.0 are excluded from this wave.
