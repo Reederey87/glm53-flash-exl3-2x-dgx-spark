@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: Inspector `d888df7` is hash-verified on both nodes. Its real
+  incumbent-object smoke passes without GPU access, preserving object/manifest
+  bytes and producing matching SM121a resource/SASS reports. All 176 tests pass;
+  changed-kernel GPU qualification still awaits the active source build.
+
 - 2026-11-03: Found that direct cuobjdump misses CuTe cache-object fatbins.
   Added a read-only, symbol-bounded extractor with manifest/hash checks and
   retained resource/SASS reports; 17 rejection/identity tests pass. GPU tests
