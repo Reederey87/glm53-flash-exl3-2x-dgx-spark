@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Identified accumulated head watermark boost586588pages versus
+  worker7680. Prepared same-value reserve reapplication with exact mount,
+  kernel and unchanged-policy gates;15fault tests pass. Not applied yet.
+
 - 2026-11-03: Fresh incumbent startup preserved both compiler-cache sets but
   failed vLLM's 105.87 GiB startup requirement (105.72 GiB observed). Stopped
   through unit; no matrix ran. Recovery diagnostics and receipts retained in
