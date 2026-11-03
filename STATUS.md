@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: Harness `05c6023` passed 46 helper tests and 24 live requests
+  across neighboring seeds at c4/c8, with zero prefix hits. Started the full
+  explicit-max baseline as `glm53-ab-namespaced-base-20261103.service`;
+  runtime receipts are in `local/ab-20261103/namespaced`. No MTP arm activated.
+
 - 2026-11-03: Excluded the incomplete token-usage baseline after its c4 warmup
   correctly detected 8192 cached tokens. Additive run-seed/request-index arithmetic
   reused earlier prompts. Replaced it with deterministic SHA256 tuple namespaces;

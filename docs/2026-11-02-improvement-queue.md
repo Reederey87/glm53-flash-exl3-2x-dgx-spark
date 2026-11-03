@@ -183,11 +183,15 @@ This validates measurement tooling only. The revised harness subsequently
 passed 73 local tests and a live 8k/c1 qualification (2,269 prefill tok/s;
 code decode 39.38 tok/s, acceptance length 3.431). This short qualification
 does not decide adoption. The replacement full baseline uses user unit
-`glm53-ab-usage-base-20261103.service`; incremental receipts are in runtime
-`local/ab-20261103/token-usage/baseline.json`. Its real task prompts explicitly
+`glm53-ab-namespaced-base-20261103.service`; incremental receipts are in runtime
+`local/ab-20261103/namespaced/baseline.json`. Its real task prompts explicitly
 use maximum reasoning effort, and completion counts include reasoning.
 Timing follows validated token-count increases even when UTF-8 tokens have
-empty visible text; the 45 helper tests pass.
+empty visible text; the 46 helper tests pass. The earlier token-usage run
+stopped on a cross-run prompt collision and is excluded. Harness `05c6023`
+uses separate hashed prompt identities; two neighboring seeds passed live
+c4/c8 qualification (24 requests, zero prefix hits). The full matrix remains
+in progress; this qualification is not an adoption result.
 Do not open the delivery PR before cluster
 receipts. A prior November 1 image trial was reverted and is not a new result.
 
