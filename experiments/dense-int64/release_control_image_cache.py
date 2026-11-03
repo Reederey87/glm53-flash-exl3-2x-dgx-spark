@@ -18,6 +18,7 @@ from release_build_cache import meminfo, release_tree
 
 IMAGE_ID = "sha256:45ac705ba045e3d35cb7bbb66b807faa82501f29039a215e1e8b1cbd430ea5b8"
 CORRECTED_IMAGE_ID = "sha256:40f4c5229d276c1d86c983389bc7281dbbe66b627b6d065a0d2f93bd1c405ab5"
+RUNTIMEPIN_IMAGE_ID = "sha256:3b5da79c42ed4204440cfb07c6de1eba46441d5cba6b57d5428d44e60c10d0ed"
 TREATMENT_SHA = "23c70d045e7a2a30fb76d1718eca6d82020c1051d85b5915ee5ef6e84a86a03b"
 DENSE_SHA = "313ed8cda2c9665a48e40c88c2676a328ae6174ee65b85514d668d1e9fc1e024"
 CANDIDATE_IMAGE_ID = "sha256:0caaeef85b0b267d96aa4f57f07102f818efd42e43b4c0f56d26f8dca77c4b43"
@@ -27,7 +28,7 @@ ROOTS = ("/usr", "/opt", "/workspace", "/var/lib/apt/lists")
 
 
 def verify_container(mountinfo: str, treatment: bytes, dense: bytes, image_id: str = IMAGE_ID) -> None:
-    if image_id in (IMAGE_ID, CORRECTED_IMAGE_ID):
+    if image_id in (IMAGE_ID, CORRECTED_IMAGE_ID, RUNTIMEPIN_IMAGE_ID):
         expected_treatment, expected_dense = TREATMENT_SHA, DENSE_SHA
     elif image_id == CANDIDATE_IMAGE_ID:
         expected_treatment, expected_dense = CANDIDATE_TREATMENT_SHA, CANDIDATE_DENSE_SHA
@@ -51,7 +52,7 @@ def verify_container(mountinfo: str, treatment: bytes, dense: bytes, image_id: s
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--image-id", choices=(IMAGE_ID, CORRECTED_IMAGE_ID, CANDIDATE_IMAGE_ID), default=IMAGE_ID,
+    parser.add_argument("--image-id", choices=(IMAGE_ID, CORRECTED_IMAGE_ID, RUNTIMEPIN_IMAGE_ID, CANDIDATE_IMAGE_ID), default=IMAGE_ID,
                         help="exact image ID verified by the host before launching this container")
     args = parser.parse_args()
     if sys.platform != "linux":

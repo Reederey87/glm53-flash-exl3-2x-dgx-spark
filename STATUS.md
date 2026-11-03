@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: Runtime-pinned control3b5da79c built on spark1. Full Python/OS
+  inventories and treatment bytes match qualified control40f4; actual installed
+  source/profile hashes pass. Candidate runner and exact-image GPU tests remain
+  pending; head must recover to the unchanged memory gate before continuing.
+
 - 2026-11-03: Extended scoped clean-page recovery to the exact completed
   candidate image, with candidate-specific treatment/source checks. All 37
   recovery tests pass; the helper rejects unknown images and crossed arm
