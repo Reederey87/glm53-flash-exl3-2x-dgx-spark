@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Frozen readiness helper `5bc557b` correctly refused the loaded
+  pair in 1.15s (exit 1, both containers observed); actual unit hash and MTP3
+  benchmark PID unchanged. All 129 repository tests pass. No unit trial yet.
+
 - 2026-11-03: Prepared candidate 26's read-only both-node startup gate in
   `experiments/startup-memory`, with an isolated service patch and preregistered
   window. Its 22 fault tests pass; live service remains unchanged during MTP3.
