@@ -1,6 +1,7 @@
 {
-  "head_report": "../head-native-candidate/paired-resources.json",
+  "head_report": "../head-native-candidate/paired-resources.json.gz",
   "same_deltas": true,
   "worker_report_remote": "/home/nvidia/glm53-native-tests/int64-20261103/results/worker-candidate-runtimepin-a5901ed-inspection",
-  "local_complete_report": "local/build-audit/native-worker-candidate-a5901ed-inspection/paired-resources.json"
+  "local_complete_report": "local/build-audit/native-worker-candidate-a5901ed-inspection/paired-resources.json",
+  "head_report_uncompressed_sha256": "bd70def1958a94da5a002050f4fdcc396931539c21ec1534570d5ed1dd9639c0"
 }
