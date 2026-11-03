@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Extended sentinel context `a26fe32` staged separately on spark1;
+  all transferred hashes match. Active-cluster build refusal passed (exit 2,
+  no artifacts), with MTP3 still running unchanged. No source build has run.
+
 - 2026-11-03: Added prepared two-shot/varlen, compiled C-proxy and mixed-ABI
   sentinel tests; native execution remains pending. Local suite 144 passed.
   Extended build context supersedes `e6015c6`, which was never built.

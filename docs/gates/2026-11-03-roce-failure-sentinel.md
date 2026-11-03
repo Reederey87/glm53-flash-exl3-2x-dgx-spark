@@ -97,3 +97,12 @@ The common upstream ABI test now checks module/library agreement; exact
 per-arm versions remain required by the image identity gate. Fresh pinned
 source application and all qualification-file exports match their manifests.
 The full local suite is now 144 passed, including 11 applier tests.
+
+The extended bundle is frozen at `a26fe32` and staged separately at
+`/home/nvidia/glm53-source-builds/roce-sentinel-a26fe32/context`. Its context
+manifest SHA256 is
+`53902177532da39eef20649adbe74918ee3f72f841127daf1173f96e71978c63`;
+all transferred files match. The active-cluster guard again refused with
+exit 2 and no build artifacts. MTP3 remained running with PID 188858.
+Receipts: `local/build-audit/roce-sentinel-v2-staging-receipt`. Use this
+context instead of the earlier `e6015c6` context for native qualification.
