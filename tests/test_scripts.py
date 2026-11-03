@@ -309,14 +309,16 @@ def sse_endpoint():
         thread.join()
 
 
-@pytest.mark.parametrize("fault", [None, "usage", "short", "done", "error", "json", "empty"])
+@pytest.mark.parametrize("fault", [None, "usage", "short", "done", "error", "json", "progress"])
 def test_speed_matrix_requires_complete_token_usage_over_http(sse_endpoint, fault) -> None:
     """One speculative chunk can carry four tokens; partial/error streams fail."""
     module = load_module("speed_matrix")
     base, events, _server = sse_endpoint
     events.extend([
-        {"choices": [{"text": "one two three four", "finish_reason": None}]},
-        {"choices": [{"text": "", "finish_reason": "length"}]},
+        {"choices": [{"text": "one two three four", "finish_reason": None}],
+         "usage": {"prompt_tokens": 2, "completion_tokens": 4}},
+        {"choices": [{"text": "", "finish_reason": "length"}],
+         "usage": {"prompt_tokens": 2, "completion_tokens": 4}},
         {"choices": [], "usage": {"prompt_tokens": 2, "completion_tokens": 4}},
         "[DONE]",
     ])
@@ -330,8 +332,8 @@ def test_speed_matrix_requires_complete_token_usage_over_http(sse_endpoint, faul
         events.insert(1, {"error": {"message": "rank failed"}})
     elif fault == "json":
         events.insert(1, "{bad json")
-    elif fault == "empty":
-        events[0]["choices"][0]["text"] = ""
+    elif fault == "progress":
+        del events[0]["usage"]
     result = module.stream_completion(base, "test", [1000, 1001], 4, "", 5)
     assert result.ok is (fault is None)
     if fault is None:
@@ -340,12 +342,57 @@ def test_speed_matrix_requires_complete_token_usage_over_http(sse_endpoint, faul
         assert result.error
 
 
+def test_speed_matrix_times_invisible_tokens_from_usage_not_text(sse_endpoint) -> None:
+    """An incomplete UTF-8 token is real progress; empty headers/flushes are not."""
+    module = load_module("speed_matrix")
+    base, events, _server = sse_endpoint
+    for count, text, finish in [(0, "", None), (1, "", None), (1, "flush", None), (4, "more", "length")]:
+        events.append({"choices": [{"text": text, "finish_reason": finish}],
+                       "usage": {"prompt_tokens": 2, "completion_tokens": count}})
+    events.extend([{"choices": [], "usage": {"prompt_tokens": 2, "completion_tokens": 4}}, "[DONE]"])
+    result = module.stream_completion(base, "test", [1000, 1001], 4, "", 5)
+    assert result.ok
+    assert result.output_text == "flushmore"
+    assert [count for count, _ in result.token_arrivals] == [1, 4]
+    assert result.ttft_s == result.token_arrivals[0][1]
+    assert result.decode_s == pytest.approx(result.token_arrivals[-1][1] - result.ttft_s)
+
+
+def test_speed_matrix_accepts_one_invisible_token_with_complete_evidence(sse_endpoint) -> None:
+    module = load_module("speed_matrix")
+    base, events, _server = sse_endpoint
+    events.extend([
+        {"choices": [{"text": "", "finish_reason": "length"}],
+         "usage": {"prompt_tokens": 2, "completion_tokens": 1}},
+        {"choices": [], "usage": {"prompt_tokens": 2, "completion_tokens": 1}}, "[DONE]",
+    ])
+    result = module.stream_completion(base, "test", [1000, 1001], 1, "", 5)
+    assert result.ok and result.output_text == "" and result.completion_tokens == 1
+    assert len(result.token_arrivals) == 1
+
+
+@pytest.mark.parametrize("count", [None, True, 1, 5, 4.0])
+def test_speed_matrix_rejects_bad_continuous_token_progress(sse_endpoint, count) -> None:
+    module = load_module("speed_matrix")
+    base, events, _server = sse_endpoint
+    events.extend([
+        {"choices": [{"text": "first", "finish_reason": None}],
+         "usage": {"prompt_tokens": 2, "completion_tokens": 2}},
+        {"choices": [{"text": "last", "finish_reason": "length"}],
+         "usage": {"prompt_tokens": 2, "completion_tokens": count}},
+        {"choices": [], "usage": {"prompt_tokens": 2, "completion_tokens": 4}}, "[DONE]",
+    ])
+    result = module.stream_completion(base, "test", [1000, 1001], 4, "", 5)
+    assert not result.ok and "continuous token usage" in result.error
+
+
 @pytest.mark.parametrize("hit_delta", [0, 1, -1, None])
 def test_speed_matrix_invalidates_hot_or_unverifiable_prefill(sse_endpoint, hit_delta) -> None:
     module = load_module("speed_matrix")
     base, events, server = sse_endpoint
     events.extend([
-        {"choices": [{"text": "ok", "finish_reason": "length"}]},
+        {"choices": [{"text": "ok", "finish_reason": "length"}],
+         "usage": {"prompt_tokens": 2, "completion_tokens": 1}},
         {"choices": [], "usage": {"prompt_tokens": 2, "completion_tokens": 1}},
         "[DONE]",
     ])
@@ -364,7 +411,8 @@ def test_speed_matrix_invalidates_hot_or_unverifiable_prefill(sse_endpoint, hit_
 def test_speed_matrix_cli_warms_each_real_text_cell_and_persists_receipt(sse_endpoint, tmp_path) -> None:
     base, events, server = sse_endpoint
     events.extend([
-        {"choices": [{"text": "one two three four", "finish_reason": "length"}]},
+        {"choices": [{"text": "one two three four", "finish_reason": "length"}],
+         "usage": {"prompt_tokens": 2, "completion_tokens": 4}},
         {"choices": [], "usage": {"prompt_tokens": 2, "completion_tokens": 4}},
         "[DONE]",
     ])
@@ -381,6 +429,7 @@ def test_speed_matrix_cli_warms_each_real_text_cell_and_persists_receipt(sse_end
     assert receipt["ok"] and receipt["complete"]
     assert receipt["decode_chat_template_kwargs"] == {"reasoning_effort": "max"}
     assert receipt["decode_token_scope"] == "generated_tokens_including_reasoning"
+    assert receipt["timing_source"] == "continuous_completion_usage"
     assert "reasoning_effort=max" in markdown_out.read_text()
     assert len(receipt["warmup_cells"]) == len(receipt["cells"]) == 2
     assert server.completed == 4
@@ -394,6 +443,8 @@ def test_speed_matrix_cli_warms_each_real_text_cell_and_persists_receipt(sse_end
     for path, payload in server.calls:
         if path == "/tokenize":
             assert payload["chat_template_kwargs"] == {"reasoning_effort": "max"}
+        elif path == "/v1/completions":
+            assert payload["stream_options"] == {"include_usage": True, "continuous_usage_stats": True}
     assert not out.with_suffix(".json.tmp").exists()
 
 

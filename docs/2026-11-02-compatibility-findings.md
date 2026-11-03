@@ -37,6 +37,10 @@ are within this vocabulary. The declaration counts are not parameter counts.
 
 ## Flare's current loader fails before GPU qualification
 
+This section describes the original local checkout `47581cc`. The newer
+upstream result below supersedes it as the candidate path; it does not erase
+the recorded failures of that older source.
+
 Executed the actual functions from
 `flare-local-inference/ignition/preparation/quantization.py` using the downloaded
 configuration, via `importlib.util.spec_from_file_location`. No Torch or CUDA
@@ -66,6 +70,33 @@ Source SHA256: `53d0e2cbbb5e928cfcc50a9a40040cf374f10c1e28ebe023a32ed2b23db720ef
 Downloaded config was saved as indented JSON; its hash is a local serialization
 hash, not a claim about the original HTTP payload bytes.
 
+### New upstream exact-checkpoint support
+
+On November 3 fetched upstream objects without changing the user's checkout.
+New head `cc696a6bf828deeb04b09533c64c5cc5b26b0ab5` contains
+`12c6c0b4eb3a2e11514ac0db5f0eb2ebe2b9a528`, which retains NVIDIA projection
+formats and makes the GLM alias point to the exact requested revision.
+Executed that head's declaration functions against the saved NVIDIA config:
+MXFP8, FP8_PB_WO, W4A16_NVFP4 and NVFP4-CSF all pass. Receipt:
+`local/checkpoint-audit/flare-latest-declarations.json`; source SHA256
+`424dde0e0ce627e43f39753fe5e6a9a8d91136af9cbf2a0f448e8bbadfa26498`.
+
+Code review shows native block-FP8 with FP32 scales, mixed projection groups,
+BF16 MLA absorption, and use of the MXFP8 head for draft logits. This is a
+stronger candidate than the older sibling bridge kit's head-widening patches.
+The lockfile pins FlashInfer `f5f5341d...`; preparation uses Torch 2.14.1+cu132.
+It is a separate complete engine/toolchain window, not a patch to current vLLM.
+
+[Upstream issue 73](https://github.com/NVIDIA/flare-local-inference/issues/73)
+reports this exact checkpoint with MTP on two Sparks at an earlier newer
+commit, but its 1,993,728-token pool is below our 2,350,210-token control.
+That report is neither our measurement nor a capacity waiver. The old local
+Flare kit's 1M capacity gate and alternate QAD profile are also ineligible.
+Native GPU loader/graph/export tests, measured unchanged capacity and full
+serving parity remain required. Do not infer a present loader blocker from
+the older declaration test, or declare the new engine qualified from four
+CPU declaration checks.
+
 ## Concrete FlashInfer corrections to qualify
 
 ### Dense split-K output address width — queue 16
@@ -79,6 +110,17 @@ then mutates the input and replays a CUDA graph. Scratch exceeds 8 GiB, so
 run only after both serving ranks stop and the memory gate passes.
 Recorded upstream validation is SM120, not GB10. First inspect the incumbent
 for this exact correction; do not rebuild an already-fixed image.
+
+Live inspection confirms the correction is absent. The installed dense kernel
+is byte-identical to the manifest source (`313ed8cd...`). A backport and the
+upstream large-output regression are prepared under
+`experiments/dense-int64`, with full source hashes and qualification steps.
+No candidate kernel has been compiled or run yet.
+
+The separate TMA refill fence correction `8d65eb248...` is already present in
+that same installed file: its predicate is `self.load_path == "tma"`, not
+`self.a16`. Commit-range listings alone would have incorrectly suggested it
+was missing, because this source lineage includes equivalent changes.
 
 ### DSA publishing order — queue 27
 

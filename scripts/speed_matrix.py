@@ -19,6 +19,10 @@ For each concurrency in ``--concurrencies``:
   rate = accepted / drafted. Prefill cells with one output token usually have
   no drafts; the fields are null.
 
+Token arrival times use increasing cumulative completion usage on each SSE
+choice. Visible text can be empty for a real UTF-8 token. Final usage, DONE,
+finish reason, and monotonic per-chunk counts must all agree.
+
 Three repetitions use distinct, deterministic prompts. Start each arm with
 fresh server cache state and the same seed; nonzero prefix-hit deltas invalidate
 no-cache prefill cells. Missing usage, incomplete streams and counter resets
@@ -70,6 +74,7 @@ class RequestResult:
     decode_s: float
     error: str = ""
     output_text: str = ""
+    token_arrivals: list[tuple[int, float]] = field(default_factory=list)
 
 
 @dataclass
@@ -159,7 +164,7 @@ def stream_completion(
         "temperature": 0,
         "seed": 0,
         "stream": True,
-        "stream_options": {"include_usage": True},
+        "stream_options": {"include_usage": True, "continuous_usage_stats": True},
         "ignore_eos": True,
     }
     headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}
@@ -178,6 +183,8 @@ def stream_completion(
     finish_reason: str | None = None
     usage: dict[str, Any] | None = None
     pieces: list[str] = []
+    streamed_tokens = 0
+    token_arrivals: list[tuple[int, float]] = []
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             for raw in response:
@@ -194,22 +201,34 @@ def stream_completion(
                     return RequestResult(False, len(prompt), 0, 0.0, 0.0, 0.0, "malformed SSE JSON")
                 if not isinstance(event, dict) or event.get("error"):
                     return RequestResult(False, len(prompt), 0, 0.0, 0.0, 0.0, "SSE error event")
-                if isinstance(event.get("usage"), dict):
-                    usage = event["usage"]
                 choices = event.get("choices") or []
                 if not isinstance(choices, list) or any(not isinstance(choice, dict) for choice in choices):
                     return RequestResult(False, len(prompt), 0, 0.0, 0.0, 0.0, "malformed SSE choices")
-                for choice in choices:
-                    if choice.get("finish_reason") is not None:
-                        finish_reason = choice["finish_reason"]
-                    text = choice.get("text") or ""
-                    if not text:
-                        continue
-                    pieces.append(text)
+                chunk_usage = event.get("usage")
+                if not choices:
+                    if isinstance(chunk_usage, dict):
+                        usage = chunk_usage
+                    continue
+                count = chunk_usage.get("completion_tokens") if isinstance(chunk_usage, dict) else None
+                if (len(choices) != 1 or type(count) is not int
+                        or not streamed_tokens <= count <= max_tokens
+                        or chunk_usage.get("prompt_tokens") != len(prompt)):
+                    return RequestResult(False, len(prompt), 0, 0.0, 0.0, 0.0, "invalid continuous token usage")
+                # UTF-8 fragments and special tokens may render as empty text.
+                # Time authoritative token-count progress, never SSE event counts.
+                if count > streamed_tokens:
                     now = time.perf_counter()
                     if first is None:
                         first = now
                     last = now
+                    token_arrivals.append((count, now - start))
+                streamed_tokens = count
+                for choice in choices:
+                    if choice.get("finish_reason") is not None:
+                        finish_reason = choice["finish_reason"]
+                    text = choice.get("text") or ""
+                    if text:
+                        pieces.append(text)
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         return RequestResult(False, len(prompt), 0, 0.0, 0.0, 0.0, str(exc))
 
@@ -225,8 +244,10 @@ def stream_completion(
         errors.append("missing or incorrect completion-token usage")
     if type(prompt_tokens) is not int or prompt_tokens != len(prompt):
         errors.append("missing or incorrect prompt-token usage")
+    if streamed_tokens != max_tokens:
+        errors.append("incomplete streamed token progress")
     if first is None:
-        errors.append("no streamed output")
+        errors.append("no streamed token progress")
     if errors:
         return RequestResult(
             False, len(prompt), completion_tokens if type(completion_tokens) is int else 0,
@@ -241,6 +262,7 @@ def stream_completion(
         total_s=max(0.0, end - start),
         decode_s=decode_s,
         output_text="".join(pieces),
+        token_arrivals=token_arrivals,
     )
 
 
@@ -451,6 +473,7 @@ def markdown(cells: list[Cell], model: str, started: str) -> str:
         "",
         "Real task prompts explicitly use reasoning_effort=max. Completion tokens include reasoning;",
         "these fixed-budget rows do not measure finished-answer latency or code/JSON correctness.",
+        "Timing uses cumulative token-usage progress, including tokens with empty visible text.",
         "Random token-ID workloads, when selected, have no chat-template reasoning control.",
         "",
         "| Rep | Workload | Conc | Prompt tokens | Completion med | Decode tok/s med | Aggregate tok/s | Mean accept len | Draft accept rate | Drafts | Mem avail after GiB |",
@@ -531,6 +554,7 @@ def main() -> int:
             "decode_tasks": DECODE_TASKS,
             "decode_chat_template_kwargs": DECODE_TEMPLATE_KWARGS,
             "decode_token_scope": "generated_tokens_including_reasoning",
+            "timing_source": "continuous_completion_usage",
             "decode_warmups": args.decode_warmups,
             "cells": [asdict(cell) for cell in cells],
             "warmup_cells": [asdict(cell) for cell in warmup_cells],

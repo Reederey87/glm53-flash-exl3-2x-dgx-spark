@@ -1,5 +1,21 @@
 # Status
 
+- 2026-11-03: Explicit-max baseline correctly stopped on an empty-text token.
+  Live replay identified token 119 with valid usage; serving stayed healthy.
+  Replaced text-only arrival timing with validated continuous token usage,
+  retaining arrival evidence and maximum effort. Failed partial remains
+  excluded; corrected baseline uses fresh seed 2026110303. All 45 helper tests
+  pass, including HTTP invisible-token and invalid-progress cases.
+
+- 2026-11-03: Prepared an isolated Int64 dense-output backport and upstream
+  large-scratch regression under `experiments/dense-int64`; static application
+  and parsing pass, native build/GPU gates pending. Verified the existing
+  dense TMA fence is already installed; added single-block RoCE as candidate 29.
+- 2026-11-03: New Flare upstream `cc696a6b` resolves the original checkout's
+  NVIDIA-format blocker: four actual declaration tests pass. Source uses the
+  exact checkpoint and preserves projection formats. GPU/export/capacity gates
+  remain open; no Flare deployment or weight conversion performed.
+
 - 2026-11-03: Per user instruction, changed benchmark tokenization to explicit
   `reasoning_effort=max`, added JSON/Markdown mode and token-scope labels, and
   verified live tokens. Stopped and archived the incomplete implicit-max run;

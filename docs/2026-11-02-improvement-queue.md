@@ -1,9 +1,10 @@
 # GLM FP4-Local improvement queue
 
 Status (November 3): direct access restored and live qualification passed.
-The incumbent matrix is being restarted with explicit maximum reasoning
-effort at the user's request; the prior incomplete run is archived and
-excluded. No candidate adopted.
+The incumbent matrix is being qualified with explicit maximum reasoning
+effort and per-chunk token-usage timing. Earlier incomplete runs (implicit
+effort and empty-token text timing) are archived and excluded. No candidate
+adopted.
 Scope: NVIDIA `nvidia/GLM-5.3-Flash-FP4-Local`, unchanged checkpoint revision,
 two GB10 nodes over direct SSH and RoCE. No EXL3 quantization, replacement
 checkpoint, driver upgrade, or kernel upgrade. Each row is a hypothesis, not
@@ -48,6 +49,7 @@ their link counters. Resolve the current launcher before selecting any flags.
 | FlashInfer (local-inference-lab fork) | `361e45fad3c9ed0c9876457142559ddc40143c1b` | Embedded experimental B12X with compatibility import; extra pins DSL 4.7.1 |
 | Updated upstream vLLM | `190df0b90007eead441d97d3abf6270f84f2c63e` | Torch 2.14.0, FlashInfer 0.7.2.post1, DSL 4.8.0; B12X backend accessors do not by themselves prove checkpoint compatibility |
 | Flare | `47581ccac82660953a5b59cb04b2750d64edc97d` | Preparation pins Torch 2.14.1+cu132 and FlashInfer `622cec10...`; Rust serves exported graphs |
+| Flare upstream, fetched November 3 | `cc696a6bf828deeb04b09533c64c5cc5b26b0ab5` | Exact NVIDIA checkpoint now supported in source; four declaration checks pass; locked FlashInfer `f5f5341d...`; GPU/capacity qualification pending |
 | TensorFold | `e854c28001a2a23e86cc6dd22342e64c2807bab7` | GLM prompt-state restoration, solo/mixed prefill sizing and shared-prefix workload measurement |
 | Exllamav3 (technique review only) | `da68d57de61781e5b74ad68698ac4caf36408d7a` | Confidence-calibrated drafting and complete page/state ownership; EXL3 execution excluded |
 
@@ -84,19 +86,20 @@ sweep is a separate arm against the same frozen baseline.
 | 13 | NCCL CTA limit | Tune current 8 independently of buffers and RoCE threshold | Link/CPU/SM utilization; never change multiple transport controls together |
 | 14 | NCCL buffer size | Tune current 1MiB independently | Same topology and CTA setting; no PCIe-only collective substitution |
 | 15 | Pinned FlashInfer embedded-B12X image | Include local SM121 kernels with matching dependency closure and vLLM fork | Exact source SHAs, linux/arm64 build, import ownership, pip/uv dependency check, native SM121 execution |
-| 16 | Dense split-K 64-bit address fix | FlashInfer `f5f5341d7` fixes output offsets exceeding signed 32-bit | Check if incumbent already has fix; big-offset oracle + sanitizer + graph replay on GB10 |
+| 16 | Dense split-K 64-bit address fix | FlashInfer `f5f5341d7` fixes output offsets exceeding signed 32-bit | Absent in live source; isolated backport and upstream regression prepared in experiments/dense-int64; native build, big-offset oracle, sanitizer and replay still pending |
 | 17 | B12X offline kernel profiles | Prepare actual GLM geometry/capacities on GB10 rather than borrowing SM120 winners | Complete measured policy coverage, frozen kernel resolution, fixed storage |
 | 18 | MoE activation/prefill mode | Audit current FORCE_A16 and A4_PREFILL, test an eligible alternative separately | Preserve checkpoint scales/weights; quantization-aware oracle and model-quality gate |
 | 19 | Shared/routed expert overlap | Reuse B12X disjoint scratch and stream dependencies | Whole-layer profiling, no aliasing, no extra KV cost; no microbenchmark-only adoption |
 | 20 | Updated vLLM image | Native B12X warmup and current scheduler improvements | Upstream checkout lacks incumbent b12x_loader.py, csf_utils.py and nvfp4_csf.py; exact recipe is not a drop-in. Resolve loader/scale semantics before a full source build |
 | 21 | Complete prefix-state reuse | TensorFold retains KV pages plus recurrent and MTP state; strengthen the kit's warmup/validation accordingly | Cold/hot two-turn branches, cancellation, recycled high pages, cached-vs-uncached logits |
 | 22 | Solo versus mixed-prefill policy | TensorFold distinguishes solo chunks from chunks while decode is active | Existing compatible vLLM knob preferred; mixed-load gate and immutable state |
-| 23 | Flare with this exact checkpoint | Prepared graphs and native scheduler may reduce CPU overhead | Separate engine window; native FP8_PB_WO/MXFP8/CSF support, exact weights, same KV pool, API/tool/reasoning/cancel parity |
+| 23 | Flare with this exact checkpoint | New upstream cc696a6b includes native FP8_PB_WO/MXFP8/CSF support; avoids older bridge patches | Four declaration checks pass; separate engine window still requires exact weights, same KV pool, native GPU/export tests and API/tool/reasoning/cancel parity |
 | 24 | Loading / preparation memory lifetime | Reuse packed storage, release temporary CPU/GPU owners | Peak and steady memory on both ranks; no changed quantization or KV reservation |
 | 25 | Startup and watchdog correctness | Transfer runtime fixes from October 21; avoid healers interrupting tests | Detect actual units, atomic script staging, rollback recovery, re-arm verification |
 | 26 | Both-node MemFree startup gate | Kit unit currently waits on head MemAvailable, contradicting the workspace's CUDA-free requirement | Verify live unit; gate both ranks on MemFree >=90GiB before build/start; test timeout and stale-worker cases |
 | 27 | DSA indexer publishing barrier | FlashInfer `37f5c4c1` synchronizes publishing warps before announcing CTA arrival; standalone b12x lacks it | Already present in the live incumbent (source inspected November 3). No change/build required; adversarial regression remains a kernel qualification test |
 | 28 | Export-safe indexer selection extent | FlashInfer `6d7f238d` and current Flare derive an absent active-width input from page-table metadata | Flare-only integration qualification after exact-checkpoint support; zero all export-disposable scratch and test >16 verifier rows |
+| 29 | Single-block RoCE synchronization | FlashInfer `ad7027caf` bypasses inter-block arrival counters for one-block collectives while preserving system-fence publication | Absent in live kernel (oneshot cache version 6); paired GB10 graph tests alternating grid sizes, allocator stability and full serving gate; independent of threshold tuning |
 
 Do not test PCIe peer-gather optimizations as cross-node RoCE improvements.
 Do not transplant standard NVFP4 attention into GLM sparse MLA/KDA: the
@@ -180,14 +183,17 @@ This validates measurement tooling only. The revised harness subsequently
 passed 73 local tests and a live 8k/c1 qualification (2,269 prefill tok/s;
 code decode 39.38 tok/s, acceptance length 3.431). This short qualification
 does not decide adoption. The replacement full baseline uses user unit
-`glm53-ab-max-base-20261103.service`; incremental receipts are in runtime
-`local/ab-20261103/explicit-max/baseline.json`. Its real task prompts explicitly
+`glm53-ab-usage-base-20261103.service`; incremental receipts are in runtime
+`local/ab-20261103/token-usage/baseline.json`. Its real task prompts explicitly
 use maximum reasoning effort, and completion counts include reasoning.
+Timing follows validated token-count increases even when UTF-8 tokens have
+empty visible text; the 45 helper tests pass.
 Do not open the delivery PR before cluster
 receipts. A prior November 1 image trial was reverted and is not a new result.
 
 Further exact-checkpoint screening and named GPU regressions are recorded in
 [the compatibility findings](2026-11-02-compatibility-findings.md). Flare row
-23 cannot run unmodified on this checkpoint: its actual declaration functions
-reject representative FP8_PB_WO and MXFP8 entries. This is a compatibility
-failure, not a GPU test result, and must not be bypassed with different weights.
+23 at the original local `47581cc` cannot run unmodified on this checkpoint:
+its declaration functions reject FP8_PB_WO and MXFP8 entries. New upstream
+`cc696a6b` resolves those declaration/loader paths and is now the candidate.
+This does not establish GPU compatibility or waive unchanged capacity.

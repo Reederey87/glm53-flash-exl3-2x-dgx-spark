@@ -1,0 +1,19 @@
+{
+  "flashinfer_base": "91271757f7746f3dfb58f7c2aeb44a663389de9e",
+  "upstream_fix": "f5f5341d711f8210ce91af5731a0841570f70e53",
+  "files": [
+    {
+      "path": "flashinfer/experimental/b12x/_lib/dense_gemm.py",
+      "base_sha256": "313ed8cda2c9665a48e40c88c2676a328ae6174ee65b85514d668d1e9fc1e024",
+      "candidate_sha256": "89437e814ab6ded8b1e2366149eba4ad9c12a073b67ed153f7b717dfbe96fbd2"
+    },
+    {
+      "path": "tests/experimental/b12x/gemm/test_blockscaled_a16.py",
+      "base_sha256": "d7ceb7bb3eac895ed4e1973fb46a839ef4d3909b842af06ad9879cc5f59676de",
+      "candidate_sha256": "e2576cfef66c128cb5aff959f6fa0b85573ec2f7dbec6e83ddd12224d160dff7"
+    }
+  ],
+  "patch_sha256": "d4219c64d030d36d57686f70a18133b32a0fbbaff7ad878d6b771c6294bf5a2e",
+  "status": "prepared; native SM121 compilation and GPU qualification pending",
+  "scope": "Int64 output address arithmetic only; no weight/activation math or planner changes"
+}
