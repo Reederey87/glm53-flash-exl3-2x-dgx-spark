@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: New control3b5da79c passed all 271 native GPU cases on spark1,
+  no skips/missing cases. All 187 B12X objects passed SM121a inspection and
+  exactly match earlier control objects/resources. Candidate, worker and
+  serving qualification remain pending; inference/watchdog remain stopped.
+
 - 2026-11-03: Both corrected images transferred over direct fabric SSH to
   spark2 with matching IDs and unchanged production alias. Worker memory gate
   passes; head remains slightly below 90 GiB. Prepared exact-wheel clean-page

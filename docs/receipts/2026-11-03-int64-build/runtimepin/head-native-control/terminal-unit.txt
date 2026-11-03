@@ -1,0 +1,8 @@
+MainPID=0
+Result=success
+ExecMainStartTimestamp=Tue 2026-11-03 16:47:47 EST
+ExecMainExitTimestamp=Tue 2026-11-03 16:50:58 EST
+ExecMainStatus=0
+ActiveState=active
+SubState=exited
+InvocationID=66b71acc9eed4f828b617a17f3a0d69c

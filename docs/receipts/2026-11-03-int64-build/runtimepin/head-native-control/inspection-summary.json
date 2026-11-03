@@ -1,0 +1,39 @@
+{
+  "b12x_objects": 187,
+  "all_b12x_inspections_complete": true,
+  "unique_semantic_keys": 187,
+  "b12x_architectures": [
+    "sm_121a"
+  ],
+  "other_artifacts": [
+    {
+      "path": "cache/inductor/triton/0/5G4P7H47AMXI2ZZBI2VWFYNMS627GBBKLQBV6SW3POPLW2243EFQ/triton_poi_fused_blockscaled_packed_mxfp8_prequantized_full_0.cubin",
+      "bytes": 9088,
+      "sha256": "8a552ca336cd20385de4be2974a18613836be4f158175b74b1eba83d935372ad",
+      "cuobjdump_status": 0,
+      "resource_report": "resources/8a552ca336cd20385de4be2974a18613836be4f158175b74b1eba83d935372ad.txt"
+    },
+    {
+      "path": "cache/inductor/triton/0/5G4P7H47AMXI2ZZBI2VWFYNMS627GBBKLQBV6SW3POPLW2243EFQ/triton_poi_fused_blockscaled_packed_mxfp8_prequantized_full_0.ptx",
+      "bytes": 4886,
+      "sha256": "3338b6b016dcb44c42a02662c303ec2bad99d25b05ca6870c834b74413f3e628"
+    }
+  ],
+  "image": "sha256:3b5da79c42ed4204440cfb07c6de1eba46441d5cba6b57d5428d44e60c10d0ed",
+  "qualification": "Control inspection only; paired candidate resources and serving remain required.",
+  "resource_maxima": {
+    "REG": 148,
+    "STACK": 8,
+    "LOCAL": 0
+  },
+  "nonzero_stack_semantic_keys": [
+    "0f1ef37c64e4bcb84e74aefdb44580f0ed008e3ed32c2edc4509b708e6de0817",
+    "91e5381f1ee0408fbe7f6c13d6641768d801d82777d0223dc259a70e68e4034b"
+  ],
+  "comparison_to_previous_control": {
+    "paired_semantic_keys": 187,
+    "identical_raw_objects": 187,
+    "resource_report_differences": []
+  },
+  "receipt_path": "/home/nvidia/glm53-native-tests/int64-20261103/results/head-control-runtimepin-3b5da79c-inspection-v2"
+}

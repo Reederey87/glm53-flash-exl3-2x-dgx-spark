@@ -1,0 +1,21 @@
+{
+  "arm": "control",
+  "tests_pass_without_skips": true,
+  "tests": {
+    "bounded.xml": {
+      "cases": 271,
+      "failed": [],
+      "skipped": [],
+      "missing_cases": [],
+      "unexpected_cases": []
+    }
+  },
+  "sanitizer": [],
+  "resource_review": "manual inspection required; collection is not a qualification pass",
+  "native_artifact_count": 189,
+  "raw_summary_sha256": "9f92cc7d3a2a3097714503e8c00d8bbcdbc36e6faed83e7648264c841d30929c",
+  "image_id": "sha256:3b5da79c42ed4204440cfb07c6de1eba46441d5cba6b57d5428d44e60c10d0ed",
+  "node": "spark1",
+  "unit_invocation": "66b71acc9eed4f828b617a17f3a0d69c",
+  "receipt_path": "/home/nvidia/glm53-native-tests/int64-20261103/results/head-control-runtimepin-3b5da79c"
+}
