@@ -227,6 +227,117 @@ def test_speed_matrix_acceptance_is_null_without_drafts() -> None:
     assert result.draft_acceptance_rate is None
 
 
+@pytest.mark.parametrize("bad", ["reset", "missing", "nan", "impossible"])
+def test_speed_matrix_rejects_invalid_counter_windows(bad: str) -> None:
+    module = load_module("speed_matrix")
+    before = {module.ACCEPTED: 10.0, module.DRAFTED: 20.0, module.DRAFTS: 5.0}
+    after = {module.ACCEPTED: 12.0, module.DRAFTED: 24.0, module.DRAFTS: 6.0}
+    if bad == "reset":
+        after[module.ACCEPTED] = 1.0
+    elif bad == "missing":
+        del after[module.DRAFTED]
+    elif bad == "nan":
+        after[module.DRAFTED] = float("nan")
+    else:
+        after[module.ACCEPTED] = 100.0
+    result = module.acceptance(before, after)
+    assert result.error
+    assert result.mean_acceptance_length is None
+
+
+@pytest.fixture
+def sse_endpoint():
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Thread
+
+    events = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = self.server.metrics.pop(0).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers["Content-Length"]))
+            body = "".join(
+                "data: " + (json.dumps(event) if isinstance(event, dict) else event) + "\n\n"
+                for event in events
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}", events, server
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+@pytest.mark.parametrize("fault", [None, "usage", "short", "done", "error", "json", "empty"])
+def test_speed_matrix_requires_complete_token_usage_over_http(sse_endpoint, fault) -> None:
+    """One speculative chunk can carry four tokens; partial/error streams fail."""
+    module = load_module("speed_matrix")
+    base, events, _server = sse_endpoint
+    events.extend([
+        {"choices": [{"text": "one two three four", "finish_reason": None}]},
+        {"choices": [{"text": "", "finish_reason": "length"}]},
+        {"choices": [], "usage": {"prompt_tokens": 2, "completion_tokens": 4}},
+        "[DONE]",
+    ])
+    if fault == "usage":
+        del events[2]
+    elif fault == "short":
+        events[2]["usage"]["completion_tokens"] = 3
+    elif fault == "done":
+        events.pop()
+    elif fault == "error":
+        events.insert(1, {"error": {"message": "rank failed"}})
+    elif fault == "json":
+        events.insert(1, "{bad json")
+    elif fault == "empty":
+        events[0]["choices"][0]["text"] = ""
+    result = module.stream_completion(base, "test", [1000, 1001], 4, "", 5)
+    assert result.ok is (fault is None)
+    if fault is None:
+        assert result.completion_tokens == 4
+    else:
+        assert result.error
+
+
+@pytest.mark.parametrize("hit_delta", [0, 1, -1, None])
+def test_speed_matrix_invalidates_hot_or_unverifiable_prefill(sse_endpoint, hit_delta) -> None:
+    module = load_module("speed_matrix")
+    base, events, server = sse_endpoint
+    events.extend([
+        {"choices": [{"text": "ok", "finish_reason": "length"}]},
+        {"choices": [], "usage": {"prompt_tokens": 2, "completion_tokens": 1}},
+        "[DONE]",
+    ])
+    counters = "\n".join(f"{key} 0" for key in (module.ACCEPTED, module.DRAFTED, module.DRAFTS))
+    server.metrics = [
+        counters + f"\n{module.CACHE_HITS} 10\n",
+        counters + (f"\n{module.CACHE_HITS} {10 + hit_delta}\n" if hit_delta is not None else "\n"),
+    ]
+    cell = module.run_cell(base, "test", "", "prefill", 1, 2, 4, 5, 7, 4)
+    assert cell.ok == 1
+    assert bool(cell.validation_errors) is (hit_delta != 0)
+    assert cell.prefix_cache_hits == hit_delta
+    assert cell.request_results[0].completion_tokens == 1
+
+
 def test_snapshot_validator_rejects_truncated_payload(tmp_path: Path) -> None:
     module = load_module("validate_hf_snapshot")
     snapshot = tmp_path / "snapshots" / "abc"

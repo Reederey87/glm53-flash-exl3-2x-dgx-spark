@@ -17,8 +17,10 @@ For each concurrency in ``--concurrencies``:
   rate = accepted / drafted. Prefill cells with one output token usually have
   no drafts; the fields are null.
 
-Unique random prompts avoid the prefix cache. Pass ``--max-seqs`` to record the
-server's admission cap beside rows where concurrency exceeds it.
+Three repetitions use distinct, deterministic prompts. Start each arm with
+fresh server cache state and the same seed; nonzero prefix-hit deltas invalidate
+no-cache prefill cells. Missing usage, incomplete streams and counter resets
+also invalidate receipts. Pass ``--max-seqs`` to record the admission cap.
 
 Usage:
   python3 scripts/speed_matrix.py --base http://127.0.0.1:8000 \
@@ -45,6 +47,7 @@ from typing import Any
 ACCEPTED = "vllm:spec_decode_num_accepted_tokens_total"
 DRAFTED = "vllm:spec_decode_num_draft_tokens_total"
 DRAFTS = "vllm:spec_decode_num_drafts_total"
+CACHE_HITS = "vllm:prefix_cache_hits_total"
 
 
 @dataclass
@@ -65,6 +68,7 @@ class Acceptance:
     drafts: float = 0.0
     mean_acceptance_length: float | None = None
     draft_acceptance_rate: float | None = None
+    error: str = ""
 
 
 @dataclass
@@ -87,6 +91,10 @@ class Cell:
     mem_available_gib_before: float | None = None
     mem_available_gib_after: float | None = None
     note: str = ""
+    repetition: int = 1
+    prefix_cache_hits: float | None = None
+    validation_errors: list[str] = field(default_factory=list)
+    request_results: list[RequestResult] = field(default_factory=list)
 
 
 def percentile(values: list[float], pct: float) -> float | None:
@@ -152,7 +160,8 @@ def stream_completion(
     start = time.perf_counter()
     first: float | None = None
     last: float | None = None
-    chunks = 0
+    done = False
+    finish_reason: str | None = None
     usage: dict[str, Any] | None = None
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -162,14 +171,22 @@ def stream_completion(
                     continue
                 body = line[5:].strip()
                 if body == "[DONE]":
+                    done = True
                     break
                 try:
                     event = json.loads(body)
                 except json.JSONDecodeError:
-                    continue
+                    return RequestResult(False, len(prompt), 0, 0.0, 0.0, 0.0, "malformed SSE JSON")
+                if not isinstance(event, dict) or event.get("error"):
+                    return RequestResult(False, len(prompt), 0, 0.0, 0.0, 0.0, "SSE error event")
                 if isinstance(event.get("usage"), dict):
                     usage = event["usage"]
-                for choice in event.get("choices") or []:
+                choices = event.get("choices") or []
+                if not isinstance(choices, list) or any(not isinstance(choice, dict) for choice in choices):
+                    return RequestResult(False, len(prompt), 0, 0.0, 0.0, 0.0, "malformed SSE choices")
+                for choice in choices:
+                    if choice.get("finish_reason") is not None:
+                        finish_reason = choice["finish_reason"]
                     text = choice.get("text") or ""
                     if not text:
                         continue
@@ -177,16 +194,28 @@ def stream_completion(
                     if first is None:
                         first = now
                     last = now
-                    chunks += 1
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         return RequestResult(False, len(prompt), 0, 0.0, 0.0, 0.0, str(exc))
 
     end = time.perf_counter()
-    completion_tokens = int((usage or {}).get("completion_tokens") or chunks)
+    # A speculative SSE event can contain several tokens. Never substitute
+    # event counts for server-reported usage, even on an incomplete stream.
+    completion_tokens = (usage or {}).get("completion_tokens")
+    prompt_tokens = (usage or {}).get("prompt_tokens")
+    errors = []
+    if not done or finish_reason != "length":
+        errors.append("stream did not finish the fixed decode budget")
+    if type(completion_tokens) is not int or completion_tokens != max_tokens:
+        errors.append("missing or incorrect completion-token usage")
+    if type(prompt_tokens) is not int or prompt_tokens != len(prompt):
+        errors.append("missing or incorrect prompt-token usage")
     if first is None:
-        # Usage-only stream (e.g. all whitespace). Charge the whole request.
-        first = end
-        last = end
+        errors.append("no streamed output")
+    if errors:
+        return RequestResult(
+            False, len(prompt), completion_tokens if type(completion_tokens) is int else 0,
+            max(0.0, (first or end) - start), end - start, 0.0, "; ".join(errors),
+        )
     decode_s = max(0.0, (last or end) - first)
     return RequestResult(
         ok=True,
@@ -224,14 +253,22 @@ def scrape_metrics(base: str, api_key: str, timeout: float) -> dict[str, float]:
 
 
 def acceptance(before: dict[str, float], after: dict[str, float]) -> Acceptance:
+    names = (ACCEPTED, DRAFTED, DRAFTS)
+    if any(name not in before or name not in after for name in names):
+        return Acceptance(error="missing speculative counters")
+    if any(not math.isfinite(sample[name]) or sample[name] < 0 for sample in (before, after) for name in names):
+        return Acceptance(error="invalid speculative counters")
+    if any(after[name] < before[name] for name in names):
+        return Acceptance(error="speculative counters reset during measurement")
+
     def delta(name: str) -> float:
-        old = before.get(name, 0.0)
-        new = after.get(name, 0.0)
-        return max(0.0, new - old)
+        return after[name] - before[name]
 
     accepted = delta(ACCEPTED)
     drafted = delta(DRAFTED)
     drafts = delta(DRAFTS)
+    if accepted > drafted or (drafts == 0 and (accepted or drafted)):
+        return Acceptance(error="inconsistent speculative counter deltas")
     return Acceptance(
         accepted=accepted,
         drafted=drafted,
@@ -263,6 +300,8 @@ def run_cell(
     timeout: float,
     seed: int,
     max_seqs: int,
+    repetition: int = 1,
+    expect_speculation: bool = True,
 ) -> Cell:
     requests = concurrency
     max_tokens = 1 if kind == "prefill" else decode_tokens
@@ -298,6 +337,19 @@ def run_cell(
     if concurrency > max_seqs:
         note = f"concurrency {concurrency} > max_num_seqs {max_seqs}; queued"
 
+    spec = acceptance(before_metrics, after_metrics) if expect_speculation else Acceptance()
+    validation_errors = [spec.error] if spec.error else []
+    hits = None
+    if kind == "prefill":
+        if CACHE_HITS not in before_metrics or CACHE_HITS not in after_metrics:
+            validation_errors.append("missing prefix-cache hit counter")
+        else:
+            hits = after_metrics[CACHE_HITS] - before_metrics[CACHE_HITS]
+            if not math.isfinite(hits) or hits != 0:
+                validation_errors.append("no-cache prefill has cache hits or a counter reset")
+    if kind == "decode" and expect_speculation and not spec.error and spec.drafts == 0:
+        validation_errors.append("no speculative drafts observed during decode")
+
     cell = Cell(
         kind=kind,
         concurrency=concurrency,
@@ -315,10 +367,14 @@ def run_cell(
             sum(max(0, r.completion_tokens - 1) for r in ok) / wall_s
         ) if wall_s > 0 and ok and kind == "decode" else None,
         completion_tokens_median=statistics.median(completion_tokens) if completion_tokens else None,
-        acceptance=acceptance(before_metrics, after_metrics),
+        acceptance=spec,
         mem_available_gib_before=before_mem,
         mem_available_gib_after=after_mem,
         note=note,
+        repetition=repetition,
+        prefix_cache_hits=hits,
+        validation_errors=validation_errors,
+        request_results=results,
     )
     if errors:
         cell.note = (cell.note + "; " if cell.note else "") + f"first error: {errors[0].error[:120]}"
@@ -337,12 +393,12 @@ def markdown(cells: list[Cell], model: str, started: str) -> str:
         "",
         "## Prefill, no cache (TTFT basis)",
         "",
-        "| Conc | Prompt tokens | Req | TTFT med s | TTFT p90 s | Prefill tok/s med | Aggregate tok/s | Mem avail after GiB |",
-        "|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Rep | Conc | Prompt tokens | Req | TTFT med s | TTFT p90 s | Prefill tok/s med | Aggregate tok/s | Mem avail after GiB |",
+        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for cell in [c for c in cells if c.kind == "prefill"]:
         lines.append(
-            f"| {cell.concurrency} | {cell.length:,} | {cell.requests} | {fmt(cell.ttft_median_s, 3)} | "
+            f"| {cell.repetition} | {cell.concurrency} | {cell.length:,} | {cell.requests} | {fmt(cell.ttft_median_s, 3)} | "
             f"{fmt(cell.ttft_p90_s, 3)} | {fmt(cell.prefill_tokens_per_s_median, 1)} | "
             f"{fmt(cell.prefill_tokens_per_s_aggregate, 1)} | {fmt(cell.mem_available_gib_after, 2)} |"
         )
@@ -350,18 +406,22 @@ def markdown(cells: list[Cell], model: str, started: str) -> str:
         "",
         "## Decode",
         "",
-        "| Conc | Decode tokens | Completion med | Decode tok/s med | Aggregate tok/s | Mean accept len | Draft accept rate | Drafts | Mem avail after GiB |",
-        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Rep | Conc | Prompt tokens | Completion med | Decode tok/s med | Aggregate tok/s | Mean accept len | Draft accept rate | Drafts | Mem avail after GiB |",
+        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for cell in [c for c in cells if c.kind == "decode"]:
         lines.append(
-            f"| {cell.concurrency} | {cell.length} | {fmt(cell.completion_tokens_median, 0)} | "
+            f"| {cell.repetition} | {cell.concurrency} | {cell.length} | {fmt(cell.completion_tokens_median, 0)} | "
             f"{fmt(cell.decode_tokens_per_s_median, 2)} | {fmt(cell.decode_tokens_per_s_aggregate, 2)} | "
             f"{fmt(cell.acceptance.mean_acceptance_length, 3)} | "
             f"{fmt(cell.acceptance.draft_acceptance_rate, 3)} | "
             f"{cell.acceptance.drafts:.0f} | {fmt(cell.mem_available_gib_after, 2)} |"
         )
-    notes = [f"- {c.kind} c={c.concurrency} len={c.length}: {c.note}" for c in cells if c.note]
+    notes = [
+        f"- rep={c.repetition} {c.kind} c={c.concurrency} len={c.length}: "
+        + "; ".join(filter(None, [c.note, *c.validation_errors]))
+        for c in cells if c.note or c.validation_errors
+    ]
     if notes:
         lines += ["", "## Notes", ""] + notes
     return "\n".join(lines) + "\n"
@@ -378,6 +438,8 @@ def main() -> int:
     parser.add_argument("--max-seqs", type=int, default=4, help="server --max-num-seqs, for the note")
     parser.add_argument("--timeout", type=float, default=1800.0)
     parser.add_argument("--seed", type=int, default=20261017)
+    parser.add_argument("--repetitions", type=int, default=3)
+    parser.add_argument("--no-speculation", action="store_true", help="only for a verified non-speculative control arm")
     parser.add_argument("--out", default="", help="JSON receipt")
     parser.add_argument("--markdown-out", default="", help="Markdown receipt")
     parser.add_argument("--skip-prefill", action="store_true")
@@ -388,6 +450,12 @@ def main() -> int:
 
     prefill_lengths = [int(value) for value in args.prefill_lengths.split(",") if value.strip()]
     concurrencies = [int(value) for value in args.concurrencies.split(",") if value.strip()]
+    if args.repetitions < 1 or args.decode_tokens < 2 or args.max_seqs < 1:
+        parser.error("repetitions/max-seqs must be positive; decode-tokens must be >= 2")
+    if not prefill_lengths or not concurrencies or min(prefill_lengths + concurrencies) < 1:
+        parser.error("prefill-lengths and concurrencies must be nonempty positive lists")
+    if args.skip_prefill and args.skip_decode:
+        parser.error("cannot skip both prefill and decode")
     started = datetime.now(timezone.utc).isoformat()
     cells: list[Cell] = []
 
@@ -407,13 +475,19 @@ def main() -> int:
             print(f"warmup failed: {warm.error}", file=sys.stderr)
             return 2
 
-    for concurrency in concurrencies:
+    for repetition, concurrency in (
+        (rep, conc) for rep in range(1, args.repetitions + 1) for conc in concurrencies
+    ):
+        # Identical across arms, distinct across reps. Start each arm with fresh
+        # server state; the prefix-counter check rejects accidentally hot runs.
+        cell_seed = args.seed + (repetition - 1) * 1000000007
         if not args.skip_prefill:
             for length in prefill_lengths:
                 print(f"prefill c={concurrency} len={length} ...", file=sys.stderr)
                 cell = run_cell(
                     args.base, args.model, args.api_key, "prefill", concurrency, length,
-                    args.decode_tokens, args.timeout, args.seed, args.max_seqs,
+                    args.decode_tokens, args.timeout, cell_seed, args.max_seqs,
+                    repetition, not args.no_speculation,
                 )
                 cells.append(cell)
                 print(
@@ -425,7 +499,8 @@ def main() -> int:
             print(f"decode c={concurrency} tokens={args.decode_tokens} ...", file=sys.stderr)
             cell = run_cell(
                 args.base, args.model, args.api_key, "decode", concurrency, args.decode_tokens,
-                args.decode_tokens, args.timeout, args.seed, args.max_seqs,
+                args.decode_tokens, args.timeout, cell_seed, args.max_seqs,
+                repetition, not args.no_speculation,
             )
             cells.append(cell)
             print(
@@ -435,7 +510,7 @@ def main() -> int:
             )
 
     receipt = {
-        "ok": all(cell.errors == 0 for cell in cells),
+        "ok": bool(cells) and all(cell.errors == 0 and not cell.validation_errors for cell in cells),
         "base": args.base,
         "model": args.model,
         "started": started,
@@ -444,6 +519,9 @@ def main() -> int:
         "concurrencies": concurrencies,
         "decode_tokens": args.decode_tokens,
         "max_seqs": args.max_seqs,
+        "seed": args.seed,
+        "repetitions": args.repetitions,
+        "expect_speculation": not args.no_speculation,
         "cells": [asdict(cell) for cell in cells],
     }
     print(markdown(cells, args.model, started))

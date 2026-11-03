@@ -1,5 +1,14 @@
 # Status
 
+- 2026-11-02: Prepared an isolated NVFP4 improvement worktree with the
+  repository/Exa audit and ordered candidates in
+  `docs/2026-11-02-improvement-queue.md`. Direct SSH is unavailable; no live
+  configuration, image, checkpoint, driver or kernel changed.
+- 2026-11-02: Hardened `scripts/speed_matrix.py` before A/B testing: require
+  complete SSE/token usage, reject reset/missing speculative counters and
+  cached prefill, retain request results, and use three distinct seeded reps.
+  Cluster measurements and PR delivery remain pending access.
+
 - 2026-10-17: Replaced the EXL3 kit with `nvidia/GLM-5.3-Flash-FP4-Local` on
   `eugr/spark-vllm-b12x:latest` (digest `sha256:03a956…`), driven by the pinned
   `eugr/spark-vllm-docker` launcher at `0bdc9c9`. The recipe pins a 17 GiB FP8
