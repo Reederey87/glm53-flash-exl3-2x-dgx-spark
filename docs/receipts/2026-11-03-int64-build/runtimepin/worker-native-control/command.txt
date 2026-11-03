@@ -1,0 +1,13 @@
+# /run/user/1001/systemd/transient/glm53-int64-worker-control-a5901ed.service
+# This is a transient unit file, created programmatically via the systemd API. Do not edit.
+[Unit]
+Description=/bin/bash /home/nvidia/glm53-native-tests/int64-20261103/checks-a5901ed/host-run.sh sha256:3b5da79c42ed4204440cfb07c6de1eba46441d5cba6b57d5428d44e60c10d0ed control /home/nvidia/glm53-native-tests/int64-20261103/results/worker-control-runtimepin-a5901ed
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/nvidia/glm53-native-tests/int64-20261103/checks-a5901ed
+StandardOutput=append:/home/nvidia/glm53-native-tests/int64-20261103/receipts/worker-control-a5901ed/unit.log
+StandardError=inherit
+ExecStart=
+ExecStart="/bin/bash" "/home/nvidia/glm53-native-tests/int64-20261103/checks-a5901ed/host-run.sh" "sha256:3b5da79c42ed4204440cfb07c6de1eba46441d5cba6b57d5428d44e60c10d0ed" "control" "/home/nvidia/glm53-native-tests/int64-20261103/results/worker-control-runtimepin-a5901ed"

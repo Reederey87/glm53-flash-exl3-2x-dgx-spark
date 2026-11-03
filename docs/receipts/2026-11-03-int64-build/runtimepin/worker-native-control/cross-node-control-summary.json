@@ -1,0 +1,8 @@
+{
+  "paired_objects": 187,
+  "missing": [],
+  "extra": [],
+  "positive_resource_delta_count": 0,
+  "byte_identical_objects": 187,
+  "qualification": "Both control nodes match for all187 bounded B12X objects. Worker candidate and serving remain pending."
+}

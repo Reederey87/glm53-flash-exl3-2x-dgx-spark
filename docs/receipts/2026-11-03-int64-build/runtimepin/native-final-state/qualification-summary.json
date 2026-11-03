@@ -1,0 +1,27 @@
+{
+  "native_correctness_and_artifact_coverage_pass": true,
+  "serving_qualified": false,
+  "adopted": false,
+  "control_image": "sha256:3b5da79c42ed4204440cfb07c6de1eba46441d5cba6b57d5428d44e60c10d0ed",
+  "candidate_image": "sha256:bad0f2005665489026ef9febafe8bbc28f6fe0821681cdb82479a21802d1287b",
+  "bounded_cases_per_arm_per_node": 271,
+  "candidate_high_offset_and_memcheck_pass_on_both_nodes": true,
+  "native_python_inventory_records_identical": 229,
+  "control_objects_identical_across_nodes": 187,
+  "candidate_objects_identical_across_nodes": 189,
+  "register_increases": [
+    1,
+    1,
+    2,
+    15
+  ],
+  "max_stack_local_shared_delta": 0,
+  "constant_parameter_bytes_increase": {
+    "kernels": 73,
+    "delta": 8
+  },
+  "head_control_runner": "f0ac844",
+  "other_native_runs_runner": "a5901ed",
+  "runner_revision_note": "Only candidate high-offset selection changed; bounded commands and source bytes unchanged. Original unsupported split16 failure is retained separately.",
+  "next": "Fresh incumbent, rebuilt control, candidate full serving matrices; API/KV/cache gates and rollback. Inference/watchdog currently inactive; aliases still incumbent."
+}

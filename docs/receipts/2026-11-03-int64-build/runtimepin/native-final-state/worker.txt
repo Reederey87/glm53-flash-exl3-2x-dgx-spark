@@ -1,0 +1,25 @@
+2026-11-03T22:44:49Z
+MainPID=0
+Result=success
+ExecMainStatus=0
+Id=glm53-int64-worker-control-a5901ed.service
+ActiveState=active
+
+MainPID=0
+Result=success
+ExecMainStatus=0
+Id=glm53-int64-worker-candidate-a5901ed.service
+ActiveState=active
+
+MainPID=0
+Result=success
+ExecMainStatus=0
+Id=vllm-glm53fp4.service
+ActiveState=inactive
+
+Result=success
+Id=vllm-glm53fp4-watchdog.timer
+ActiveState=inactive
+sha256:a7f76ae9f18c7701c9cde5f72c606393d9a21ca94dd8e53b27589935f64fcbe2
+MemFree:        117443664 kB
+1048576

@@ -1,5 +1,15 @@
 # Status
 
+- 2026-11-03: Both arms pass 271 native cases on each Spark; candidate high-offset
+  graph and zero-error sanitizer pass both. All 187 control and 189 candidate
+  B12X objects match across nodes. Serving harness staged; full serving gates
+  remain pending. Inference/watchdog off, production aliases unchanged.
+
+- 2026-11-03: Head candidate passed 271 bounded cases, supported high-offset
+  eager/graph and zero-error memcheck. All 189 B12X objects pass SM121a inspection;
+  187 pair with control: no new stack/local/shared use, four register increases.
+  Worker control is running; no serving performance or adoption claim.
+
 - 2026-11-03: Resolved the completed vLLM layer; its cache advice was insufficient.
   Read-only residency inspection found two earlier exact-wheel exports. Added
   only those paths to the hash/size-checked helper; all 22 focused checks pass.

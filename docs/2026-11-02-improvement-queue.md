@@ -5,11 +5,12 @@ MTP3 adoption awaits the user's decision. Both arms used explicit maximum
 reasoning and cumulative token-usage timing. Earlier incomplete runs (implicit
 effort and empty-token text timing) are archived and excluded. MTP5 restoration
 was verified after that trial. Inference is now stopped for candidate 16's
-Int64 qualification. Paired images are built; head control passed 271 native
-cases and object inspection. Candidate passed 271 bounded cases, but its
-upstream high-offset test used an unsupported split-K16. A supported split-K8
-test with the same >2^31 FP32 partial buffer is prepared; full candidate,
-worker and serving qualification remain pending. No candidate has been
+Int64 qualification. Both exact image arms pass all271 bounded GPU cases on
+both Sparks. The candidate also passes the supported >2^31-element FP32
+high-offset eager/graph test and zero-error memcheck on both. All187 control
+and189 candidate B12X objects match across nodes. Four kernels use more
+registers (up to15); no stack/local/shared-memory increase was found. Full
+serving/API/KV/cache and speed gates remain pending. No candidate has been
 adopted. See the [MTP receipts](receipts/2026-11-03-mtp-depth/README.md)
 and [active build window](gates/2026-11-03-dense-int64.md).
 Scope: NVIDIA `nvidia/GLM-5.3-Flash-FP4-Local`, unchanged checkpoint revision,
@@ -93,7 +94,7 @@ sweep is a separate arm against the same frozen baseline.
 | 13 | NCCL CTA limit | Tune current 8 independently of buffers and RoCE threshold | Link/CPU/SM utilization; never change multiple transport controls together |
 | 14 | NCCL buffer size | Tune current 1MiB independently | Same topology and CTA setting; no PCIe-only collective substitution |
 | 15 | Pinned FlashInfer embedded-B12X image | Include local SM121 kernels with matching dependency closure and vLLM fork | Exact source SHAs, linux/arm64 build, import ownership, pip/uv dependency check, native SM121 execution |
-| 16 | Dense split-K 64-bit address fix | FlashInfer `f5f5341d7` fixes output offsets exceeding signed 32-bit | Absent in live source; isolated backport and upstream regression prepared in experiments/dense-int64; native build, big-offset oracle, sanitizer and replay still pending |
+| 16 | Dense split-K 64-bit address fix | FlashInfer `f5f5341d7` fixes output offsets exceeding signed 32-bit | Both exact source-built arms pass271 bounded cases/node; candidate high-offset, replay and zero-error sanitizer pass both nodes. SM121a binary/resource review complete; four register increases retained. Full serving/KV/API/cache/speed gates pending; not adopted |
 | 17 | B12X offline kernel profiles | Prepare actual GLM geometry/capacities on GB10 rather than borrowing SM120 winners | Complete measured policy coverage, frozen kernel resolution, fixed storage |
 | 18 | MoE activation/prefill mode | Audit current FORCE_A16 and A4_PREFILL, test an eligible alternative separately | Preserve checkpoint scales/weights; quantization-aware oracle and model-quality gate |
 | 19 | Shared/routed expert overlap | Reuse B12X disjoint scratch and stream dependencies | Whole-layer profiling, no aliasing, no extra KV cost; no microbenchmark-only adoption |

@@ -1,0 +1,6 @@
+{
+  "head_report": "../head-native-candidate/paired-resources.json",
+  "same_deltas": true,
+  "worker_report_remote": "/home/nvidia/glm53-native-tests/int64-20261103/results/worker-candidate-runtimepin-a5901ed-inspection",
+  "local_complete_report": "local/build-audit/native-worker-candidate-a5901ed-inspection/paired-resources.json"
+}
