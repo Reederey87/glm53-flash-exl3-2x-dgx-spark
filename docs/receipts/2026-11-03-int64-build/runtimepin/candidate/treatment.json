@@ -1,0 +1,10 @@
+{
+  "arm": "candidate",
+  "flashinfer_commit": "91271757f7746f3dfb58f7c2aeb44a663389de9e",
+  "files": {
+    "flashinfer/experimental/b12x/_lib/dense_gemm.py": "89437e814ab6ded8b1e2366149eba4ad9c12a073b67ed153f7b717dfbe96fbd2",
+    "tests/experimental/b12x/gemm/test_blockscaled_a16.py": "e2576cfef66c128cb5aff959f6fa0b85573ec2f7dbec6e83ddd12224d160dff7"
+  },
+  "patch_sha256": "d4219c64d030d36d57686f70a18133b32a0fbbaff7ad878d6b771c6294bf5a2e",
+  "gpu_qualified": false
+}

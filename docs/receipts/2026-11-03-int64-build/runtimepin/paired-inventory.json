@@ -1,0 +1,30 @@
+{
+  "context_commit": "408a805366ee9f1f17d6af6bfe806af78321f583",
+  "context_manifest_sha256": "f83a1bed08321c4d1560c7fff2c1484ba9089d615871a3062bad1f33393f330c",
+  "constraints_sha256": "c3cc5d7d404a869d078acc390e49019acf3fec15493e712acf9d617f0b78f6f2",
+  "arms": {
+    "control": {
+      "image_id": "sha256:3b5da79c42ed4204440cfb07c6de1eba46441d5cba6b57d5428d44e60c10d0ed",
+      "label": "control",
+      "python_inventory_sha256": "c06456f59e803afe44d390971631e1eef7824a3a0f767a862bdaa51c6f780c54",
+      "debian_inventory_sha256": "b800b1e654740f6e790c9fb4ff740c55a3e193bc31b1ce331622b56ce67c26b3",
+      "installed_source": {
+        "installed_source": "/usr/local/lib/python3.12/dist-packages/flashinfer/experimental/b12x/_lib/dense_gemm.py",
+        "sha256": "313ed8cda2c9665a48e40c88c2676a328ae6174ee65b85514d668d1e9fc1e024"
+      }
+    },
+    "candidate": {
+      "image_id": "sha256:bad0f2005665489026ef9febafe8bbc28f6fe0821681cdb82479a21802d1287b",
+      "label": "candidate",
+      "python_inventory_sha256": "c06456f59e803afe44d390971631e1eef7824a3a0f767a862bdaa51c6f780c54",
+      "debian_inventory_sha256": "b800b1e654740f6e790c9fb4ff740c55a3e193bc31b1ce331622b56ce67c26b3",
+      "installed_source": {
+        "installed_source": "/usr/local/lib/python3.12/dist-packages/flashinfer/experimental/b12x/_lib/dense_gemm.py",
+        "sha256": "89437e814ab6ded8b1e2366149eba4ad9c12a073b67ed153f7b717dfbe96fbd2",
+        "test_sha256": "e2576cfef66c128cb5aff959f6fa0b85573ec2f7dbec6e83ddd12224d160dff7"
+      }
+    }
+  },
+  "native_qualified": false,
+  "serving_qualified": false
+}

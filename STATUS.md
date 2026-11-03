@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: Corrected control3b5da79c/candidatebad0f200 both built. Complete
+  Python/OS inventories match each other and qualified control40f4, with SDK
+  3.43.0 and expected installed source/profile hashes. Dependency drift gate
+  passes; native/serving tests of these exact new images remain pending.
+
 - 2026-11-03: Runtime-pinned control3b5da79c built on spark1. Full Python/OS
   inventories and treatment bytes match qualified control40f4; actual installed
   source/profile hashes pass. Candidate runner and exact-image GPU tests remain
