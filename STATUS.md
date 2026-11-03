@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Prepared guarded compiler-cache preservation for the fresh
+  incumbent baseline after Exa/local-source review. Nine filesystem checks
+  pass, including partial-failure rollback; checkpoint cache is excluded.
+
 - 2026-11-03: Both arms pass 271 native cases on each Spark; candidate high-offset
   graph and zero-error sanitizer pass both. All 187 control and 189 candidate
   B12X objects match across nodes. Serving harness staged; full serving gates
