@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Prepared a full-source matched build pair for the Int64 candidate,
+  pinning CUDA/NCCL and sharing one vLLM wheel. Actual pinned-source control and
+  patched hashes pass offline. No image build or GPU qualification yet.
+
 - 2026-11-03: Harness `05c6023` passed 46 helper tests and 24 live requests
   across neighboring seeds at c4/c8, with zero prefix hits. Started the full
   explicit-max baseline as `glm53-ab-namespaced-base-20261103.service`;

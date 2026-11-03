@@ -48,6 +48,47 @@ these are not evidence of CUDA compilation or numerical correctness.
 The broader updated FlashInfer image remains a separate queue item. This
 backport isolates the address fix from its extensive API/policy changes.
 
+## Reproducible build preparation
+
+`prepare_build.py` archives reviewed launcher commit
+`0bdc9c94cd89843e1c8f7d7b33df2d5bc746c03d` from a local git object store into a
+new directory. It verifies the original Dockerfile, pins the ARM64 CUDA 13.0.2
+base digest and NCCL 2.32.3 commit, and adds the hash-checked source treatment
+before FlashInfer's wheel build. It does not edit that checkout or production.
+
+```bash
+uv run --frozen --no-dev experiments/dense-int64/prepare_build.py \
+  --upstream-repo /path/to/spark-vllm-docker \
+  --out local/int64-build-context
+```
+
+Freeze the helper commit and generated `context-sha256.txt`, then stage this
+context to an isolated build directory owned by `nvidia` on spark1. Only in
+the registered idle window, run `bash build_pair.sh glm53-int64-UNIQUE-LABEL`
+there. The wrapper refuses production-active/low-memory states, validates
+both nodes directly over QSFP, and never replaces an existing image tag.
+It uses the upstream full Dockerfile's vLLM and FlashInfer export stages,
+with four build jobs and `12.1a`. One rebuilt vLLM wheel is shared by both
+runners; only the FlashInfer kernel treatment differs. Both retain the exact
+kernel/test hashes and test sources in the image. A wheel build alone does
+not compile every lazy B12X kernel; the native GPU gates above remain mandatory.
+
+The wrapper records image identities, wheel hashes and package inventories,
+and rejects a package-version mismatch between arms. Unpinned transitive
+dependencies can differ from the incumbent, so compare this matched rebuilt
+control with the candidate, and separately qualify the final candidate against
+the incumbent. Full bit-for-bit reproducibility of external apt/Python indexes
+is not claimed. BuildKit cache reuse is allowed for common source build layers;
+GPU qualification requires fresh, separate JIT/tuning caches for each arm.
+
+Exa source review used the upstream
+[Dockerfile](https://github.com/eugr/spark-vllm-docker/blob/0bdc9c94cd89843e1c8f7d7b33df2d5bc746c03d/Dockerfile)
+and [build script](https://github.com/eugr/spark-vllm-docker/blob/0bdc9c94cd89843e1c8f7d7b33df2d5bc746c03d/build-and-copy.sh).
+Newer `main` has a different standalone B12X path; it is not substituted for
+the reviewed embedded implementation. Local vLLM architecture selection,
+Exllamav3 compile/cache rules and TensorFold's native CUDA requirements were
+reviewed before preparing this source-build path.
+
 Research: Exa lookup covered the overflow and synchronization alternatives;
 the exact commit is available in local git (Exa's commit-page crawl timed out).
 Local vLLM, Exllamav3 and TensorFold were reviewed first. Their pool-address
