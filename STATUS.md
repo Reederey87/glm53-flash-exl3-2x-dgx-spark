@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Reviewed reported dependency alerts against the incumbent image:
+  certifi 2026.7.22 and filelock 3.32.3. Existing build logs show newer versions;
+  final-image inventory verification remains pending. No package/build change.
+
 - 2026-11-03: Inspector `d888df7` is hash-verified on both nodes. Its real
   incumbent-object smoke passes without GPU access, preserving object/manifest
   bytes and producing matching SM121a resource/SASS reports. All 176 tests pass;

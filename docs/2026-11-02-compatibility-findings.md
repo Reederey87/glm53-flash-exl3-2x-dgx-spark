@@ -228,6 +228,38 @@ qualification; do not add a redundant cache mount or alter the running
 baseline. Local vLLM warmup, Exllamav3 build targeting and TensorFold complete
 prefix-state handling were reviewed alongside the deployed implementation.
 
+## Dependency closure follow-up (November 3)
+
+GitHub reports three open default-branch `uv.lock` alerts. This branch's
+deployment-kit lock contains neither affected package; the serving image has
+its own dependencies. A read-only, network-disabled inspection of incumbent
+image `a7f76ae9f18c7701c9cde5f72c606393d9a21ca94dd8e53b27589935f64fcbe2`
+at 18:45 UTC found `certifi==2026.7.22` and `filelock==3.32.3`.
+
+| Package | Applicable advisory | Patched version | Existing build-log observation |
+|---|---|---|---|
+| certifi | [GHSA-6q48-6c7w-9gw2](https://github.com/advisories/GHSA-6q48-6c7w-9gw2): bundled emSign root trusts compromised intermediate keys | 2026.10.18; advisory recommends 2026.10.19 or later | 2026.10.23 |
+| filelock | [GHSA-v4x8-3wr5-3wq8](https://github.com/tox-dev/filelock/security/advisories/GHSA-v4x8-3wr5-3wq8): SQLite-backed reader/writer locks in directories writable by another local user | 4.2.1 | 4.2.4 |
+
+The separate [Windows filelock advisory](https://github.com/tox-dev/filelock/security/advisories/GHSA-9vhv-jxww-xfm5)
+does not describe these Linux nodes. The pinned vLLM weight loader uses
+`filelock.FileLock`, and a search of pinned FlashInfer's embedded B12X found
+no `ReadWriteLock` or `AsyncReadWriteLock` references. This is a limited
+call-site review, not proof that every installed dependency avoids those APIs.
+No exploitation is asserted.
+
+The newer versions appear in step 9 of the original pinned build's log, not
+in a completed runner-image inventory. Later installs can change them. Before
+declaring this resolved, inspect `artifacts/packages-control.json` and
+`packages-candidate.json` from the completed build and each native run's
+`identity.json`. Both arms must retain matching inventories and the existing
+rebuilt-control-versus-incumbent qualification. Treat this as candidate 15's
+dependency-closure review; do not change the frozen build, upgrade a running
+container, or attribute dependency effects to the Int64 patch.
+
+Receipt: `local/build-audit/dependency-review/incumbent-and-build.txt`.
+The incumbent image and active build were not modified by this review.
+
 ## Sources and limits
 
 Exa lookup and local source inspection were both used. The specific dense
@@ -239,6 +271,8 @@ for an unrelated MLA split-K bug was treated as evidence for that commit.
 - [Flare's primary defect record](https://github.com/NVIDIA/flare-local-inference/blob/main/docs/glm-batched-speculation-defect.md): distinct export-state and grid-barrier defects; TP4/c16 NaN investigation remains open.
 - [FlashInfer MLA addressing fix](https://github.com/flashinfer-ai/flashinfer/pull/3136): corroborates the general large-pool offset hazard, but is a different kernel and fix.
 
-No checkpoint conversion, Flare deployment, new image build or dedicated GPU
-kernel regression test has been performed. Live source/package identity is
-now established; isolated candidate windows follow the full incumbent matrix.
+No checkpoint conversion or Flare deployment has been performed. The separate
+Int64 full-source build is active, with its shared vLLM wheel exported and
+FlashInfer's native providers compiling. No completed arm image or dedicated
+changed-kernel GPU regression pass is claimed. Follow the
+[build-window record](gates/2026-11-03-dense-int64.md) for subsequent results.
