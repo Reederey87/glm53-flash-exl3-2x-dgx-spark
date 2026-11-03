@@ -151,6 +151,22 @@ def test_scripts_are_stdlib_only() -> None:
             assert module_name in allowed, f"{path.name}: unexpected import {module_name}"
 
 
+@pytest.mark.parametrize("status,message,expected", [
+    (200, {"reasoning": " checked arithmetic ", "content": "391"}, "pass"),
+    (200, {"reasoning_content": "legacy reasoning"}, "pass"),
+    (200, {"reasoning": None, "reasoning_content": "legacy reasoning"}, "pass"),
+    (200, {"content": "391"}, "warn"),
+    (200, {"reasoning": " ", "reasoning_content": "stale", "content": "391"}, "warn"),
+    (200, {"reasoning": ["malformed"]}, "warn"),
+    (500, {"reasoning": "upstream error"}, "warn"),
+])
+def test_smoke_requires_actual_parsed_reasoning(status, message, expected) -> None:
+    module = load_module("smoke")
+    check = module.reasoning_verdict(status, message)
+    assert check.name == "reasoning_parser"
+    assert check.status == expected
+
+
 def test_smoke_prefix_verdict_uses_metrics_fallback() -> None:
     module = load_module("smoke")
     check = module.prefix_cache_verdict(200, 200, 6144.0, None, False, "block=4864/mamba=256")

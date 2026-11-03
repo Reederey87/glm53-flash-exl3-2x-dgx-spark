@@ -7,7 +7,7 @@ Hard checks (must pass):
   * one temperature-0 chat completion returns non-empty content
 
 Soft checks (recorded, not fatal):
-  * the reasoning parser produced reasoning_content
+  * the reasoning parser produced reasoning (or legacy reasoning_content)
   * the tool parser produced a tool call
   * a repeated prefix reports cached prompt tokens
 
@@ -97,6 +97,20 @@ def message_of(body: dict[str, Any] | str) -> dict[str, Any]:
     if not choices:
         return {}
     return choices[0].get("message") or {}
+
+
+def reasoning_verdict(status: int, message: dict[str, Any]) -> Check:
+    field = "reasoning"
+    value = message.get(field)
+    if value is None:
+        field = "reasoning_content"
+        value = message.get(field)
+    reasoning = value.strip() if isinstance(value, str) else ""
+    return Check(
+        "reasoning_parser",
+        "pass" if status == 200 and reasoning else "warn",
+        f"HTTP {status}; field={field}; reasoning={len(reasoning)} chars",
+    )
 
 
 
@@ -231,17 +245,10 @@ def run(base: str, model: str, api_key: str, timeout: float) -> list[Check]:
         api_key,
         max_tokens=256,
         timeout=timeout,
+        template_kwargs={"reasoning_effort": "max"},
     )
     message = message_of(body)
-    reasoning = (message.get("reasoning_content") or "").strip()
-    hard_content = (message.get("content") or "").strip()
-    checks.append(
-        Check(
-            "reasoning_parser",
-            "pass" if status == 200 and (reasoning or hard_content) else "warn",
-            f"HTTP {status}; reasoning={len(reasoning)} chars; content={hard_content[:40]!r}",
-        )
-    )
+    checks.append(reasoning_verdict(status, message))
 
     tools = [
         {

@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: Full explicit-max baseline completed: 96 measured cells and 40
+  warmups pass strict receipt validation (JSON SHA256 `9a6f72b4...`). Fixed the
+  functional smoke to read modern `reasoning` and require actual reasoning;
+  10 smoke tests pass. Functional requalification precedes the MTP3 switch.
+
 - 2026-11-03: Verified both ranks already persist compiler caches and use the
   source/toolchain/device-keyed B12X cache. Recorded native startup preparation;
   candidates 02/03 now focus on coverage, isolation and boot-time evidence.
