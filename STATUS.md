@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Resolved the completed vLLM layer; its cache advice was insufficient.
+  Read-only residency inspection found two earlier exact-wheel exports. Added
+  only those paths to the hash/size-checked helper; all 22 focused checks pass.
+
 - 2026-11-03: Frozen split-K8 test revision a5901ed staged and hash-verified
   on both Sparks; all 278 local checks and both CI jobs pass. Rerun did not
   start: head MemFree is 94,203,592 KiB, below unchanged 94,371,840 KiB gate.

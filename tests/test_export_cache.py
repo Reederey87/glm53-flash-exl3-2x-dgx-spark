@@ -18,12 +18,14 @@ def export(monkeypatch):
 
 
 @pytest.mark.parametrize("fault", [None, "writable", "wrong source", "nested", "duplicate", "missing"])
-def test_exact_export_mount_only(export, fault):
-    line = f"2 1 0:2 {export.SOURCE} {export.ROOT} ro - ext4 /dev/nvme rw"
+@pytest.mark.parametrize("source_index", [0, 1, 2])
+def test_exact_export_mount_only(export, fault, source_index):
+    source = export.SOURCES[source_index]
+    line = f"2 1 0:2 {source} {export.ROOT} ro - ext4 /dev/nvme rw"
     if fault == "writable":
         line = line.replace(" ro -", " rw -")
     elif fault == "wrong source":
-        line = line.replace(export.SOURCE, "/other/export")
+        line = line.replace(source, source + "-unverified")
     elif fault == "nested":
         line += f"\n3 2 0:3 /other {export.ROOT}/nested ro - ext4 /dev/nvme rw"
     elif fault == "duplicate":
@@ -31,7 +33,7 @@ def test_exact_export_mount_only(export, fault):
     elif fault == "missing":
         line = ""
     if fault is None:
-        export.verify_mount(line)
+        assert export.verify_mount(line) == source
     else:
         with pytest.raises(ValueError):
             export.verify_mount(line)
