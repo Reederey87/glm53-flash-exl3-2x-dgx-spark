@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: Frozen split-K8 test revision a5901ed staged and hash-verified
+  on both Sparks; all 278 local checks and both CI jobs pass. Rerun did not
+  start: head MemFree is 94,203,592 KiB, below unchanged 94,371,840 KiB gate.
+  Inference/watchdog remain off; production aliases and rollback unchanged.
+
 - 2026-11-03: Candidate passed 271 bounded head GPU cases, but the upstream
   high-offset test requests unsupported split-K16 and failed before launch;
   sanitizer did not run. Prepared a separate split-K8/M8192 test preserving the

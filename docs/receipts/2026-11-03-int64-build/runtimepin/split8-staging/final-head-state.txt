@@ -1,0 +1,16 @@
+2026-11-03T22:17:28Z
+MainPID=0
+LoadState=not-found
+ActiveState=inactive
+MainPID=0
+Result=exit-code
+ExecMainStatus=1
+InvocationID=8b614c1922a142cfa7183055fb264047
+Id=vllm-glm53fp4.service
+ActiveState=inactive
+
+Id=vllm-glm53fp4-watchdog.timer
+ActiveState=inactive
+MemFree:        94203592 kB
+1048576
+sha256:a7f76ae9f18c7701c9cde5f72c606393d9a21ca94dd8e53b27589935f64fcbe2
