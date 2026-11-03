@@ -48,7 +48,7 @@ pytest_args=(-c /dev/null --rootdir .)
     -k 'not test_nvfp4_split_partials_exceed_int32_elements' \
     --junitxml=/receipts/bounded.xml -ra
 if [[ "$arm" == candidate ]]; then
-    high=tests/experimental/b12x/gemm/test_blockscaled_a16.py::test_nvfp4_split_partials_exceed_int32_elements
+    high=/checks/test_high_offset_sm121.py::test_nvfp4_split_partials_exceed_int32_elements
     "${uvrun[@]}" python -m pytest "${pytest_args[@]}" "$high" \
         --junitxml=/receipts/high-offset.xml -ra
     "${uvrun[@]}" compute-sanitizer --tool memcheck --target-processes all \

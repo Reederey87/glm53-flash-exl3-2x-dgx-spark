@@ -161,9 +161,12 @@ describes isolated environments; this setup was also executed in the actual
 incumbent image. Local vLLM sanitizer tests, Exllamav3 architecture/cache
 selection and TensorFold native-artifact tests were reviewed before this plan.
 
-The reusable runner is in `qualification/`. Stage its four files together
+The reusable runner is in `qualification/`. Stage its five files together
 with this experiment's `manifest.json` into a new isolated checks directory,
-and write `sha256.txt` for those five files before transfer. The locked project
+and write `sha256.txt` for those six files before transfer. The candidate uses
+the separate `test_high_offset_sm121.py` to exercise the same FP32 address
+boundary with split-K8, supported by the pinned planner. The installed
+upstream split-K16 test is retained and hash-checked, not edited. The locked project
 files are staged separately under
 `/home/nvidia/glm53-native-tests/int64-20261103/harness`. Invoke `host-run.sh`
 with the exact built image ID, arm (`control` or `candidate`) and a new

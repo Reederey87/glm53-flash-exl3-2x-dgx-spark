@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: Candidate passed 271 bounded head GPU cases, but the upstream
+  high-offset test requests unsupported split-K16 and failed before launch;
+  sanitizer did not run. Prepared a separate split-K8/M8192 test preserving the
+  same 9,126,805,504-byte FP32 scratch boundary and original failed receipt.
+
 - 2026-11-03: New control3b5da79c passed all 271 native GPU cases on spark1,
   no skips/missing cases. All 187 B12X objects passed SM121a inspection and
   exactly match earlier control objects/resources. Candidate, worker and

@@ -5,8 +5,12 @@ MTP3 adoption awaits the user's decision. Both arms used explicit maximum
 reasoning and cumulative token-usage timing. Earlier incomplete runs (implicit
 effort and empty-token text timing) are archived and excluded. MTP5 restoration
 was verified after that trial. Inference is now stopped for candidate 16's
-separate Int64 source build; native GPU and serving qualification remain
-pending. No candidate has been adopted. See the [MTP receipts](receipts/2026-11-03-mtp-depth/README.md)
+Int64 qualification. Paired images are built; head control passed 271 native
+cases and object inspection. Candidate passed 271 bounded cases, but its
+upstream high-offset test used an unsupported split-K16. A supported split-K8
+test with the same >2^31 FP32 partial buffer is prepared; full candidate,
+worker and serving qualification remain pending. No candidate has been
+adopted. See the [MTP receipts](receipts/2026-11-03-mtp-depth/README.md)
 and [active build window](gates/2026-11-03-dense-int64.md).
 Scope: NVIDIA `nvidia/GLM-5.3-Flash-FP4-Local`, unchanged checkpoint revision,
 two GB10 nodes over direct SSH and RoCE. No EXL3 quantization, replacement

@@ -6,6 +6,17 @@ from pathlib import Path
 import pytest
 
 
+def test_high_offset_helpers_refuse_changed_source_before_import(tmp_path):
+    path = Path(__file__).resolve().parents[1] / "experiments/dense-int64/qualification/test_high_offset_sm121.py"
+    spec = importlib.util.spec_from_file_location("high_offset_qualification", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    changed = tmp_path / "changed.py"
+    changed.write_text("raise AssertionError('unverified source executed')\n")
+    with pytest.raises(RuntimeError, match="source identity differs"):
+        module.load_upstream_helpers(changed)
+
+
 @pytest.fixture
 def qualification(tmp_path):
     path = Path(__file__).resolve().parents[1] / "experiments/dense-int64/qualification/results.py"
