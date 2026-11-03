@@ -1,5 +1,14 @@
 # Status
 
+- 2026-11-03: Activated the isolated MTP3 trial after both-node snapshots,
+  teardown and MemFree gates. Exact image/checkpoint/argv and unchanged KV pass;
+  corrected functional/cache gates pass. Full matched matrix started at 14:19:56
+  UTC as `glm53-ab-namespaced-mtp3-20261103.service`; adoption pending.
+
+- 2026-11-03: All 107 repository tests pass after the reasoning-field fix.
+  The full baseline and corrected functional receipts are preserved under
+  `local/cluster-20261103/namespaced`.
+
 - 2026-11-03: Full explicit-max baseline completed: 96 measured cells and 40
   warmups pass strict receipt validation (JSON SHA256 `9a6f72b4...`). Fixed the
   functional smoke to read modern `reasoning` and require actual reasoning;
