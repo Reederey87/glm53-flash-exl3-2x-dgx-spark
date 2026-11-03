@@ -44,3 +44,17 @@ def test_unsafe_or_ambiguous_image_mounts_are_rejected(guard, mounts):
 def test_different_control_identity_is_rejected(guard, receipt, source):
     with pytest.raises(ValueError, match="wrong"):
         guard.verify_container(ROOT, receipt, source)
+
+
+def test_candidate_identity_is_bound_to_exact_image(guard, monkeypatch):
+    monkeypatch.setattr(guard, "CANDIDATE_TREATMENT_SHA", hashlib.sha256(b"candidate receipt").hexdigest())
+    monkeypatch.setattr(guard, "CANDIDATE_DENSE_SHA", hashlib.sha256(b"candidate source").hexdigest())
+    guard.verify_container(ROOT, b"candidate receipt", b"candidate source", guard.CANDIDATE_IMAGE_ID)
+    for image, receipt, source in [
+        (guard.CANDIDATE_IMAGE_ID, b"receipt", b"source"),
+        (guard.CORRECTED_IMAGE_ID, b"candidate receipt", b"candidate source"),
+        (guard.CANDIDATE_IMAGE_ID, b"candidate receipt", b"source"),
+        ("sha256:unreviewed", b"candidate receipt", b"candidate source"),
+    ]:
+        with pytest.raises(ValueError):
+            guard.verify_container(ROOT, receipt, source, image)

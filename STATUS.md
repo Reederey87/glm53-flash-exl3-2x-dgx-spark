@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: Extended scoped clean-page recovery to the exact completed
+  candidate image, with candidate-specific treatment/source checks. All 37
+  recovery tests pass; the helper rejects unknown images and crossed arm
+  identities. No model cache mounts, file deletion or memory-gate change.
+
 - 2026-11-03: Candidate source export and runner completed. Inventory gate
   caught OpenAI SDK 3.44.0 versus control 3.43.0; OS/treatment checks pass,
   but candidate GPU qualification is held. Prepared a shared, hash-checked
