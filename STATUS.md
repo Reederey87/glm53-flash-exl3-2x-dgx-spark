@@ -4,7 +4,9 @@
   identity checks, fresh caches, strict skip/memcheck handling and retained
   native resource reports. Locked test-project hashes match on both nodes;
   GPU execution awaits the ongoing source build. All 157 repository tests,
-  runner ShellCheck and syntax checks pass. Updated queue status.
+  runner ShellCheck and syntax checks pass. Runner `f0ac844` is staged and
+  hash-verified on both nodes; live low-memory refusal passed without a GPU
+  container. Updated queue status.
 
 - 2026-11-03: Int64 full-source build started on spark1 at 16:19:51 UTC as
   `glm53-build-dense-int64-20261103.service` after both-node snapshots and
