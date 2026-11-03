@@ -189,3 +189,37 @@ the terminal build status and identify that layer first; the helper is not
 for active builds, model files or global cache purging. It preserves data and
 reports actual memory separately from the sizes of files advised. Always
 rerun the unchanged both-node memory gate before resuming a build.
+
+## Inspecting exported CuTe objects
+
+Direct `cuobjdump` reports no device code for the incumbent's exported CuTe
+host `.o`: its fatbin is an ordinary ELF `kernels_binary` data symbol. The
+native runner's direct report therefore cannot establish architecture or
+resource usage for those objects. Preserve that report and use the separate
+read-only post-processing tool after the native test container finishes:
+
+```bash
+uv run --frozen --no-dev experiments/dense-int64/inspect_cute_object.py \
+  /path/to/receipts/cache/b12x/xx/OBJECT.o --out /path/to/new-inspection
+```
+
+The tool validates the sibling B12X manifest's object and semantic hashes,
+reads the exact ELF symbol bounds, and writes its fatbin to a new directory
+outside the source object's directory. It retains ELF, resource and SASS
+reports and requires matching kernel sets, SM121a and unchanged input bytes.
+It never loads the object, initializes CUDA, rewrites the cache or recompiles
+the kernel. Missing, corrupt or unsupported inputs are rejected.
+
+Pair control/candidate objects on the **same node** by validated `semantic_key`,
+which omits source fingerprints while retaining launch specialization. Inspect
+candidate-only high-offset objects separately. Compare per-kernel register,
+stack/local memory and SASS, and include the manifest's dynamic shared-memory
+metadata alongside cuobjdump's static shared-memory report. An inspection
+success is not a GPU correctness, no-regression or serving-performance pass.
+
+Exa research: [NVIDIA's AOT format](https://docs.nvidia.com/cutlass/latest/media/docs/pythonDSL/guides/ahead_of_time_compilation.html),
+[NVIDIA's kernels_binary integration example](https://github.com/NVlabs/vibetensor/blob/main/tests/py/test_cute_runtime_cutedsl_integration.py),
+[ELF symbol bounds](https://gabi.xinuos.com/elf/05-symtab.html) and
+[CUDA binary utilities](https://docs.nvidia.com/cuda/cuda-binary-utilities/index.html).
+Local review included vLLM's kernel-symbol mapper (tool failure means unknown),
+Exllamav3's compiler/source selection and TensorFold's explicit CUDA symbol maps.

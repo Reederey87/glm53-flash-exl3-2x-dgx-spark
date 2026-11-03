@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: Found that direct cuobjdump misses CuTe cache-object fatbins.
+  Added a read-only, symbol-bounded extractor with manifest/hash checks and
+  retained resource/SASS reports; 17 rejection/identity tests pass. GPU tests
+  and the running source build remain unchanged.
+
 - 2026-11-03: Applied the verified explicit-SHA fetch repair to both prepared
   RoCE build generators. Regenerated contexts differ only in Dockerfile/manifest;
   kernel patches, qualification sources and gates are unchanged. No RoCE build ran.
