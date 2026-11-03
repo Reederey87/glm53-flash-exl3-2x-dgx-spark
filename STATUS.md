@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: Checkpointed control runner built successfully as `45ac705b...`.
+  Final inventory exposed unpinned cuDNN frontend 1.32.1 requiring DSL >=4.8,
+  conflicting with frozen 4.7. No serving selection or GPU qualification;
+  preserve this image and repair the common dependency set before continuing.
+
 - 2026-11-03: Control FlashInfer providers completed (2,920 outputs, 564
   libraries; three wheels retained). Build stopped before the runner image
   at the unchanged MemFree gate. Extended scoped recovery to the completed
