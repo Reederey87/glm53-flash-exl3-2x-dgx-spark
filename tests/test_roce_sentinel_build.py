@@ -34,8 +34,11 @@ def sentinel_bundle(tmp_path):
     native = "# native regression source, not executed by this helper\n"
     (bundle / "kernel.patch").write_text(patch)
     (bundle / "test_wrap_sentinel_gpu.py").write_text(native)
+    extra = "/* bounded native proxy fixture */\n"
+    (bundle / "proxy_failure_harness.c").write_text(extra)
     manifest = {"flashinfer_base": revision, "patch_sha256": sha(patch),
                 "native_test_sha256": sha(native), "proxy_abi": {"control": 7, "candidate": 8},
+                "qualification_files": {"proxy_failure_harness.c": sha(extra)},
                 "files": [
                     {"path": "kernel.py", "base_sha256": sha("failure = sequence\n"),
                      "candidate_sha256": sha("failure = 1\n")},
@@ -58,9 +61,11 @@ def test_control_preserves_missing_file_and_candidate_adds_it(sentinel_bundle):
     assert not candidate["gpu_qualified"]
     test_path = "kernel-tests/tests/experimental/b12x/comm/test_wrap_sentinel_gpu.py"
     assert (output / "control" / test_path).read_bytes() == (output / "candidate" / test_path).read_bytes()
+    extra_path = "kernel-tests/tests/experimental/b12x/comm/proxy_failure_harness.c"
+    assert (output / "candidate" / extra_path).read_bytes() == (bundle / "proxy_failure_harness.c").read_bytes()
 
 
-@pytest.mark.parametrize("fault", ["patch", "native", "revision", "dirty", "new_collision", "scope", "duplicate", "bad_arm"])
+@pytest.mark.parametrize("fault", ["patch", "native", "qualification", "revision", "dirty", "new_collision", "scope", "duplicate", "bad_arm"])
 def test_invalid_inputs_are_rejected_before_source_mutation(sentinel_bundle, fault):
     module, source, bundle, output, manifest = sentinel_bundle
     if fault == "patch":
@@ -68,6 +73,8 @@ def test_invalid_inputs_are_rejected_before_source_mutation(sentinel_bundle, fau
             handle.write("unexpected\n")
     elif fault == "native":
         (bundle / "test_wrap_sentinel_gpu.py").write_text("different test\n")
+    elif fault == "qualification":
+        (bundle / "proxy_failure_harness.c").write_text("changed fixture\n")
     elif fault == "revision":
         manifest["flashinfer_base"] = "unreviewed"
     elif fault == "dirty":

@@ -32,6 +32,9 @@ def apply(source: Path, bundle: Path, output: Path, arm: str) -> dict:
     native_test = bundle / "test_wrap_sentinel_gpu.py"
     if digest(native_test) != manifest["native_test_sha256"]:
         raise ValueError("native regression differs from frozen manifest")
+    for name, expected in manifest.get("qualification_files", {}).items():
+        if PurePosixPath(name).name != name or digest(bundle / name) != expected:
+            raise ValueError("additional qualification file differs from frozen manifest")
     actual = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip()
     if actual != manifest["flashinfer_base"]:
         raise ValueError(f"unexpected FlashInfer source: {actual}")
@@ -62,6 +65,7 @@ def apply(source: Path, bundle: Path, output: Path, arm: str) -> dict:
                "files": {item["path"]: item[key] for item in manifest["files"]},
                "patch_sha256": manifest["patch_sha256"],
                "native_test_sha256": manifest["native_test_sha256"],
+               "qualification_files": manifest.get("qualification_files", {}),
                "proxy_abi": manifest["proxy_abi"][arm], "gpu_qualified": False}
     output.mkdir(parents=True, exist_ok=True)
     (output / ".roce-failure-sentinel.json").write_text(json.dumps(receipt, indent=2) + "\n")
@@ -72,6 +76,9 @@ def apply(source: Path, bundle: Path, output: Path, arm: str) -> dict:
     test_destination.parent.mkdir(parents=True, exist_ok=True)
     with test_destination.open("xb") as handle:
         handle.write(native_test.read_bytes())
+    for name in manifest.get("qualification_files", {}):
+        with (test_destination.parent / name).open("xb") as handle:
+            handle.write((bundle / name).read_bytes())
     return receipt
 
 

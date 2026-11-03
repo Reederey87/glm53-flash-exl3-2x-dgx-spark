@@ -367,3 +367,16 @@ index fbfa264df..86d40b553 100644
              "error_peer": int(self._ctrl_words[3].item()),
              "error_hca": int(self._ctrl_words[6].item()),
              "error_kind": int(self._ctrl_words[7].item()),
+diff --git a/tests/experimental/b12x/comm/test_roce_proxy.py b/tests/experimental/b12x/comm/test_roce_proxy.py
+index cabbe8470..04a8056bc 100644
+--- a/tests/experimental/b12x/comm/test_roce_proxy.py
++++ b/tests/experimental/b12x/comm/test_roce_proxy.py
+@@ -95,7 +95,7 @@ def test_layout_places_variable_length_area_after_two_shot():
+         lib = load()
+     except RuntimeError as exc:  # no C compiler or libibverbs headers
+         pytest.skip(str(exc))
+-    assert lib.roce_abi_version() == ABI_VERSION == 7
++    assert lib.roce_abi_version() == ABI_VERSION
+     piped = Layout(4, 2 << 20, 64 << 20)
+     assert piped.varlen_bytes == 0
+     assert piped.varlen_recv_off == piped.varlen_flag_off == piped.total_bytes

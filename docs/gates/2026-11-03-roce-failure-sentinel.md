@@ -82,7 +82,7 @@ manifest, including absence/presence of the new control module. Both arms
 export the identical native regression source. Ten build-helper tests pass;
 the full local repository suite is 143 passed. Native tests remain unrun.
 
-The context is staged on spark1 at
+The initial, now superseded context was staged on spark1 at
 `/home/nvidia/glm53-source-builds/roce-sentinel-e6015c6/context`, manifest SHA256
 `2904d9e091ce68ec5c22462c6e999e55655dcaae35f9fc7305476ea1e967e64c`.
 Every context file hash matched after transfer. With the serving unit
@@ -90,3 +90,10 @@ confirmed active, `build_pair.sh glm53-roceflag-20261103` returned its expected
 exit 2 before creating artifacts or building. MTP3 remained active/running
 with PID 188858. Refusal logs are beside the context, with local copies under
 `local/build-audit/roce-sentinel-staging-receipt`. No image has been built.
+
+The extended bundle prepares 36 two-shot/varlen GPU cases, 12 compiled
+C-proxy cases and a separate opt-in two-node mixed-ABI check. None has run.
+The common upstream ABI test now checks module/library agreement; exact
+per-arm versions remain required by the image identity gate. Fresh pinned
+source application and all qualification-file exports match their manifests.
+The full local suite is now 144 passed, including 11 applier tests.

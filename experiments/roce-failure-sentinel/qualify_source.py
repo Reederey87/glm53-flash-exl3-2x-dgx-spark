@@ -16,7 +16,12 @@ def qualify(source: Path) -> dict:
              "_oneshot_cute.py", "_allgather_cute.py", "_twoshot_cute.py", "_varlen_cute.py"]
     texts = {name: (root / name).read_text() for name in names}
     manifest = json.loads((Path(__file__).parent / "manifest.json").read_text())
-    expected = {Path(item["path"]).name: item["candidate_sha256"] for item in manifest["files"]}
+    prefix = "flashinfer/experimental/b12x/comm/roce/"
+    expected = {Path(item["path"]).name: item["candidate_sha256"]
+                for item in manifest["files"] if item["path"].startswith(prefix)}
+    for item in manifest["files"]:
+        if hashlib.sha256((source / item["path"]).read_bytes()).hexdigest() != item["candidate_sha256"]:
+            raise ValueError(f"source differs from frozen manifest: {item['path']}")
     actual = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in texts.items()}
     if actual != expected:
         raise ValueError("source differs from frozen candidate manifest")

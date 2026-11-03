@@ -99,7 +99,7 @@ two-node fabric and successful-wrap tests. No such GPU test has run yet.
 
 ## Prepared implementation and qualification
 
-`kernel.patch` changes eight files against the pinned incumbent. The dedicated
+`kernel.patch` changes eight runtime files and one ABI test. The dedicated
 host failure flag is word 14 / byte 56, with a 60-byte host view. All four
 kernel paths publish this flag and constant device poison 1; their publication
 and epoch gates use the new flag. The C proxy's two waiting loops use it too.
@@ -120,7 +120,7 @@ All 12 pass, including error sequence zero and signed int32 representation
 of `0xffffffff`. It also checks source coverage of all failure stores,
 publication gates and C predicates. These are source/CPU checks, not GPU or
 concurrency proof. The latest receipt is
-`local/build-audit/roce-wrap-audit/candidate-host-qualification-v3.json`.
+`local/build-audit/roce-wrap-audit/candidate-host-qualification-v4.json`.
 
 The standalone `test_wrap_sentinel_gpu.py` prepares 24 native tests: reduce
 and gather, one/two/four blocks, eager/graph execution, success/timeout at
@@ -157,7 +157,7 @@ stage. It never stops production or selects the resulting image for serving.
 
 The applier requires a clean pinned checkout, exact patch/native-test hashes,
 an exact manifest file set, and no conflicting new `_control.py`. It supports
-the new file without pretending it existed in the control. Ten helper tests
+the new file without pretending it existed in the control. Eleven helper tests
 cover valid paired application and rejection before mutation for changed
 source/revision, native tests, patch scope, collisions and reused receipts.
 Actual fresh upstream control/candidate application also matches every hash.
@@ -167,3 +167,53 @@ receipts at `/workspace/roce-failure-sentinel.json` and tests under
 `/opt/roce-failure-sentinel-tests`; the receipt identifies ABI 7 or 8 and
 explicitly records that GPU qualification is still pending. Compare installed
 files and dependencies after the build; source export alone is insufficient.
+
+## Extended native qualification (prepared, not executed)
+
+`test_extended_wrap_gpu.py` adds 36 candidate-only cases for two-shot
+reduce-scatter/all-gather timeout, variable-length timeout/invalid count, and
+successful wrapped sequences, each in eager/graph mode with one/two/four
+blocks. A later-stage failure can leave a local partial result; the test
+requires the host to mark the whole result unusable and prevents resumption
+after poison. Tail bookkeeping may advance on a captured poisoned launch;
+payload, epoch and failure state must not recover.
+
+`test_proxy_failure_native.py` compiles the installed C proxy source with
+`proxy_failure_harness.c` and executes 12 bounded failure/stop cases. It creates
+no HCA, QP or GPU context. Nonmatching ready words and a stopped running flag
+bound both loops even if failure detection regresses; expected errors must
+distinguish failure from normal stop, including sequence zero.
+
+`test_mixed_abi_distributed.py` runs separately with actual ABI-7/ABI-8 images
+and `ROCE_MIXED_ABI_QUALIFICATION=1` on both ranks. Gloo bootstraps the pair;
+real region/proxy setup must reject the specific `proxy_abi` mismatch on both
+before transport connection. A generic setup error, same-version pair or skip
+does not pass. Run both rank orders. Do not include this opt-in test in an
+ordinary same-image suite.
+
+All extra files are hashed in `manifest.json` and exported unchanged to both
+images. The upstream layout test checks module/C-library ABI agreement rather
+than hardcoding 7; treatment receipts still require exact control ABI 7 and
+candidate ABI 8. Use candidate-exported common upstream tests against both
+installed images to keep coverage identical.
+
+Inside the candidate's idle container, from the exported test root with the
+locked system-site-package test venv prepared:
+
+```bash
+timeout --kill-after=30 900 uv run --frozen --project /harness python -m pytest -x -v \
+  tests/experimental/b12x/comm/test_wrap_sentinel_gpu.py \
+  tests/experimental/b12x/comm/test_extended_wrap_gpu.py \
+  tests/experimental/b12x/comm/test_proxy_failure_native.py \
+  --junitxml=/receipts/sentinel-native.xml
+```
+
+Then run paired oneshot/twoshot/varlen fabric suites with fresh caches and both
+rank reports. For the separate mixed-ABI check, launch one torchrun rank in
+each image using direct fabric rendezvous and only its dedicated module.
+Standalone kernels use synthetic mailboxes; they do not prove real network
+wraparound or behavior of stale flags left by different shapes.
+
+The earlier `e6015c6` context is superseded by the extended-qualification
+context; it was never built. Keep its refusal receipt as history and use the
+newest frozen context recorded in the gate for an actual build.

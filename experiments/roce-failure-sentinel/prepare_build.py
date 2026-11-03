@@ -70,6 +70,8 @@ LABEL glm53.roce-failure-sentinel.arm=$ROCE_FAILURE_SENTINEL_ARM
     source = Path(__file__).resolve().parent
     for name in ("apply_kernel.py", "kernel.patch", "manifest.json", "test_wrap_sentinel_gpu.py"):
         shutil.copyfile(source / name, bundle / name)
+    for name in json.loads((source / "manifest.json").read_text()).get("qualification_files", {}):
+        shutil.copyfile(source / name, bundle / name)
     shutil.copyfile(source / "build_pair.sh", destination / "build_pair.sh")
     # Reuse the frozen read-only both-node policy for build readiness, without
     # changing the production unit or installing the helper into its runtime.

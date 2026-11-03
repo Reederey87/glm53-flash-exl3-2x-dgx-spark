@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Added prepared two-shot/varlen, compiled C-proxy and mixed-ABI
+  sentinel tests; native execution remains pending. Local suite 144 passed.
+  Extended build context supersedes `e6015c6`, which was never built.
+
 - 2026-11-03: Frozen sentinel build context `e6015c6` staged under
   `/home/nvidia/glm53-source-builds/roce-sentinel-e6015c6/context`; hashes match.
   Loaded-cluster refusal passed (exit 2, no artifacts); local suite 143 passed.

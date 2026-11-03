@@ -41,9 +41,14 @@
       "path": "flashinfer/experimental/b12x/comm/roce/roce_oneshot.py",
       "base_sha256": "44802a72762a3af27ad5c97d138612c54f0f177256f3be316de248de83ae9931",
       "candidate_sha256": "b80cefe97ee4283c92a64754f404ae925f991fed784f85d85dff57fcfda76ee3"
+    },
+    {
+      "path": "tests/experimental/b12x/comm/test_roce_proxy.py",
+      "base_sha256": "e131bdde034f1c9b49148616aebaa89b9a02ec1030d5ae7392779d4802db3a9f",
+      "candidate_sha256": "9116f861d62a8ea04334bbf916ad628286047cdcc14be7709acae20fd09fb166"
     }
   ],
-  "patch_sha256": "7760d4d331c1e7f691179d2a4f2723df8a5e1474d6f3cb6b5236e3a060812a8a",
+  "patch_sha256": "c52c76935c2e7b01982d747bcd4d99ed1c274283f7bc06803b624d8f8096c063",
   "public_api_version": 1,
   "proxy_abi": {
     "control": 7,
@@ -53,5 +58,11 @@
   "failure_byte_offset": 56,
   "native_test_sha256": "1819c937bfe09c0ffe34093a3cd8082680229bd148bc133698ec5678b87d5c2c",
   "gpu_qualified": false,
-  "scope": "independent sticky failure sentinel; all four kernel paths, host and C proxy; no single-block optimization, completion snapshot or early-clobber change"
+  "scope": "independent sticky failure sentinel; all four kernel paths, host and C proxy; no single-block optimization, completion snapshot or early-clobber change",
+  "qualification_files": {
+    "test_extended_wrap_gpu.py": "d8782ccd8c6e12d113d40deb10497bbb211c1914faa32abaeeccd1eb3d87e86e",
+    "proxy_failure_harness.c": "631fb194045d96dd175d064a5ec4c627105c3825ad7b463f90bd844eaae4ab01",
+    "test_proxy_failure_native.py": "c320837cf3310bee2f011ee3807d45a5e2d15d0c8d0782b4574a3bb6cdf8b570",
+    "test_mixed_abi_distributed.py": "548f93bdbabe998520d95b0151482060af189cbad76c641d707dea062ac620a6"
+  }
 }
