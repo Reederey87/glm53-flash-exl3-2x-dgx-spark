@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: Candidate 22 source/snapshot review found that the solo-prefill
+  switch needs an active decode-counting policy and smaller scheduled cap;
+  baseline has neither. Recorded prerequisites and mixed-load evidence needed.
+  No scheduling change or performance result is claimed.
+
 - 2026-11-03: Prepared candidate 05's isolated MTP1 recipe patch and gate after
   Exa/local-source review. Actual temporary application changes exactly one
   line and matches the recorded hashes. No runtime change or GPU trial yet.
