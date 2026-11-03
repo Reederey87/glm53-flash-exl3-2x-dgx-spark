@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: Exact-image cache recovery preserved identities and raised head
+  MemFree from 76,428,296 to 87,620,872 KiB, still below the build gate.
+  Prepared guarded advice for the identified idle BuildKit uv cache; 24
+  cache guard/metadata tests pass. No corrected build or GPU run started.
+
 - 2026-11-03: Prepared a common runner constraint for cuDNN frontend 1.31.0,
   preserving DSL 4.7 and all compiler-stage bytes. Added guarded, read-only
   cache advice for the completed control image; neither repair has run yet.
