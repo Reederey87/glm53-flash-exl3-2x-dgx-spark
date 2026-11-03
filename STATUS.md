@@ -1,5 +1,11 @@
 # Status
 
+- 2026-11-03: Prepared a supplementary mixed-prefill probe with explicit max
+  reasoning, observed-overlap checks and complete counter/stream receipts.
+  All 257 repository tests pass, including 26 probe/HTTP/fault cases.
+  No live pilot or scheduler change; the frozen
+  full speed matrix is unchanged and Int64 compilation remains active.
+
 - 2026-11-03: Started the frozen Int64 candidate source export after fresh
   both-node memory gates; exact treatment hashes verified in its build log.
   Prepared the same frontend1.31 constraint for both queued RoCE generators;

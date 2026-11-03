@@ -86,5 +86,8 @@ observed request overlap; an all-prefill or queue-only run cannot establish
 mixed-load improvement. SSE bundles do not reveal individual token times, so
 report gaps between usage updates with that label. These mixed-load checks
 supplement the required complete speed matrix and cold/hot recurrent-state
-checks. Harness, exact sub-arms and their gates remain to be frozen before
-cluster execution.
+checks. The [supplementary mixed-load probe](../experiments/mixed-prefill/README.md)
+now implements client-observed overlap checks, usage-update gaps and bounded
+counter windows without changing the frozen full speed matrix. Local real-HTTP
+and fault tests pass. Live feasibility, exact sub-arms and adoption gates
+remain pending; no scheduling setting has changed.
