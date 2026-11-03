@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Verified both ranks already persist compiler caches and use the
+  source/toolchain/device-keyed B12X cache. Recorded native startup preparation;
+  candidates 02/03 now focus on coverage, isolation and boot-time evidence.
+
 - 2026-11-03: Qualified a locked temporary pytest environment in a CPU-only
   disposable container, retaining the installed Torch/DSL/FlashInfer packages.
   Documented native bounded/high-offset and sanitizer commands; GPU gates pending.

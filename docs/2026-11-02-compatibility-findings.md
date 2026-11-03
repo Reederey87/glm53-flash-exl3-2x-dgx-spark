@@ -199,6 +199,35 @@ and runner configuration. K=0 still needs draft-state synchronization;
 skipping its forward pass blindly is not a valid optimization. Static K=3
 is the first isolated trial; adaptive depth is a later arm.
 
+## Existing startup preparation and persistent caches
+
+November 3 direct inspection found persistent host mounts for B12X,
+FlashInfer, vLLM, Triton and TileLang on **both** ranks. No container override
+disables B12X's default disk cache or redirects its compile-cache directory.
+The deployed `b12x/_lib/compiler.py` matches the pinned source on both nodes:
+SHA256 `3a73fe9d56fe1bf6277b92f8ec7c28b9b0a7b6c02e1ca2c04106c9922e83694b`.
+Its cache key includes the package's file contents, runtime toolchain versions,
+device architecture/SM count, compile options/environment and call structure
+or explicit compile specification. Persistence and basic version separation
+are therefore existing features, not unimplemented speed improvements.
+
+The actual boot log also records weight, state and binding preparation via
+`b12x_prepare.py`, cached selections, and completed CUDA graph capture. The
+unit's own post-start hook only waits for HTTP health, but that does **not**
+mean the engine skips native preparation. Receipt:
+`local/cluster-20261103/namespaced/startup-preparation.txt`. This evidence does
+not prove every mixed-load signature is covered or quantify cold/warm boot
+latency; those are the remaining tests for candidates 02/03.
+
+Exa follow-up found FlashInfer's stronger
+[compile-cache isolation policy](https://github.com/flashinfer-ai/flashinfer/blob/main/ci/COMPILE_CACHE.md):
+immutable image identities, private experiment caches and actual dependency
+fingerprints address different risks. It is CI infrastructure, not a claim
+about the incumbent's serving behavior. Keep fresh isolated caches for kernel
+qualification; do not add a redundant cache mount or alter the running
+baseline. Local vLLM warmup, Exllamav3 build targeting and TensorFold complete
+prefix-state handling were reviewed alongside the deployed implementation.
+
 ## Sources and limits
 
 Exa lookup and local source inspection were both used. The specific dense

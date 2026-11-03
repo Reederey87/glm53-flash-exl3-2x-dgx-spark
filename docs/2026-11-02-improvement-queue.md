@@ -72,8 +72,8 @@ sweep is a separate arm against the same frozen baseline.
 |---|---|---|---|
 | 00 | Correct benchmark accounting | Missing usage must not become SSE-chunk token counts; counter resets must invalidate a sample | Stream errors, exact budget, usage and terminal event tests; prerequisite |
 | 01 | Pin incumbent image by digest | Prevent `latest` changing an A/B or restart | Identical image IDs on both nodes; no throughput claim for identical bytes |
-| 02 | Shape-complete startup warmup | Warm every serving capture capacity before health is advertised; stronger than one tiny completion | No request-time compilation, stable addresses/workspace; same KV pool |
-| 03 | Persistent, version-scoped JIT/AOT caches | Reuse compilation across boots without cross-version cache contamination | Cold/warm boot times; fresh caches for changed attention or state paths |
+| 02 | Shape-complete startup warmup | Incumbent already prepares weights/state/bindings and captures graphs; audit remaining signatures before adding warmup | No request-time compilation, stable addresses/workspace; same KV pool; startup log recorded |
+| 03 | Persistent, version-scoped JIT/AOT caches | Already mounted on both ranks; verified B12X keys source, toolchain and device identity | Remaining work: cold/warm boot timing and experiment isolation; fresh caches for changed attention or state paths |
 | 04 | MTP depth 3 versus current 5 | Investigate repeated c4 decode/acceptance dip | Real code/prose/tool workloads plus matrix; draft/accepted/drafts deltas |
 | 05 | MTP depth 1 versus current 5 | Reduce rejected draft work at concurrency | Separate arm; identical 200-token budget and prompts |
 | 06 | Adaptive draft length | Incumbent already contains acceptance-window adaptation and batch-size schedules; no EXL3 loader needed | Static depth trial first; current scheduler counts prefill requests in batch lookup, and adaptation captures additional graph widths. Require mixed-load and unchanged-KV gates |
