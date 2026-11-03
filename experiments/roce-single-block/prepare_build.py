@@ -18,6 +18,15 @@ NCCL_COMMIT = "12df1a11afad322be5a204a2db890161cbf8131d"
 VLLM_COMMIT = "8244d1c44348ae8a5bbfc9f1b607021652283ed4"
 FLASHINFER_COMMIT = "91271757f7746f3dfb58f7c2aeb44a663389de9e"
 CUDNN_FRONTEND_VERSION = "1.31.0"
+RUNTIME_CONSTRAINTS_PATH = Path(__file__).resolve().parents[1] / "runtime-dependencies" / "constraints.txt"
+RUNTIME_CONSTRAINTS_SHA = "c3cc5d7d404a869d078acc390e49019acf3fec15493e712acf9d617f0b78f6f2"
+
+
+def runtime_constraints() -> bytes:
+    data = RUNTIME_CONSTRAINTS_PATH.read_bytes()
+    if hashlib.sha256(data).hexdigest() != RUNTIME_CONSTRAINTS_SHA:
+        raise ValueError("runtime dependency constraints differ from the reviewed control profile")
+    return data
 
 
 def replace_once(text: str, old: str, new: str) -> str:
@@ -26,7 +35,7 @@ def replace_once(text: str, old: str, new: str) -> str:
     return text.replace(old, new, 1)
 
 
-def pin_runtime_frontend(text: str) -> str:
+def pin_runtime_dependencies(text: str) -> str:
     """Constrain both runner solves without changing any source-build stage."""
     marker = "FROM ${CUDA_IMAGE} AS runner\n"
     if text.count(marker) != 1:
@@ -34,8 +43,8 @@ def pin_runtime_frontend(text: str) -> str:
     build, runner = text.split(marker)
     anchor = "RUN --mount=type=bind,from=flashinfer_wheels,target=/workspace/flashinfer-wheels"
     runner = replace_once(runner, anchor,
-        "# Keep the incumbent frontend compatible with the frozen DSL 4.7 toolchain.\n"
-        f'RUN echo "nvidia-cudnn-frontend=={CUDNN_FRONTEND_VERSION}" > /tmp/glm53-runtime-constraints.txt\n\n'
+        "# Keep both runner solves on the reviewed control dependency versions.\n"
+        "COPY runtime-constraints.txt /tmp/glm53-runtime-constraints.txt\n\n"
         + anchor)
     for name in ("wheel", "torch"):
         runner = replace_once(runner, f"--override /tmp/{name}-override.txt",
@@ -46,6 +55,7 @@ def pin_runtime_frontend(text: str) -> str:
 def prepare(repo: Path, destination: Path) -> dict:
     if destination.exists():
         raise ValueError("destination already exists; use a fresh experiment directory")
+    constraints = runtime_constraints()
     archive = subprocess.check_output(["git", "archive", "--format=tar", UPSTREAM_COMMIT], cwd=repo)
     with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
         members = tar.getmembers()
@@ -91,8 +101,9 @@ COPY --from=flashinfer_wheels /kernel-tests/ /opt/roce-single-block-tests/
 ARG ROCE_SINGLE_BLOCK_ARM=control
 LABEL glm53.roce-single-block.arm=$ROCE_SINGLE_BLOCK_ARM
 """
-    text = pin_runtime_frontend(text)
+    text = pin_runtime_dependencies(text)
     (destination / "Dockerfile").write_text(text)
+    (destination / "runtime-constraints.txt").write_bytes(constraints)
     bundle = destination / "roce-single-block"
     bundle.mkdir()
     source = Path(__file__).resolve().parent
@@ -108,6 +119,7 @@ LABEL glm53.roce-single-block.arm=$ROCE_SINGLE_BLOCK_ARM
                 "vllm_commit": VLLM_COMMIT, "flashinfer_commit": FLASHINFER_COMMIT,
                 "torch": "2.13.0+cu130", "cutlass_dsl": "4.7.0", "architecture": "12.1a",
                 "cudnn_frontend": CUDNN_FRONTEND_VERSION,
+                "runtime_constraints_sha256": RUNTIME_CONSTRAINTS_SHA,
                 "gpu_qualified": False}
     # JSON is also valid YAML; the upstream Dockerfile retains this provenance.
     (destination / "build-metadata.yaml").write_text(json.dumps(metadata, indent=2) + "\n")

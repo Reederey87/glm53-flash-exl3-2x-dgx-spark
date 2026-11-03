@@ -1,5 +1,11 @@
 # Status
 
+- 2026-11-03: Candidate source export and runner completed. Inventory gate
+  caught OpenAI SDK 3.44.0 versus control 3.43.0; OS/treatment checks pass,
+  but candidate GPU qualification is held. Prepared a shared, hash-checked
+  218-version runner profile; all compiler and kernel bytes remain unchanged.
+  All 266 repository tests pass, including measurement/max-reasoning checks.
+
 - 2026-11-03: Prepared separate 2048/8192 prefill-budget patches and gates
   after Exa and pinned/local source review. Actual temporary application and
   byte-exact rollback pass. Requires a valid 32k–128k mixed-load baseline pilot

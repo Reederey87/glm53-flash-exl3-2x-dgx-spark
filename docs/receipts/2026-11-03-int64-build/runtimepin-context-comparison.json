@@ -1,0 +1,77 @@
+[
+  {
+    "experiment": "dense-int64",
+    "changed_files": [
+      "Dockerfile",
+      "build-metadata.yaml",
+      "context-sha256.txt",
+      "runtime-constraints.txt"
+    ],
+    "compiler_stages_identical": true,
+    "manifest_sha256": "f83a1bed08321c4d1560c7fff2c1484ba9089d615871a3062bad1f33393f330c",
+    "metadata": {
+      "experiment": "dense-int64",
+      "upstream_launcher": "0bdc9c94cd89843e1c8f7d7b33df2d5bc746c03d",
+      "cuda_image": "nvidia/cuda:13.0.2-devel-ubuntu24.04@sha256:450d11555d20ac8ebbbc13ebf17589c2bd42869171a90179ce7098b4a5e64c6a",
+      "nccl_commit": "12df1a11afad322be5a204a2db890161cbf8131d",
+      "vllm_commit": "8244d1c44348ae8a5bbfc9f1b607021652283ed4",
+      "flashinfer_commit": "91271757f7746f3dfb58f7c2aeb44a663389de9e",
+      "torch": "2.13.0+cu130",
+      "cutlass_dsl": "4.7.0",
+      "architecture": "12.1a",
+      "cudnn_frontend": "1.31.0",
+      "runtime_constraints_sha256": "c3cc5d7d404a869d078acc390e49019acf3fec15493e712acf9d617f0b78f6f2",
+      "gpu_qualified": false
+    }
+  },
+  {
+    "experiment": "roce-single-block",
+    "changed_files": [
+      "Dockerfile",
+      "build-metadata.yaml",
+      "context-sha256.txt",
+      "runtime-constraints.txt"
+    ],
+    "compiler_stages_identical": true,
+    "manifest_sha256": "236b03410371a0302c4379465221024f8da7970a17e03a48af97f1d51de9eee1",
+    "metadata": {
+      "experiment": "roce-single-block",
+      "upstream_launcher": "0bdc9c94cd89843e1c8f7d7b33df2d5bc746c03d",
+      "cuda_image": "nvidia/cuda:13.0.2-devel-ubuntu24.04@sha256:450d11555d20ac8ebbbc13ebf17589c2bd42869171a90179ce7098b4a5e64c6a",
+      "nccl_commit": "12df1a11afad322be5a204a2db890161cbf8131d",
+      "vllm_commit": "8244d1c44348ae8a5bbfc9f1b607021652283ed4",
+      "flashinfer_commit": "91271757f7746f3dfb58f7c2aeb44a663389de9e",
+      "torch": "2.13.0+cu130",
+      "cutlass_dsl": "4.7.0",
+      "architecture": "12.1a",
+      "cudnn_frontend": "1.31.0",
+      "runtime_constraints_sha256": "c3cc5d7d404a869d078acc390e49019acf3fec15493e712acf9d617f0b78f6f2",
+      "gpu_qualified": false
+    }
+  },
+  {
+    "experiment": "roce-failure-sentinel",
+    "changed_files": [
+      "Dockerfile",
+      "build-metadata.yaml",
+      "context-sha256.txt",
+      "runtime-constraints.txt"
+    ],
+    "compiler_stages_identical": true,
+    "manifest_sha256": "d8eb6903c6db7efa10e1c44affd12206e66ba139555360aaf3659aad48ffe6c8",
+    "metadata": {
+      "experiment": "roce-failure-sentinel",
+      "upstream_launcher": "0bdc9c94cd89843e1c8f7d7b33df2d5bc746c03d",
+      "cuda_image": "nvidia/cuda:13.0.2-devel-ubuntu24.04@sha256:450d11555d20ac8ebbbc13ebf17589c2bd42869171a90179ce7098b4a5e64c6a",
+      "nccl_commit": "12df1a11afad322be5a204a2db890161cbf8131d",
+      "vllm_commit": "8244d1c44348ae8a5bbfc9f1b607021652283ed4",
+      "flashinfer_commit": "91271757f7746f3dfb58f7c2aeb44a663389de9e",
+      "torch": "2.13.0+cu130",
+      "cutlass_dsl": "4.7.0",
+      "architecture": "12.1a",
+      "cudnn_frontend": "1.31.0",
+      "runtime_constraints_sha256": "c3cc5d7d404a869d078acc390e49019acf3fec15493e712acf9d617f0b78f6f2",
+      "gpu_qualified": false
+    }
+  }
+]
