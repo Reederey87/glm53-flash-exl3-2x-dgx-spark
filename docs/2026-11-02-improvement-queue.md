@@ -1,7 +1,9 @@
 # GLM FP4-Local improvement queue
 
-Status (November 3): direct access restored, live qualification passed and the
-three-repetition incumbent matrix is running. No candidate adopted.
+Status (November 3): direct access restored and live qualification passed.
+The incumbent matrix is being restarted with explicit maximum reasoning
+effort at the user's request; the prior incomplete run is archived and
+excluded. No candidate adopted.
 Scope: NVIDIA `nvidia/GLM-5.3-Flash-FP4-Local`, unchanged checkpoint revision,
 two GB10 nodes over direct SSH and RoCE. No EXL3 quantization, replacement
 checkpoint, driver upgrade, or kernel upgrade. Each row is a hypothesis, not
@@ -177,9 +179,11 @@ including real loopback HTTP SSE and metrics tests. `git diff --check` passed.
 This validates measurement tooling only. The revised harness subsequently
 passed 73 local tests and a live 8k/c1 qualification (2,269 prefill tok/s;
 code decode 39.38 tok/s, acceptance length 3.431). This short qualification
-does not decide adoption. The full baseline is running under user unit
-`glm53-ab-base-20261103.service`; incremental receipts are in runtime
-`local/ab-20261103/baseline.json`. Do not open the delivery PR before cluster
+does not decide adoption. The replacement full baseline uses user unit
+`glm53-ab-max-base-20261103.service`; incremental receipts are in runtime
+`local/ab-20261103/explicit-max/baseline.json`. Its real task prompts explicitly
+use maximum reasoning effort, and completion counts include reasoning.
+Do not open the delivery PR before cluster
 receipts. A prior November 1 image trial was reverted and is not a new result.
 
 Further exact-checkpoint screening and named GPU regressions are recorded in

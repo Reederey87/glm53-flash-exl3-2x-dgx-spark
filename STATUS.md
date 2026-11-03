@@ -1,5 +1,11 @@
 # Status
 
+- 2026-11-03: Per user instruction, changed benchmark tokenization to explicit
+  `reasoning_effort=max`, added JSON/Markdown mode and token-scope labels, and
+  verified live tokens. Stopped and archived the incomplete implicit-max run;
+  restarting both-arm measurement protocol with fresh seed 2026110302.
+  Benchmark helper tests: 38 passed, including real HTTP request/receipt checks.
+
 - 2026-11-03: Verified exact tokenizer contract during baseline: this GLM
   template ignores `enable_thinking=false`; all three flag variants tokenize
   identically at default maximum effort. Corrected the MTP3 gate's mode label

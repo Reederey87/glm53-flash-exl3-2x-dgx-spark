@@ -8,8 +8,10 @@ For each concurrency in ``--concurrencies``:
   tok/s is prompt_tokens / TTFT. The aggregate column is total prompt tokens /
   wall time for the cell (includes queueing when concurrency exceeds
   --max-seqs).
-* Decode: ``--decode-tokens`` completion tokens per request with
-  ``ignore_eos``. Decode tok/s is (completion_tokens - 1) / (last token time -
+* Decode: real task prompts explicitly request ``reasoning_effort=max``.
+  ``--decode-tokens`` counts generated tokens, including reasoning, with
+  ``ignore_eos``; this does not measure time to a finished answer.
+  Decode tok/s is (completion_tokens - 1) / (last token time -
   first token time); the aggregate column uses the cell wall time.
 * Speculative acceptance: deltas of
   ``vllm:spec_decode_num_{accepted_tokens,draft_tokens,drafts}_total`` across
@@ -50,6 +52,7 @@ ACCEPTED = "vllm:spec_decode_num_accepted_tokens_total"
 DRAFTED = "vllm:spec_decode_num_draft_tokens_total"
 DRAFTS = "vllm:spec_decode_num_drafts_total"
 CACHE_HITS = "vllm:prefix_cache_hits_total"
+DECODE_TEMPLATE_KWARGS = {"reasoning_effort": "max"}
 DECODE_TASKS = {
     "code": "Write a Python implementation of a bounded LRU cache with get, put, delete, and clear. Explain its invariants and include tests for eviction, updating an existing key, zero capacity, and missing keys. Do not use functools.lru_cache. Keep each operation O(1). Discuss thread safety and whether a lock belongs inside the cache or around the caller's transaction.",
     "prose": "Write a practical incident review for an inference service that became slow after a restart. The service uses two GPUs on separate hosts, a shared network, persistent compilation caches, and speculative decoding. Distinguish observed facts from hypotheses. Explain how to separate cold compilation, network congestion, batching, and draft acceptance effects. Include a reproducible measurement plan and a rollback decision, without inventing measured results.",
@@ -250,7 +253,7 @@ def decode_prompts(base: str, model: str, api_key: str, timeout: float,
             "model": model,
             "messages": [{"role": "user", "content": f"Task {index + 1}. {DECODE_TASKS[workload]}"}],
             "add_generation_prompt": True,
-            "chat_template_kwargs": {"enable_thinking": False},
+            "chat_template_kwargs": DECODE_TEMPLATE_KWARGS,
         }
         _, result = _request_json(f"{base.rstrip('/')}/tokenize", payload, api_key, timeout)
         tokens = result.get("tokens") if isinstance(result, dict) else None
@@ -446,6 +449,10 @@ def markdown(cells: list[Cell], model: str, started: str) -> str:
         "",
         "## Decode",
         "",
+        "Real task prompts explicitly use reasoning_effort=max. Completion tokens include reasoning;",
+        "these fixed-budget rows do not measure finished-answer latency or code/JSON correctness.",
+        "Random token-ID workloads, when selected, have no chat-template reasoning control.",
+        "",
         "| Rep | Workload | Conc | Prompt tokens | Completion med | Decode tok/s med | Aggregate tok/s | Mean accept len | Draft accept rate | Drafts | Mem avail after GiB |",
         "|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
@@ -522,6 +529,8 @@ def main() -> int:
             "expect_speculation": not args.no_speculation,
             "decode_workloads": workloads,
             "decode_tasks": DECODE_TASKS,
+            "decode_chat_template_kwargs": DECODE_TEMPLATE_KWARGS,
+            "decode_token_scope": "generated_tokens_including_reasoning",
             "decode_warmups": args.decode_warmups,
             "cells": [asdict(cell) for cell in cells],
             "warmup_cells": [asdict(cell) for cell in warmup_cells],

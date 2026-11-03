@@ -369,15 +369,19 @@ def test_speed_matrix_cli_warms_each_real_text_cell_and_persists_receipt(sse_end
         "[DONE]",
     ])
     out = tmp_path / "receipt.json"
+    markdown_out = tmp_path / "receipt.md"
     result = subprocess.run([
         sys.executable, str(SCRIPTS / "speed_matrix.py"), "--base", base,
         "--skip-prefill", "--no-warmup", "--decode-workloads", "code",
         "--decode-tokens", "4", "--concurrencies", "1", "--repetitions", "2",
-        "--out", str(out),
+        "--out", str(out), "--markdown-out", str(markdown_out),
     ], capture_output=True, text=True, timeout=20)
     assert result.returncode == 0, result.stderr
     receipt = json.loads(out.read_text())
     assert receipt["ok"] and receipt["complete"]
+    assert receipt["decode_chat_template_kwargs"] == {"reasoning_effort": "max"}
+    assert receipt["decode_token_scope"] == "generated_tokens_including_reasoning"
+    assert "reasoning_effort=max" in markdown_out.read_text()
     assert len(receipt["warmup_cells"]) == len(receipt["cells"]) == 2
     assert server.completed == 4
     for cell in receipt["cells"]:
@@ -387,6 +391,9 @@ def test_speed_matrix_cli_warms_each_real_text_cell_and_persists_receipt(sse_end
     assert receipt["cells"][0]["prompt_sha256"] == receipt["cells"][1]["prompt_sha256"]
     tokenize_payload = next(payload for path, payload in server.calls if path == "/tokenize")
     assert "bounded LRU cache" in tokenize_payload["messages"][0]["content"]
+    for path, payload in server.calls:
+        if path == "/tokenize":
+            assert payload["chat_template_kwargs"] == {"reasoning_effort": "max"}
     assert not out.with_suffix(".json.tmp").exists()
 
 
