@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Full repository validation passes: 100 Python tests, ShellCheck,
+  Bash syntax and Python compilation. Added standard-library `collections`
+  to the helper import allowlist; the full cluster baseline is still running.
+
 - 2026-11-03: Audited Flare's TP2 cache geometry and streaming/metric contracts.
   Native allocation, the exact context cap and a benchmark adapter remain
   qualification gates; no Flare deployment or serving-control change made.

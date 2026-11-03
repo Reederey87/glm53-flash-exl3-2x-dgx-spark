@@ -138,6 +138,7 @@ def test_scripts_are_stdlib_only() -> None:
         "statistics",
         "os",
         "hashlib",
+        "collections",
     }
     for path in SCRIPTS.glob("*.py"):
         source = path.read_text(encoding="utf-8")
