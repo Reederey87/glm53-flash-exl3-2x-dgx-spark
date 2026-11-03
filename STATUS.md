@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Added strict comparison of the registered full MTP matrices,
+  including prompt/control matching and raw-timing/counter consistency.
+  Fifteen tests pass; the helper reports existing gates without adopting an arm.
+
 - 2026-11-03: Prepared a full-source matched build pair for the Int64 candidate,
   pinning CUDA/NCCL and sharing one vLLM wheel. Actual pinned-source control and
   patched hashes pass offline. No image build or GPU qualification yet.
