@@ -1,5 +1,11 @@
 # Status
 
+- 2026-11-03: Scoped recovery raised head MemFree from 89,364,996 to
+  101,452,696 KiB; wheel SHA unchanged. Both-node idle gate passed again.
+  Hash-identical source build resumed in `dense-int64-2157b70-resume1/context`
+  (invocation `809ff4c66070403f8ab94efc11b8a342`), now in FlashInfer phase.
+  Original artifacts retained; inference remains off. All 159 local tests pass.
+
 - 2026-11-03: The shared vLLM wheel exported successfully, then the source-build
   wrapper stopped at the next MemFree gate (88,979,216 KiB, below 90 GiB).
   Build unit is terminal; no serving image selected. Preparing file-scoped
