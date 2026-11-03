@@ -1,0 +1,61 @@
+{
+  "note": "Actual MemFree snapshots; bytes advised are not counted as reclaimed memory. All helpers use read-only file access and preserve artifacts.",
+  "events": [
+    {
+      "receipt": "candidate-image-recovery-28840f1/result.json",
+      "identity_metadata_unchanged": true,
+      "memfree_before_kib": 90620748,
+      "memfree_after_kib": 95446812,
+      "image_id": "sha256:0caaeef85b0b267d96aa4f57f07102f818efd42e43b4c0f56d26f8dca77c4b43",
+      "cache_id": null
+    },
+    {
+      "receipt": "control-image-recovery-3308442/result.json",
+      "identity_metadata_unchanged": true,
+      "memfree_before_kib": 84893396,
+      "memfree_after_kib": 90067924,
+      "image_id": "sha256:3b5da79c42ed4204440cfb07c6de1eba46441d5cba6b57d5428d44e60c10d0ed",
+      "cache_id": null
+    },
+    {
+      "receipt": "image-recovery-before-control/result.json",
+      "identity_metadata_unchanged": true,
+      "memfree_before_kib": 90226648,
+      "memfree_after_kib": 90525332,
+      "image_id": "sha256:40f4c5229d276c1d86c983389bc7281dbbe66b627b6d065a0d2f93bd1c405ab5",
+      "cache_id": null
+    },
+    {
+      "receipt": "pre-native-recovery-203e017/image-result.json",
+      "identity_metadata_unchanged": true,
+      "memfree_before_kib": 84445172,
+      "memfree_after_kib": 89629552,
+      "image_id": "sha256:bad0f2005665489026ef9febafe8bbc28f6fe0821681cdb82479a21802d1287b",
+      "cache_id": null
+    },
+    {
+      "receipt": "pre-native-recovery-203e017/uv-result.json",
+      "identity_metadata_unchanged": true,
+      "memfree_before_kib": 89728244,
+      "memfree_after_kib": 94528592,
+      "image_id": null,
+      "cache_id": "5mfrweath3j5gje6zh1y8z4td"
+    },
+    {
+      "receipt": "uv-recovery-before-candidate/result.json",
+      "identity_metadata_unchanged": true,
+      "memfree_before_kib": 90211292,
+      "memfree_after_kib": 95005308,
+      "image_id": null,
+      "cache_id": "5mfrweath3j5gje6zh1y8z4td"
+    },
+    {
+      "receipt": "uv-recovery-before-control/result.json",
+      "identity_metadata_unchanged": true,
+      "memfree_before_kib": 85453740,
+      "memfree_after_kib": 90232544,
+      "image_id": null,
+      "cache_id": "5mfrweath3j5gje6zh1y8z4td"
+    }
+  ]
+}

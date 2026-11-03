@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: Both corrected images transferred over direct fabric SSH to
+  spark2 with matching IDs and unchanged production alias. Worker memory gate
+  passes; head remains slightly below 90 GiB. Prepared exact-wheel clean-page
+  advice with hash/mount guards; all 47 recovery tests pass. No GPU test yet.
+
 - 2026-11-03: Corrected control3b5da79c/candidatebad0f200 both built. Complete
   Python/OS inventories match each other and qualified control40f4, with SDK
   3.43.0 and expected installed source/profile hashes. Dependency drift gate
