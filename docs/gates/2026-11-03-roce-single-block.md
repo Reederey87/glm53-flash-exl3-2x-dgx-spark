@@ -76,3 +76,19 @@ After the window restore original image
 MTP5 and saved runtime config through the unit. Record rollback without erasing
 the trial, verify image/checkpoint/KV/health, and re-arm the watchdog. Report
 native and serving receipts and ask before final adoption.
+
+## Preparation receipt
+
+Frozen at `48e3156`; generated context staged on spark1 at
+`/home/nvidia/glm53-source-builds/roce-single-block-48e3156/context`.
+Context manifest SHA256:
+`397db48d1f019a8dcf61a02b1e9e6cc0073899c82ffb2115289f0c54f20317d7`.
+Every listed file hash matched after transfer. Local tests: 133 passed.
+
+While the serving unit was confirmed active, the wrapper returned exit 2
+with its explicit stop/disarm refusal, before creating `artifacts/` or
+starting Docker build. MTP3 remained active/running with PID 188858.
+Receipts are beside the remote context as `loaded-refusal.log` and
+`loaded-refusal-exit.txt`, copied locally to
+`local/build-audit/roce-staging-receipt`. No image build or GPU qualification
+has run from this context.

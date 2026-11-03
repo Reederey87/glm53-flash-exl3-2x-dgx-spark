@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Staged frozen RoCE context `48e3156` under the head's
+  `/home/nvidia/glm53-source-builds/roce-single-block-48e3156/context`.
+  Hashes verified; active-cluster build refusal returned 2 with no artifacts.
+
 - 2026-11-03: Prepared RoCE candidate 29's separate pinned full-source build
   pair and gate. Exact control/candidate source hashes verified in fresh trees;
   133 local tests pass. Native paired-rank and wrap-failure coverage remain open.
