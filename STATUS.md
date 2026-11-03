@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: Incumbent dependency check reports one cuSPARSELt platform-tag
+  defect. Actual library is AArch64 and matches upstream's reported fixed-wheel
+  payload hash; Torch pins the old version. Recorded as unresolved packaging
+  evidence, without editing metadata or the frozen build.
+
 - 2026-11-03: Candidate 22 source/snapshot review found that the solo-prefill
   switch needs an active decode-counting policy and smaller scheduled cap;
   baseline has neither. Recorded prerequisites and mixed-load evidence needed.

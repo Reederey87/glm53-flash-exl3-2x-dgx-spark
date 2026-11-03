@@ -257,8 +257,39 @@ rebuilt-control-versus-incumbent qualification. Treat this as candidate 15's
 dependency-closure review; do not change the frozen build, upgrade a running
 container, or attribute dependency effects to the Int64 patch.
 
-Receipt: `local/build-audit/dependency-review/incumbent-and-build.txt`.
+Receipt: [incumbent versions and build-log lines](receipts/2026-11-03-dependency-review/incumbent-and-build.txt).
 The incumbent image and active build were not modified by this review.
+
+### Declared-platform warning in the incumbent
+
+A separate CPU-only `uv pip check --python /usr/bin/python3` checked 220
+packages and returned 1 for one incompatibility: `nvidia-cusparselt-cu13`
+was declared for a different platform. Inspection found version 0.8.1 with
+`Tag: py3-none-manylinux2014_sbsa` in its WHEEL metadata, while the actual
+`libcusparseLt.so.0` is ELF machine 183 (AArch64), 274,143,825 bytes. Its SHA256
+is `fbb03bbf8d2238670f24256c5452281c2a660162899b838bb4d0cc06dad027df`.
+No library was loaded or executed by this inspection.
+
+[PyTorch PR 202090](https://github.com/pytorch/pytorch/pull/202090) describes
+the matching invalid-tag defect and reports the same library hash for the
+corrected 0.8.1.post1 wheels. The original PR body was read with `gh` after
+Exa's canonical fetch failed; the hash comparison is against that upstream
+report, not an independently downloaded post-release wheel. The incumbent's
+Torch metadata requires `nvidia-cusparselt-cu13==0.8.1` on Linux, so a plain
+upgrade to the post-release would not satisfy its declared exact dependency.
+The broader [uv issue 17711](https://github.com/astral-sh/uv/issues/17711)
+illustrates filename/internal-tag disagreement, but concerns a different
+package/platform and is not direct proof about this binary.
+
+Keep this packaging defect separate from the Int64 kernel result. Compare
+the exact final-arm metadata and retain each `uv pip check` result; do not
+call dependency closure clean if this warning remains. Any repair must retain
+verified native payloads and coherent Torch requirements in a separately
+frozen change, rather than silently overriding a package in this experiment.
+Retained receipts: [dependency check](receipts/2026-11-03-dependency-review/incumbent-uv-check-full.txt),
+[wheel metadata and ELF identity](receipts/2026-11-03-dependency-review/incumbent-cusparselt-metadata.txt),
+and [library hash](receipts/2026-11-03-dependency-review/incumbent-cusparselt-library.sha256).
+No installed metadata was edited.
 
 ## Sources and limits
 

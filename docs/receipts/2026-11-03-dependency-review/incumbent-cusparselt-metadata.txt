@@ -1,0 +1,17 @@
+2026-11-03T18:59:19Z
+{
+  "machine": "aarch64",
+  "package": "nvidia-cusparselt-cu13",
+  "version": "0.8.1",
+  "wheel": "Wheel-Version: 1.0\nGenerator: setuptools (80.9.0)\nRoot-Is-Purelib: true\nTag: py3-none-manylinux2014_sbsa\n\n",
+  "libraries": [
+    {
+      "path": "/usr/local/lib/python3.12/dist-packages/nvidia/cusparselt/lib/libcusparseLt.so.0",
+      "bytes": 274143825,
+      "elf_machine": 183
+    }
+  ],
+  "torch_requires_cusparselt": [
+    "nvidia-cusparselt-cu13==0.8.1; platform_system == \"Linux\""
+  ]
+}
