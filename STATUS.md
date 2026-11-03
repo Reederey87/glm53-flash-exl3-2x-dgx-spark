@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: Prepared a common runner constraint for cuDNN frontend 1.31.0,
+  preserving DSL 4.7 and all compiler-stage bytes. Added guarded, read-only
+  cache advice for the completed control image; neither repair has run yet.
+  Measurement/max-reasoning and recovery checks: 99 tests passed.
+
 - 2026-11-03: Checkpointed control runner built successfully as `45ac705b...`.
   Final inventory exposed unpinned cuDNN frontend 1.32.1 requiring DSL >=4.8,
   conflicting with frozen 4.7. No serving selection or GPU qualification;
