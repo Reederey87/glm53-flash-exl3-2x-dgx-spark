@@ -1,0 +1,14 @@
+{
+  "baseline": {
+    "correct_arithmetic_final_value": true,
+    "parsed_reasoning": true,
+    "correct_tool_name_and_arguments": true,
+    "numeric_only_final_format": false
+  },
+  "mtp3": {
+    "correct_arithmetic_final_value": true,
+    "parsed_reasoning": true,
+    "correct_tool_name_and_arguments": true,
+    "numeric_only_final_format": false
+  }
+}

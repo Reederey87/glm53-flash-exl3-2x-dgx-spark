@@ -1,0 +1,3112 @@
+{
+  "matched_complete_matrices": true,
+  "measured_cells_per_arm": 96,
+  "robust_speed_or_acceptance_regression": false,
+  "adoption_decision": "not made: review control spread, functional checks, frozen runtime and KV evidence",
+  "acceptance_length_note": "diagnostic only; changing MTP depth changes its maximum",
+  "streaming_note": "The frozen decode gate uses (N-1)/(last-first token-usage update), a reciprocal-TPOT convention. A first update can contain multiple tokens. Supplementary rates use (N-first_update_count)/(last-first update), and sum(N)/cell wall time. They do not replace the registered gate or infer within-bundle token times.",
+  "streaming_diagnostics": {
+    "control": [
+      {
+        "workload": "code",
+        "concurrency": 1,
+        "repetition": 1,
+        "first_update_token_counts": {
+          "1": 1
+        },
+        "after_first_update_tokens_per_s_median": 36.27901458925168,
+        "all_generated_tokens_per_cell_second": 36.265861010988516
+      },
+      {
+        "workload": "prose",
+        "concurrency": 1,
+        "repetition": 1,
+        "first_update_token_counts": {
+          "1": 1
+        },
+        "after_first_update_tokens_per_s_median": 34.77319571541,
+        "all_generated_tokens_per_cell_second": 34.77223595624662
+      },
+      {
+        "workload": "structured",
+        "concurrency": 1,
+        "repetition": 1,
+        "first_update_token_counts": {
+          "1": 1
+        },
+        "after_first_update_tokens_per_s_median": 35.85489709590718,
+        "all_generated_tokens_per_cell_second": 35.86000659718497
+      },
+      {
+        "workload": "code",
+        "concurrency": 2,
+        "repetition": 1,
+        "first_update_token_counts": {
+          "1": 2
+        },
+        "after_first_update_tokens_per_s_median": 26.23058506363546,
+        "all_generated_tokens_per_cell_second": 51.48276157370115
+      },
+      {
+        "workload": "prose",
+        "concurrency": 2,
+        "repetition": 1,
+        "first_update_token_counts": {
+          "1": 2
+        },
+        "after_first_update_tokens_per_s_median": 26.329312975816475,
+        "all_generated_tokens_per_cell_second": 52.25351625233778
+      },
+      {
+        "workload": "structured",
+        "concurrency": 2,
+        "repetition": 1,
+        "first_update_token_counts": {
+          "1": 2
+        },
+        "after_first_update_tokens_per_s_median": 27.863364818642474,
+        "all_generated_tokens_per_cell_second": 55.30818692412824
+      },
+      {
+        "workload": "code",
+        "concurrency": 4,
+        "repetition": 1,
+        "first_update_token_counts": {
+          "1": 4
+        },
+        "after_first_update_tokens_per_s_median": 19.1626990547094,
+        "all_generated_tokens_per_cell_second": 72.88939288421432
+      },
+      {
+        "workload": "prose",
+        "concurrency": 4,
+        "repetition": 1,
+        "first_update_token_counts": {
+          "1": 4
+        },
+        "after_first_update_tokens_per_s_median": 17.63654810854244,
+        "all_generated_tokens_per_cell_second": 68.8148906171809
+      },
+      {
+        "workload": "structured",
+        "concurrency": 4,
+        "repetition": 1,
+        "first_update_token_counts": {
+          "1": 4
+        },
+        "after_first_update_tokens_per_s_median": 18.371619928706593,
+        "all_generated_tokens_per_cell_second": 66.92741661241391
+      },
+      {
+        "workload": "code",
+        "concurrency": 8,
+        "repetition": 1,
+        "first_update_token_counts": {
+          "1": 8
+        },
+        "after_first_update_tokens_per_s_median": 19.27424599482875,
+        "all_generated_tokens_per_cell_second": 75.30005777981759
+      },
+      {
+        "workload": "prose",
+        "concurrency": 8,
+        "repetition": 1,
+        "first_update_token_counts": {
+          "1": 8
+        },
+        "after_first_update_tokens_per_s_median": 17.536510692370378,
+        "all_generated_tokens_per_cell_second": 69.02008057222478
+      },
+      {
+        "workload": "structured",
+        "concurrency": 8,
+        "repetition": 1,
+        "first_update_token_counts": {
+          "1": 8
+        },
+        "after_first_update_tokens_per_s_median": 17.83990068636652,
+        "all_generated_tokens_per_cell_second": 69.05705457585432
+      },
+      {
+        "workload": "code",
+        "concurrency": 1,
+        "repetition": 2,
+        "first_update_token_counts": {
+          "1": 1
+        },
+        "after_first_update_tokens_per_s_median": 36.08286820450699,
+        "all_generated_tokens_per_cell_second": 36.07686773092986
+      },
+      {
+        "workload": "prose",
+        "concurrency": 1,
+        "repetition": 2,
+        "first_update_token_counts": {
+          "1": 1
+        },
+        "after_first_update_tokens_per_s_median": 38.24755237281996,
+        "all_generated_tokens_per_cell_second": 38.245458351575856
+      },
+      {
+        "workload": "structured",
+        "concurrency": 1,
+        "repetition": 2,
+        "first_update_token_counts": {
+          "1": 1
+        },
+        "after_first_update_tokens_per_s_median": 41.76870683911759,
+        "all_generated_tokens_per_cell_second": 41.73722222349986
+      },
+      {
+        "workload": "code",
+        "concurrency": 2,
+        "repetition": 2,
+        "first_update_token_counts": {
+          "1": 2
+        },
+        "after_first_update_tokens_per_s_median": 25.928824105179963,
+        "all_generated_tokens_per_cell_second": 51.25818662038202
+      },
+      {
+        "workload": "prose",
+        "concurrency": 2,
+        "repetition": 2,
+        "first_update_token_counts": {
+          "1": 2
+        },
+        "after_first_update_tokens_per_s_median": 26.394280727787397,
+        "all_generated_tokens_per_cell_second": 50.10583738909226
+      },
+      {
+        "workload": "structured",
+        "concurrency": 2,
+        "repetition": 2,
+        "first_update_token_counts": {
+          "1": 2
+        },
+        "after_first_update_tokens_per_s_median": 26.635966815020836,
+        "all_generated_tokens_per_cell_second": 51.100957435753784
+      },
+      {
+        "workload": "code",
+        "concurrency": 4,
+        "repetition": 2,
+        "first_update_token_counts": {
+          "1": 4
+        },
+        "after_first_update_tokens_per_s_median": 18.66984424094389,
+        "all_generated_tokens_per_cell_second": 70.40569934924739
+      },
+      {
+        "workload": "prose",
+        "concurrency": 4,
+        "repetition": 2,
+        "first_update_token_counts": {
+          "1": 4
+        },
+        "after_first_update_tokens_per_s_median": 19.01038705162362,
+        "all_generated_tokens_per_cell_second": 72.06705112815644
+      },
+      {
+        "workload": "structured",
+        "concurrency": 4,
+        "repetition": 2,
+        "first_update_token_counts": {
+          "1": 4
+        },
+        "after_first_update_tokens_per_s_median": 17.42677416452097,
+        "all_generated_tokens_per_cell_second": 65.13955589854415
+      },
+      {
+        "workload": "code",
+        "concurrency": 8,
+        "repetition": 2,
+        "first_update_token_counts": {
+          "1": 8
+        },
+        "after_first_update_tokens_per_s_median": 18.952569876826967,
+        "all_generated_tokens_per_cell_second": 73.78047707842079
+      },
+      {
+        "workload": "prose",
+        "concurrency": 8,
+        "repetition": 2,
+        "first_update_token_counts": {
+          "1": 8
+        },
+        "after_first_update_tokens_per_s_median": 16.988432283132866,
+        "all_generated_tokens_per_cell_second": 66.22157380452221
+      },
+      {
+        "workload": "structured",
+        "concurrency": 8,
+        "repetition": 2,
+        "first_update_token_counts": {
+          "1": 8
+        },
+        "after_first_update_tokens_per_s_median": 19.624012224628206,
+        "all_generated_tokens_per_cell_second": 73.61975843975344
+      },
+      {
+        "workload": "code",
+        "concurrency": 1,
+        "repetition": 3,
+        "first_update_token_counts": {
+          "1": 1
+        },
+        "after_first_update_tokens_per_s_median": 36.19661563470388,
+        "all_generated_tokens_per_cell_second": 36.188017474205786
+      },
+      {
+        "workload": "prose",
+        "concurrency": 1,
+        "repetition": 3,
+        "first_update_token_counts": {
+          "1": 1
+        },
+        "after_first_update_tokens_per_s_median": 37.68363787076912,
+        "all_generated_tokens_per_cell_second": 37.657837549283116
+      },
+      {
+        "workload": "structured",
+        "concurrency": 1,
+        "repetition": 3,
+        "first_update_token_counts": {
+          "1": 1
+        },
+        "after_first_update_tokens_per_s_median": 31.41245461454874,
+        "all_generated_tokens_per_cell_second": 31.43212032285764
+      },
+      {
+        "workload": "code",
+        "concurrency": 2,
+        "repetition": 3,
+        "first_update_token_counts": {
+          "1": 2
+        },
+        "after_first_update_tokens_per_s_median": 25.68946776144782,
+        "all_generated_tokens_per_cell_second": 50.76355172047214
+      },
+      {
+        "workload": "prose",
+        "concurrency": 2,
+        "repetition": 3,
+        "first_update_token_counts": {
+          "1": 2
+        },
+        "after_first_update_tokens_per_s_median": 26.351294814319438,
+        "all_generated_tokens_per_cell_second": 49.66286121454329
+      },
+      {
+        "workload": "structured",
+        "concurrency": 2,
+        "repetition": 3,
+        "first_update_token_counts": {
+          "1": 2
+        },
+        "after_first_update_tokens_per_s_median": 28.15170416804053,
+        "all_generated_tokens_per_cell_second": 55.1567859128341
+      },
+      {
+        "workload": "code",
+        "concurrency": 4,
+        "repetition": 3,
+        "first_update_token_counts": {
+          "1": 4
+        },
+        "after_first_update_tokens_per_s_median": 18.560671268734637,
+        "all_generated_tokens_per_cell_second": 70.7703995159765
+      },
+      {
+        "workload": "prose",
+        "concurrency": 4,
+        "repetition": 3,
+        "first_update_token_counts": {
+          "1": 4
+        },
+        "after_first_update_tokens_per_s_median": 18.073160506667417,
+        "all_generated_tokens_per_cell_second": 68.15282526905123
+      },
+      {
+        "workload": "structured",
+        "concurrency": 4,
+        "repetition": 3,
+        "first_update_token_counts": {
+          "1": 4
+        },
+        "after_first_update_tokens_per_s_median": 20.792089752206344,
+        "all_generated_tokens_per_cell_second": 79.67298865563082
+      },
+      {
+        "workload": "code",
+        "concurrency": 8,
+        "repetition": 3,
+        "first_update_token_counts": {
+          "1": 8
+        },
+        "after_first_update_tokens_per_s_median": 19.325008990878693,
+        "all_generated_tokens_per_cell_second": 75.19271586077413
+      },
+      {
+        "workload": "prose",
+        "concurrency": 8,
+        "repetition": 3,
+        "first_update_token_counts": {
+          "1": 8
+        },
+        "after_first_update_tokens_per_s_median": 17.93055565135311,
+        "all_generated_tokens_per_cell_second": 68.16850994863152
+      },
+      {
+        "workload": "structured",
+        "concurrency": 8,
+        "repetition": 3,
+        "first_update_token_counts": {
+          "1": 8
+        },
+        "after_first_update_tokens_per_s_median": 19.640751983699708,
+        "all_generated_tokens_per_cell_second": 70.38481307479199
+      }
+    ],
+    "candidate": [
+      {
+        "workload": "code",
+        "concurrency": 1,
+        "repetition": 1,
+        "first_update_token_counts": {
+          "1": 1
+        },
+        "after_first_update_tokens_per_s_median": 37.45083971534302,
+        "all_generated_tokens_per_cell_second": 37.462205647409796
+      },
+      {
+        "workload": "prose",
+        "concurrency": 1,
+        "repetition": 1,
+        "first_update_token_counts": {
+          "1": 1
+        },
+        "after_first_update_tokens_per_s_median": 41.14391971054667,
+        "all_generated_tokens_per_cell_second": 41.12753707608303
+      },
+      {
+        "workload": "structured",
+        "concurrency": 1,
+        "repetition": 1,
+        "first_update_token_counts": {
+          "1": 1
+        },
+        "after_first_update_tokens_per_s_median": 41.44807922532292,
+        "all_generated_tokens_per_cell_second": 41.4539566561049
+      },
+      {
+        "workload": "code",
+        "concurrency": 2,
+        "repetition": 1,
+        "first_update_token_counts": {
+          "1": 2
+        },
+        "after_first_update_tokens_per_s_median": 27.18940174930343,
+        "all_generated_tokens_per_cell_second": 53.607283728955785
+      },
+      {
+        "workload": "prose",
+        "concurrency": 2,
+        "repetition": 1,
+        "first_update_token_counts": {
+          "1": 2
+        },
+        "after_first_update_tokens_per_s_median": 29.21610216146014,
+        "all_generated_tokens_per_cell_second": 58.13058650794018
+      },
+      {
+        "workload": "structured",
+        "concurrency": 2,
+        "repetition": 1,
+        "first_update_token_counts": {
+          "1": 2
+        },
+        "after_first_update_tokens_per_s_median": 28.238636036494835,
+        "all_generated_tokens_per_cell_second": 54.787797889997314
+      },
+      {
+        "workload": "code",
+        "concurrency": 4,
+        "repetition": 1,
+        "first_update_token_counts": {
+          "1": 4
+        },
+        "after_first_update_tokens_per_s_median": 19.905009179677315,
+        "all_generated_tokens_per_cell_second": 76.68650725512269
+      },
+      {
+        "workload": "prose",
+        "concurrency": 4,
+        "repetition": 1,
+        "first_update_token_counts": {
+          "1": 4
+        },
+        "after_first_update_tokens_per_s_median": 19.021553895285344,
+        "all_generated_tokens_per_cell_second": 72.69612261056263
+      },
+      {
+        "workload": "structured",
+        "concurrency": 4,
+        "repetition": 1,
+        "first_update_token_counts": {
+          "1": 4
+        },
+        "after_first_update_tokens_per_s_median": 21.064498317549344,
+        "all_generated_tokens_per_cell_second": 80.97304399258577
+      },
+      {
+        "workload": "code",
+        "concurrency": 8,
+        "repetition": 1,
+        "first_update_token_counts": {
+          "1": 8
+        },
+        "after_first_update_tokens_per_s_median": 20.822170894202877,
+        "all_generated_tokens_per_cell_second": 81.26594828521876
+      },
+      {
+        "workload": "prose",
+        "concurrency": 8,
+        "repetition": 1,
+        "first_update_token_counts": {
+          "1": 8
+        },
+        "after_first_update_tokens_per_s_median": 21.014826927886865,
+        "all_generated_tokens_per_cell_second": 81.90348508715627
+      },
+      {
+        "workload": "structured",
+        "concurrency": 8,
+        "repetition": 1,
+        "first_update_token_counts": {
+          "1": 8
+        },
+        "after_first_update_tokens_per_s_median": 19.894513081538,
+        "all_generated_tokens_per_cell_second": 77.10121799358178
+      },
+      {
+        "workload": "code",
+        "concurrency": 1,
+        "repetition": 2,
+        "first_update_token_counts": {
+          "1": 1
+        },
+        "after_first_update_tokens_per_s_median": 42.91266156436243,
+        "all_generated_tokens_per_cell_second": 42.92338579180431
+      },
+      {
+        "workload": "prose",
+        "concurrency": 1,
+        "repetition": 2,
+        "first_update_token_counts": {
+          "1": 1
+        },
+        "after_first_update_tokens_per_s_median": 40.701033038658906,
+        "all_generated_tokens_per_cell_second": 40.71971402300659
+      },
+      {
+        "workload": "structured",
+        "concurrency": 1,
+        "repetition": 2,
+        "first_update_token_counts": {
+          "1": 1
+        },
+        "after_first_update_tokens_per_s_median": 37.879815210872415,
+        "all_generated_tokens_per_cell_second": 37.91438650771197
+      },
+      {
+        "workload": "code",
+        "concurrency": 2,
+        "repetition": 2,
+        "first_update_token_counts": {
+          "1": 2
+        },
+        "after_first_update_tokens_per_s_median": 27.608494970997477,
+        "all_generated_tokens_per_cell_second": 54.696520881394854
+      },
+      {
+        "workload": "prose",
+        "concurrency": 2,
+        "repetition": 2,
+        "first_update_token_counts": {
+          "1": 2
+        },
+        "after_first_update_tokens_per_s_median": 28.667274653837353,
+        "all_generated_tokens_per_cell_second": 56.228829414342634
+      },
+      {
+        "workload": "structured",
+        "concurrency": 2,
+        "repetition": 2,
+        "first_update_token_counts": {
+          "1": 2
+        },
+        "after_first_update_tokens_per_s_median": 27.974822471999744,
+        "all_generated_tokens_per_cell_second": 54.84235997429068
+      },
+      {
+        "workload": "code",
+        "concurrency": 4,
+        "repetition": 2,
+        "first_update_token_counts": {
+          "1": 4
+        },
+        "after_first_update_tokens_per_s_median": 21.177414898886887,
+        "all_generated_tokens_per_cell_second": 80.84309940929775
+      },
+      {
+        "workload": "prose",
+        "concurrency": 4,
+        "repetition": 2,
+        "first_update_token_counts": {
+          "1": 4
+        },
+        "after_first_update_tokens_per_s_median": 20.10727484186647,
+        "all_generated_tokens_per_cell_second": 78.30864594930028
+      },
+      {
+        "workload": "structured",
+        "concurrency": 4,
+        "repetition": 2,
+        "first_update_token_counts": {
+          "1": 4
+        },
+        "after_first_update_tokens_per_s_median": 20.241227942876982,
+        "all_generated_tokens_per_cell_second": 75.81913291670641
+      },
+      {
+        "workload": "code",
+        "concurrency": 8,
+        "repetition": 2,
+        "first_update_token_counts": {
+          "1": 8
+        },
+        "after_first_update_tokens_per_s_median": 20.442456788112267,
+        "all_generated_tokens_per_cell_second": 79.73768406618316
+      },
+      {
+        "workload": "prose",
+        "concurrency": 8,
+        "repetition": 2,
+        "first_update_token_counts": {
+          "1": 8
+        },
+        "after_first_update_tokens_per_s_median": 19.611853048293792,
+        "all_generated_tokens_per_cell_second": 75.17030518215705
+      },
+      {
+        "workload": "structured",
+        "concurrency": 8,
+        "repetition": 2,
+        "first_update_token_counts": {
+          "1": 8
+        },
+        "after_first_update_tokens_per_s_median": 19.107966697740316,
+        "all_generated_tokens_per_cell_second": 73.74059477012676
+      },
+      {
+        "workload": "code",
+        "concurrency": 1,
+        "repetition": 3,
+        "first_update_token_counts": {
+          "1": 1
+        },
+        "after_first_update_tokens_per_s_median": 40.02609431827823,
+        "all_generated_tokens_per_cell_second": 40.04770673454176
+      },
+      {
+        "workload": "prose",
+        "concurrency": 1,
+        "repetition": 3,
+        "first_update_token_counts": {
+          "1": 1
+        },
+        "after_first_update_tokens_per_s_median": 41.97479950398233,
+        "all_generated_tokens_per_cell_second": 41.95934157088675
+      },
+      {
+        "workload": "structured",
+        "concurrency": 1,
+        "repetition": 3,
+        "first_update_token_counts": {
+          "1": 1
+        },
+        "after_first_update_tokens_per_s_median": 40.89808518765402,
+        "all_generated_tokens_per_cell_second": 40.90272420300248
+      },
+      {
+        "workload": "code",
+        "concurrency": 2,
+        "repetition": 3,
+        "first_update_token_counts": {
+          "1": 2
+        },
+        "after_first_update_tokens_per_s_median": 27.306077149148166,
+        "all_generated_tokens_per_cell_second": 53.04838342543143
+      },
+      {
+        "workload": "prose",
+        "concurrency": 2,
+        "repetition": 3,
+        "first_update_token_counts": {
+          "1": 2
+        },
+        "after_first_update_tokens_per_s_median": 28.65572043668329,
+        "all_generated_tokens_per_cell_second": 56.44785621076619
+      },
+      {
+        "workload": "structured",
+        "concurrency": 2,
+        "repetition": 3,
+        "first_update_token_counts": {
+          "1": 2
+        },
+        "after_first_update_tokens_per_s_median": 26.451126708199986,
+        "all_generated_tokens_per_cell_second": 52.43953339777702
+      },
+      {
+        "workload": "code",
+        "concurrency": 4,
+        "repetition": 3,
+        "first_update_token_counts": {
+          "1": 4
+        },
+        "after_first_update_tokens_per_s_median": 20.889890096551937,
+        "all_generated_tokens_per_cell_second": 80.54070840282924
+      },
+      {
+        "workload": "prose",
+        "concurrency": 4,
+        "repetition": 3,
+        "first_update_token_counts": {
+          "1": 4
+        },
+        "after_first_update_tokens_per_s_median": 19.504073660152763,
+        "all_generated_tokens_per_cell_second": 74.94028642522677
+      },
+      {
+        "workload": "structured",
+        "concurrency": 4,
+        "repetition": 3,
+        "first_update_token_counts": {
+          "1": 4
+        },
+        "after_first_update_tokens_per_s_median": 18.998340835646204,
+        "all_generated_tokens_per_cell_second": 71.64427882285538
+      },
+      {
+        "workload": "code",
+        "concurrency": 8,
+        "repetition": 3,
+        "first_update_token_counts": {
+          "1": 8
+        },
+        "after_first_update_tokens_per_s_median": 19.870243820256174,
+        "all_generated_tokens_per_cell_second": 76.93049365512682
+      },
+      {
+        "workload": "prose",
+        "concurrency": 8,
+        "repetition": 3,
+        "first_update_token_counts": {
+          "1": 8
+        },
+        "after_first_update_tokens_per_s_median": 19.72004618087312,
+        "all_generated_tokens_per_cell_second": 76.188226983403
+      },
+      {
+        "workload": "structured",
+        "concurrency": 8,
+        "repetition": 3,
+        "first_update_token_counts": {
+          "1": 8
+        },
+        "after_first_update_tokens_per_s_median": 20.31275937727505,
+        "all_generated_tokens_per_cell_second": 76.05093438339267
+      }
+    ]
+  },
+  "rows": [
+    {
+      "kind": "decode",
+      "workload": "code",
+      "concurrency": 1,
+      "prompt_length": null,
+      "metric": "decode_tokens_per_s_median",
+      "control_reps": [
+        36.27901458925168,
+        36.08286820450699,
+        36.19661563470388
+      ],
+      "candidate_reps": [
+        37.45083971534302,
+        42.91266156436243,
+        40.02609431827823
+      ],
+      "paired_change_pct": [
+        3.230035708959189,
+        18.928077782359765,
+        10.57965949695805
+      ],
+      "median_change_pct": 10.57965949695805,
+      "control_range_pct": 0.5418915036814552,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "code",
+      "concurrency": 1,
+      "prompt_length": null,
+      "metric": "decode_tokens_per_s_aggregate",
+      "control_reps": [
+        36.08453170593358,
+        35.896483392275215,
+        36.00707738683476
+      ],
+      "candidate_reps": [
+        37.27489461917274,
+        42.70876886284529,
+        39.84746820086905
+      ],
+      "paired_change_pct": [
+        3.2988176843747885,
+        18.977584506330913,
+        10.665655456497714
+      ],
+      "median_change_pct": 10.665655456497714,
+      "control_range_pct": 0.5222537548329859,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "code",
+      "concurrency": 1,
+      "prompt_length": null,
+      "metric": "draft_acceptance_rate",
+      "control_reps": [
+        0.43174603174603177,
+        0.421875,
+        0.43174603174603177
+      ],
+      "candidate_reps": [
+        0.5753424657534246,
+        0.6567164179104478,
+        0.6009389671361502
+      ],
+      "paired_change_pct": [
+        33.25946817082996,
+        55.6661138750691,
+        39.1880695940348
+      ],
+      "median_change_pct": 39.1880695940348,
+      "control_range_pct": 2.2863051470588283,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "code",
+      "concurrency": 1,
+      "prompt_length": null,
+      "metric": "mean_acceptance_length",
+      "control_reps": [
+        3.1587301587301586,
+        3.109375,
+        3.1587301587301586
+      ],
+      "candidate_reps": [
+        2.7260273972602738,
+        2.970149253731343,
+        2.802816901408451
+      ],
+      "paired_change_pct": [
+        -13.698630136986301,
+        -4.477611940298509,
+        -11.267605633802802
+      ],
+      "median_change_pct": -11.267605633802802,
+      "control_range_pct": 1.5624999999999962,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "decode",
+      "workload": "code",
+      "concurrency": 2,
+      "prompt_length": null,
+      "metric": "decode_tokens_per_s_median",
+      "control_reps": [
+        26.23058506363546,
+        25.928824105179963,
+        25.68946776144782
+      ],
+      "candidate_reps": [
+        27.18940174930343,
+        27.608494970997477,
+        27.306077149148166
+      ],
+      "paired_change_pct": [
+        3.655338542170816,
+        6.478006326102359,
+        6.292887819678361
+      ],
+      "median_change_pct": 5.311667966049649,
+      "control_range_pct": 2.0869334451597354,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "code",
+      "concurrency": 2,
+      "prompt_length": null,
+      "metric": "decode_tokens_per_s_aggregate",
+      "control_reps": [
+        51.225347765832645,
+        51.00189568728011,
+        50.50973396186977
+      ],
+      "candidate_reps": [
+        53.33924731031101,
+        54.423038276987874,
+        52.783141508304276
+      ],
+      "paired_change_pct": [
+        4.126667044100252,
+        6.707873390990438,
+        4.500929559737377
+      ],
+      "median_change_pct": 4.5828720511928545,
+      "control_range_pct": 1.4031121673411615,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "code",
+      "concurrency": 2,
+      "prompt_length": null,
+      "metric": "draft_acceptance_rate",
+      "control_reps": [
+        0.4170542635658915,
+        0.421875,
+        0.4076335877862595
+      ],
+      "candidate_reps": [
+        0.5630630630630631,
+        0.5753424657534246,
+        0.5630630630630631
+      ],
+      "paired_change_pct": [
+        35.00954486084598,
+        36.377473363774726,
+        38.129702736444315
+      ],
+      "median_change_pct": 35.00954486084598,
+      "control_range_pct": 3.414762408127364,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "code",
+      "concurrency": 2,
+      "prompt_length": null,
+      "metric": "mean_acceptance_length",
+      "control_reps": [
+        3.0852713178294575,
+        3.109375,
+        3.0381679389312977
+      ],
+      "candidate_reps": [
+        2.6891891891891895,
+        2.7260273972602738,
+        2.6891891891891895
+      ],
+      "paired_change_pct": [
+        -12.837837837837828,
+        -12.328767123287676,
+        -11.48648648648648
+      ],
+      "median_change_pct": -12.837837837837828,
+      "control_range_pct": 2.3079675572519096,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "decode",
+      "workload": "code",
+      "concurrency": 4,
+      "prompt_length": null,
+      "metric": "decode_tokens_per_s_median",
+      "control_reps": [
+        19.1626990547094,
+        18.66984424094389,
+        18.560671268734637
+      ],
+      "candidate_reps": [
+        19.905009179677315,
+        21.177414898886887,
+        20.889890096551937
+      ],
+      "paired_change_pct": [
+        3.8737242746891942,
+        13.431127895774164,
+        12.54921653475356
+      ],
+      "median_change_pct": 11.891078612961214,
+      "control_range_pct": 3.224599938838727,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "code",
+      "concurrency": 4,
+      "prompt_length": null,
+      "metric": "decode_tokens_per_s_aggregate",
+      "control_reps": [
+        72.52494591979324,
+        70.05367085250116,
+        70.41654751839661
+      ],
+      "candidate_reps": [
+        76.30307471884707,
+        80.43888391225126,
+        80.13800486081509
+      ],
+      "paired_change_pct": [
+        5.209419670897986,
+        14.824652203617262,
+        13.805643254348276
+      ],
+      "median_change_pct": 13.805643254348276,
+      "control_range_pct": 3.5095089923947955,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "code",
+      "concurrency": 4,
+      "prompt_length": null,
+      "metric": "draft_acceptance_rate",
+      "control_reps": [
+        0.4368,
+        0.4243137254901961,
+        0.4267716535433071
+      ],
+      "candidate_reps": [
+        0.5753424657534246,
+        0.607565011820331,
+        0.5847750865051903
+      ],
+      "paired_change_pct": [
+        31.717597471022117,
+        43.187687628636226,
+        37.02294462390989
+      ],
+      "median_change_pct": 37.02294462390989,
+      "control_range_pct": 2.925750669271403,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "code",
+      "concurrency": 4,
+      "prompt_length": null,
+      "metric": "mean_acceptance_length",
+      "control_reps": [
+        3.184,
+        3.1215686274509804,
+        3.1338582677165356
+      ],
+      "candidate_reps": [
+        2.7260273972602738,
+        2.8226950354609928,
+        2.754325259515571
+      ],
+      "paired_change_pct": [
+        -14.38356164383563,
+        -9.57446808510639,
+        -12.110726643598625
+      ],
+      "median_change_pct": -12.110726643598625,
+      "control_range_pct": 1.9921568627451027,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "decode",
+      "workload": "code",
+      "concurrency": 8,
+      "prompt_length": null,
+      "metric": "decode_tokens_per_s_median",
+      "control_reps": [
+        19.27424599482875,
+        18.952569876826967,
+        19.325008990878693
+      ],
+      "candidate_reps": [
+        20.822170894202877,
+        20.442456788112267,
+        19.870243820256174
+      ],
+      "paired_change_pct": [
+        8.031052938669724,
+        7.861133983243951,
+        2.821394958392154
+      ],
+      "median_change_pct": 6.060993481129939,
+      "control_range_pct": 1.932314831675652,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "code",
+      "concurrency": 8,
+      "prompt_length": null,
+      "metric": "decode_tokens_per_s_aggregate",
+      "control_reps": [
+        74.9235574909185,
+        73.41157469302868,
+        74.81675228147026
+      ],
+      "candidate_reps": [
+        80.85961854379266,
+        79.33899564585225,
+        76.54584118685119
+      ],
+      "paired_change_pct": [
+        7.922823277036306,
+        8.07423213247931,
+        2.311098587754623
+      ],
+      "median_change_pct": 6.044426183281426,
+      "control_range_pct": 2.020914770800984,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "code",
+      "concurrency": 8,
+      "prompt_length": null,
+      "metric": "draft_acceptance_rate",
+      "control_reps": [
+        0.4330019880715706,
+        0.42924901185770753,
+        0.4342629482071713
+      ],
+      "candidate_reps": [
+        0.5737891737891738,
+        0.5944055944055944,
+        0.5879629629629629
+      ],
+      "paired_change_pct": [
+        32.514212312192114,
+        38.475704774047294,
+        35.39330615018687
+      ],
+      "median_change_pct": 35.78758970173111,
+      "control_range_pct": 1.1579476509551356,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "code",
+      "concurrency": 8,
+      "prompt_length": null,
+      "metric": "mean_acceptance_length",
+      "control_reps": [
+        3.165009940357853,
+        3.1462450592885376,
+        3.1713147410358564
+      ],
+      "candidate_reps": [
+        2.7213675213675215,
+        2.7832167832167833,
+        2.763888888888889
+      ],
+      "paired_change_pct": [
+        -14.017094017094012,
+        -11.538461538461531,
+        -12.847222222222221
+      ],
+      "median_change_pct": -12.673611111111116,
+      "control_range_pct": 0.792088562745061,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "decode",
+      "workload": "prose",
+      "concurrency": 1,
+      "prompt_length": null,
+      "metric": "decode_tokens_per_s_median",
+      "control_reps": [
+        34.77319571541,
+        38.24755237281996,
+        37.68363787076912
+      ],
+      "candidate_reps": [
+        41.14391971054667,
+        40.701033038658906,
+        41.97479950398233
+      ],
+      "paired_change_pct": [
+        18.320789516372926,
+        6.414739018914251,
+        11.387333802349886
+      ],
+      "median_change_pct": 9.182451682727955,
+      "control_range_pct": 9.2198016267028,
+      "effect_within_control_range": true,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "prose",
+      "concurrency": 1,
+      "prompt_length": null,
+      "metric": "decode_tokens_per_s_aggregate",
+      "control_reps": [
+        34.598374776465384,
+        38.05423105981798,
+        37.4695483615367
+      ],
+      "candidate_reps": [
+        40.92189939070261,
+        40.516115452891555,
+        41.74954486303232
+      ],
+      "paired_change_pct": [
+        18.276941200540552,
+        6.469410429562239,
+        11.42259965398762
+      ],
+      "median_change_pct": 9.213751379799984,
+      "control_range_pct": 9.22310632091874,
+      "effect_within_control_range": true,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "prose",
+      "concurrency": 1,
+      "prompt_length": null,
+      "metric": "draft_acceptance_rate",
+      "control_reps": [
+        0.4123076923076923,
+        0.4745762711864407,
+        0.4633333333333333
+      ],
+      "candidate_reps": [
+        0.6280193236714976,
+        0.6280193236714976,
+        0.6567164179104478
+      ],
+      "paired_change_pct": [
+        52.318119547191586,
+        32.33264320220841,
+        41.73735638354987
+      ],
+      "median_change_pct": 35.54373892190596,
+      "control_range_pct": 13.439261628506843,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "prose",
+      "concurrency": 1,
+      "prompt_length": null,
+      "metric": "mean_acceptance_length",
+      "control_reps": [
+        3.0615384615384613,
+        3.3728813559322033,
+        3.316666666666667
+      ],
+      "candidate_reps": [
+        2.8840579710144927,
+        2.8840579710144927,
+        2.970149253731343
+      ],
+      "paired_change_pct": [
+        -5.797101449275354,
+        -14.492753623188403,
+        -10.447761194029859
+      ],
+      "median_change_pct": -13.043478260869568,
+      "control_range_pct": 9.387222946544984,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "decode",
+      "workload": "prose",
+      "concurrency": 2,
+      "prompt_length": null,
+      "metric": "decode_tokens_per_s_median",
+      "control_reps": [
+        26.329312975816475,
+        26.394280727787397,
+        26.351294814319438
+      ],
+      "candidate_reps": [
+        29.21610216146014,
+        28.667274653837353,
+        28.65572043668329
+      ],
+      "paired_change_pct": [
+        10.964164497171591,
+        8.611691106463804,
+        8.745018560194673
+      ],
+      "median_change_pct": 8.788865427058257,
+      "control_range_pct": 0.2465448184945294,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "prose",
+      "concurrency": 2,
+      "prompt_length": null,
+      "metric": "decode_tokens_per_s_aggregate",
+      "control_reps": [
+        51.9922486710761,
+        49.855308202146794,
+        49.41454690847057
+      ],
+      "candidate_reps": [
+        57.83993357540048,
+        55.94768526727092,
+        56.16561692971236
+      ],
+      "paired_change_pct": [
+        11.247224449396654,
+        12.220117144640952,
+        13.662110539527239
+      ],
+      "median_change_pct": 12.657245447123389,
+      "control_range_pct": 5.170365715429538,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "prose",
+      "concurrency": 2,
+      "prompt_length": null,
+      "metric": "draft_acceptance_rate",
+      "control_reps": [
+        0.4689075630252101,
+        0.4368,
+        0.43174603174603177
+      ],
+      "candidate_reps": [
+        0.6421568627450981,
+        0.6211031175059952,
+        0.6211031175059952
+      ],
+      "paired_change_pct": [
+        36.947431302270026,
+        42.193937157965934,
+        43.858442657638584
+      ],
+      "median_change_pct": 42.193937157965934,
+      "control_range_pct": 8.50767657490346,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "prose",
+      "concurrency": 2,
+      "prompt_length": null,
+      "metric": "mean_acceptance_length",
+      "control_reps": [
+        3.3445378151260505,
+        3.184,
+        3.1587301587301586
+      ],
+      "candidate_reps": [
+        2.9264705882352944,
+        2.8633093525179856,
+        2.8633093525179856
+      ],
+      "paired_change_pct": [
+        -12.5,
+        -10.07194244604317,
+        -9.352517985611508
+      ],
+      "median_change_pct": -10.07194244604317,
+      "control_range_pct": 5.8356676003734895,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "decode",
+      "workload": "prose",
+      "concurrency": 4,
+      "prompt_length": null,
+      "metric": "decode_tokens_per_s_median",
+      "control_reps": [
+        17.63654810854244,
+        19.01038705162362,
+        18.073160506667417
+      ],
+      "candidate_reps": [
+        19.021553895285344,
+        20.10727484186647,
+        19.504073660152763
+      ],
+      "paired_change_pct": [
+        7.853043453962871,
+        5.769939282478553,
+        7.91733771720482
+      ],
+      "median_change_pct": 7.91733771720482,
+      "control_range_pct": 7.601542312283209,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "prose",
+      "concurrency": 4,
+      "prompt_length": null,
+      "metric": "decode_tokens_per_s_aggregate",
+      "control_reps": [
+        68.47081616409498,
+        71.70671587251566,
+        67.81206114270597
+      ],
+      "candidate_reps": [
+        72.33264199750981,
+        77.91710271955378,
+        74.56558499310063
+      ],
+      "paired_change_pct": [
+        5.640104864764139,
+        8.660816175264952,
+        9.959177964200672
+      ],
+      "median_change_pct": 8.901265050498463,
+      "control_range_pct": 5.688050687866611,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "prose",
+      "concurrency": 4,
+      "prompt_length": null,
+      "metric": "draft_acceptance_rate",
+      "control_reps": [
+        0.3874538745387454,
+        0.4633333333333333,
+        0.4146718146718147
+      ],
+      "candidate_reps": [
+        0.5481727574750831,
+        0.6211031175059952,
+        0.5600448933782267
+      ],
+      "paired_change_pct": [
+        41.480778357854774,
+        34.05103255525077,
+        35.05738117780328
+      ],
+      "median_change_pct": 35.05738117780328,
+      "control_range_pct": 18.298677679514213,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "prose",
+      "concurrency": 4,
+      "prompt_length": null,
+      "metric": "mean_acceptance_length",
+      "control_reps": [
+        2.937269372693727,
+        3.316666666666667,
+        3.0733590733590734
+      ],
+      "candidate_reps": [
+        2.644518272425249,
+        2.8633093525179856,
+        2.68013468013468
+      ],
+      "paired_change_pct": [
+        -9.966777408637883,
+        -13.669064748201443,
+        -12.794612794612803
+      ],
+      "median_change_pct": -12.794612794612803,
+      "control_range_pct": 12.344710947109471,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "decode",
+      "workload": "prose",
+      "concurrency": 8,
+      "prompt_length": null,
+      "metric": "decode_tokens_per_s_median",
+      "control_reps": [
+        17.536510692370378,
+        16.988432283132866,
+        17.93055565135311
+      ],
+      "candidate_reps": [
+        21.014826927886865,
+        19.611853048293792,
+        19.72004618087312
+      ],
+      "paired_change_pct": [
+        19.83471111519237,
+        15.442394692096538,
+        9.980117539664569
+      ],
+      "median_change_pct": 12.451368044685962,
+      "control_range_pct": 5.37235362693979,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "prose",
+      "concurrency": 8,
+      "prompt_length": null,
+      "metric": "decode_tokens_per_s_aggregate",
+      "control_reps": [
+        68.67498016936366,
+        65.8904659354996,
+        67.82766739888837
+      ],
+      "candidate_reps": [
+        81.49396766172049,
+        74.79445365624628,
+        75.80728584848598
+      ],
+      "paired_change_pct": [
+        18.6661684659291,
+        13.513317282446913,
+        11.764547942759407
+      ],
+      "median_change_pct": 11.764547942759407,
+      "control_range_pct": 4.105277891230702,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "prose",
+      "concurrency": 8,
+      "prompt_length": null,
+      "metric": "draft_acceptance_rate",
+      "control_reps": [
+        0.4255402750491159,
+        0.41348747591522156,
+        0.4304950495049505
+      ],
+      "candidate_reps": [
+        0.6125965537730244,
+        0.5911730545876888,
+        0.607565011820331
+      ],
+      "paired_change_pct": [
+        43.957361897723636,
+        42.97242093709714,
+        41.13170697758377
+      ],
+      "median_change_pct": 42.774972768489604,
+      "control_range_pct": 3.9967012729326066,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "prose",
+      "concurrency": 8,
+      "prompt_length": null,
+      "metric": "mean_acceptance_length",
+      "control_reps": [
+        3.1277013752455796,
+        3.067437379576108,
+        3.1524752475247526
+      ],
+      "candidate_reps": [
+        2.837789661319073,
+        2.7735191637630665,
+        2.8226950354609928
+      ],
+      "paired_change_pct": [
+        -9.269162210338678,
+        -9.581881533101033,
+        -10.460992907801426
+      ],
+      "median_change_pct": -9.751773049645395,
+      "control_range_pct": 2.7188614815238807,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "decode",
+      "workload": "structured",
+      "concurrency": 1,
+      "prompt_length": null,
+      "metric": "decode_tokens_per_s_median",
+      "control_reps": [
+        35.85489709590718,
+        41.76870683911759,
+        31.41245461454874
+      ],
+      "candidate_reps": [
+        41.44807922532292,
+        37.879815210872415,
+        40.89808518765402
+      ],
+      "paired_change_pct": [
+        15.59949290735576,
+        -9.31053873231985,
+        30.197037097228275
+      ],
+      "median_change_pct": 14.065548921412251,
+      "control_range_pct": 28.88378732999073,
+      "effect_within_control_range": true,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "structured",
+      "concurrency": 1,
+      "prompt_length": null,
+      "metric": "decode_tokens_per_s_aggregate",
+      "control_reps": [
+        35.68070656419905,
+        41.52853611238236,
+        31.274959721243352
+      ],
+      "candidate_reps": [
+        41.24668687282437,
+        37.724814575173404,
+        40.69821058198747
+      ],
+      "paired_change_pct": [
+        15.599411683764286,
+        -9.159295976423355,
+        30.130337320125868
+      ],
+      "median_change_pct": 14.062232788918006,
+      "control_range_pct": 28.73703291914948,
+      "effect_within_control_range": true,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "structured",
+      "concurrency": 1,
+      "prompt_length": null,
+      "metric": "draft_acceptance_rate",
+      "control_reps": [
+        0.44193548387096776,
+        0.5370370370370371,
+        0.36056338028169016
+      ],
+      "candidate_reps": [
+        0.6567164179104478,
+        0.5630630630630631,
+        0.6280193236714976
+      ],
+      "paired_change_pct": [
+        48.60006536659767,
+        4.846225535880699,
+        74.1772342995169
+      ],
+      "median_change_pct": 42.10656229063083,
+      "control_range_pct": 39.93199532420259,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "structured",
+      "concurrency": 1,
+      "prompt_length": null,
+      "metric": "mean_acceptance_length",
+      "control_reps": [
+        3.2096774193548385,
+        3.685185185185185,
+        2.802816901408451
+      ],
+      "candidate_reps": [
+        2.970149253731343,
+        2.6891891891891895,
+        2.8840579710144927
+      ],
+      "paired_change_pct": [
+        -7.462686567164178,
+        -27.027027027027017,
+        2.898550724637672
+      ],
+      "median_change_pct": -10.144927536231885,
+      "control_range_pct": 27.490871152842978,
+      "effect_within_control_range": true,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "decode",
+      "workload": "structured",
+      "concurrency": 2,
+      "prompt_length": null,
+      "metric": "decode_tokens_per_s_median",
+      "control_reps": [
+        27.863364818642474,
+        26.635966815020836,
+        28.15170416804053
+      ],
+      "candidate_reps": [
+        28.238636036494835,
+        27.974822471999744,
+        26.451126708199986
+      ],
+      "paired_change_pct": [
+        1.346826631653908,
+        5.026495438580758,
+        -6.040762042999659
+      ],
+      "median_change_pct": 0.4000150523195245,
+      "control_range_pct": 5.439893433134695,
+      "effect_within_control_range": true,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "decode",
+      "workload": "structured",
+      "concurrency": 2,
+      "prompt_length": null,
+      "metric": "decode_tokens_per_s_aggregate",
+      "control_reps": [
+        55.0316459895076,
+        50.84545264857502,
+        54.881001983269925
+      ],
+      "candidate_reps": [
+        54.513858900547326,
+        54.56814817441923,
+        52.17733573078814
+      ],
+      "paired_change_pct": [
+        -0.9408897001899508,
+        7.321589900229819,
+        -4.926415617021684
+      ],
+      "median_change_pct": -0.6689802836225889,
+      "control_range_pct": 7.627764052501654,
+      "effect_within_control_range": true,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "decode",
+      "workload": "structured",
+      "concurrency": 2,
+      "prompt_length": null,
+      "metric": "draft_acceptance_rate",
+      "control_reps": [
+        0.504424778761062,
+        0.4633333333333333,
+        0.504424778761062
+      ],
+      "candidate_reps": [
+        0.6142857142857143,
+        0.6280193236714976,
+        0.5691609977324263
+      ],
+      "paired_change_pct": [
+        21.779448621553897,
+        35.54373892190596,
+        12.833671480288022
+      ],
+      "median_change_pct": 21.779448621553897,
+      "control_range_pct": 8.14619883040936,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "structured",
+      "concurrency": 2,
+      "prompt_length": null,
+      "metric": "mean_acceptance_length",
+      "control_reps": [
+        3.52212389380531,
+        3.316666666666667,
+        3.52212389380531
+      ],
+      "candidate_reps": [
+        2.8428571428571425,
+        2.8840579710144927,
+        2.707482993197279
+      ],
+      "paired_change_pct": [
+        -19.285714285714295,
+        -13.043478260869568,
+        -23.129251700680275
+      ],
+      "median_change_pct": -19.285714285714295,
+      "control_range_pct": 5.833333333333331,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "decode",
+      "workload": "structured",
+      "concurrency": 4,
+      "prompt_length": null,
+      "metric": "decode_tokens_per_s_median",
+      "control_reps": [
+        18.371619928706593,
+        17.42677416452097,
+        20.792089752206344
+      ],
+      "candidate_reps": [
+        21.064498317549344,
+        20.241227942876982,
+        18.998340835646204
+      ],
+      "paired_change_pct": [
+        14.657816780952393,
+        16.150170718835245,
+        -8.627073747456283
+      ],
+      "median_change_pct": 10.176609473882214,
+      "control_range_pct": 18.31801224249635,
+      "effect_within_control_range": true,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "structured",
+      "concurrency": 4,
+      "prompt_length": null,
+      "metric": "decode_tokens_per_s_aggregate",
+      "control_reps": [
+        66.59277952935184,
+        64.81385811905143,
+        79.27462371235266
+      ],
+      "candidate_reps": [
+        80.56817877262284,
+        75.44003725212288,
+        71.2860574287411
+      ],
+      "paired_change_pct": [
+        20.986358193850595,
+        16.394918373094015,
+        -10.077078779456606
+      ],
+      "median_change_pct": 13.285611120754414,
+      "control_range_pct": 21.715215516612304,
+      "effect_within_control_range": true,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "structured",
+      "concurrency": 4,
+      "prompt_length": null,
+      "metric": "draft_acceptance_rate",
+      "control_reps": [
+        0.4524590163934426,
+        0.4393574297188755,
+        0.5269406392694064
+      ],
+      "candidate_reps": [
+        0.6911196911196911,
+        0.6109134045077106,
+        0.6142857142857143
+      ],
+      "paired_change_pct": [
+        52.747467964859275,
+        39.04701802780617,
+        16.575885120079235
+      ],
+      "median_change_pct": 35.766045548654255,
+      "control_range_pct": 19.357158632544873,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "structured",
+      "concurrency": 4,
+      "prompt_length": null,
+      "metric": "mean_acceptance_length",
+      "control_reps": [
+        3.262295081967213,
+        3.1967871485943773,
+        3.634703196347032
+      ],
+      "candidate_reps": [
+        3.0733590733590734,
+        2.832740213523132,
+        2.8428571428571425
+      ],
+      "paired_change_pct": [
+        -5.79150579150578,
+        -11.38790035587187,
+        -21.7857142857143
+      ],
+      "median_change_pct": -12.857142857142867,
+      "control_range_pct": 13.423557242669315,
+      "effect_within_control_range": true,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "decode",
+      "workload": "structured",
+      "concurrency": 8,
+      "prompt_length": null,
+      "metric": "decode_tokens_per_s_median",
+      "control_reps": [
+        17.83990068636652,
+        19.624012224628206,
+        19.640751983699708
+      ],
+      "candidate_reps": [
+        19.894513081538,
+        19.107966697740316,
+        20.31275937727505
+      ],
+      "paired_change_pct": [
+        11.516949736954786,
+        -2.6296637047558025,
+        3.4214952367050744
+      ],
+      "median_change_pct": 1.3784176946767035,
+      "control_range_pct": 9.176774233115866,
+      "effect_within_control_range": true,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "structured",
+      "concurrency": 8,
+      "prompt_length": null,
+      "metric": "decode_tokens_per_s_aggregate",
+      "control_reps": [
+        68.71176930297506,
+        73.25165964755467,
+        70.03288900941803
+      ],
+      "candidate_reps": [
+        76.71571190361387,
+        73.37189179627612,
+        75.6706797114757
+      ],
+      "paired_change_pct": [
+        11.648575901671986,
+        0.16413573330615883,
+        8.050204385113258
+      ],
+      "median_change_pct": 8.050204385113258,
+      "control_range_pct": 6.482511872341998,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "structured",
+      "concurrency": 8,
+      "prompt_length": null,
+      "metric": "draft_acceptance_rate",
+      "control_reps": [
+        0.461954261954262,
+        0.5013215859030837,
+        0.4745762711864407
+      ],
+      "candidate_reps": [
+        0.6403669724770642,
+        0.6025867136978248,
+        0.6512059369202227
+      ],
+      "paired_change_pct": [
+        38.62129332199273,
+        20.19963445466275,
+        37.218393851046905
+      ],
+      "median_change_pct": 34.934469200524234,
+      "control_range_pct": 8.295257546358869,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "decode",
+      "workload": "structured",
+      "concurrency": 8,
+      "prompt_length": null,
+      "metric": "mean_acceptance_length",
+      "control_reps": [
+        3.30977130977131,
+        3.5066079295154187,
+        3.3728813559322033
+      ],
+      "candidate_reps": [
+        2.9211009174311924,
+        2.8077601410934747,
+        2.953617810760668
+      ],
+      "paired_change_pct": [
+        -11.743119266055057,
+        -19.929453262786588,
+        -12.430426716140996
+      ],
+      "median_change_pct": -13.394495412844043,
+      "control_range_pct": 5.835859580352972,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 1,
+      "prompt_length": 8192,
+      "metric": "prefill_tokens_per_s_median",
+      "control_reps": [
+        2270.3485471098484,
+        2273.375173424977,
+        2266.253766074887
+      ],
+      "candidate_reps": [
+        2334.154547616876,
+        2312.8952571813857,
+        2313.0130021144296
+      ],
+      "paired_change_pct": [
+        2.8104055030780284,
+        1.7383881120188738,
+        2.063283324202869
+      ],
+      "median_change_pct": 1.8792028677223627,
+      "control_range_pct": 0.3136702229776838,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 1,
+      "prompt_length": 8192,
+      "metric": "prefill_tokens_per_s_aggregate",
+      "control_reps": [
+        2269.8649329201394,
+        2272.867607395267,
+        2265.681847487683
+      ],
+      "candidate_reps": [
+        2333.4690827263266,
+        2312.074514980948,
+        2312.350714908207
+      ],
+      "paired_change_pct": [
+        2.8021116535934976,
+        1.7249974199162743,
+        2.0598155682040264
+      ],
+      "median_change_pct": 1.8717317216496498,
+      "control_range_pct": 0.31657213622572106,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 1,
+      "prompt_length": 16384,
+      "metric": "prefill_tokens_per_s_median",
+      "control_reps": [
+        2251.1912487853465,
+        2254.601014407674,
+        2251.765744909748
+      ],
+      "candidate_reps": [
+        2307.0322196451066,
+        2291.7387120774165,
+        2295.826977245491
+      ],
+      "paired_change_pct": [
+        2.48050763745149,
+        1.6471959975365769,
+        1.9567413899667985
+      ],
+      "median_change_pct": 1.9567413899667985,
+      "control_range_pct": 0.15142630311503413,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 1,
+      "prompt_length": 16384,
+      "metric": "prefill_tokens_per_s_aggregate",
+      "control_reps": [
+        2250.8301655543387,
+        2254.2913465880583,
+        2251.399443524095
+      ],
+      "candidate_reps": [
+        2306.659850308021,
+        2291.3712533050584,
+        2295.441894194584
+      ],
+      "paired_change_pct": [
+        2.4804041463489135,
+        1.644858672465821,
+        1.956225528844846
+      ],
+      "median_change_pct": 1.956225528844846,
+      "control_range_pct": 0.15373464907239584,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 1,
+      "prompt_length": 32768,
+      "metric": "prefill_tokens_per_s_median",
+      "control_reps": [
+        2237.92703225211,
+        2241.3442049496557,
+        2234.3500419901907
+      ],
+      "candidate_reps": [
+        2292.754660372372,
+        2276.7802552606113,
+        2281.2676931805045
+      ],
+      "paired_change_pct": [
+        2.4499292126199057,
+        1.581017776417415,
+        2.099834417552726
+      ],
+      "median_change_pct": 1.9366431659203265,
+      "control_range_pct": 0.3125286418488158,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 1,
+      "prompt_length": 32768,
+      "metric": "prefill_tokens_per_s_aggregate",
+      "control_reps": [
+        2237.694291209352,
+        2241.092562957954,
+        2234.099085887584
+      ],
+      "candidate_reps": [
+        2292.331575230606,
+        2276.3931601098648,
+        2281.0020251108995
+      ],
+      "paired_change_pct": [
+        2.441677767865502,
+        1.57515123361609,
+        2.099411772718285
+      ],
+      "median_change_pct": 1.935373123651396,
+      "control_range_pct": 0.31253049613809064,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 1,
+      "prompt_length": 65536,
+      "metric": "prefill_tokens_per_s_median",
+      "control_reps": [
+        2212.304005962536,
+        2217.8146164072177,
+        2208.069257187669
+      ],
+      "candidate_reps": [
+        2243.4877919801615,
+        2251.628257995126,
+        2256.9921439862783
+      ],
+      "paired_change_pct": [
+        1.4095615219960722,
+        1.524637872694945,
+        2.2156409559780155
+      ],
+      "median_change_pct": 1.7775247853190512,
+      "control_range_pct": 0.44050723559164756,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 1,
+      "prompt_length": 65536,
+      "metric": "prefill_tokens_per_s_aggregate",
+      "control_reps": [
+        2212.0830064873544,
+        2217.6243962924736,
+        2207.8855691428876
+      ],
+      "candidate_reps": [
+        2243.1212494625524,
+        2251.421190628873,
+        2256.7875642325425
+      ],
+      "paired_change_pct": [
+        1.4031228884346714,
+        1.5240089526838752,
+        2.21487905773301
+      ],
+      "median_change_pct": 1.7783321885368464,
+      "control_range_pct": 0.44025595427590747,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 1,
+      "prompt_length": 131072,
+      "metric": "prefill_tokens_per_s_median",
+      "control_reps": [
+        2169.7599558243164,
+        2175.777590945897,
+        2167.2704861391935
+      ],
+      "candidate_reps": [
+        2193.33166987936,
+        2208.8279645155158,
+        2211.0069953980646
+      ],
+      "paired_change_pct": [
+        1.0863742780287566,
+        1.5190143380073406,
+        2.0180457187318535
+      ],
+      "median_change_pct": 1.800568241953604,
+      "control_range_pct": 0.39207585078098944,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 1,
+      "prompt_length": 131072,
+      "metric": "prefill_tokens_per_s_aggregate",
+      "control_reps": [
+        2169.5609774100335,
+        2175.4977404529614,
+        2167.0973669651366
+      ],
+      "candidate_reps": [
+        2193.0139454199884,
+        2208.6624152940094,
+        2210.7083579052155
+      ],
+      "paired_change_pct": [
+        1.0810006381084758,
+        1.5244637686519846,
+        2.01241492906028
+      ],
+      "median_change_pct": 1.8022742062154151,
+      "control_range_pct": 0.3871923202570162,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 2,
+      "prompt_length": 8192,
+      "metric": "prefill_tokens_per_s_median",
+      "control_reps": [
+        1327.6292348799489,
+        1330.284062187162,
+        1327.2896024075603
+      ],
+      "candidate_reps": [
+        1360.334749652887,
+        1351.151076316066,
+        1352.0630464745075
+      ],
+      "paired_change_pct": [
+        2.4634524394075763,
+        1.5686134053651823,
+        1.8664686306598677
+      ],
+      "median_change_pct": 1.8404092763721014,
+      "control_range_pct": 0.2255494004598625,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 2,
+      "prompt_length": 8192,
+      "metric": "prefill_tokens_per_s_aggregate",
+      "control_reps": [
+        2270.7112284206673,
+        2274.808772169586,
+        2270.54832699811
+      ],
+      "candidate_reps": [
+        2325.2220432714385,
+        2310.687774632049,
+        2311.9150320257095
+      ],
+      "paired_change_pct": [
+        2.400605333188266,
+        1.5772315854155616,
+        1.8218817250320374
+      ],
+      "median_change_pct": 1.8145769963757274,
+      "control_range_pct": 0.18762602299012987,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 2,
+      "prompt_length": 16384,
+      "metric": "prefill_tokens_per_s_median",
+      "control_reps": [
+        1465.69584076775,
+        1473.1856232191685,
+        1467.801840220509
+      ],
+      "candidate_reps": [
+        1483.20615949364,
+        1494.374789861074,
+        1493.9304200154518
+      ],
+      "paired_change_pct": [
+        1.194676155778529,
+        1.4383229314717028,
+        1.7801162990106034
+      ],
+      "median_change_pct": 1.7801162990106034,
+      "control_range_pct": 0.5102720439629155,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 2,
+      "prompt_length": 16384,
+      "metric": "prefill_tokens_per_s_aggregate",
+      "control_reps": [
+        2251.5166224523464,
+        2261.5670962172667,
+        2253.9880813579075
+      ],
+      "candidate_reps": [
+        2278.467347902607,
+        2295.8788175435284,
+        2294.761342770897
+      ],
+      "paired_change_pct": [
+        1.197003174726996,
+        1.5171657468687094,
+        1.8089386430307108
+      ],
+      "median_change_pct": 1.8089386430307108,
+      "control_range_pct": 0.4458973784309198,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 2,
+      "prompt_length": 32768,
+      "metric": "prefill_tokens_per_s_median",
+      "control_reps": [
+        1555.065471224419,
+        1560.0390382102273,
+        1556.8163392925271
+      ],
+      "candidate_reps": [
+        1590.61065955093,
+        1586.4584460204428,
+        1583.7361130788358
+      ],
+      "paired_change_pct": [
+        2.28576796181601,
+        1.6935094034906673,
+        1.729155399187432
+      ],
+      "median_change_pct": 1.9040207877947912,
+      "control_range_pct": 0.31947037426832336,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 2,
+      "prompt_length": 32768,
+      "metric": "prefill_tokens_per_s_aggregate",
+      "control_reps": [
+        2236.4612239596463,
+        2244.577578471298,
+        2238.943271469733
+      ],
+      "candidate_reps": [
+        2288.142974471258,
+        2282.3670566334713,
+        2279.4012416618452
+      ],
+      "paired_change_pct": [
+        2.3108717449663363,
+        1.6835897553565848,
+        1.8070118482972353
+      ],
+      "median_change_pct": 1.9394767932299217,
+      "control_range_pct": 0.36250826964113186,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 2,
+      "prompt_length": 65536,
+      "metric": "prefill_tokens_per_s_median",
+      "control_reps": [
+        1593.7830330576287,
+        1597.7410396898847,
+        1595.129051048797
+      ],
+      "candidate_reps": [
+        1631.6849349471008,
+        1624.6131544393559,
+        1625.8434037086472
+      ],
+      "paired_change_pct": [
+        2.3781092597502607,
+        1.681881736898183,
+        1.9255089511193813
+      ],
+      "median_change_pct": 1.9255089511193813,
+      "control_range_pct": 0.2481308098334497,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 2,
+      "prompt_length": 65536,
+      "metric": "prefill_tokens_per_s_aggregate",
+      "control_reps": [
+        2210.7787181261797,
+        2216.4607002988205,
+        2213.0271266283107
+      ],
+      "candidate_reps": [
+        2263.6859211788546,
+        2254.310487628519,
+        2256.883835132785
+      ],
+      "paired_change_pct": [
+        2.393147836049292,
+        1.707667874489971,
+        1.9817519621321944
+      ],
+      "median_change_pct": 1.9817519621321944,
+      "control_range_pct": 0.2567515826747983,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 2,
+      "prompt_length": 131072,
+      "metric": "prefill_tokens_per_s_median",
+      "control_reps": [
+        1590.2654638402776,
+        1598.7303668588872,
+        1595.1939474623223
+      ],
+      "candidate_reps": [
+        1630.1654458813648,
+        1625.31037000968,
+        1624.625696341354
+      ],
+      "paired_change_pct": [
+        2.5090139318459492,
+        1.662569480244236,
+        1.84502636346211
+      ],
+      "median_change_pct": 1.8879473931848523,
+      "control_range_pct": 0.5306503972182112,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 2,
+      "prompt_length": 131072,
+      "metric": "prefill_tokens_per_s_aggregate",
+      "control_reps": [
+        2157.90693985087,
+        2175.5950257410336,
+        2170.7817059745844
+      ],
+      "candidate_reps": [
+        2219.909500136713,
+        2213.265996394971,
+        2210.7556609245826
+      ],
+      "paired_change_pct": [
+        2.8732731305886716,
+        1.7315249487255047,
+        1.841454386683794
+      ],
+      "median_change_pct": 1.9570963908281502,
+      "control_range_pct": 0.8148256382242938,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 4,
+      "prompt_length": 8192,
+      "metric": "prefill_tokens_per_s_median",
+      "control_reps": [
+        770.7146292302937,
+        782.7420760145651,
+        781.6024323455149
+      ],
+      "candidate_reps": [
+        797.2040935502869,
+        796.105676823681,
+        794.8258679681451
+      ],
+      "paired_change_pct": [
+        3.4370003261061877,
+        1.70728024193596,
+        1.6918365495547372
+      ],
+      "median_change_pct": 1.8555782170026403,
+      "control_range_pct": 1.5388190065092562,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 4,
+      "prompt_length": 8192,
+      "metric": "prefill_tokens_per_s_aggregate",
+      "control_reps": [
+        2240.1930238910736,
+        2276.7485672197595,
+        2274.119018418282
+      ],
+      "candidate_reps": [
+        2321.0105858191996,
+        2317.561792108463,
+        2315.092826602943
+      ],
+      "paired_change_pct": [
+        3.607615998542446,
+        1.7926101053197252,
+        1.80174422942736
+      ],
+      "median_change_pct": 1.910312228090727,
+      "control_range_pct": 1.6074595495055202,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 4,
+      "prompt_length": 16384,
+      "metric": "prefill_tokens_per_s_median",
+      "control_reps": [
+        846.4002372477207,
+        850.4790389497332,
+        849.8137323927886
+      ],
+      "candidate_reps": [
+        867.7486711032584,
+        865.275334005695,
+        864.8670139406681
+      ],
+      "paired_change_pct": [
+        2.5222622721559507,
+        1.739760109106725,
+        1.7713624732204059
+      ],
+      "median_change_pct": 1.8194106571297386,
+      "control_range_pct": 0.4799642023350154,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 4,
+      "prompt_length": 16384,
+      "metric": "prefill_tokens_per_s_aggregate",
+      "control_reps": [
+        2248.1537711059073,
+        2256.9382233969654,
+        2256.6177749562667
+      ],
+      "candidate_reps": [
+        2303.188533580383,
+        2298.8407475219433,
+        2295.875193374235
+      ],
+      "paired_change_pct": [
+        2.447998138819618,
+        1.856609263407738,
+        1.7396574135701393
+      ],
+      "median_change_pct": 1.871073295365444,
+      "control_range_pct": 0.389275152777188,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": false
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 4,
+      "prompt_length": 32768,
+      "metric": "prefill_tokens_per_s_median",
+      "control_reps": [
+        884.8563699235476,
+        884.6293025415246,
+        885.6444947711873
+      ],
+      "candidate_reps": [
+        904.5818696602714,
+        902.3724978206129,
+        901.6398140432764
+      ],
+      "paired_change_pct": [
+        2.229231817411015,
+        2.005720953184853,
+        1.8060654547648491
+      ],
+      "median_change_pct": 1.9795447591769877,
+      "control_range_pct": 0.11472960631457395,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 4,
+      "prompt_length": 32768,
+      "metric": "prefill_tokens_per_s_aggregate",
+      "control_reps": [
+        2235.796599129967,
+        2236.890518325389,
+        2239.6002055007384
+      ],
+      "candidate_reps": [
+        2286.997309470859,
+        2282.8120076444343,
+        2280.067854014958
+      ],
+      "paired_change_pct": [
+        2.2900433054069413,
+        2.052916266703275,
+        1.8069139489640174
+      ],
+      "median_change_pct": 2.052916266703275,
+      "control_range_pct": 0.17003989867232674,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 4,
+      "prompt_length": 65536,
+      "metric": "prefill_tokens_per_s_median",
+      "control_reps": [
+        896.6481717139222,
+        898.1904059858034,
+        899.1666825626635
+      ],
+      "candidate_reps": [
+        916.6789627587087,
+        916.40625869326,
+        914.6881401898063
+      ],
+      "paired_change_pct": [
+        2.2339632953801924,
+        2.02806137608027,
+        1.7262047102219125
+      ],
+      "median_change_pct": 2.02806137608027,
+      "control_range_pct": 0.28039832444848567,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 4,
+      "prompt_length": 65536,
+      "metric": "prefill_tokens_per_s_aggregate",
+      "control_reps": [
+        2209.6860863649067,
+        2213.2759197593305,
+        2216.2820969155528
+      ],
+      "candidate_reps": [
+        2259.9466942670574,
+        2258.6325512605667,
+        2255.0850737500086
+      ],
+      "paired_change_pct": [
+        2.2745587353918184,
+        2.0492985576858525,
+        1.7508139820494373
+      ],
+      "median_change_pct": 2.0492985576858525,
+      "control_range_pct": 0.29802025548460703,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 4,
+      "prompt_length": 131072,
+      "metric": "prefill_tokens_per_s_median",
+      "control_reps": [
+        891.0125705808724,
+        892.044390671605,
+        894.758106924565
+      ],
+      "candidate_reps": [
+        910.7242655040236,
+        911.3835771532304,
+        909.06838586816
+      ],
+      "paired_change_pct": [
+        2.2122802274608278,
+        2.167962344011287,
+        1.599346106265731
+      ],
+      "median_change_pct": 2.094052160157056,
+      "control_range_pct": 0.41988228196498784,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 4,
+      "prompt_length": 131072,
+      "metric": "prefill_tokens_per_s_aggregate",
+      "control_reps": [
+        2167.7056349478116,
+        2170.1225159519463,
+        2175.6309747198075
+      ],
+      "candidate_reps": [
+        2215.4782236989267,
+        2217.5024986605645,
+        2211.1649960323234
+      ],
+      "paired_change_pct": [
+        2.203831921683652,
+        2.1832860753409733,
+        1.63327428803004
+      ],
+      "median_change_pct": 2.0900067813491408,
+      "control_range_pct": 0.3652024120177055,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 8,
+      "prompt_length": 8192,
+      "metric": "prefill_tokens_per_s_median",
+      "control_reps": [
+        458.72066026583605,
+        459.3681491835565,
+        460.9547140955731
+      ],
+      "candidate_reps": [
+        468.90650427045085,
+        470.0141839314964,
+        469.11671582824
+      ],
+      "paired_change_pct": [
+        2.2204894801799213,
+        2.317538725064261,
+        1.770673231682074
+      ],
+      "median_change_pct": 2.1221686052918187,
+      "control_range_pct": 0.4863318960419134,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 8,
+      "prompt_length": 8192,
+      "metric": "prefill_tokens_per_s_aggregate",
+      "control_reps": [
+        2267.34995317182,
+        2270.650050204099,
+        2277.1002738076804
+      ],
+      "candidate_reps": [
+        2318.9759593184303,
+        2324.2315762322696,
+        2319.381675787145
+      ],
+      "paired_change_pct": [
+        2.276931537383109,
+        2.359743899036948,
+        1.8568089629519502
+      ],
+      "median_change_pct": 2.146153062144718,
+      "control_range_pct": 0.4294065761029171,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 8,
+      "prompt_length": 16384,
+      "metric": "prefill_tokens_per_s_median",
+      "control_reps": [
+        479.4802158423437,
+        479.93562867959304,
+        481.4604512739961
+      ],
+      "candidate_reps": [
+        489.93578618240986,
+        491.57075196150754,
+        489.57758089124445
+      ],
+      "paired_change_pct": [
+        2.180605162550453,
+        2.4243091336905387,
+        1.6859390206962033
+      ],
+      "median_change_pct": 2.083645577705795,
+      "control_range_pct": 0.41260438136266075,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 8,
+      "prompt_length": 16384,
+      "metric": "prefill_tokens_per_s_aggregate",
+      "control_reps": [
+        2250.98738942214,
+        2252.37296903668,
+        2258.9127184825197
+      ],
+      "candidate_reps": [
+        2300.1648118224134,
+        2305.9236767123252,
+        2298.222201296656
+      ],
+      "paired_change_pct": [
+        2.1847044826358575,
+        2.37752398966804,
+        1.74019485093444
+      ],
+      "median_change_pct": 2.1218440925515836,
+      "control_range_pct": 0.3518657508915708,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 8,
+      "prompt_length": 32768,
+      "metric": "prefill_tokens_per_s_median",
+      "control_reps": [
+        488.9739761961471,
+        488.92632746619165,
+        490.3067655857026
+      ],
+      "candidate_reps": [
+        499.64170792517245,
+        501.2478569986546,
+        499.34891638599197
+      ],
+      "paired_change_pct": [
+        2.181656335171933,
+        2.5201198708848294,
+        1.844182343575862
+      ],
+      "median_change_pct": 2.181656335171933,
+      "control_range_pct": 0.2823132082099147,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 8,
+      "prompt_length": 32768,
+      "metric": "prefill_tokens_per_s_aggregate",
+      "control_reps": [
+        2234.532374134528,
+        2234.148695632619,
+        2239.6244197500055
+      ],
+      "candidate_reps": [
+        2282.2415211261896,
+        2290.632924896283,
+        2281.4533197577744
+      ],
+      "paired_change_pct": [
+        2.135084169910062,
+        2.5282215715579204,
+        1.8676747600581134
+      ],
+      "median_change_pct": 2.135084169910062,
+      "control_range_pct": 0.24505011342730726,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 8,
+      "prompt_length": 65536,
+      "metric": "prefill_tokens_per_s_median",
+      "control_reps": [
+        490.29477016048145,
+        490.36288023720124,
+        491.1811442567654
+      ],
+      "candidate_reps": [
+        500.7373565398585,
+        502.60746717518293,
+        500.86487361974906
+      ],
+      "paired_change_pct": [
+        2.1298588145166386,
+        2.4970460512954595,
+        1.9715189551172019
+      ],
+      "median_change_pct": 2.141677889131355,
+      "control_range_pct": 0.18075880781497328,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 8,
+      "prompt_length": 65536,
+      "metric": "prefill_tokens_per_s_aggregate",
+      "control_reps": [
+        2210.6127452471264,
+        2210.5409737209425,
+        2213.8256724133826
+      ],
+      "candidate_reps": [
+        2256.5629231214384,
+        2265.1847166206458,
+        2257.8032793863767
+      ],
+      "paired_change_pct": [
+        2.0786172509457357,
+        2.471962453956378,
+        1.9864981927439906
+      ],
+      "median_change_pct": 2.1347264119738307,
+      "control_range_pct": 0.14858770264046806,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 8,
+      "prompt_length": 131072,
+      "metric": "prefill_tokens_per_s_median",
+      "control_reps": [
+        485.0835576832461,
+        484.5882656538389,
+        485.2809365884677
+      ],
+      "candidate_reps": [
+        494.40625613626827,
+        495.751414677005,
+        495.0381356034277
+      ],
+      "paired_change_pct": [
+        1.9218747585564966,
+        2.3036358522020794,
+        2.010628953107707
+      ],
+      "median_change_pct": 2.0521367427345005,
+      "control_range_pct": 0.1427941482776634,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    },
+    {
+      "kind": "prefill",
+      "workload": "random",
+      "concurrency": 8,
+      "prompt_length": 131072,
+      "metric": "prefill_tokens_per_s_aggregate",
+      "control_reps": [
+        2172.0674950415078,
+        2166.8581277599887,
+        2171.506771704279
+      ],
+      "candidate_reps": [
+        2212.4617172098892,
+        2211.016193350553,
+        2216.97904208824
+      ],
+      "paired_change_pct": [
+        1.8597130273619644,
+        2.0378844846761224,
+        2.0940423017089094
+      ],
+      "median_change_pct": 1.8860150951068633,
+      "control_range_pct": 0.23989643271664787,
+      "effect_within_control_range": false,
+      "regression_in_two_reps": false,
+      "gain_at_least_two_pct_in_two_reps": true
+    }
+  ]
+}

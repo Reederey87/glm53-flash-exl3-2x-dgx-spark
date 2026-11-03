@@ -1,5 +1,11 @@
 # Status
 
+- 2026-11-03: Full MTP3 trial passes (96 cells + 40 warmups per arm); code
+  decode medians improve 5.31–11.89% with no registered robust regression.
+  MTP5 restored, all API/cache/KV/control checks pass, watchdog re-armed.
+  Receipts: `docs/receipts/2026-11-03-mtp-depth/`; MTP3 adoption pending.
+  Local validation: 145 tests, ShellCheck, Bash/Python syntax all pass.
+
 - 2026-11-03: Clarified reciprocal-TPOT and normalized aggregate labels; added
   supplementary bundle-aware/full-cell rates from retained arrivals. Sixteen
   comparator tests pass. Live harness and preregistered MTP gate are unchanged.

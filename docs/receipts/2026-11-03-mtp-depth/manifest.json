@@ -1,0 +1,40 @@
+{
+  "date": "2026-11-03",
+  "model": "nvidia/GLM-5.3-Flash-FP4-Local",
+  "checkpoint_revision": "76348ddb2be2e35e39ecfc00e75dc07703f4f3d5",
+  "speed_harness_commit": "05c6023a4b0df380aae5bdb159afab32c1bf516a",
+  "speed_harness_sha256": "85371429e129aeb62f4f9f28b918d8453eb292267654e0e6d30489e0f4368401",
+  "comparator_commit": "13c9445",
+  "raw_json_sha256": {
+    "mtp5": "9a6f72b4845124f06eaa33d755ef0194b4c0ffb3a66bd37cbff46a08b2ddd2ac",
+    "mtp3": "48d0db402baabf34b0cdfe7cc9cb446063b3f5d65d6556546857c8bf7fbba5a2"
+  },
+  "files_sha256": {
+    "README.md": "2240d8690854ff4c0645c2cdd4825dbf626c7adcfe26728b8de343f6462e54ec",
+    "api-detail-assessment.json": "7c242d8a31b01a68d4a37828cac7c6f7b172e80dc98d4df229457ec99b623670",
+    "baseline-api-detail.json": "c6aa5429961612df5c15a85c96d3584f7d1379dbcfd16e11c23023184910138d",
+    "comparison.json": "a0a2735a8e48fb16d418d94fa490add080911c1a38d70fbf20853f393feae37a",
+    "container-controls.json": "5c47f6d9171269f26cbbffcf2976d21e52d86a9b558f56a9b8192e7ad484d85a",
+    "mtp3-api-detail.json": "01643aa8c0b271f6eea23712514af73c15639792ded39d5bf0c8483305d463e1",
+    "mtp3-head-runtime.json": "55624917e583ae44bf5de2359cbdfcc40e08c2ae8b4ef14369b27c50601cc8d8",
+    "mtp3-kv.json": "b96d916eb91772a3da11f014626f145945f4b297ec491c6dc0acce524ddb803b",
+    "mtp3-prefix.json": "5c07d433e3719c9dfce71d31322f04223dbf16d89dca10d0069ed703ac1623ab",
+    "mtp3-smoke.json": "24269d68d9b173cf75f6b1cbe0d9deae080d339c90aee9d836db632f504d1d72",
+    "mtp3-worker-runtime.json": "a249d449d6a681f968c4cf8575c1ee15344f6e77d72fd924faac5b8094b8a326",
+    "mtp3.json.gz": "8ae1e30e745129e6b00e9b5fac52286825fca74355c4f1e0d360b96d804625b8",
+    "mtp3.md": "7e14b8ceee2cbd150d62f823e2a69468b907d4721fafd318598800597880f407",
+    "mtp5-kv.json": "19e5469db822aadc1dea475b35dab214761a149bd849dbfbf24c028f6dce8d6a",
+    "mtp5-prefix.json": "03617624022accef60ea803746c3017059c2dbdfba568402dfebff2c28554feb",
+    "mtp5-smoke.json": "3acd81c4c85ff509dab9443ab3a3603808164d385180c18384d9f55177a63314",
+    "mtp5.json.gz": "b882e5a98530d69113912d4f1a3ba3b7710a7adb0552e03058ac90e31ca6b612",
+    "mtp5.md": "9bc8fa951b39f02f16271deb19dbd02724a49a28e77bae36d1ffee587ac0c9eb",
+    "restoration-idle.json": "8acb5893bddf4d7c077f7963372ed93925bbb4c781bc0b691445cfba0cbdbd27",
+    "restoration.json": "6a0986000131b40176f262a4775404f8809bd3c65d84fee2c3a935b34a18e88e",
+    "restored-container-controls.json": "811ee4f7f028df3951fc359c23c70c847c57096f4e7ceb4d1c92a684d3f6c744",
+    "restored-head-runtime.json": "ee68ae4494628f6747a05e23d0a748f7b1895975b3449e1acf4fe1e991ef4e73",
+    "restored-kv.json": "69306cae143eaeb0a13c13c756c18b9daecc226dfd00fc206b2bf665ff5445c2",
+    "restored-prefix.json": "03617624022accef60ea803746c3017059c2dbdfba568402dfebff2c28554feb",
+    "restored-smoke.json": "65f298b230a8a3a0a1bb54102708feb5dc716a29e7900f0e5c909e6f63f72f56",
+    "restored-worker-runtime.json": "4da19efa0321d5daf171a89829121bbb129ea6cfa092423b3e2d0facc0e23544"
+  }
+}

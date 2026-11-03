@@ -1,0 +1,18 @@
+{
+  "head": {
+    "image": "sha256:a7f76ae9f18c7701c9cde5f72c606393d9a21ca94dd8e53b27589935f64fcbe2",
+    "same_environment": true,
+    "same_host_configuration": true,
+    "same_mounts": true,
+    "normalization": "Only order of non-overlapping HostConfig.Binds entries",
+    "container_id": "9e072a5ef5318b47e328bb4ca21b9b5800dad35f9c7c84920e6bd7972b3ae9ea"
+  },
+  "worker": {
+    "image": "sha256:a7f76ae9f18c7701c9cde5f72c606393d9a21ca94dd8e53b27589935f64fcbe2",
+    "same_environment": true,
+    "same_host_configuration": true,
+    "same_mounts": true,
+    "normalization": "Only order of non-overlapping HostConfig.Binds entries",
+    "container_id": "84b8f9d59aaad83635fe213fb2561fe2e1b6c56b9fa325438221bc1fdaaa48eb"
+  }
+}
