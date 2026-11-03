@@ -47,3 +47,31 @@ def test_rejects_symlink_root_before_advice(release_module, tmp_path, monkeypatc
     monkeypatch.setattr(release_module.os, "posix_fadvise", lambda *args: pytest.fail("unexpected advice"), raising=False)
     with pytest.raises(ValueError, match="real directory"):
         release_module.release_tree(root)
+
+
+@pytest.mark.parametrize("workspace,tail", [("vllm", "vllm/vllm"), ("flashinfer", "flashinfer")])
+def test_accepts_only_exact_completed_readonly_mount(release_module, workspace, tail):
+    row = f"30 20 1:2 /var/lib/docker/overlay2/layer123/diff/workspace/{tail} /completed-{workspace} ro,relatime - ext4 /dev/nvme rw"
+    assert release_module.completed_mount(workspace, row) == Path(f"/completed-{workspace}")
+
+
+@pytest.mark.parametrize("source,mode,duplicate", [
+    ("/home/nvidia/.cache/huggingface", "ro", False),
+    ("/var/lib/docker/overlay2/layer/diff/workspace/flashinfer", "rw", False),
+    ("/var/lib/docker/overlay2/layer/diff/workspace/flashinfer-extra", "ro", False),
+    ("/var/lib/docker/overlay2/layer/diff/workspace/flashinfer/build", "ro", False),
+    ("/var/lib/docker/overlay2/layer/diff/workspace/vllm/vllm", "ro", False),
+    ("/var/lib/docker/overlay2/layer/../layer/diff/workspace/flashinfer", "ro", False),
+    ("/var/lib/docker/overlay2/layer/diff/workspace/flashinfer", "ro", True),
+])
+def test_rejects_wrong_or_ambiguous_mount(release_module, source, mode, duplicate):
+    row = f"30 20 1:2 {source} /completed-flashinfer {mode} - ext4 /dev/nvme rw"
+    with pytest.raises(ValueError, match="mounted read-only"):
+        release_module.completed_mount("flashinfer", row + ("\n" + row if duplicate else ""))
+
+
+def test_rejects_unknown_workspace_and_missing_mount(release_module):
+    with pytest.raises(ValueError, match="unknown"):
+        release_module.completed_mount("huggingface", "")
+    with pytest.raises(ValueError, match="mounted read-only"):
+        release_module.completed_mount("flashinfer", "malformed mount row")

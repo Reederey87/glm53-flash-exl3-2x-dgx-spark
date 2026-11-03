@@ -184,7 +184,11 @@ not prove absence of spills, and none of these tests measures serving speed.
 
 If a completed source phase leaves MemFree below the registered floor,
 `release_build_cache.py` can advise away clean cache pages from the exact,
-closed vLLM build workspace mounted read-only at `/completed-vllm`. Inspect
+closed vLLM build workspace mounted read-only at `/completed-vllm`. For a
+completed FlashInfer phase, `--workspace flashinfer` instead requires the
+exact layer's `/diff/workspace/flashinfer` mounted read-only at
+`/completed-flashinfer`. Arbitrary paths, writable or ambiguous mounts and
+other workspaces are rejected. Inspect
 the terminal build status and identify that layer first; the helper is not
 for active builds, model files or global cache purging. It preserves data and
 reports actual memory separately from the sizes of files advised. Always

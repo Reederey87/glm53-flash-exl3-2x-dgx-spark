@@ -6,12 +6,28 @@ change the memory gate. The host controller must first verify the build ended.
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import sys
+
+
+def completed_mount(workspace: str, mountinfo: str) -> Path:
+    allowed = {"vllm": "vllm/vllm", "flashinfer": "flashinfer"}
+    if workspace not in allowed:
+        raise ValueError("unknown completed workspace")
+    root = Path(f"/completed-{workspace}")
+    rows = [line.split() for line in mountinfo.splitlines()]
+    matches = [row for row in rows if len(row) >= 10 and row[4] == str(root)]
+    source = rf"/var/lib/docker/overlay2/[A-Za-z0-9_-]+/diff/workspace/{allowed[workspace]}"
+    if (len(matches) != 1 or "ro" not in matches[0][5].split(",")
+            or re.fullmatch(source, matches[0][3]) is None):
+        raise ValueError("requires the completed Docker build workspace mounted read-only")
+    return root
 
 
 def release_tree(root: Path) -> dict:
@@ -63,15 +79,13 @@ def meminfo() -> dict:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--workspace", choices=("vllm", "flashinfer"), default="vllm")
+    args = parser.parse_args()
     if sys.platform != "linux" or not hasattr(os, "posix_fadvise"):
         raise SystemExit("Linux posix_fadvise is required")
-    root = Path("/completed-vllm")
-    mounts = [line.split() for line in Path("/proc/self/mountinfo").read_text().splitlines()]
-    if not any(row[4] == str(root) and "ro" in row[5].split(",")
-               and row[3].startswith("/var/lib/docker/overlay2/")
-               and row[3].endswith("/diff/workspace/vllm/vllm") for row in mounts):
-        raise SystemExit("requires the completed Docker build workspace mounted read-only")
+    root = completed_mount(args.workspace, Path("/proc/self/mountinfo").read_text())
     before = meminfo()
     report = release_tree(root)
-    report.update(meminfo_before_kib=before, meminfo_after_kib=meminfo())
+    report.update(workspace=args.workspace, meminfo_before_kib=before, meminfo_after_kib=meminfo())
     print(json.dumps(report, indent=2))

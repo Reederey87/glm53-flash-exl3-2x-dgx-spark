@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: Control FlashInfer providers completed (2,920 outputs, 564
+  libraries; three wheels retained). Build stopped before the runner image
+  at the unchanged MemFree gate. Extended scoped recovery to the completed
+  FlashInfer workspace; 12 helper tests pass. No arm image exists yet.
+
 - 2026-11-03: Incumbent dependency check reports one cuSPARSELt platform-tag
   defect. Actual library is AArch64 and matches upstream's reported fixed-wheel
   payload hash; Torch pins the old version. Recorded as unresolved packaging
