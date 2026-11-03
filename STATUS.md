@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-02: Verified public FP4-Local metadata at `76348ddb...` against
+  Flare's actual declaration functions: FP8_PB_WO and MXFP8 reject. Recorded
+  separate split-K, indexer-barrier and export-state qualification gates in
+  `docs/2026-11-02-compatibility-findings.md`; no GPU tests or runtime changes.
+
 - 2026-11-02: Prepared an isolated NVFP4 improvement worktree with the
   repository/Exa audit and ordered candidates in
   `docs/2026-11-02-improvement-queue.md`. Direct SSH is unavailable; no live

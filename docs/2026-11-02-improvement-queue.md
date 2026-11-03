@@ -82,6 +82,8 @@ sweep is a separate arm against the same frozen baseline.
 | 24 | Loading / preparation memory lifetime | Reuse packed storage, release temporary CPU/GPU owners | Peak and steady memory on both ranks; no changed quantization or KV reservation |
 | 25 | Startup and watchdog correctness | Transfer runtime fixes from October 21; avoid healers interrupting tests | Detect actual units, atomic script staging, rollback recovery, re-arm verification |
 | 26 | Both-node MemFree startup gate | Kit unit currently waits on head MemAvailable, contradicting the workspace's CUDA-free requirement | Verify live unit; gate both ranks on MemFree >=90GiB before build/start; test timeout and stale-worker cases |
+| 27 | DSA indexer publishing barrier | FlashInfer `37f5c4c1` synchronizes publishing warps before announcing CTA arrival; standalone b12x lacks it | Inspect incumbent first; delayed-warp regression, top-k oracle, fresh caches and graph replay on GB10 |
+| 28 | Export-safe indexer selection extent | FlashInfer `6d7f238d` and current Flare derive an absent active-width input from page-table metadata | Flare-only integration qualification after exact-checkpoint support; zero all export-disposable scratch and test >16 verifier rows |
 
 Do not test PCIe peer-gather optimizations as cross-node RoCE improvements.
 Do not transplant standard NVFP4 attention into GLM sparse MLA/KDA: the
@@ -163,3 +165,9 @@ is open against main). The original source checkouts were not edited.
 including real loopback HTTP SSE and metrics tests. `git diff --check` passed.
 This validates measurement tooling only; no GPU or serving performance result
 exists for the candidates. Do not open the delivery PR before cluster receipts.
+
+Further exact-checkpoint screening and named GPU regressions are recorded in
+[the compatibility findings](2026-11-02-compatibility-findings.md). Flare row
+23 cannot run unmodified on this checkpoint: its actual declaration functions
+reject representative FP8_PB_WO and MXFP8 entries. This is a compatibility
+failure, not a GPU test result, and must not be bypassed with different weights.
