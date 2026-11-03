@@ -1,5 +1,13 @@
 # Status
 
+- 2026-11-03: Direct access restored via `spark1`; worker reached over
+  `192.168.177.11` (LAN address `10.0.0.35`). Incumbent cold boot healthy at
+  1M context / 2,350,210 KV tokens; exact NVIDIA checkpoint revision verified.
+- 2026-11-03: Reconciled the prior November 1 reverted image window and
+  prepared real-text decode, per-cell warmup, prompt hashes and incremental
+  receipts. Local suite: 73 passed. MTP3 trial preregistered in
+  `docs/gates/2026-11-03-mtp3.md`; no serving treatment applied yet.
+
 - 2026-11-02: Verified public FP4-Local metadata at `76348ddb...` against
   Flare's actual declaration functions: FP8_PB_WO and MXFP8 reject. Recorded
   separate split-K, indexer-barrier and export-state qualification gates in

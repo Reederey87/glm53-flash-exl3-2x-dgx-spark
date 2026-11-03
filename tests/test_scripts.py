@@ -137,6 +137,7 @@ def test_scripts_are_stdlib_only() -> None:
         "random",
         "statistics",
         "os",
+        "hashlib",
     }
     for path in SCRIPTS.glob("*.py"):
         source = path.read_text(encoding="utf-8")
@@ -254,14 +255,33 @@ def sse_endpoint():
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
-            body = self.server.metrics.pop(0).encode()
+            if self.path == "/health":
+                body = b"{}"
+            elif hasattr(self.server, "metrics"):
+                body = self.server.metrics.pop(0).encode()
+            else:
+                count = self.server.completed
+                body = (
+                    f"vllm:spec_decode_num_accepted_tokens_total {count * 2}\n"
+                    f"vllm:spec_decode_num_draft_tokens_total {count * 3}\n"
+                    f"vllm:spec_decode_num_drafts_total {count}\n"
+                ).encode()
             self.send_response(200)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
 
         def do_POST(self):
-            self.rfile.read(int(self.headers["Content-Length"]))
+            payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            self.server.calls.append((self.path, payload))
+            if self.path == "/tokenize":
+                body = json.dumps({"tokens": self.server.tokens}).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            self.server.completed += 1
             body = "".join(
                 "data: " + (json.dumps(event) if isinstance(event, dict) else event) + "\n\n"
                 for event in events
@@ -276,6 +296,9 @@ def sse_endpoint():
             pass
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server.calls = []
+    server.completed = 0
+    server.tokens = [1000, 1001]
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -336,6 +359,51 @@ def test_speed_matrix_invalidates_hot_or_unverifiable_prefill(sse_endpoint, hit_
     assert bool(cell.validation_errors) is (hit_delta != 0)
     assert cell.prefix_cache_hits == hit_delta
     assert cell.request_results[0].completion_tokens == 1
+
+
+def test_speed_matrix_cli_warms_each_real_text_cell_and_persists_receipt(sse_endpoint, tmp_path) -> None:
+    base, events, server = sse_endpoint
+    events.extend([
+        {"choices": [{"text": "one two three four", "finish_reason": "length"}]},
+        {"choices": [], "usage": {"prompt_tokens": 2, "completion_tokens": 4}},
+        "[DONE]",
+    ])
+    out = tmp_path / "receipt.json"
+    result = subprocess.run([
+        sys.executable, str(SCRIPTS / "speed_matrix.py"), "--base", base,
+        "--skip-prefill", "--no-warmup", "--decode-workloads", "code",
+        "--decode-tokens", "4", "--concurrencies", "1", "--repetitions", "2",
+        "--out", str(out),
+    ], capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0, result.stderr
+    receipt = json.loads(out.read_text())
+    assert receipt["ok"] and receipt["complete"]
+    assert len(receipt["warmup_cells"]) == len(receipt["cells"]) == 2
+    assert server.completed == 4
+    for cell in receipt["cells"]:
+        assert cell["workload"] == "code"
+        assert cell["acceptance"]["drafts"] == 1
+        assert cell["request_results"][0]["output_text"] == "one two three four"
+    assert receipt["cells"][0]["prompt_sha256"] == receipt["cells"][1]["prompt_sha256"]
+    tokenize_payload = next(payload for path, payload in server.calls if path == "/tokenize")
+    assert "bounded LRU cache" in tokenize_payload["messages"][0]["content"]
+    assert not out.with_suffix(".json.tmp").exists()
+
+
+def test_speed_matrix_cli_retains_incomplete_receipt_on_bad_decode_warmup(sse_endpoint, tmp_path) -> None:
+    base, events, _server = sse_endpoint
+    events.append({"error": {"message": "rank failed"}})
+    out = tmp_path / "receipt.json"
+    result = subprocess.run([
+        sys.executable, str(SCRIPTS / "speed_matrix.py"), "--base", base,
+        "--skip-prefill", "--no-warmup", "--decode-workloads", "code",
+        "--decode-tokens", "4", "--concurrencies", "1", "--out", str(out),
+    ], capture_output=True, text=True, timeout=20)
+    assert result.returncode != 0
+    receipt = json.loads(out.read_text())
+    assert not receipt["ok"] and not receipt["complete"]
+    assert receipt["warmup_cells"][0]["errors"] == 1
+    assert receipt["cells"] == []
 
 
 def test_snapshot_validator_rejects_truncated_payload(tmp_path: Path) -> None:

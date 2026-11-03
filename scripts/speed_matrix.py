@@ -31,8 +31,10 @@ Standard library only.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
+import os
 import random
 import statistics
 import sys
@@ -48,6 +50,11 @@ ACCEPTED = "vllm:spec_decode_num_accepted_tokens_total"
 DRAFTED = "vllm:spec_decode_num_draft_tokens_total"
 DRAFTS = "vllm:spec_decode_num_drafts_total"
 CACHE_HITS = "vllm:prefix_cache_hits_total"
+DECODE_TASKS = {
+    "code": "Write a Python implementation of a bounded LRU cache with get, put, delete, and clear. Explain its invariants and include tests for eviction, updating an existing key, zero capacity, and missing keys. Do not use functools.lru_cache. Keep each operation O(1). Discuss thread safety and whether a lock belongs inside the cache or around the caller's transaction.",
+    "prose": "Write a practical incident review for an inference service that became slow after a restart. The service uses two GPUs on separate hosts, a shared network, persistent compilation caches, and speculative decoding. Distinguish observed facts from hypotheses. Explain how to separate cold compilation, network congestion, batching, and draft acceptance effects. Include a reproducible measurement plan and a rollback decision, without inventing measured results.",
+    "structured": "Create a JSON array of twelve maintenance tasks for a two-node inference cluster. Each task must contain id, title, owner, prerequisite_ids, validation, and rollback. Use only node-a, node-b, or operator for owner. Include checking model checksums, validating network links, taking configuration snapshots, warming the server, measuring throughput, and verifying restoration. Dependencies must refer only to earlier tasks. Output JSON only.",
+}
 
 
 @dataclass
@@ -59,6 +66,7 @@ class RequestResult:
     total_s: float
     decode_s: float
     error: str = ""
+    output_text: str = ""
 
 
 @dataclass
@@ -95,6 +103,8 @@ class Cell:
     prefix_cache_hits: float | None = None
     validation_errors: list[str] = field(default_factory=list)
     request_results: list[RequestResult] = field(default_factory=list)
+    workload: str = "random"
+    prompt_sha256: list[str] = field(default_factory=list)
 
 
 def percentile(values: list[float], pct: float) -> float | None:
@@ -144,6 +154,7 @@ def stream_completion(
         "prompt": prompt,
         "max_tokens": max_tokens,
         "temperature": 0,
+        "seed": 0,
         "stream": True,
         "stream_options": {"include_usage": True},
         "ignore_eos": True,
@@ -163,6 +174,7 @@ def stream_completion(
     done = False
     finish_reason: str | None = None
     usage: dict[str, Any] | None = None
+    pieces: list[str] = []
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             for raw in response:
@@ -190,6 +202,7 @@ def stream_completion(
                     text = choice.get("text") or ""
                     if not text:
                         continue
+                    pieces.append(text)
                     now = time.perf_counter()
                     if first is None:
                         first = now
@@ -224,7 +237,27 @@ def stream_completion(
         ttft_s=max(0.0, first - start),
         total_s=max(0.0, end - start),
         decode_s=decode_s,
+        output_text="".join(pieces),
     )
+
+
+def decode_prompts(base: str, model: str, api_key: str, timeout: float,
+                   workload: str, concurrency: int) -> list[list[int]]:
+    """Tokenize coherent chat inputs once, outside the measured interval."""
+    prompts = []
+    for index in range(concurrency):
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": f"Task {index + 1}. {DECODE_TASKS[workload]}"}],
+            "add_generation_prompt": True,
+            "chat_template_kwargs": {"enable_thinking": False},
+        }
+        _, result = _request_json(f"{base.rstrip('/')}/tokenize", payload, api_key, timeout)
+        tokens = result.get("tokens") if isinstance(result, dict) else None
+        if not isinstance(tokens, list) or not tokens or any(type(token) is not int or token < 0 for token in tokens):
+            raise ValueError("/tokenize did not return valid token IDs")
+        prompts.append(tokens)
+    return prompts
 
 
 def parse_metrics(text: str) -> dict[str, float]:
@@ -302,13 +335,18 @@ def run_cell(
     max_seqs: int,
     repetition: int = 1,
     expect_speculation: bool = True,
+    prepared_prompts: list[list[int]] | None = None,
+    workload: str = "random",
 ) -> Cell:
     requests = concurrency
     max_tokens = 1 if kind == "prefill" else decode_tokens
-    prompts: list[list[int]] = []
-    for index in range(requests):
-        rng = random.Random(seed + concurrency * 100003 + length * 17 + index)
-        prompts.append(make_prompt(length, rng))
+    prompts: list[list[int]] = [] if prepared_prompts is None else prepared_prompts
+    if prepared_prompts is None:
+        for index in range(requests):
+            rng = random.Random(seed + concurrency * 100003 + length * 17 + index)
+            prompts.append(make_prompt(length, rng))
+    if len(prompts) != requests:
+        raise ValueError("prompt count must equal concurrency")
 
     before_metrics = scrape_metrics(base, api_key, timeout)
     before_mem = mem_available_gib()
@@ -375,6 +413,8 @@ def run_cell(
         prefix_cache_hits=hits,
         validation_errors=validation_errors,
         request_results=results,
+        workload=workload,
+        prompt_sha256=[hashlib.sha256(json.dumps(prompt, separators=(",", ":")).encode()).hexdigest() for prompt in prompts],
     )
     if errors:
         cell.note = (cell.note + "; " if cell.note else "") + f"first error: {errors[0].error[:120]}"
@@ -406,12 +446,12 @@ def markdown(cells: list[Cell], model: str, started: str) -> str:
         "",
         "## Decode",
         "",
-        "| Rep | Conc | Prompt tokens | Completion med | Decode tok/s med | Aggregate tok/s | Mean accept len | Draft accept rate | Drafts | Mem avail after GiB |",
-        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Rep | Workload | Conc | Prompt tokens | Completion med | Decode tok/s med | Aggregate tok/s | Mean accept len | Draft accept rate | Drafts | Mem avail after GiB |",
+        "|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for cell in [c for c in cells if c.kind == "decode"]:
         lines.append(
-            f"| {cell.repetition} | {cell.concurrency} | {cell.length} | {fmt(cell.completion_tokens_median, 0)} | "
+            f"| {cell.repetition} | {cell.workload} | {cell.concurrency} | {cell.length} | {fmt(cell.completion_tokens_median, 0)} | "
             f"{fmt(cell.decode_tokens_per_s_median, 2)} | {fmt(cell.decode_tokens_per_s_aggregate, 2)} | "
             f"{fmt(cell.acceptance.mean_acceptance_length, 3)} | "
             f"{fmt(cell.acceptance.draft_acceptance_rate, 3)} | "
@@ -440,6 +480,8 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=20261017)
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--no-speculation", action="store_true", help="only for a verified non-speculative control arm")
+    parser.add_argument("--decode-workloads", default="code,prose,structured", help="comma-separated code,prose,structured or random")
+    parser.add_argument("--decode-warmups", type=int, default=1, help="discarded full-budget batches before each measured decode cell")
     parser.add_argument("--out", default="", help="JSON receipt")
     parser.add_argument("--markdown-out", default="", help="Markdown receipt")
     parser.add_argument("--skip-prefill", action="store_true")
@@ -456,8 +498,44 @@ def main() -> int:
         parser.error("prefill-lengths and concurrencies must be nonempty positive lists")
     if args.skip_prefill and args.skip_decode:
         parser.error("cannot skip both prefill and decode")
+    workloads = args.decode_workloads.split(",")
+    if not workloads or any(name not in {*DECODE_TASKS, "random"} for name in workloads) or args.decode_warmups < 0:
+        parser.error("invalid decode-workloads or decode-warmups")
     started = datetime.now(timezone.utc).isoformat()
     cells: list[Cell] = []
+    warmup_cells: list[Cell] = []
+
+    def checkpoint(complete: bool = False) -> dict[str, Any]:
+        receipt = {
+            "ok": complete and bool(cells) and all(cell.errors == 0 and not cell.validation_errors for cell in cells),
+            "complete": complete,
+            "base": args.base,
+            "model": args.model,
+            "started": started,
+            "updated": datetime.now(timezone.utc).isoformat(),
+            "prefill_lengths": prefill_lengths,
+            "concurrencies": concurrencies,
+            "decode_tokens": args.decode_tokens,
+            "max_seqs": args.max_seqs,
+            "seed": args.seed,
+            "repetitions": args.repetitions,
+            "expect_speculation": not args.no_speculation,
+            "decode_workloads": workloads,
+            "decode_tasks": DECODE_TASKS,
+            "decode_warmups": args.decode_warmups,
+            "cells": [asdict(cell) for cell in cells],
+            "warmup_cells": [asdict(cell) for cell in warmup_cells],
+        }
+        if complete:
+            receipt["finished"] = receipt["updated"]
+        if args.out:
+            with open(args.out + ".tmp", "w", encoding="utf-8") as handle:
+                json.dump(receipt, handle, indent=2, sort_keys=True)
+                handle.write("\n")
+            os.replace(args.out + ".tmp", args.out)
+        return receipt
+
+    checkpoint()
 
     try:
         status, _ = _request_json(f"{args.base.rstrip('/')}/health", None, args.api_key, 30)
@@ -482,6 +560,17 @@ def main() -> int:
         # server state; the prefix-counter check rejects accidentally hot runs.
         cell_seed = args.seed + (repetition - 1) * 1000000007
         if not args.skip_prefill:
+            if args.warmup and repetition == 1:
+                print(f"prefill warmup c={concurrency} ...", file=sys.stderr)
+                warm_cell = run_cell(
+                    args.base, args.model, args.api_key, "prefill", concurrency, prefill_lengths[0],
+                    args.decode_tokens, args.timeout, args.seed + 7000000021, args.max_seqs,
+                    0, not args.no_speculation,
+                )
+                warmup_cells.append(warm_cell)
+                checkpoint()
+                if warm_cell.errors or warm_cell.validation_errors:
+                    raise RuntimeError(f"prefill warmup failed: {asdict(warm_cell)}")
             for length in prefill_lengths:
                 print(f"prefill c={concurrency} len={length} ...", file=sys.stderr)
                 cell = run_cell(
@@ -490,45 +579,48 @@ def main() -> int:
                     repetition, not args.no_speculation,
                 )
                 cells.append(cell)
+                checkpoint()
                 print(
                     f"  TTFT {fmt(cell.ttft_median_s, 3)}s, prefill {fmt(cell.prefill_tokens_per_s_median, 1)} tok/s, "
                     f"ok {cell.ok}/{cell.requests}",
                     file=sys.stderr,
                 )
+                if cell.errors or cell.validation_errors:
+                    print(f"invalid cell: {cell.note} {cell.validation_errors}", file=sys.stderr)
+                    return 1
         if not args.skip_decode:
-            print(f"decode c={concurrency} tokens={args.decode_tokens} ...", file=sys.stderr)
-            cell = run_cell(
-                args.base, args.model, args.api_key, "decode", concurrency, args.decode_tokens,
-                args.decode_tokens, args.timeout, cell_seed, args.max_seqs,
-                repetition, not args.no_speculation,
-            )
-            cells.append(cell)
-            print(
-                f"  decode {fmt(cell.decode_tokens_per_s_median, 2)} tok/s, "
-                f"accept {fmt(cell.acceptance.mean_acceptance_length, 3)}, ok {cell.ok}/{cell.requests}",
-                file=sys.stderr,
-            )
+            for workload in workloads:
+                prompts = None if workload == "random" else decode_prompts(
+                    args.base, args.model, args.api_key, args.timeout, workload, concurrency,
+                )
+                length = args.decode_tokens if prompts is None else int(statistics.median(map(len, prompts)))
+                cell_args = (
+                    args.base, args.model, args.api_key, "decode", concurrency, length,
+                    args.decode_tokens, args.timeout, cell_seed, args.max_seqs,
+                    repetition, not args.no_speculation, prompts, workload,
+                )
+                for warm_index in range(args.decode_warmups):
+                    print(f"decode warmup {warm_index + 1} c={concurrency} workload={workload} ...", file=sys.stderr)
+                    warm_cell = run_cell(*cell_args)
+                    warmup_cells.append(warm_cell)
+                    checkpoint()
+                    if warm_cell.errors or warm_cell.validation_errors:
+                        raise RuntimeError(f"decode warmup failed: {asdict(warm_cell)}")
+                print(f"decode rep={repetition} c={concurrency} workload={workload} ...", file=sys.stderr)
+                cell = run_cell(*cell_args)
+                cells.append(cell)
+                checkpoint()
+                print(
+                    f"  decode {fmt(cell.decode_tokens_per_s_median, 2)} tok/s, "
+                    f"accept {fmt(cell.acceptance.mean_acceptance_length, 3)}, ok {cell.ok}/{cell.requests}",
+                    file=sys.stderr,
+                )
+                if cell.errors or cell.validation_errors:
+                    print(f"invalid cell: {cell.note} {cell.validation_errors}", file=sys.stderr)
+                    return 1
 
-    receipt = {
-        "ok": bool(cells) and all(cell.errors == 0 and not cell.validation_errors for cell in cells),
-        "base": args.base,
-        "model": args.model,
-        "started": started,
-        "finished": datetime.now(timezone.utc).isoformat(),
-        "prefill_lengths": prefill_lengths,
-        "concurrencies": concurrencies,
-        "decode_tokens": args.decode_tokens,
-        "max_seqs": args.max_seqs,
-        "seed": args.seed,
-        "repetitions": args.repetitions,
-        "expect_speculation": not args.no_speculation,
-        "cells": [asdict(cell) for cell in cells],
-    }
+    receipt = checkpoint(complete=True)
     print(markdown(cells, args.model, started))
-    if args.out:
-        with open(args.out, "w", encoding="utf-8") as handle:
-            json.dump(receipt, handle, indent=2, sort_keys=True)
-            handle.write("\n")
     if args.markdown_out:
         with open(args.markdown_out, "w", encoding="utf-8") as handle:
             handle.write(markdown(cells, args.model, started))
