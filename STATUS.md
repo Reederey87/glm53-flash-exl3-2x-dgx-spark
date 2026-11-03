@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: The shared vLLM wheel exported successfully, then the source-build
+  wrapper stopped at the next MemFree gate (88,979,216 KiB, below 90 GiB).
+  Build unit is terminal; no serving image selected. Preparing file-scoped
+  clean-cache recovery for the completed build layer, preserving all artifacts.
+
 - 2026-11-03: Prepared the Int64 native-test runner with installed-source/GPU
   identity checks, fresh caches, strict skip/memcheck handling and retained
   native resource reports. Locked test-project hashes match on both nodes;

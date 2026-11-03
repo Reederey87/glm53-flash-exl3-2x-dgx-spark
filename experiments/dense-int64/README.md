@@ -181,3 +181,11 @@ documents these controls. The runner's automated result is only one gate:
 inspect compiled artifacts and the [reported register/local-memory resources](https://docs.nvidia.com/cuda/cuda-binary-utilities/index.html)
 before claiming native qualification. Resource-report collection alone does
 not prove absence of spills, and none of these tests measures serving speed.
+
+If a completed source phase leaves MemFree below the registered floor,
+`release_build_cache.py` can advise away clean cache pages from the exact,
+closed vLLM build workspace mounted read-only at `/completed-vllm`. Inspect
+the terminal build status and identify that layer first; the helper is not
+for active builds, model files or global cache purging. It preserves data and
+reports actual memory separately from the sizes of files advised. Always
+rerun the unchanged both-node memory gate before resuming a build.
