@@ -133,6 +133,37 @@ elapsed-time assertion alone cannot interrupt a hung GPU.
 Run only the `success` cases against the known-broken control. Run the full
 module against the candidate in an idle SM121 qualification container. This
 does not complete the two-shot/varlen, C-proxy, actual fabric, mixed-ABI or
-full serving gates. No GPU tests have run. The full-source build context for
-this treatment still needs preparation; the other candidates' wrappers apply
+full serving gates. No GPU tests have run. This treatment now has its own
+full-source preparer and build wrapper; the other candidates' wrappers apply
 different patches and must not be reused unchanged.
+
+## Reproducible source build
+
+Generate a fresh context with the locked project:
+
+```bash
+uv run --locked --no-dev experiments/roce-failure-sentinel/prepare_build.py \
+  --upstream-repo /path/to/spark-vllm-docker \
+  --out local/roce-sentinel-build-context
+```
+
+It pins the same reviewed launcher, CUDA base digest, vLLM/FlashInfer/NCCL
+commits, Torch/DSL versions and SM121a target as the independent source-build
+controls. On an idle Spark head, the generated context's
+`bash build_pair.sh glm53-roceflag-UNIQUE-LABEL` creates isolated control and
+candidate tags. It refuses an active serving unit/watchdog, stale containers,
+insufficient memory or reserve mismatch, and rechecks both nodes before each
+stage. It never stops production or selects the resulting image for serving.
+
+The applier requires a clean pinned checkout, exact patch/native-test hashes,
+an exact manifest file set, and no conflicting new `_control.py`. It supports
+the new file without pretending it existed in the control. Ten helper tests
+cover valid paired application and rejection before mutation for changed
+source/revision, native tests, patch scope, collisions and reused receipts.
+Actual fresh upstream control/candidate application also matches every hash.
+
+Both arms export the same frozen native test module. Images retain source
+receipts at `/workspace/roce-failure-sentinel.json` and tests under
+`/opt/roce-failure-sentinel-tests`; the receipt identifies ABI 7 or 8 and
+explicitly records that GPU qualification is still pending. Compare installed
+files and dependencies after the build; source export alone is insufficient.

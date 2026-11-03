@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Prepared candidate 30's pinned full-source build pair with a
+  new-file-aware, clean-source applier. Ten rejection/application tests and
+  actual fresh upstream control/candidate hash checks pass; no build has run.
+
 - 2026-11-03: Prepared independent RoCE sentinel repair across all four kernel
   paths, host and C proxy (internal ABI 8, public API 1). Twelve exact-source
   CPU cases pass; 24 native cases prepared but not run. No runtime change.
