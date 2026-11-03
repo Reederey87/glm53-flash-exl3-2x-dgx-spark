@@ -114,3 +114,6 @@ replay still required. Runtime patch bytes are unchanged. Eleven applier
 tests and Python compilation pass; native execution remains pending. The
 replacement local context is `local/build-audit/roce-sentinel-context-v3`,
 manifest SHA256 `e8f9eaeb161a83ff15c378a8bfa952c37671edfbb3473123c5fb8574021939ca`.
+Frozen commit `da83fb8` is staged at
+`/home/nvidia/glm53-source-builds/roce-sentinel-da83fb8/context`; every transferred
+hash matches. This replaces `a26fe32` for an actual build. Neither was built.
