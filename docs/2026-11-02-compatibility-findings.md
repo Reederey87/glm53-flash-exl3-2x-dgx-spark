@@ -97,6 +97,38 @@ serving parity remain required. Do not infer a present loader blocker from
 the older declaration test, or declare the new engine qualified from four
 CPU declaration checks.
 
+### Flare cache and measurement contracts
+
+Further review at `cc696a6b` executed the actual dependency-free `RankCosts`
+declaration and GLM `_costs` function. With TP2, context parallelism and MTP,
+one logical page spans 512 tokens and costs 1,723,392 bytes per rank. The
+2,350,210-token baseline requires at least 4,591 logical pages (2,350,592
+rounded tokens), or 7,912,092,672 bytes before physical rounding, private draft
+storage and continuation aliases. These are planning numbers, not measured
+usable capacity. Receipt: `local/checkpoint-audit/flare-kv-geometry.json`.
+The raw Hugging Face layer names differ from the canonical recipe names;
+counting `indexed_attention` in the unnormalized HF config gives a wrong result.
+
+The [runtime memory contract](https://github.com/NVIDIA/flare-local-inference/blob/cc696a6bf828deeb04b09533c64c5cc5b26b0ab5/docs/cli-design.md)
+defines `--memory-limit` as a whole-engine budget, including weights and graphs,
+and `--kv-cache-limit` as a history ceiling. Neither is a direct 17 GiB KV-byte
+setting. Preserve the byte and usable-capacity controls with measured native
+allocation evidence; do not reinterpret a 17G engine cap as the baseline KV
+reservation. GLM preparation also requires page-aligned context: the smallest
+TP2/DCP export context covering 1,000,000 is 1,000,448. Enforcing the exact
+public 1,000,000-token cap remains a separate compatibility check.
+
+The current Rust server supports token-ID completion prompts, `ignore_eos`,
+and `include_usage` plus `continuous_usage_stats`; its encoder puts cumulative
+usage on completion choices. Its counters are `flare_accepted_draft_tokens_total`,
+`flare_draft_request_rounds_total`, `flare_verification_draft_tokens_total` and
+`flare_cache_reused_tokens_total`, rather than the vLLM names. Their exact
+end-of-budget clipping and round semantics must be checked before comparison.
+The reviewed router has no vLLM `/tokenize` endpoint: retain and verify the
+baseline's explicit-max prompt IDs before the separate engine window. This
+requires a qualified benchmark adapter, not a silent alias of metric names.
+None of these source checks qualifies the Flare GPU deployment.
+
 ## Concrete FlashInfer corrections to qualify
 
 ### Dense split-K output address width — queue 16

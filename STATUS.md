@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Audited Flare's TP2 cache geometry and streaming/metric contracts.
+  Native allocation, the exact context cap and a benchmark adapter remain
+  qualification gates; no Flare deployment or serving-control change made.
+
 - 2026-11-03: Added strict comparison of the registered full MTP matrices,
   including prompt/control matching and raw-timing/counter consistency.
   Fifteen tests pass; the helper reports existing gates without adopting an arm.
