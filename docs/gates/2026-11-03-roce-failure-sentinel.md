@@ -117,3 +117,18 @@ manifest SHA256 `e8f9eaeb161a83ff15c378a8bfa952c37671edfbb3473123c5fb8574021939c
 Frozen commit `da83fb8` is staged at
 `/home/nvidia/glm53-source-builds/roce-sentinel-da83fb8/context`; every transferred
 hash matches. This replaces `a26fe32` for an actual build. Neither was built.
+
+## Source-fetch reproducibility correction
+
+The [verified exact-SHA fetch correction](2026-11-03-dense-int64.md#explicit-pinned-source-fetch)
+now also applies to this generator: explicitly fetch the frozen FlashInfer
+commit with history, check out detached and assert its SHA. The regenerated
+context differs from `da83fb8` only in `Dockerfile` and `context-sha256.txt`;
+the eight-file runtime treatment, all native tests, package pins and build
+wrapper are byte-identical. The original native and serving gates still apply.
+
+Replacement context manifest SHA256:
+`fe1f128fa5acae558207474ab0bc5d4eeacf631f5fef8501daeb3f730a037a64`.
+Local context: `local/build-audit/sentinel-explicit-fetch-context`.
+Use this replacement for an eventual independent build. All preceding
+contexts and receipts are preserved; no sentinel image or GPU result exists.

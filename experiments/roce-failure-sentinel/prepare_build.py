@@ -52,6 +52,15 @@ def prepare(repo: Path, destination: Path) -> dict:
     text = replace_once(text, "ARG CUDA_IMAGE=nvidia/cuda:13.0.2-devel-ubuntu24.04", f"ARG CUDA_IMAGE={CUDA_IMAGE}")
     text = replace_once(text, "\n    cd nccl && make -j ${BUILD_JOBS}",
                         f"\n    cd nccl && git checkout --detach {NCCL_COMMIT} && make -j ${{BUILD_JOBS}}")
+    # A normal clone can omit an unadvertised commit retained by the server.
+    # Fetch the exact pin explicitly, without truncating its build-version history.
+    text = replace_once(
+        text,
+        '    (git checkout --detach "origin/${FLASHINFER_REF}" 2>/dev/null || git checkout "$FLASHINFER_REF") && \\\n',
+        '    git fetch --no-tags origin "$FLASHINFER_REF" && \\\n'
+        '    git checkout --detach "$FLASHINFER_REF" && \\\n'
+        f'    test "$(git rev-parse HEAD)" = {FLASHINFER_COMMIT} && \\\n',
+    )
     text = replace_once(text, "WORKDIR /workspace/flashinfer\n", """WORKDIR /workspace/flashinfer
 ARG ROCE_FAILURE_SENTINEL_ARM=control
 COPY roce-failure-sentinel/ /tmp/roce-failure-sentinel/

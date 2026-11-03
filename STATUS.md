@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Applied the verified explicit-SHA fetch repair to both prepared
+  RoCE build generators. Regenerated contexts differ only in Dockerfile/manifest;
+  kernel patches, qualification sources and gates are unchanged. No RoCE build ran.
+
 - 2026-11-03: The continuation stopped at FlashInfer checkout: normal clone
   omitted the frozen commit. An isolated exact-SHA fetch succeeded and its
   dense kernel hash matches. Prepared explicit pin fetching in the build-context

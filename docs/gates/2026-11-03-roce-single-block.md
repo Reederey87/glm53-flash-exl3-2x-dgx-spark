@@ -100,3 +100,20 @@ optimization retains this protocol; its existing suite cannot clear that gate.
 Resolve the compatible repair independently before declaring full native
 qualification. The older proposed fix's offsets collide with newer protocol
 metadata, so it is not included in this staged context.
+
+## Source-fetch reproducibility correction
+
+The Int64 build proved that a normal clone can omit the pinned FlashInfer
+object, while an explicit SHA fetch retrieves it with the frozen kernel hash.
+The [researched source-fetch correction](2026-11-03-dense-int64.md#explicit-pinned-source-fetch)
+is now also applied to this generator. It fetches the exact SHA with history,
+checks out detached and asserts the expected commit. The newly generated
+context differs from `48e3156` only in `Dockerfile` and `context-sha256.txt`;
+all source patches, tests, dependencies, build wrapper and gates are unchanged.
+
+Replacement context manifest SHA256:
+`8d7a939ae6286b62acc8de341d31cfe68aaaf69e869833a39bcfb4508f519b94`.
+Local context: `local/build-audit/roce-explicit-fetch-context`.
+Use the replacement for the eventual separate build window. The earlier
+staging/refusal receipt remains valid for its original bytes; neither context
+has produced an image or native GPU result.
