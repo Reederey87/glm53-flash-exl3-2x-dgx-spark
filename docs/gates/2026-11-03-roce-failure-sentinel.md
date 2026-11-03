@@ -73,3 +73,20 @@ swapping trigger restoration. After the window, restore incumbent image
 MTP5 and saved config through the unit, preserve the trial record, verify
 image/checkpoint/KV/health and re-arm the watchdog. Ask for final adoption
 with the complete native/serving/rollback receipts.
+
+## Build preparation receipt
+
+Kernel patch/tests are frozen at `5082aa4`; full source-build packaging at
+`e6015c6`. Exact fresh upstream control and candidate applications match the
+manifest, including absence/presence of the new control module. Both arms
+export the identical native regression source. Ten build-helper tests pass;
+the full local repository suite is 143 passed. Native tests remain unrun.
+
+The context is staged on spark1 at
+`/home/nvidia/glm53-source-builds/roce-sentinel-e6015c6/context`, manifest SHA256
+`2904d9e091ce68ec5c22462c6e999e55655dcaae35f9fc7305476ea1e967e64c`.
+Every context file hash matched after transfer. With the serving unit
+confirmed active, `build_pair.sh glm53-roceflag-20261103` returned its expected
+exit 2 before creating artifacts or building. MTP3 remained active/running
+with PID 188858. Refusal logs are beside the context, with local copies under
+`local/build-audit/roce-sentinel-staging-receipt`. No image has been built.

@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Frozen sentinel build context `e6015c6` staged under
+  `/home/nvidia/glm53-source-builds/roce-sentinel-e6015c6/context`; hashes match.
+  Loaded-cluster refusal passed (exit 2, no artifacts); local suite 143 passed.
+
 - 2026-11-03: Prepared candidate 30's pinned full-source build pair with a
   new-file-aware, clean-source applier. Ten rejection/application tests and
   actual fresh upstream control/candidate hash checks pass; no build has run.
