@@ -7,6 +7,7 @@ in this container. This does not change files or relax a memory gate.
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
 import importlib.metadata
 import json
@@ -16,6 +17,7 @@ import sys
 from release_build_cache import meminfo, release_tree
 
 IMAGE_ID = "sha256:45ac705ba045e3d35cb7bbb66b807faa82501f29039a215e1e8b1cbd430ea5b8"
+CORRECTED_IMAGE_ID = "sha256:40f4c5229d276c1d86c983389bc7281dbbe66b627b6d065a0d2f93bd1c405ab5"
 TREATMENT_SHA = "23c70d045e7a2a30fb76d1718eca6d82020c1051d85b5915ee5ef6e84a86a03b"
 DENSE_SHA = "313ed8cda2c9665a48e40c88c2676a328ae6174ee65b85514d668d1e9fc1e024"
 ROOTS = ("/usr", "/opt", "/workspace", "/var/lib/apt/lists")
@@ -39,6 +41,10 @@ def verify_container(mountinfo: str, treatment: bytes, dense: bytes) -> None:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--image-id", choices=(IMAGE_ID, CORRECTED_IMAGE_ID), default=IMAGE_ID,
+                        help="exact image ID verified by the host before launching this container")
+    args = parser.parse_args()
     if sys.platform != "linux":
         raise SystemExit("Linux is required")
     treatment = Path("/workspace/dense-int64.json")
@@ -52,6 +58,6 @@ if __name__ == "__main__":
     reports = {root: release_tree(Path(root)) for root in ROOTS}
     if (treatment.read_bytes(), dense.read_bytes()) != original:
         raise RuntimeError("control identity changed")
-    print(json.dumps({"host_verified_image_id": IMAGE_ID,
+    print(json.dumps({"host_verified_image_id": args.image_id,
                       "scopes": reports, "identity_bytes_unchanged": True,
                       "meminfo_before_kib": before, "meminfo_after_kib": meminfo()}, indent=2))

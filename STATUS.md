@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: Corrected Int64 control `40f4c522...` built successfully after
+  both-node memory gates. Only frontend changed versus the rejected control:
+  1.32.1 to 1.31.0; DSL4.7, OS inventory and treatment bytes identical.
+  The remaining cuSPARSELt warning is unchanged. Native GPU tests are pending.
+
 - 2026-11-03: Exact-image cache recovery preserved identities and raised head
   MemFree from 76,428,296 to 87,620,872 KiB, still below the build gate.
   Prepared guarded advice for the identified idle BuildKit uv cache; 24
