@@ -94,3 +94,69 @@ the exact commit is available in local git (Exa's commit-page crawl timed out).
 Local vLLM, Exllamav3 and TensorFold were reviewed first. Their pool-address
 and complete-state rules reinforce the high-offset/replay gate; no EXL3
 checkpoint or different serving engine is introduced by this patch.
+
+## Native test environment and evidence
+
+The current image includes Compute Sanitizer but not pytest. A CPU-only,
+256 MiB-limited disposable container verified the following environment setup
+against the frozen serving-kit `pyproject.toml` and `uv.lock`:
+
+```bash
+unset UV_SYSTEM_PYTHON
+export UV_PROJECT_ENVIRONMENT=/tmp/qualification-venv
+export UV_CACHE_DIR=/tmp/qualification-cache
+uv venv --system-site-packages --python /usr/bin/python3 "$UV_PROJECT_ENVIRONMENT"
+uv sync --frozen --project /harness
+```
+
+Here `/harness` is a read-only copy of the frozen serving-kit project. The
+check resolved pytest 9.1.1 inside the temporary venv, with Torch 2.13.0+cu130,
+CUTLASS DSL 4.7.0 and FlashInfer 0.7.1 still coming from the image's system
+packages. It did not import Torch or access a GPU. This qualifies environment
+setup only; recheck the identities in each built image before native tests.
+Do not install a standalone B12X package: the image's compatibility module
+loads the embedded FlashInfer implementation.
+
+Run GPU tests only after the idle/memory gate, separately for each node and
+image arm. Use a new receipt directory and fresh compiler/tuning caches for
+each arm. Set `B12X_COMPILE_CACHE_DIR`, `CUTE_DSL_CACHE_DIR`,
+`TORCHINDUCTOR_CACHE_DIR`, `TORCH_EXTENSIONS_DIR`, `CUDA_CACHE_PATH`,
+`FLASHINFER_WORKSPACE_BASE` and `XDG_CACHE_HOME` beneath that directory; do not
+mount the serving caches. Record the collected test list and JUnit results.
+The full source build retains these suites under `/opt/dense-int64-tests`:
+
+```bash
+cd /opt/dense-int64-tests
+uv run --no-sync --project /harness python -m pytest -c /dev/null --rootdir . \
+  tests/experimental/b12x/gemm/test_blockscaled_a16.py \
+  tests/experimental/b12x/gemm/test_blockscaled.py \
+  tests/experimental/b12x/gemm/test_mxfp8_linear.py \
+  -k 'not test_nvfp4_split_partials_exceed_int32_elements' \
+  --junitxml=/receipts/bounded.xml -ra
+```
+
+That bounded suite runs on both arms. On the **candidate only**, run the added
+high-offset regression normally and under memcheck, retaining both results:
+
+```bash
+uv run --no-sync --project /harness compute-sanitizer --tool memcheck \
+  --target-processes all --error-exitcode 86 --log-file '/receipts/memcheck-%p.log' \
+  python -m pytest -c /dev/null --rootdir . \
+  tests/experimental/b12x/gemm/test_blockscaled_a16.py::test_nvfp4_split_partials_exceed_int32_elements \
+  --junitxml=/receipts/high-offset-memcheck.xml -ra
+```
+
+Inspect every skip, not just pytest's exit code. In particular, the MXFP8
+suite skips if the installed DSL lacks `MmaMXF8Op`; that would leave coverage
+missing, not prove correctness. Hash emitted native artifacts and inspect
+their resource/spill reports as well as source hashes. TensorFold's SASS
+identity checks reinforce that instruction encodings, including continuation
+words, matter when comparing compiled code; Python AST checks are insufficient.
+
+The [Compute Sanitizer manual](https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/)
+documents the nonzero error exit code and child-process instrumentation.
+Do not force blocking launches: doing so changes execution and can reduce
+reported errors. The [uv environment guide](https://docs.astral.sh/uv/pip/environments/)
+describes isolated environments; this setup was also executed in the actual
+incumbent image. Local vLLM sanitizer tests, Exllamav3 architecture/cache
+selection and TensorFold native-artifact tests were reviewed before this plan.

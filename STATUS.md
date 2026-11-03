@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Qualified a locked temporary pytest environment in a CPU-only
+  disposable container, retaining the installed Torch/DSL/FlashInfer packages.
+  Documented native bounded/high-offset and sanitizer commands; GPU gates pending.
+
 - 2026-11-03: Corrected the Int64 build wrapper's `uv run ... python -c`
   package-inventory command before any build. Verified command dispatch in the
   live image without GPU work; replace the earlier staged context before building.
