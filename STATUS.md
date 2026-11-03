@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: Fresh incumbent startup preserved both compiler-cache sets but
+  failed vLLM's 105.87 GiB startup requirement (105.72 GiB observed). Stopped
+  through unit; no matrix ran. Recovery diagnostics and receipts retained in
+  `docs/receipts/2026-11-03-int64-serving/incumbent-startup/`; images/config unchanged.
+
 - 2026-11-03: Prepared guarded compiler-cache preservation for the fresh
   incumbent baseline after Exa/local-source review. Nine filesystem checks
   pass, including partial-failure rollback; checkpoint cache is excluded.

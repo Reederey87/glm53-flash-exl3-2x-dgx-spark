@@ -1,0 +1,52 @@
+{
+  "host_verified_image_id": "sha256:3b5da79c42ed4204440cfb07c6de1eba46441d5cba6b57d5428d44e60c10d0ed",
+  "scopes": {
+    "/usr": {
+      "files_advised": 80706,
+      "file_bytes_advised": 16388066119,
+      "non_regular_files_skipped": 846,
+      "metadata_sha256": "167ba57128e664452d6c625d25ec88f643c0afa2c8451b65c2895ba5367b84ec",
+      "metadata_unchanged": true,
+      "note": "Advisory release of clean pages; byte count is file size, not measured reclaimed memory."
+    },
+    "/opt": {
+      "files_advised": 1886,
+      "file_bytes_advised": 555275197,
+      "non_regular_files_skipped": 4,
+      "metadata_sha256": "62dbe2f2361d965fe91c99659cf17de392c42230fe2a979887ec8d6eb311d4a6",
+      "metadata_unchanged": true,
+      "note": "Advisory release of clean pages; byte count is file size, not measured reclaimed memory."
+    },
+    "/workspace": {
+      "files_advised": 4,
+      "file_bytes_advised": 5296172,
+      "non_regular_files_skipped": 0,
+      "metadata_sha256": "a88fd8314a39ea1e108a443553296f6b39d79185f0e7e67de3a8ecd5d7d5b82e",
+      "metadata_unchanged": true,
+      "note": "Advisory release of clean pages; byte count is file size, not measured reclaimed memory."
+    },
+    "/var/lib/apt/lists": {
+      "files_advised": 0,
+      "file_bytes_advised": 0,
+      "non_regular_files_skipped": 0,
+      "metadata_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "metadata_unchanged": true,
+      "note": "Advisory release of clean pages; byte count is file size, not measured reclaimed memory."
+    }
+  },
+  "identity_bytes_unchanged": true,
+  "meminfo_before_kib": {
+    "MemFree": 93878400,
+    "MemAvailable": 115751124,
+    "Cached": 25371028,
+    "Dirty": 2032,
+    "Writeback": 216
+  },
+  "meminfo_after_kib": {
+    "MemFree": 93837708,
+    "MemAvailable": 115684412,
+    "Cached": 25307748,
+    "Dirty": 2456,
+    "Writeback": 0
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "files_advised": 106506,
+  "file_bytes_advised": 13664714599,
+  "non_regular_files_skipped": 0,
+  "metadata_sha256": "9f50eadefab37418f3e70b60a3e10ca1735df90f9838d2d3e7a2bce97d2e7046",
+  "metadata_unchanged": true,
+  "note": "Advisory release of clean pages; byte count is file size, not measured reclaimed memory.",
+  "cache_id": "5mfrweath3j5gje6zh1y8z4td",
+  "meminfo_before_kib": {
+    "MemFree": 93873892,
+    "MemAvailable": 115709044,
+    "Cached": 25315504,
+    "Dirty": 2644,
+    "Writeback": 340
+  },
+  "meminfo_after_kib": {
+    "MemFree": 93849044,
+    "MemAvailable": 115685364,
+    "Cached": 25315740,
+    "Dirty": 3104,
+    "Writeback": 0
+  }
+}
