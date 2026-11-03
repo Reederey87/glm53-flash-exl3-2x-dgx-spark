@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Prepared RoCE candidate 29's separate pinned full-source build
+  pair and gate. Exact control/candidate source hashes verified in fresh trees;
+  133 local tests pass. Native paired-rank and wrap-failure coverage remain open.
+
 - 2026-11-03: Frozen readiness helper `5bc557b` correctly refused the loaded
   pair in 1.15s (exit 1, both containers observed); actual unit hash and MTP3
   benchmark PID unchanged. All 129 repository tests pass. No unit trial yet.

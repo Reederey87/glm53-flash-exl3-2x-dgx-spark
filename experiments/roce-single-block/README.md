@@ -61,3 +61,71 @@ Exllamav3's acquire/timeout path and TensorFold's
 `docs/roce-gather.md` / `zig/kernels/cuda/roce_gather.cu` were reviewed before
 preparation. TensorFold likewise requires checking host-visible failures after
 synchronization; its transport is not substituted into this serving stack.
+
+## Full-source build preparation
+
+`prepare_build.py` produces this candidate's isolated ARM64 source context
+from reviewed launcher `0bdc9c94`. The CUDA base is pinned by digest; vLLM,
+FlashInfer and NCCL by commit. Torch 2.13.0+cu130, DSL 4.7.0 and SM121a stay
+fixed. It does not modify a source checkout or build an image:
+
+```bash
+uv run --locked --no-dev experiments/roce-single-block/prepare_build.py \
+  --upstream-repo /path/to/spark-vllm-docker \
+  --out local/roce-build-context
+```
+
+After the registered shutdown/idle window, build the generated context on
+the head as `nvidia` with `bash build_pair.sh glm53-roce1-UNIQUE-LABEL`.
+It creates one shared freshly compiled vLLM wheel, separate control/candidate
+FlashInfer wheels and two full runner images. Only the candidate's three
+manifest-listed files change. Image labels and
+`/workspace/roce-single-block.json` retain treatment identity. Package,
+Debian and wheel inventories are recorded; dependency drift requires a matched
+rebuilt control comparison. No standalone b12x package is installed.
+
+The wrapper refuses an active serving unit/watchdog, existing tags/artifacts,
+changed context hashes, stale serving containers, insufficient MemFree on
+either node, reserve mismatch or probe failure. Its read-only both-node helper
+comes from the frozen startup candidate; no service change is installed.
+Readiness is checked before each build stage.
+
+Offline qualification used fresh pinned FlashInfer sources, not the already
+patched dense-Int64 tree. Both arms returned the exact manifest hashes; all
+eight shared patch-helper tests pass. This is not GPU qualification.
+
+## Native test identity
+
+Use **the same strengthened candidate test source against both image arms**.
+Export the candidate's `/opt/roce-single-block-tests` and mount that directory
+read-only into each test container. Do not overlay the installed kernel
+package. Record test SHA256
+`a9a90db81b6e851cf9b03f9182c00a2fe9523bfe4a465761eca3d33054218346`
+on both ranks and retain both JUnit reports. The stronger test adds small
+reductions between larger graph collectives and cumulative allocator checks.
+
+Prepare the qualified locked temporary test venv with system site packages,
+retaining installed Torch/DSL/FlashInfer. Run from the exported test root so
+`tests.test_helpers.parametrize` resolves correctly. Use fresh per-arm/per-rank
+compiler caches. Inside each idle qualification container with the actual
+two HCAs, launch both ranks under bounded supervisors:
+
+```bash
+uv run --frozen --project /harness python -m torch.distributed.run \
+  --nnodes=2 --nproc-per-node=1 --node-rank="$RANK" \
+  --master-addr=192.168.177.10 --master-port=29650 \
+  -m pytest -x -v tests/experimental/b12x/comm/test_roce_oneshot_gpu.py \
+  --junitxml="/receipts/roce-rank-$RANK.xml"
+```
+
+Require identical image IDs/test hashes and direct fabric rendezvous. Record
+actual rail selection and the striping test, not just environment names.
+Module-wide skipping fails qualification. A capacity skip must identify
+missing coverage and cannot count as passing the full gate.
+
+The incumbent host `check_health()` uses the failed sequence as a sentinel;
+source inspection does not prove wrap-safe failure reporting at sequence zero.
+The stronger host-visible completion and separate failure flag described in
+upstream b12x PR438 are not bundled into this optimization. Existing timeout
+tests do not prove wrap coverage. Resolve that qualification before declaring
+this candidate fully safe; any protocol repair remains a separate treatment.
