@@ -92,3 +92,11 @@ Receipts are beside the remote context as `loaded-refusal.log` and
 `loaded-refusal-exit.txt`, copied locally to
 `local/build-audit/roce-staging-receipt`. No image build or GPU qualification
 has run from this context.
+
+The sequence-wrap gate now has a concrete source-level failure: candidate 30's
+audit reproduces the installed host methods treating a timeout at sequence
+zero as healthy. Both installed ranks match the audited hashes. The one-block
+optimization retains this protocol; its existing suite cannot clear that gate.
+Resolve the compatible repair independently before declaring full native
+qualification. The older proposed fix's offsets collide with newer protocol
+metadata, so it is not included in this staged context.

@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Reproduced the installed RoCE host failure-sentinel defect at
+  sequence zero with extracted methods and synthetic records, without GPU work.
+  Added candidate 30; older PR438 offsets conflict with this newer protocol.
+
 - 2026-11-03: Staged frozen RoCE context `48e3156` under the head's
   `/home/nvidia/glm53-source-builds/roce-single-block-48e3156/context`.
   Hashes verified; active-cluster build refusal returned 2 with no artifacts.

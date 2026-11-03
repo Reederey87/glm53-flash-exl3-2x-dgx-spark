@@ -100,6 +100,7 @@ sweep is a separate arm against the same frozen baseline.
 | 27 | DSA indexer publishing barrier | FlashInfer `37f5c4c1` synchronizes publishing warps before announcing CTA arrival; standalone b12x lacks it | Already present in the live incumbent (source inspected November 3). No change/build required; adversarial regression remains a kernel qualification test |
 | 28 | Export-safe indexer selection extent | FlashInfer `6d7f238d` and current Flare derive an absent active-width input from page-table metadata | Flare-only integration qualification after exact-checkpoint support; zero all export-disposable scratch and test >16 verifier rows |
 | 29 | Single-block RoCE synchronization | FlashInfer `ad7027caf` bypasses inter-block arrival counters for one-block collectives while preserving system-fence publication | Own full-source build pair prepared; exact source hashes pass. Paired GB10 graph/allocator/serving gates and explicit wrap-failure coverage pending; independent of threshold tuning |
+| 30 | RoCE wrap-safe failure sentinel | Exact installed host methods miss timeout sequence zero; device poison and C-proxy predicates share the sequence-sentinel problem | CPU/source reproduction in experiments/roce-failure-sentinel; older PR438 conflicts with current control offsets. Compatible all-path repair, full source build and native/serving gates pending; separate from candidate 29 |
 
 Do not test PCIe peer-gather optimizations as cross-node RoCE improvements.
 Candidate 29's isolated patch, source hashes and local qualification gates are
