@@ -32,18 +32,22 @@ def verify_cache(record: dict, mountinfo: str) -> None:
         raise ValueError("requires the exact cache mounted read-only without nested mounts")
 
 
+def verify_layout(root: Path) -> None:
+    tag = root / "CACHEDIR.TAG"
+    if tag.is_symlink() or not tag.read_bytes().startswith(b"Signature: 8a477f597d28d172789f06886806bc55"):
+        raise ValueError("missing cache signature")
+    for name in ("archive-v0", "wheels-v7"):
+        path = root / name
+        if path.is_symlink() or not path.is_dir():
+            raise ValueError("unexpected uv cache layout")
+
+
 if __name__ == "__main__":
     if sys.platform != "linux":
         raise SystemExit("Linux is required")
     record = json.loads(Path("/checks/cache-record.json").read_text())
     verify_cache(record, Path("/proc/self/mountinfo").read_text())
-    tag = ROOT / "CACHEDIR.TAG"
-    if tag.is_symlink() or not tag.read_bytes().startswith(b"Signature: 8a477f597d28d172789f06886806bc55d"):
-        raise SystemExit("missing cache signature")
-    for name in ("archive-v0", "wheels-v7"):
-        path = ROOT / name
-        if path.is_symlink() or not path.is_dir():
-            raise SystemExit("unexpected uv cache layout")
+    verify_layout(ROOT)
     before = meminfo()
     report = release_tree(ROOT)
     report.update(cache_id=CACHE_ID, meminfo_before_kib=before, meminfo_after_kib=meminfo())

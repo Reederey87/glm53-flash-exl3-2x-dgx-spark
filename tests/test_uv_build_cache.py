@@ -49,3 +49,20 @@ def test_unsafe_mount_rejected(guard, record, kind):
             "nested": row + "\n31 30 1:3 /outside /completed-uv/archive-v0 ro - ext4 /dev/nvme rw"}
     with pytest.raises(ValueError, match="read-only"):
         guard.verify_cache(record, rows[kind])
+
+
+def test_observed_43_byte_uv_tag_and_required_layout(guard, tmp_path):
+    # Exact bytes read from the real completed cache, also specified by CACHEDIR.TAG.
+    tag = tmp_path / "CACHEDIR.TAG"
+    tag.write_bytes(b"Signature: 8a477f597d28d172789f06886806bc55")
+    for name in ("archive-v0", "wheels-v7"):
+        (tmp_path / name).mkdir()
+    guard.verify_layout(tmp_path)
+    tag.write_bytes(b"wrong signature")
+    with pytest.raises(ValueError, match="signature"):
+        guard.verify_layout(tmp_path)
+    tag.write_bytes(b"Signature: 8a477f597d28d172789f06886806bc55")
+    (tmp_path / "wheels-v7").rmdir()
+    (tmp_path / "wheels-v7").symlink_to(tmp_path / "archive-v0", target_is_directory=True)
+    with pytest.raises(ValueError, match="layout"):
+        guard.verify_layout(tmp_path)
