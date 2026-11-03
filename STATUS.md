@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Corrected the Int64 build wrapper's `uv run ... python -c`
+  package-inventory command before any build. Verified command dispatch in the
+  live image without GPU work; replace the earlier staged context before building.
+
 - 2026-11-03: Prepared the isolated single-block RoCE patch and graph regression
   at `experiments/roce-single-block`. Exact base/result hashes and patch parsing
   pass; native paired-GPU and serving qualification remain pending.

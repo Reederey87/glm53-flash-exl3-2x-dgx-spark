@@ -72,7 +72,7 @@ for arm in control candidate; do
         --build-arg "DENSE_INT64_ARM=$arm" .
     docker image inspect "$tag_prefix-$arm" > "artifacts/image-$arm.json"
     docker run --rm --network none --entrypoint uv "$tag_prefix-$arm" \
-        run --no-project --no-config --python /usr/bin/python3 -c \
+        run --no-project --no-config --python /usr/bin/python3 python -c \
         'import importlib.metadata as m,json; print(json.dumps(sorted((d.metadata["Name"].lower(),d.version) for d in m.distributions()),indent=2))' \
         > "artifacts/packages-$arm.json"
     docker run --rm --network none --entrypoint dpkg-query "$tag_prefix-$arm" \
