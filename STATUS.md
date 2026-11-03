@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: Int64 full-source build started on spark1 at 16:19:51 UTC as
+  `glm53-build-dense-int64-20261103.service` after both-node snapshots and
+  MemFree >90 GiB. Inference is stopped and watchdog disarmed for this window;
+  original image/MTP5 recipe retained. Native qualification remains pending.
+
 - 2026-11-03: Full MTP3 trial passes (96 cells + 40 warmups per arm); code
   decode medians improve 5.31–11.89% with no registered robust regression.
   MTP5 restored, all API/cache/KV/control checks pass, watchdog re-armed.
