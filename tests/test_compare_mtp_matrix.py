@@ -64,6 +64,24 @@ def test_mtp_comparison_does_not_turn_lower_acceptance_length_into_regression(ma
     assert all(r["median_change_pct"] < 0 and not r["regression_in_two_reps"] for r in lengths)
 
 
+def test_first_update_bundle_diagnostic_preserves_registered_gate(matrix_pair):
+    module, control, candidate = matrix_pair
+    for cell in candidate["cells"] + candidate["warmup_cells"]:
+        if cell["kind"] == "decode":
+            for request in cell["request_results"]:
+                request["token_arrivals"][0][0] = 7
+    result = module.compare(control, candidate)
+    assert not result["robust_speed_or_acceptance_regression"]
+    assert all(row["median_change_pct"] == 0 for row in result["rows"])
+    left = result["streaming_diagnostics"]["control"][0]
+    right = result["streaming_diagnostics"]["candidate"][0]
+    assert left["first_update_token_counts"] == {1: 1}
+    assert right["first_update_token_counts"] == {7: 1}
+    assert left["after_first_update_tokens_per_s_median"] == pytest.approx(100)
+    assert right["after_first_update_tokens_per_s_median"] == pytest.approx(193 / 1.99)
+    assert right["all_generated_tokens_per_cell_second"] == pytest.approx(200 / 2.09)
+
+
 @pytest.mark.parametrize("reps,accepted,rejected", [(1, 240, False), (2, 240, True), (2, 245, False)])
 def test_mtp_comparison_uses_repeated_strict_two_percent_threshold(matrix_pair, reps, accepted, rejected):
     module, control, candidate = matrix_pair

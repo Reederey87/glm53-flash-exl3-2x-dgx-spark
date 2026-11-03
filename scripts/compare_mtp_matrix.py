@@ -123,6 +123,30 @@ def validate(receipt: dict) -> dict:
     return measured
 
 
+def streaming_diagnostics(receipt: dict) -> list[dict]:
+    """Supplement the frozen gate with observable bundle and whole-cell rates.
+
+    Call only after validate(). A client cannot recover individual token
+    generation times inside a streamed bundle; do not invent those timestamps.
+    These metrics do not replace the preregistered (N-1)/decode_interval gate.
+    """
+    rows = []
+    for cell in receipt["cells"]:
+        if cell["kind"] != "decode":
+            continue
+        results = cell["request_results"]
+        first_counts = Counter(r["token_arrivals"][0][0] for r in results)
+        observed_rates = [(r["completion_tokens"] - r["token_arrivals"][0][0])
+                          / r["decode_s"] for r in results]
+        rows.append({"workload": cell["workload"], "concurrency": cell["concurrency"],
+                     "repetition": cell["repetition"],
+                     "first_update_token_counts": dict(sorted(first_counts.items())),
+                     "after_first_update_tokens_per_s_median": statistics.median(observed_rates),
+                     "all_generated_tokens_per_cell_second":
+                         sum(r["completion_tokens"] for r in results) / cell["wall_s"]})
+    return rows
+
+
 def compare(control: dict, candidate: dict) -> dict:
     left, right = validate(control), validate(candidate)
     for name in ("seed", "decode_tasks"):
@@ -158,6 +182,9 @@ def compare(control: dict, candidate: dict) -> dict:
             "robust_speed_or_acceptance_regression": any(r["regression_in_two_reps"] for r in rows),
             "adoption_decision": "not made: review control spread, functional checks, frozen runtime and KV evidence",
             "acceptance_length_note": "diagnostic only; changing MTP depth changes its maximum",
+            "streaming_note": "The frozen decode gate uses (N-1)/(last-first token-usage update), a reciprocal-TPOT convention. A first update can contain multiple tokens. Supplementary rates use (N-first_update_count)/(last-first update), and sum(N)/cell wall time. They do not replace the registered gate or infer within-bundle token times.",
+            "streaming_diagnostics": {"control": streaming_diagnostics(control),
+                                      "candidate": streaming_diagnostics(candidate)},
             "rows": rows}
 
 
@@ -169,4 +196,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
     result = compare(json.loads(args.control.read_text()), json.loads(args.candidate.read_text()))
     args.out.write_text(json.dumps(result, indent=2) + "\n")
-    print(json.dumps({key: value for key, value in result.items() if key != "rows"}, indent=2))
+    print(json.dumps({key: value for key, value in result.items()
+                      if key not in ("rows", "streaming_diagnostics")}, indent=2))

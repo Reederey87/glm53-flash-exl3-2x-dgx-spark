@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Clarified reciprocal-TPOT and normalized aggregate labels; added
+  supplementary bundle-aware/full-cell rates from retained arrivals. Sixteen
+  comparator tests pass. Live harness and preregistered MTP gate are unchanged.
+
 - 2026-11-03: Corrected the prepared multi-block timeout test to accept both
   legal partial-write orderings while checking guarded peer output and exact
   poisoned replay. Runtime patch is unchanged; native execution remains pending.

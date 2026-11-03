@@ -484,9 +484,11 @@ def markdown(cells: list[Cell], model: str, started: str) -> str:
         "Real task prompts explicitly use reasoning_effort=max. Completion tokens include reasoning;",
         "these fixed-budget rows do not measure finished-answer latency or code/JSON correctness.",
         "Timing uses cumulative token-usage progress, including tokens with empty visible text.",
+        "Decode rate is (N-1)/(last-first usage update); the first update may contain multiple tokens.",
+        "The normalized aggregate column is sum(N-1)/cell wall time, not sum(N)/wall time.",
         "Random token-ID workloads, when selected, have no chat-template reasoning control.",
         "",
-        "| Rep | Workload | Conc | Prompt tokens | Completion med | Decode tok/s med | Aggregate tok/s | Mean accept len | Draft accept rate | Drafts | Mem avail after GiB |",
+        "| Rep | Workload | Conc | Prompt tokens | Completion med | Decode tok/s med | Normalized aggregate tok/s | Mean accept len | Draft accept rate | Drafts | Mem avail after GiB |",
         "|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for cell in [c for c in cells if c.kind == "decode"]:
