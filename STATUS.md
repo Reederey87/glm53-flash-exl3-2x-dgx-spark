@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Prepared candidate 26's read-only both-node startup gate in
+  `experiments/startup-memory`, with an isolated service patch and preregistered
+  window. Its 22 fault tests pass; live service remains unchanged during MTP3.
+
 - 2026-11-03: Activated the isolated MTP3 trial after both-node snapshots,
   teardown and MemFree gates. Exact image/checkpoint/argv and unchanged KV pass;
   corrected functional/cache gates pass. Full matched matrix started at 14:19:56

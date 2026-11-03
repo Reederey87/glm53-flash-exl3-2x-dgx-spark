@@ -1,0 +1,10 @@
+{
+  "baseline_unit_sha256": "af944e8695e5e6db8b4152f591857d1f67d2a7fb5e1432dc25cc4760c35e9631",
+  "candidate_unit_sha256": "d659d4e4fbc0d64801efa35716e7bb8a2fc3cb352db367e2a92bcddc11892cae",
+  "helper_sha256": "82a2f656de6c766f02e76b273cf537397589a2d9fefcc7622c5ebf8798b93745",
+  "patch_sha256": "6cc4da7cefa1daa118a9c503bb7e3d70be381cdf562ab29d29e13ab0523037c8",
+  "min_free_kib_per_node": 94371840,
+  "required_reserve_kib": 1048576,
+  "timeout_s": 600,
+  "serving_config_changes": false
+}

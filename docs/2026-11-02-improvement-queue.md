@@ -96,7 +96,7 @@ sweep is a separate arm against the same frozen baseline.
 | 23 | Flare with this exact checkpoint | New upstream cc696a6b includes native FP8_PB_WO/MXFP8/CSF support; avoids older bridge patches | Four declaration checks pass; separate engine window still requires exact weights, same KV pool, native GPU/export tests and API/tool/reasoning/cancel parity |
 | 24 | Loading / preparation memory lifetime | Reuse packed storage, release temporary CPU/GPU owners | Peak and steady memory on both ranks; no changed quantization or KV reservation |
 | 25 | Startup and watchdog correctness | Transfer runtime fixes from October 21; avoid healers interrupting tests | Detect actual units, atomic script staging, rollback recovery, re-arm verification |
-| 26 | Both-node MemFree startup gate | Kit unit currently waits on head MemAvailable, contradicting the workspace's CUDA-free requirement | Verify live unit; gate both ranks on MemFree >=90GiB before build/start; test timeout and stale-worker cases |
+| 26 | Both-node MemFree startup gate | Verified live unit checks only head MemAvailable; workspace idle policy requires both nodes' MemFree >=90GiB | Isolated helper/service patch and gate prepared in experiments/startup-memory; 22 local fault tests pass. Live refusal, idle unit integration and full speed gate pending |
 | 27 | DSA indexer publishing barrier | FlashInfer `37f5c4c1` synchronizes publishing warps before announcing CTA arrival; standalone b12x lacks it | Already present in the live incumbent (source inspected November 3). No change/build required; adversarial regression remains a kernel qualification test |
 | 28 | Export-safe indexer selection extent | FlashInfer `6d7f238d` and current Flare derive an absent active-width input from page-table metadata | Flare-only integration qualification after exact-checkpoint support; zero all export-disposable scratch and test >16 verifier rows |
 | 29 | Single-block RoCE synchronization | FlashInfer `ad7027caf` bypasses inter-block arrival counters for one-block collectives while preserving system-fence publication | Absent in live kernel (oneshot cache version 6); paired GB10 graph tests alternating grid sizes, allocator stability and full serving gate; independent of threshold tuning |
@@ -192,8 +192,10 @@ Timing follows validated token-count increases even when UTF-8 tokens have
 empty visible text; the 46 helper tests pass. The earlier token-usage run
 stopped on a cross-run prompt collision and is excluded. Harness `05c6023`
 uses separate hashed prompt identities; two neighboring seeds passed live
-c4/c8 qualification (24 requests, zero prefix hits). The full matrix remains
-in progress; this qualification is not an adoption result.
+c4/c8 qualification (24 requests, zero prefix hits). The full MTP5 baseline
+completed and passed strict validation: 96 measured cells and 40 warmups.
+The matched MTP3 matrix is in progress; partial candidate results do not
+decide adoption.
 Do not open the delivery PR before cluster
 receipts. A prior November 1 image trial was reverted and is not a new result.
 
