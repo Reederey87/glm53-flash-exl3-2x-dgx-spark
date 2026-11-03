@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-03: Staged frozen mixed-prefill probe `f5d049e` under spark1's
+  `/home/nvidia/glm53-benchmarks/mixed-prefill-f5d049e`, including its own
+  offline uv environment. All five file hashes and CLI import/help pass;
+  no inference request or scheduler change. Live feasibility remains pending.
+
 - 2026-11-03: Prepared a supplementary mixed-prefill probe with explicit max
   reasoning, observed-overlap checks and complete counter/stream receipts.
   All 257 repository tests pass, including 26 probe/HTTP/fault cases.

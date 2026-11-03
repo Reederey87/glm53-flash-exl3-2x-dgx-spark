@@ -1,5 +1,11 @@
 # Solo and mixed prefill: candidate 22 prerequisites
 
+The supplementary probe is now frozen at `f5d049e` and staged on spark1 at
+`/home/nvidia/glm53-benchmarks/mixed-prefill-f5d049e`. Its five file hashes
+match and its offline CLI/import check passes on the ARM64 host. These
+[staging receipts](receipts/2026-11-03-mixed-prefill/) do not establish live
+overlap or a scheduler benefit; the feasibility pilot remains pending.
+
 This is source and saved-runtime evidence, not a cluster performance result.
 No scheduling setting has been changed. It narrows the implementation options
 for candidate 22 and the mixed-load qualification needed by chunk-size

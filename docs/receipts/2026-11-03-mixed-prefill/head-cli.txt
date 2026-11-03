@@ -1,0 +1,39 @@
+experiments/mixed-prefill/measure.py: OK
+experiments/mixed-prefill/README.md: OK
+scripts/speed_matrix.py: OK
+pyproject.toml: OK
+uv.lock: OK
+usage: measure.py [-h] [--base BASE] [--model MODEL] --out OUT
+                  [--prefill-lengths PREFILL_LENGTHS] [--decoders DECODERS]
+                  [--repetitions REPETITIONS] [--decode-tokens DECODE_TOKENS]
+                  [--max-seqs MAX_SEQS] [--ready-tokens READY_TOKENS]
+                  [--ready-timeout READY_TIMEOUT] [--timeout TIMEOUT]
+                  [--seed SEED]
+
+Supplementary client-observed prefill/decode overlap probe; no adoption gate.
+Keep the mandatory full speed matrix unchanged. This probe reports gaps
+between cumulative-usage updates, not individual token times or GPU co-
+execution.
+
+options:
+  -h, --help            show this help message and exit
+  --base BASE
+  --model MODEL
+  --out OUT
+  --prefill-lengths PREFILL_LENGTHS
+  --decoders DECODERS
+  --repetitions REPETITIONS
+  --decode-tokens DECODE_TOKENS
+  --max-seqs MAX_SEQS
+  --ready-tokens READY_TOKENS
+  --ready-timeout READY_TIMEOUT
+  --timeout TIMEOUT
+  --seed SEED
+experiments/mixed-prefill/measure.py: OK
+experiments/mixed-prefill/README.md: OK
+scripts/speed_matrix.py: OK
+pyproject.toml: OK
+uv.lock: OK
+MainPID=670001
+ActiveState=activating
+InvocationID=1e045494e9ce4ba8a8052a60a1f7e403
