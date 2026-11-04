@@ -1,0 +1,38 @@
+{
+  "base": "http://127.0.0.1:8000",
+  "checks": [
+    {
+      "detail": "HTTP 200",
+      "name": "health",
+      "status": "pass"
+    },
+    {
+      "detail": "HTTP 200; ids=['nvidia/GLM-5.3-Flash-FP4-Local']",
+      "name": "models",
+      "status": "pass"
+    },
+    {
+      "detail": "HTTP 200; 0.48s; content='OK'",
+      "name": "chat",
+      "status": "pass"
+    },
+    {
+      "detail": "HTTP 200; field=reasoning; reasoning=73 chars",
+      "name": "reasoning_parser",
+      "status": "pass"
+    },
+    {
+      "detail": "HTTP 200; tool_calls=1",
+      "name": "tool_parser",
+      "status": "pass"
+    },
+    {
+      "detail": "HTTP 200/200; hits +6029; cached_tokens=6029; block=4864/mamba=256/fine_grained=False",
+      "name": "prefix_cache",
+      "status": "pass"
+    }
+  ],
+  "model": "nvidia/GLM-5.3-Flash-FP4-Local",
+  "ok": true,
+  "timestamp": "2026-11-04T03:17:14.299223+00:00"
+}

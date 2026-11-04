@@ -1,0 +1,40 @@
+{
+  "requested": "2026-11-04T03:19:26.655336+00:00",
+  "server": {
+    "Result": "success",
+    "ActiveState": "active",
+    "SubState": "exited",
+    "InvocationID": "b9c5ac7bd82a47c8a5e98424d537f5e8"
+  },
+  "benchmark_unit": "glm53-int64-baseline-retry1-matrix-20261104.service",
+  "command": [
+    "/home/nvidia/.local/bin/uv",
+    "run",
+    "--offline",
+    "--frozen",
+    "--no-dev",
+    "--project",
+    "/home/nvidia/glm53-fp4-local/local/ab-20261103/int64-serving/harness-05c6023",
+    "/home/nvidia/glm53-fp4-local/local/ab-20261103/int64-serving/harness-05c6023/scripts/speed_matrix.py",
+    "--seed",
+    "2026110304",
+    "--repetitions",
+    "3",
+    "--decode-workloads",
+    "code,prose,structured",
+    "--decode-warmups",
+    "1",
+    "--decode-tokens",
+    "200",
+    "--max-seqs",
+    "4",
+    "--out",
+    "/home/nvidia/glm53-fp4-local/local/ab-20261103/int64-serving/incumbent-retry1/matrix.json",
+    "--markdown-out",
+    "/home/nvidia/glm53-fp4-local/local/ab-20261103/int64-serving/incumbent-retry1/matrix.md"
+  ],
+  "gate": "docs/gates/2026-11-03-dense-int64.md",
+  "expected_measured_cells": 96,
+  "expected_warmup_cells": 40,
+  "max_reasoning": true
+}

@@ -79,3 +79,32 @@ All323 repository tests passed before staging the retry helper. These tests
 cover recovery guards and measurement contracts, not serving performance.
 The manifest covers the selected non-secret receipts here; configuration
 snapshots and private container inspection remain on the cluster.
+
+## Baseline qualification and measured-run activation
+
+The same recorded serving invocation `b9c5ac7bd82a47c8a5e98424d537f5e8`
+reached active state with health 200. At 03:16:51 UTC, both actual container
+image IDs, active environments, host configuration and mounts matched the
+saved incumbent. Both ranks passed exact serving-argument and NVIDIA revision /
+metadata checks. The recipe, launcher and frozen functional/benchmark hashes
+also matched. The KV pool remains exactly **2,350,210 tokens**.
+
+All six frozen API checks passed: health, model identity, chat, parsed reasoning,
+tool call and prefix reuse. The separate prefix ladder returned all eight rows:
+first requests had zero cached tokens and repeat requests reused all
+1,024 / 4,096 / 8,192 / 16,384 tokens. All cache labels and geometry match the
+previous verified control, including the 17 GiB FP8 pool. Local measurement /
+comparison regression tests also passed.
+
+The frozen full baseline matrix is running as
+`glm53-int64-baseline-retry1-matrix-20261104.service`, invocation
+`d9e6284b9a1349ea8c500b46693f28f8`. The exact command and initial process state
+are retained under `incumbent-retry1/head/`. It uses seed 2026110304, three
+repetitions, 96 measured cells and 40 warmups, with maximum reasoning and
+200 generated tokens per decode request. These counts include reasoning.
+The registered reciprocal-TPOT and normalized aggregate conventions remain
+unchanged; usage-update timestamps do not imply individual token arrival times.
+
+This activation is not a completed performance result. Rebuilt control and
+candidate serving trials remain pending. Watchdog remains disarmed during the
+window; restoration and rearming remain required before leaving the window.

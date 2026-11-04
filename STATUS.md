@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-04: Fresh incumbent b9c5ac7b passed both-rank identity/config,
+  all six API checks, eight prefix rows and exact 2,350,210-token KV gate.
+  Full max-reasoning baseline matrix d9e6284b is running; no speed result yet.
+
 - 2026-11-04: Recorded fresh incumbent retry b9c5ac7b at02:59UTC after paired
   idle/free-memory gates and new compiler-cache backups. Watermark recovery
   passed unchanged policy on both nodes; closed-native-cache advice not needed.

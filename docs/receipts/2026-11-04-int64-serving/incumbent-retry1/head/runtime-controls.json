@@ -1,0 +1,26 @@
+{
+  "timestamp": "2026-11-04T03:16:51.265856+00:00",
+  "unit": {
+    "Result": "success",
+    "ActiveState": "active",
+    "SubState": "exited",
+    "InvocationID": "b9c5ac7bd82a47c8a5e98424d537f5e8"
+  },
+  "health": 200,
+  "checks": {
+    "head": {
+      "image_match": true,
+      "environment_match": true,
+      "host_config_match": true,
+      "mounts_match": true
+    },
+    "worker": {
+      "image_match": true,
+      "environment_match": true,
+      "host_config_match": true,
+      "mounts_match": true
+    }
+  },
+  "kv_tokens": 2350210,
+  "recipe_launcher_harness_functional_hashes_verified": true
+}
