@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-04: Prepared the private Int64 runtime-control verifier, with 23
+  fault tests. It allows only exact image-inherited build-worker differences
+  for rebuilt-control qualification; no serving configuration changed.
+
 - 2026-11-04: Prepared the pinned 1,319-case completed-answer GSM8K runner/scorer
   and activation-quality protocol in `experiments/moe-native-a4/quality.md`.
   Local fault checks only; no quality requests or runtime changes on the Sparks.
