@@ -12,6 +12,11 @@ Both nodes currently set `VLLM_B12X_MOE_FP4_FORCE_A16=1` and
 are unset. The former defaults to one term in the installed code. Hybrid
 prefill is already available; enabling the same flag would not be a treatment.
 
+[NVIDIA's deployment recipe at this exact revision](https://huggingface.co/nvidia/GLM-5.3-Flash-FP4-Local/blob/76348ddb2be2e35e39ecfc00e75dc07703f4f3d5/README.md)
+sets the same pair of flags. This candidate deliberately tests a different
+activation policy from that published recipe; checkpoint-format compatibility
+alone cannot establish its model quality or justify adoption.
+
 The exact NVIDIA revision `76348ddb2be2e35e39ecfc00e75dc07703f4f3d5` declares
 42 routed-expert layers as `NVFP4` and its MTP layer 45 as `W4A16_NVFP4`.
 Other mixed-quant assignments remain intact. The text geometry is hidden4096,
