@@ -81,3 +81,15 @@ def test_partial_creation_failure_restores_all_originals(caches, monkeypatch):
         assert (root / name).stat().st_ino == before[name]
         assert (root / name / "artifact").read_text() == name
         assert not (root / name).with_name(Path(name).name + ".int64-before-incumbent-20261103").exists()
+
+
+def test_retry_retains_original_and_failed_start_separately(caches):
+    module, root = caches
+    original = module.preserve(root, 'incumbent')
+    for name in module.CACHES:
+        (root / name / 'failed-start').write_text('preserve this too')
+    retry = module.preserve(root, 'incumbent-retry1')
+    for old, new in zip(original, retry):
+        assert (Path(old['preserved']) / 'artifact').exists()
+        assert (Path(new['preserved']) / 'failed-start').read_text() == 'preserve this too'
+        assert not list(Path(new['cache']).iterdir())

@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-03: Same-value reserve refresh2e41e0f passed both nodes with unchanged
+  policy/base watermarks; head available memory recovered, free-memory gate still
+  short. Prepared exact closed-native-cache advice and separate retry backups.
+
 - 2026-11-03: Identified accumulated head watermark boost586588pages versus
   worker7680. Prepared same-value reserve reapplication with exact mount,
   kernel and unchanged-policy gates;15fault tests pass. Not applied yet.

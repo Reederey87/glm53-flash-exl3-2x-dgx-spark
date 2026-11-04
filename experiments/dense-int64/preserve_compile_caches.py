@@ -14,7 +14,7 @@ import stat
 import sys
 
 CACHES = (".cache/vllm", ".cache/flashinfer", ".cache/b12x", ".triton", ".tilelang")
-ARMS = ("incumbent", "control", "candidate")
+ARMS = ("incumbent", "incumbent-retry1", "control", "candidate")
 
 
 def preserve(root: Path, arm: str) -> list[dict]:
