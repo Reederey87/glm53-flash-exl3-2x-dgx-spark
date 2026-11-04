@@ -1,0 +1,44 @@
+[
+  {
+    "path": "vllm/model_executor/layers/quantization/nvfp4_csf.py",
+    "source_commit": "8244d1c44348ae8a5bbfc9f1b607021652283ed4",
+    "installed_sha256": "0ae697a86efb41a1149885b88499c878636da54cafd9f2bb5710ea4626062c5c",
+    "pinned_sha256": "0ae697a86efb41a1149885b88499c878636da54cafd9f2bb5710ea4626062c5c",
+    "matches": true
+  },
+  {
+    "path": "vllm/model_executor/layers/quantization/modelopt.py",
+    "source_commit": "8244d1c44348ae8a5bbfc9f1b607021652283ed4",
+    "installed_sha256": "5dfedfbdeda804aa8ff45d84f9d823bd8d45e13d4134a11d97012e05635d10d6",
+    "pinned_sha256": "5dfedfbdeda804aa8ff45d84f9d823bd8d45e13d4134a11d97012e05635d10d6",
+    "matches": true
+  },
+  {
+    "path": "vllm/model_executor/layers/fused_moe/b12x.py",
+    "source_commit": "8244d1c44348ae8a5bbfc9f1b607021652283ed4",
+    "installed_sha256": "2aa10b8a8220dc27d2e833293d463e7ca8ca3b451ce7c83aeb0231058a26a4b6",
+    "pinned_sha256": "2aa10b8a8220dc27d2e833293d463e7ca8ca3b451ce7c83aeb0231058a26a4b6",
+    "matches": true
+  },
+  {
+    "path": "vllm/utils/b12x.py",
+    "source_commit": "8244d1c44348ae8a5bbfc9f1b607021652283ed4",
+    "installed_sha256": "c63ed14242475468343dc950e46c8fedd5f967bd94a6ca9728851a7a2ab00322",
+    "pinned_sha256": "c63ed14242475468343dc950e46c8fedd5f967bd94a6ca9728851a7a2ab00322",
+    "matches": true
+  },
+  {
+    "path": "flashinfer/experimental/b12x/moe/fused_moe/planning.py",
+    "source_commit": "91271757f7746f3dfb58f7c2aeb44a663389de9e",
+    "installed_sha256": "d7af22cb03339420c83015896bedb1207a8b55ed0f6df6bafadd7b185b7b77fa",
+    "pinned_sha256": "d7af22cb03339420c83015896bedb1207a8b55ed0f6df6bafadd7b185b7b77fa",
+    "matches": true
+  },
+  {
+    "path": "flashinfer/experimental/b12x/moe/_shared/kernels/w4a16/prefill_a4.py",
+    "source_commit": "91271757f7746f3dfb58f7c2aeb44a663389de9e",
+    "installed_sha256": "6835259acb1ef0e49d86c9d9ce61a9e5046d9a7d470f8d1e17609a93368ae9b1",
+    "pinned_sha256": "6835259acb1ef0e49d86c9d9ce61a9e5046d9a7d470f8d1e17609a93368ae9b1",
+    "matches": true
+  }
+]

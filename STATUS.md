@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-04: Verified both-node hybrid A4/A16 controls and checkpoint expert
+  assignments. Prepared candidate18's single FORCE_A16 override patch; local
+  round-trip/YAML checks pass. Native/quality/speed gates remain unrun.
+
 - 2026-11-04: Audited installed B12X tuning on both nodes: identical schema-22
   cache with 194 completed races / 13,376 measured configurations. Candidate17
   now targets coverage/selection quality; no tuning or serving change applied.
