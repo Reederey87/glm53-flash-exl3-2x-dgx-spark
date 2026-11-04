@@ -227,6 +227,14 @@
   "scope": "Static source inventory and prepared hybrid geometry case only; not pytest collection, GPU execution, native-A4 arithmetic qualification or a complete native gate.",
   "additional_source_anchors": [
     {
+      "path": "tests/experimental/b12x/moe/test_nvfp4_swapped_token_tiles.py",
+      "sha256": "cdb941c49de795a3d15a8c35948c2231d4aefe9237ce36e2fe2e16150af856c5",
+      "selected_function": "test_swapped_token_tile_live_replay",
+      "static_parameter_product": 130,
+      "gpu_executed": false,
+      "scope": "Forced dynamic native-A4, normal activation scales, H512, original-weight oracle and changed-input/route graph replay; not actual GLM geometry or compact/CSF/subnormal coverage"
+    },
+    {
       "path": "tests/experimental/b12x/quantization/test_bf16_to_fp4_tma.py",
       "sha256": "1824b30f914f72e3ea9e2c9352d8cf0968c7d5f17f4180f863e6cd6f31292e37",
       "selected_function": "test_bf16_to_fp4_tma_fp8_scale_boundaries_graph_exact"

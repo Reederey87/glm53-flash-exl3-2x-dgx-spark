@@ -75,6 +75,42 @@ pass. Record that topology mismatch explicitly and separately test both nodes'
 local ownership plus the serving system's two-process TP behavior. Do not
 claim those are equivalent coverage.
 
+### Dynamic native-A4 arithmetic and replay anchor
+
+The pinned `test_nvfp4_swapped_token_tiles.py::test_swapped_token_tile_live_replay`
+adds arithmetic coverage missing from the compressed-versus-expanded equality
+tests. Its reference consumes the original packed weights and scales and selects
+`dynamic_precise` or `dynamic_fast` to match the tested invocation. The static
+parameter product is 130 cases (2 fast-math choices × 5 intermediate widths ×
+13 tile/planner/shared-scale combinations); this is not a collected or passed
+case count. H512 and at most 20 experts keep this component bounded, but do not
+represent the GLM model's full geometry.
+
+For each case it freezes preparation, binds live row counts 1/8/16/17/capacity,
+changes activations and expert IDs after capture, and masks the final row's
+routes. Three replays must preserve allocation counters and buffer addresses.
+The active output must be finite and nonzero, mean per-row cosine must be at
+least 0.9999, and RMSE divided by reference RMS must be at most 0.015. Inactive
+output tails must retain their NaN poison and the masked row must be exactly
+zero. These are the unchanged upstream thresholds for this bounded component;
+they do not set the actual-GLM or completed-answer quality tolerance.
+
+This test deliberately uses normal activation scales and forces the dynamic
+backend. It does not qualify compact-kernel arithmetic, CSF storage, subnormal
+activation scales, the GLM SwiGLU clamp, or automatic serving-plan selection.
+Retain those as separate required coverage. Include this exact test and its
+source dependencies in the future native bundle, without collecting the whole
+phase-kernel module that includes large-offset allocations.
+
+Exa review of the pinned [reference implementation](https://github.com/local-inference-lab/flashinfer/blob/91271757f7746f3dfb58f7c2aeb44a663389de9e/flashinfer/experimental/b12x/moe/_shared/kernels/reference.py)
+and the upstream [quantizer exactness work](https://github.com/flashinfer-ai/flashinfer/pull/3387)
+supports treating rounding order and subnormals explicitly. The latter concerns
+different quantizer entry points; its fast-math environment variable is not
+evidence of a control for this embedded B12X kernel. Local vLLM plan construction,
+Exllamav3 routing-reference checks and TensorFold's separate serial-exactness and
+trusted-model quality checks were reviewed after the lookup. No new runtime
+flag or GPU test was applied during the Int64 baseline.
+
 ## Prepared actual-geometry hybrid case
 
 [`native/test_glm_hybrid_geometry.py`](native/test_glm_hybrid_geometry.py) calls

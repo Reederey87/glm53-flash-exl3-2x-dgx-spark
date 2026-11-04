@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-04: Added the pinned dynamic native-A4 arithmetic/replay test to the
+  qualification inventory, with its exact rounding references and coverage
+  limits. Source review only; Int64 baseline remains the sole GPU workload.
+
 - 2026-11-04: Prepared original compiler-cache restoration with pinned original
   receipts, read-only planning, local idle guards and rename rollback tests.
   Both-node identity preflight and live-serving refusal pass; no restoration applied.
