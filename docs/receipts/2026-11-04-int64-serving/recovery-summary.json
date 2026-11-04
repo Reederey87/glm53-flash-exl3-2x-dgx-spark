@@ -1,0 +1,19 @@
+{
+  "watermark_helper_commit": "2e41e0f",
+  "watermark_helper_sha256": "027731fcb6ef19ba7d334e1ba996f289e85b7e7fff51059f8b79858b0257e63c",
+  "cache_helper_commit": "31456d3",
+  "cache_helper_sha256": "67642fe5d75374acd4b667bd39c06e9735c83cb23b3e44bd49f10da4dbea088a",
+  "closed_native_cache_helper_applied": false,
+  "nodes": {
+    "head": {
+      "available_kib_before": 113209780,
+      "available_kib_after": 117927616,
+      "available_kib_delta": 4717836
+    },
+    "worker": {
+      "available_kib_before": 119530504,
+      "available_kib_after": 119561224,
+      "available_kib_delta": 30720
+    }
+  }
+}

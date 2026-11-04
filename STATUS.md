@@ -1,5 +1,10 @@
 # Status
 
+- 2026-11-04: Recorded fresh incumbent retry b9c5ac7b at02:59UTC after paired
+  idle/free-memory gates and new compiler-cache backups. Watermark recovery
+  passed unchanged policy on both nodes; closed-native-cache advice not needed.
+  All323local tests pass; startup/API/KV/full matrix qualification is pending.
+
 - 2026-11-03: Same-value reserve refresh2e41e0f passed both nodes with unchanged
   policy/base watermarks; head available memory recovered, free-memory gate still
   short. Prepared exact closed-native-cache advice and separate retry backups.
