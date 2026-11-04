@@ -1,11 +1,7 @@
 --- a/recipes/glm-5.3-flash-fp4-local.yaml
 +++ b/recipes/glm-5.3-flash-fp4-local.yaml
-@@ -59,7 +59,7 @@
-   VLLM_USE_V2_MODEL_RUNNER: "1"
-   VLLM_ENABLE_PCIE_ALLREDUCE: "0"
+@@ -61,3 +61,3 @@
    B12X_POLICY_MODE: "auto"
 -  VLLM_B12X_MOE_FP4_FORCE_A16: "1"
 +  VLLM_B12X_MOE_FP4_FORCE_A16: "0"
    B12X_W4A16_A4_PREFILL: "1"
- 
- command: |

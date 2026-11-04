@@ -4,7 +4,7 @@
   "candidate": "0",
   "baseline_recipe_sha256": "cd0d994a55ceeae6b7dab2d02d59f09e461c105d3c7c2effd79dc6c14141589a",
   "candidate_recipe_sha256": "1a8dcb715f4c2654712cd19e9bdb1b12fac32f2cef64b09699ba562750a16c80",
-  "patch_sha256": "d52cefd07e87418f37e1781d364b634df99f7c3c09a212a31ced4770122aefaa",
+  "patch_sha256": "3320ecb8439f7c64fdf17cfccc7e54066e32f33ccb00b510cc5599e8f0d26f27",
   "unchanged_hybrid_prefill": "1",
   "status": "Prepared only; native, model-quality and serving protocols must be frozen before a cluster trial."
 }
