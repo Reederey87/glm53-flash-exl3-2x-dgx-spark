@@ -124,3 +124,19 @@ remain on the cluster. The verifier ran as a read-only metadata check without
 GPU calls, inference requests, or container/config changes. This proves the
 unchanged-incumbent comparison path; rebuilt-control and candidate runtime
 qualification still require their actual future containers.
+
+## Original-cache restoration preflight
+
+At 04:26 UTC, frozen helper `1f2eefe` passed read-only planning on both nodes
+against the exact original preservation receipts. All five original directory
+identities match and the prospective final-arm archive paths are absent.
+Calling only the local idle guard while serving is live correctly refused on
+both nodes. No restoration/rename function was called; `applied=false` in
+both [preflight receipts](cache-restore-preflight-1f2eefe/).
+
+The recorded active directories belong to the current incumbent baseline,
+not the future candidate. Recompute the plan after the full window and prove
+both nodes idle before applying. The helper's filesystem tests cover retention,
+partial rename rollback and refusal to overwrite an intervening writer.
+Actual original-cache restoration, incumbent startup/API/KV verification and
+watchdog rearming remain pending at the end of the experiment.

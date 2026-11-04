@@ -1,0 +1,118 @@
+{
+  "timestamp": "2026-11-04T04:26:19.348019+00:00",
+  "node": "head",
+  "ok": true,
+  "applied": false,
+  "live_apply_guard_refused": true,
+  "helper_commit": "1f2eefe6185ae69dcfead17dbf7798860c2c8f63",
+  "helper_sha256": "e87b0530d81bd0e3126dfe900d53a8b0239213ec9904f6d54d2fbde4d69efb23",
+  "original_receipt_sha256": "be393e87c273b8ae5b052d3adb4df50c7e1091d96062d6995f362ca4dd73dc9b",
+  "caches": [
+    {
+      "active": "/home/nvidia/.cache/vllm",
+      "original": "/home/nvidia/.cache/vllm.int64-before-incumbent-20261103",
+      "retain_final_arm": "/home/nvidia/.cache/vllm.int64-after-candidate-20261103",
+      "active_identity": {
+        "device": 66306,
+        "inode": 3560575,
+        "mode": "0o775",
+        "uid": 1001,
+        "gid": 1001,
+        "mtime_ns": 1793761178922740789
+      },
+      "original_identity": {
+        "device": 66306,
+        "inode": 3807740,
+        "mode": "0o775",
+        "uid": 1001,
+        "gid": 1001,
+        "mtime_ns": 1792237753664220815
+      }
+    },
+    {
+      "active": "/home/nvidia/.cache/flashinfer",
+      "original": "/home/nvidia/.cache/flashinfer.int64-before-incumbent-20261103",
+      "retain_final_arm": "/home/nvidia/.cache/flashinfer.int64-after-candidate-20261103",
+      "active_identity": {
+        "device": 66306,
+        "inode": 3573714,
+        "mode": "0o775",
+        "uid": 1001,
+        "gid": 1001,
+        "mtime_ns": 1793761203641519158
+      },
+      "original_identity": {
+        "device": 66306,
+        "inode": 3807741,
+        "mode": "0o775",
+        "uid": 1001,
+        "gid": 1001,
+        "mtime_ns": 1792237774905021772
+      }
+    },
+    {
+      "active": "/home/nvidia/.cache/b12x",
+      "original": "/home/nvidia/.cache/b12x.int64-before-incumbent-20261103",
+      "retain_final_arm": "/home/nvidia/.cache/b12x.int64-after-candidate-20261103",
+      "active_identity": {
+        "device": 66306,
+        "inode": 3573715,
+        "mode": "0o775",
+        "uid": 1001,
+        "gid": 1001,
+        "mtime_ns": 1793761356663347606
+      },
+      "original_identity": {
+        "device": 66306,
+        "inode": 3807742,
+        "mode": "0o775",
+        "uid": 1001,
+        "gid": 1001,
+        "mtime_ns": 1792237921627473252
+      }
+    },
+    {
+      "active": "/home/nvidia/.triton",
+      "original": "/home/nvidia/.triton.int64-before-incumbent-20261103",
+      "retain_final_arm": "/home/nvidia/.triton.int64-after-candidate-20261103",
+      "active_identity": {
+        "device": 66306,
+        "inode": 3573716,
+        "mode": "0o775",
+        "uid": 1001,
+        "gid": 1001,
+        "mtime_ns": 1793761176316731953
+      },
+      "original_identity": {
+        "device": 66306,
+        "inode": 3807743,
+        "mode": "0o775",
+        "uid": 1001,
+        "gid": 1001,
+        "mtime_ns": 1792237751336217743
+      }
+    },
+    {
+      "active": "/home/nvidia/.tilelang",
+      "original": "/home/nvidia/.tilelang.int64-before-incumbent-20261103",
+      "retain_final_arm": "/home/nvidia/.tilelang.int64-after-candidate-20261103",
+      "active_identity": {
+        "device": 66306,
+        "inode": 3573725,
+        "mode": "0o775",
+        "uid": 1001,
+        "gid": 1001,
+        "mtime_ns": 1793761815972039379
+      },
+      "original_identity": {
+        "device": 66306,
+        "inode": 3807744,
+        "mode": "0o775",
+        "uid": 1001,
+        "gid": 1001,
+        "mtime_ns": 1792238382944379632
+      }
+    }
+  ],
+  "scope": "Read-only preflight during incumbent baseline. Prospective final-arm archive only; no rename or restoration function called. Recompute plan and prove both nodes idle before any apply."
+}
