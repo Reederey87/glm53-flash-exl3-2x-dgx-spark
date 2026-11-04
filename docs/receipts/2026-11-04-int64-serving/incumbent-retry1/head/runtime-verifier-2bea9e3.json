@@ -1,0 +1,51 @@
+{
+  "timestamp": "2026-11-04T04:04:41.890451+00:00",
+  "verifier_commit": "2bea9e30a4060b735828f876dac667ef95285f0d",
+  "verifier_sha256": "ccb9a0e9fbdf39ebb308281723d278d1d8d2cc359e0e5ade23052e6c80a5288d",
+  "serving_invocation": "b9c5ac7bd82a47c8a5e98424d537f5e8",
+  "nodes": {
+    "head": {
+      "verified": true,
+      "reference_arm": "incumbent",
+      "arm": "incumbent",
+      "reference_image": "sha256:a7f76ae9f18c7701c9cde5f72c606393d9a21ca94dd8e53b27589935f64fcbe2",
+      "current_image": "sha256:a7f76ae9f18c7701c9cde5f72c606393d9a21ca94dd8e53b27589935f64fcbe2",
+      "environment_equal": true,
+      "environment_changed_keys": [],
+      "exact_image_inherited_changes": false,
+      "same_launch_configuration": true,
+      "same_host_configuration": true,
+      "same_mounts": true,
+      "normalization": "Order of bind entries and mount records only; duplicate environment keys rejected",
+      "scope": "Private Docker metadata comparison only; runtime source/argv/checkpoint/API/KV/speed gates remain separate",
+      "build_settings_match_incumbent_image": {
+        "CMAKE_BUILD_PARALLEL_LEVEL": true,
+        "MAKEFLAGS": true,
+        "MAX_JOBS": true,
+        "NINJAFLAGS": true
+      }
+    },
+    "worker": {
+      "verified": true,
+      "reference_arm": "incumbent",
+      "arm": "incumbent",
+      "reference_image": "sha256:a7f76ae9f18c7701c9cde5f72c606393d9a21ca94dd8e53b27589935f64fcbe2",
+      "current_image": "sha256:a7f76ae9f18c7701c9cde5f72c606393d9a21ca94dd8e53b27589935f64fcbe2",
+      "environment_equal": true,
+      "environment_changed_keys": [],
+      "exact_image_inherited_changes": false,
+      "same_launch_configuration": true,
+      "same_host_configuration": true,
+      "same_mounts": true,
+      "normalization": "Order of bind entries and mount records only; duplicate environment keys rejected",
+      "scope": "Private Docker metadata comparison only; runtime source/argv/checkpoint/API/KV/speed gates remain separate",
+      "build_settings_match_incumbent_image": {
+        "CMAKE_BUILD_PARALLEL_LEVEL": true,
+        "MAKEFLAGS": true,
+        "MAX_JOBS": true,
+        "NINJAFLAGS": true
+      }
+    }
+  },
+  "scope": "Read-only unchanged-incumbent check; rebuilt control and candidate not started"
+}

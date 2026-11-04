@@ -108,3 +108,19 @@ unchanged; usage-update timestamps do not imply individual token arrival times.
 This activation is not a completed performance result. Rebuilt control and
 candidate serving trials remain pending. Watchdog remains disarmed during the
 window; restoration and rearming remain required before leaving the window.
+
+## Live private runtime-verifier qualification
+
+At 04:04:41 UTC, frozen verifier `2bea9e3` passed on both running incumbent
+containers against their pre-matrix private snapshots. Actual image identity,
+environment, launch configuration, host settings and all mount records match;
+the serving invocation is still `b9c5ac7b`. Both nodes' four build-worker
+settings equal their exact incumbent image values, so no existing override
+contradicts the registered rebuilt-control inheritance check.
+
+[`runtime-verifier-2bea9e3.json`](incumbent-retry1/head/runtime-verifier-2bea9e3.json)
+contains only whitelisted results. Full inspection and environment values
+remain on the cluster. The verifier ran as a read-only metadata check without
+GPU calls, inference requests, or container/config changes. This proves the
+unchanged-incumbent comparison path; rebuilt-control and candidate runtime
+qualification still require their actual future containers.
