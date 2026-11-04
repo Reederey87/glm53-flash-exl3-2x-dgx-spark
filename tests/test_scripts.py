@@ -120,6 +120,7 @@ def test_scripts_are_stdlib_only() -> None:
     allowed = {
         "argparse",
         "dataclasses",
+        "decimal",
         "datetime",
         "json",
         "pathlib",

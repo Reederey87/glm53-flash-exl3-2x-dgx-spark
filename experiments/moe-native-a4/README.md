@@ -87,6 +87,9 @@ Any later trial of either needs its own native, quality and speed gate.
 - Freeze a paired model-quality corpus and rejection thresholds before either
   serving arm: completed answers, long-context retrieval/checksums, tool/JSON
   behavior and task correctness. Include real inference scale/route coverage.
+  The [full-split GSM8K component](quality.md) now has pinned data, requests,
+  thresholds and an executable fail-closed runner/scorer; it is not run and
+  does not replace the remaining quality components.
   The 200-token max-reasoning speed matrix measures throughput, not quality.
 - Register a fresh matched baseline/candidate full matrix with unique seed,
   three reps, 8k–128k, c1/2/4/8, the same decode budgets and all API/cache gates.

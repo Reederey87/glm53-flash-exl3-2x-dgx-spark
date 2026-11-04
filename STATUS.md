@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-04: Prepared the pinned 1,319-case completed-answer GSM8K runner/scorer
+  and activation-quality protocol in `experiments/moe-native-a4/quality.md`.
+  Local fault checks only; no quality requests or runtime changes on the Sparks.
+
 - 2026-11-04: Verified both-node hybrid A4/A16 controls and checkpoint expert
   assignments. Prepared candidate18's single FORCE_A16 override patch; local
   round-trip/YAML checks pass. Native/quality/speed gates remain unrun.
