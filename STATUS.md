@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-04: Prepared original compiler-cache restoration with pinned original
+  receipts, read-only planning, local idle guards and rename rollback tests.
+  It retains all arm artifacts; no runtime cache restoration applied.
+
 - 2026-11-04: Verified both-node per-expert scale/default-prefetch policy and
   documented native-A4's A16-prefetch consequence. Pinned native test coverage
   and prepared an actual-TP2 hybrid oracle case; no GPU qualification or runtime change.
