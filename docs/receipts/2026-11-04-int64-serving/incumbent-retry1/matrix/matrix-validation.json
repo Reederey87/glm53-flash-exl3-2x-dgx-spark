@@ -1,0 +1,17 @@
+{
+  "complete_baseline_validated": true,
+  "measured_cells": 96,
+  "warmup_cells": 40,
+  "recorded_requests": 510,
+  "seed": 2026110304,
+  "decode_chat_template_kwargs": {
+    "reasoning_effort": "max"
+  },
+  "decode_token_scope": "generated_tokens_including_reasoning",
+  "timing_source": "continuous_completion_usage",
+  "raw_json_sha256": "0e70c2dbf142bd1c3b71c5c176e172b7411e05512f5a8ab51df5d7886229e15b",
+  "validator_sha256": "b5444b96b36454963e81b8910d0efb23e79eb8387f97dc1ea4c69aa97cf7c995",
+  "presentation_renderer_sha256": "745f317ba7df8f1f78cf18388142b8d000b7b5a7d56f6fb1af0a078c125b2626",
+  "validation": "Full registered grid, warmup matching, per-request budgets/usage/timing, prefix-hit deltas, throughput arithmetic and speculation counters pass",
+  "comparison": "No rebuilt-control or candidate serving result yet; not an adoption decision"
+}

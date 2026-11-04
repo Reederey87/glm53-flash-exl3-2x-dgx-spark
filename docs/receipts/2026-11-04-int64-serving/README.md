@@ -1,9 +1,10 @@
 # Incumbent baseline recovery and recorded retry
 
-The Int64 native qualification remains complete on both nodes. Full serving
-qualification remains open: incumbent baseline, rebuilt control, then candidate
-must each complete the frozen matrix. This directory records recovery and the
-fresh incumbent startup; it does not claim a completed matrix or adoption.
+The Int64 native qualification is complete on both nodes. The fresh incumbent
+baseline also passed all 96 measured cells and 40 warmups, full raw validation
+and exact request accounting. [Baseline results and raw receipts](incumbent-retry1/matrix/README.md)
+are preserved here. Rebuilt-control and candidate serving qualification remain
+open; no improvement or adoption decision follows from the baseline alone.
 
 ## Same-value reserve recovery
 
@@ -96,7 +97,7 @@ first requests had zero cached tokens and repeat requests reused all
 previous verified control, including the 17 GiB FP8 pool. Local measurement /
 comparison regression tests also passed.
 
-The frozen full baseline matrix is running as
+The frozen full baseline matrix ran as
 `glm53-int64-baseline-retry1-matrix-20261104.service`, invocation
 `d9e6284b9a1349ea8c500b46693f28f8`. The exact command and initial process state
 are retained under `incumbent-retry1/head/`. It uses seed 2026110304, three
@@ -105,9 +106,19 @@ repetitions, 96 measured cells and 40 warmups, with maximum reasoning and
 The registered reciprocal-TPOT and normalized aggregate conventions remain
 unchanged; usage-update timestamps do not imply individual token arrival times.
 
-This activation is not a completed performance result. Rebuilt control and
-candidate serving trials remain pending. Watchdog remains disarmed during the
-window; restoration and rearming remain required before leaving the window.
+At **05:00:17 UTC**, that benchmark exited successfully with 96 measured cells,
+40 warmups and no invalid cells or request errors. Full per-request validation
+passed, including budgets, usage/timing, prefill prefix-hit deltas, throughput
+arithmetic, warmup matching and speculative-counter deltas. The same server
+counted exactly524 successful requests:510 recorded, one initial warmup and13
+earlier functional calls. Nothing remained running or queued; health was200
+and both actual images were still the incumbent. The frozen harness hashes
+also matched. [Terminal and validation evidence](incumbent-retry1/matrix/README.md)
+retains original bytes and a separately corrected-label table.
+
+Rebuilt-control and candidate serving trials remain pending. Watchdog remains
+disarmed during the window; restoration and rearming remain required before
+leaving the window.
 
 ## Live private runtime-verifier qualification
 

@@ -1,11 +1,12 @@
 # GLM FP4-Local improvement queue
 
-Status (November 3): the complete MTP5/MTP3 trial passed its registered gate;
+Status (November 4): the complete MTP5/MTP3 trial passed its registered gate;
 MTP3 adoption awaits the user's decision. Both arms used explicit maximum
 reasoning and cumulative token-usage timing. Earlier incomplete runs (implicit
 effort and empty-token text timing) are archived and excluded. MTP5 restoration
-was verified after that trial. Candidate 16's fresh incumbent baseline is
-now running its full matrix after API, cache and exact-KV checks passed.
+was verified after that trial. Candidate 16's fresh incumbent baseline passed
+all 96 measured cells and 40 warmups, full raw validation and exact request
+accounting, following API, cache and exact-KV qualification.
 Both exact Int64 image arms pass all271 bounded GPU cases on
 both Sparks. The candidate also passes the supported >2^31-element FP32
 high-offset eager/graph test and zero-error memcheck on both. All187 control

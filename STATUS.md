@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-04: Fresh incumbent baseline completed all 96 measured cells and
+  40 warmups with full raw validation and exact 524-request accounting passing.
+  Raw and corrected-label receipts are preserved; rebuilt serving arms remain pending.
+
 - 2026-11-04: Staged frozen idle/cache/runtime-verification/rollback helpers in
   each node's isolated `int64-serving/control-tools-44a24ec` directory. All
   source hashes match; no helper execution or running-deployment change.

@@ -1,0 +1,66 @@
+{
+  "timestamp": "2026-11-04T05:00:51.167920+00:00",
+  "terminal": true,
+  "server": {
+    "MainPID": "0",
+    "Result": "success",
+    "ExecMainStartTimestamp": "Tue 2026-11-03 21:59:09 EST",
+    "ExecMainExitTimestamp": "Tue 2026-11-03 21:59:17 EST",
+    "ExecMainCode": "1",
+    "ExecMainStatus": "0",
+    "ActiveState": "active",
+    "SubState": "exited",
+    "InvocationID": "b9c5ac7bd82a47c8a5e98424d537f5e8"
+  },
+  "benchmark": {
+    "MainPID": "0",
+    "Result": "success",
+    "ExecMainStartTimestamp": "Tue 2026-11-03 22:19:26 EST",
+    "ExecMainExitTimestamp": "Wed 2026-11-04 00:00:17 EST",
+    "ExecMainCode": "1",
+    "ExecMainStatus": "0",
+    "ActiveState": "active",
+    "SubState": "exited",
+    "InvocationID": "d9e6284b9a1349ea8c500b46693f28f8"
+  },
+  "health": 200,
+  "measured_cells": 96,
+  "warmup_cells": 40,
+  "recorded_requests": 510,
+  "expected_total_successes": 524,
+  "request_counters": {
+    "vllm:request_success_total": 524.0,
+    "vllm:num_requests_running": 0.0,
+    "vllm:num_requests_waiting": 0.0
+  },
+  "nodes": {
+    "head": {
+      "image": "sha256:a7f76ae9f18c7701c9cde5f72c606393d9a21ca94dd8e53b27589935f64fcbe2",
+      "running": true
+    },
+    "worker": {
+      "image": "sha256:a7f76ae9f18c7701c9cde5f72c606393d9a21ca94dd8e53b27589935f64fcbe2",
+      "running": true
+    }
+  },
+  "frozen_harness_hashes_match": true,
+  "files": {
+    "matrix.json": {
+      "sha256": "0e70c2dbf142bd1c3b71c5c176e172b7411e05512f5a8ab51df5d7886229e15b",
+      "bytes": 5254636
+    },
+    "matrix.md": {
+      "sha256": "44bd61f55bc6c5dcceda3591029329ba36f179c688ebc77d420ec9015f3734fb",
+      "bytes": 9181
+    },
+    "matrix-launch.json": {
+      "sha256": "e81a9bd0da92fa19533d9a57f28d340e063fa86a4d5ab255ec7be9c6559f2674",
+      "bytes": 1182
+    },
+    "matrix-initial-state.json": {
+      "sha256": "5b5be3959549303b5f14727e42cdb8244c062afbfbef8a4422657ca42b016a5d",
+      "bytes": 182
+    }
+  },
+  "scope": "Terminal state and request accounting; full raw per-cell validation remains separate"
+}

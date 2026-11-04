@@ -1,6 +1,10 @@
 # Dense split-K Int64 candidate
 
-Prepared, not deployed or GPU-qualified. `kernel.patch` backports the address
+Both exact rebuilt arms are native-qualified on both Sparks; the fresh
+incumbent serving baseline is complete. Rebuilt-control and candidate serving
+trials and adoption remain pending. See the [current gate and receipts](../../docs/gates/2026-11-03-dense-int64.md).
+
+`kernel.patch` backports the address
 arithmetic from FlashInfer `f5f5341d711f8210ce91af5731a0841570f70e53` to the
 incumbent's monolithic `dense_gemm.py` at `91271757f7746f3dfb58f7c2aeb44a663389de9e`.
 The upstream regression is appended to the incumbent's existing test module,
@@ -28,9 +32,11 @@ these are not evidence of CUDA compilation or numerical correctness.
    source and compiled-artifact hashes, toolchain, and test commands.
 4. Run the existing blockscaled A16, blockscaled and MXFP8 correctness/graph
    suites. Run the added
-   `test_nvfp4_split_partials_exceed_int32_elements` on the candidate, including
-   a Compute Sanitizer memcheck run. M=4096, N=34816, K=1024, split-K=16 makes
-   FP32 partial scratch exceed 8 GiB. The test checks exact constant output,
+   `qualification/test_high_offset_sm121.py` on the candidate, including
+   a Compute Sanitizer memcheck run. M=8192, N=34816, K=1024, split-K=8 makes
+   FP32 partial scratch exceed 8 GiB. The original upstream split-K16 case is
+   unsupported by the pinned planner; its failure is retained separately.
+   The qualified wrapper checks exact constant output,
    changes the input and replays the captured graph. Treat a skip as missing
    evidence. Do not deliberately run the known overflowing address pattern on
    the incumbent; use bounded shapes there for comparison.
@@ -135,14 +141,17 @@ uv run --no-sync --project /harness python -m pytest -c /dev/null --rootdir . \
   --junitxml=/receipts/bounded.xml -ra
 ```
 
-That bounded suite runs on both arms. On the **candidate only**, run the added
-high-offset regression normally and under memcheck, retaining both results:
+That bounded suite runs on both arms. On the **candidate only**, run the
+qualified split-K8 wrapper normally and under memcheck, retaining both results.
+The frozen qualification bundle is mounted read-only at `/checks` by the host
+runner; do not substitute the unsupported installed split-K16 test:
 
 ```bash
 uv run --no-sync --project /harness compute-sanitizer --tool memcheck \
-  --target-processes all --error-exitcode 86 --log-file '/receipts/memcheck-%p.log' \
+  --target-processes all --require-cuda-init yes --kill --error-exitcode 86 \
+  --log-file '/receipts/memcheck-%p.log' \
   python -m pytest -c /dev/null --rootdir . \
-  tests/experimental/b12x/gemm/test_blockscaled_a16.py::test_nvfp4_split_partials_exceed_int32_elements \
+  /checks/test_high_offset_sm121.py::test_nvfp4_split_partials_exceed_int32_elements \
   --junitxml=/receipts/high-offset-memcheck.xml -ra
 ```
 
