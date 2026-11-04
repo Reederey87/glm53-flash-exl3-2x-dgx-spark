@@ -7,6 +7,9 @@ effort and empty-token text timing) are archived and excluded. MTP5 restoration
 was verified after that trial. Candidate 16's fresh incumbent baseline passed
 all 96 measured cells and 40 warmups, full raw validation and exact request
 accounting, following API, cache and exact-KV qualification.
+The rebuilt control has started with fresh caches on both nodes; actual image,
+source, argv/checkpoint and the registered runtime-environment differences
+are verified. Its health/API/KV and full speed qualification remain pending.
 Both exact Int64 image arms pass all271 bounded GPU cases on
 both Sparks. The candidate also passes the supported >2^31-element FP32
 high-offset eager/graph test and zero-error memcheck on both. All187 control

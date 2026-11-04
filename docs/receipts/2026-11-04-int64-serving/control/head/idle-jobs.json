@@ -1,0 +1,63 @@
+{
+  "timestamp": "2026-11-04T05:12:52.782660+00:00",
+  "nodes": {
+    "head": {
+      "all_running_containers": 0,
+      "serving_containers": 0,
+      "gpu_compute_processes": 0,
+      "related_compute_services": {
+        "vllm-glm53fp4-watchdog.service": {
+          "MainPID": "0",
+          "ControlPID": "0",
+          "Description": "GLM-5.3-Flash-FP4-Local health canary and auto-heal",
+          "ActiveState": "inactive",
+          "SubState": "dead"
+        },
+        "vllm-glm53fp4.service": {
+          "MainPID": "0",
+          "ControlPID": "0",
+          "Description": "GLM-5.3-Flash-FP4-Local on 2x DGX Spark",
+          "ActiveState": "inactive",
+          "SubState": "dead"
+        }
+      },
+      "unchanged_background_services": {
+        "glm53exl3-xid-monitor.service": {
+          "MainPID": "2305",
+          "ControlPID": "0",
+          "Description": "GLM-5.3-Flash-EXL3: GB10 Xid hardware-fault monitor",
+          "ActiveState": "active",
+          "SubState": "running"
+        },
+        "vllm-glm53fp4-tailscale.service": {
+          "MainPID": "2314",
+          "ControlPID": "0",
+          "Description": "Expose GLM-5.3-Flash-FP4-Local on the Tailscale IPv4",
+          "ActiveState": "active",
+          "SubState": "running"
+        }
+      },
+      "monitor_script": "/home/nvidia/GLM-5.3-Flash-EXL3-2x-DGX-Sparks/local/xid-monitor.sh",
+      "monitor_sha256": "b4b7958135a466a0f17c04b382c3ac6c7a01a99ca4075eb2639aa1efe25d5832"
+    },
+    "worker": {
+      "all_running_containers": 0,
+      "serving_containers": 0,
+      "gpu_compute_processes": 0,
+      "related_compute_services": {},
+      "unchanged_background_services": {
+        "glm53exl3-xid-monitor.service": {
+          "MainPID": "2287",
+          "ControlPID": "0",
+          "Description": "GLM-5.3-Flash-EXL3: GB10 Xid hardware-fault monitor",
+          "ActiveState": "active",
+          "SubState": "running"
+        }
+      },
+      "monitor_script": "/home/nvidia/.local/bin/glm53exl3-xid-monitor.sh",
+      "monitor_sha256": "b4b7958135a466a0f17c04b382c3ac6c7a01a99ca4075eb2639aa1efe25d5832"
+    }
+  },
+  "scope": "Both-node compute/build/serving idle. Existing identical kernel-journal hardware monitors and head CPU proxy remain unchanged from baseline; neither is a GPU job. Direct SSH only. Two earlier name-only scans refused on monitor PIDs; no cache/image mutation occurred.",
+  "monitor_review": "Journal reader; no inference restart/systemctl/start.sh/kill logic; own service Restart=always is not an inference healer"
+}

@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-04: Started rebuilt control `3b5da79c` on both Sparks through the
+  production unit, invocation `6d2701bc`, after fresh-cache and paired idle gates.
+  Both actual runtime/source/argv/checkpoint checks pass; health/API/KV/speed pending.
+
 - 2026-11-04: Fresh incumbent baseline completed all 96 measured cells and
   40 warmups with full raw validation and exact 524-request accounting passing.
   Raw and corrected-label receipts are preserved; rebuilt serving arms remain pending.

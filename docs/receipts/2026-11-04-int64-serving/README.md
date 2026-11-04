@@ -6,6 +6,11 @@ and exact request accounting. [Baseline results and raw receipts](incumbent-retr
 are preserved here. Rebuilt-control and candidate serving qualification remain
 open; no improvement or adoption decision follows from the baseline alone.
 
+The rebuilt-control arm started at05:14:56UTC on both nodes, invocation
+`6d2701bcf90146258ce7316c5661fe2a`. Initial runtime and source checks pass;
+the model is still initializing. Health/API/KV and full speed gates remain
+pending. See [control activation receipts](control/).
+
 ## Same-value reserve recovery
 
 Frozen helper `2e41e0f`, SHA256
@@ -166,3 +171,44 @@ The bundle contains `wait_cluster_idle.py`, `preserve_compile_caches.py`,
 executed during staging, and no cache, container, alias or serving configuration
 changed. This makes the tools available for the registered control/candidate
 windows and final rollback; it does not satisfy their future idle/start gates.
+
+## Rebuilt-control activation
+
+After saving the completed baseline, private snapshots were taken on both
+nodes under their `int64-serving/control/before-start` directories. Head
+`.env`, launcher, recipe and unit hashes matched the recorded incumbent;
+the worker has no separate runtime tree and receives launch configuration
+from the head. Private Docker/image/configuration bytes remain on the cluster.
+
+The production unit stopped successfully at05:07:51UTC. Both serving
+containers disappeared and both GPUs reported no compute processes. An
+initial name-only service scan also matched the standing hardware journal
+monitors and head CPU network proxy. Their actual roles were checked; both
+monitors have identical script hashes and no inference-restart logic. These
+background services remain unchanged from the baseline. All GPU/build/serving
+job PIDs were zero, and direct SSH was used throughout. The failed broad
+classification did not trigger a cache or image change.
+
+The frozen preservation helper retained all five compiler-cache directories
+on each node as `*.int64-before-control-20261103` and created empty original
+paths. Both existing `vllm-node-b12x:latest` aliases were then set to exact
+control image `3b5da79c`; the incumbent image and all earlier caches remain.
+Only comments were appended to head `.env`; active assignments are unchanged.
+Immediately before start, head MemFree was120208816KiB and worker120277976KiB,
+with reserve1048576 on both, no containers and no GPU compute processes.
+
+Startup was requested **05:14:56.907229UTC** through `vllm-glm53fp4.service`,
+invocation **`6d2701bcf90146258ce7316c5661fe2a`**. Both actual containers use
+the qualified control image. The private verifier confirms exactly the four
+registered inherited build-worker differences and identical launch/host/mount
+configuration. Both actual serving argument lists and NVIDIA revision/metadata
+match the baseline. Installed control `dense_gemm.py` SHA256 is
+`313ed8cda2c9665a48e40c88c2676a328ae6174ee65b85514d668d1e9fc1e024`
+on each rank, consistent with the image's treatment manifest.
+
+These are initial treatment-activation checks, not serving qualification.
+At05:17UTC the same unit was still in `start-post`, with health not yet ready
+and no traceback or startup-memory-failure marker in the bounded log review.
+Observe this invocation; do not restart on an observation timeout. Exact KV,
+API/prefix gates and the full matched matrix are next after health. The
+watchdog remains stopped; final incumbent restoration and rearming are pending.

@@ -1,0 +1,23 @@
+{
+  "verified": true,
+  "reference_arm": "incumbent",
+  "arm": "control",
+  "reference_image": "sha256:a7f76ae9f18c7701c9cde5f72c606393d9a21ca94dd8e53b27589935f64fcbe2",
+  "current_image": "sha256:3b5da79c42ed4204440cfb07c6de1eba46441d5cba6b57d5428d44e60c10d0ed",
+  "environment_equal": false,
+  "environment_changed_keys": [
+    "CMAKE_BUILD_PARALLEL_LEVEL",
+    "MAKEFLAGS",
+    "MAX_JOBS",
+    "NINJAFLAGS"
+  ],
+  "exact_image_inherited_changes": true,
+  "same_launch_configuration": true,
+  "same_host_configuration": true,
+  "same_mounts": true,
+  "normalization": "Order of bind entries and mount records only; duplicate environment keys rejected",
+  "scope": "Actual initial control container metadata; source/argv/checkpoint/startup/API/KV/speed gates still required",
+  "verifier_sha256": "ccb9a0e9fbdf39ebb308281723d278d1d8d2cc359e0e5ade23052e6c80a5288d",
+  "node": "worker",
+  "timestamp": "2026-11-04T05:15:58.859795+00:00"
+}

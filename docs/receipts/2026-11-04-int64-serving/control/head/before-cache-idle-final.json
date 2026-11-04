@@ -1,0 +1,30 @@
+{
+  "ready": true,
+  "worker": "nvidia@192.168.177.11",
+  "min_free_kib": 94371840,
+  "required_reserve_kib": 1048576,
+  "attempts": [
+    {
+      "elapsed_s": 0.4326377479992516,
+      "ready": true,
+      "nodes": {
+        "head": {
+          "mem_free_kib": 120209168,
+          "mem_available_kib": 120060148,
+          "reserve_kib": 1048576,
+          "container_count": 0,
+          "error": "",
+          "not_ready_reason": ""
+        },
+        "worker": {
+          "mem_free_kib": 120261344,
+          "mem_available_kib": 119826032,
+          "reserve_kib": 1048576,
+          "container_count": 0,
+          "error": "",
+          "not_ready_reason": ""
+        }
+      }
+    }
+  ]
+}
