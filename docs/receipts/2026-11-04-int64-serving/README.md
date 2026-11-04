@@ -7,9 +7,11 @@ are preserved here. Rebuilt-control and candidate serving qualification remain
 open; no improvement or adoption decision follows from the baseline alone.
 
 The rebuilt-control arm started at05:14:56UTC on both nodes, invocation
-`6d2701bcf90146258ce7316c5661fe2a`. Initial runtime and source checks pass;
-the model is still initializing. Health/API/KV and full speed gates remain
-pending. See [control activation receipts](control/).
+`6d2701bcf90146258ce7316c5661fe2a`. It is healthy and passes both-node runtime,
+all six API checks, eight prefix rows and exact KV qualification. Its matched
+96-cell/40-warmup matrix started at05:28:43UTC, invocation
+`03687f011642433b8fd1b91ebb261c59`; performance qualification remains pending.
+See [control qualification and launch receipts](control/README.md).
 
 ## Same-value reserve recovery
 

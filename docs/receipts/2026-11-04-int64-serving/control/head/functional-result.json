@@ -1,0 +1,22 @@
+{
+  "timestamp": "2026-11-04T05:27:59.176251+00:00",
+  "verified": true,
+  "server": {
+    "MainPID": "0",
+    "ControlPID": "0",
+    "Result": "success",
+    "ActiveState": "active",
+    "SubState": "exited",
+    "InvocationID": "6d2701bcf90146258ce7316c5661fe2a"
+  },
+  "health": 200,
+  "api_checks_pass": 6,
+  "prefix_rows_pass": 8,
+  "kv_tokens": 2350210,
+  "counters": {
+    "vllm:request_success_total": 13.0,
+    "vllm:num_requests_running": 0.0,
+    "vllm:num_requests_waiting": 0.0
+  },
+  "scope": "Functional control qualification only; full matrix remains required"
+}

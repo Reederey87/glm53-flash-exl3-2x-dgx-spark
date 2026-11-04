@@ -7,15 +7,16 @@ effort and empty-token text timing) are archived and excluded. MTP5 restoration
 was verified after that trial. Candidate 16's fresh incumbent baseline passed
 all 96 measured cells and 40 warmups, full raw validation and exact request
 accounting, following API, cache and exact-KV qualification.
-The rebuilt control has started with fresh caches on both nodes; actual image,
-source, argv/checkpoint and the registered runtime-environment differences
-are verified. Its health/API/KV and full speed qualification remain pending.
+The rebuilt control is healthy after fresh-cache startup on both nodes. Actual
+image/source/argv/checkpoint and registered environment differences, six API
+checks, eight prefix rows and exact KV capacity pass. Its matched full speed
+matrix started at05:28:43UTC, invocation03687f01; performance remains pending.
 Both exact Int64 image arms pass all271 bounded GPU cases on
 both Sparks. The candidate also passes the supported >2^31-element FP32
 high-offset eager/graph test and zero-error memcheck on both. All187 control
 and189 candidate B12X objects match across nodes. Four kernels use more
 registers (up to15); no stack/local/shared-memory increase was found. Full
-rebuilt-control and candidate serving/API/KV/cache and all speed gates remain
+rebuilt-control speed and candidate serving/API/KV/cache/speed gates remain
 pending. No candidate has been
 adopted. See the [MTP receipts](receipts/2026-11-03-mtp-depth/README.md)
 and [active build window](gates/2026-11-03-dense-int64.md).

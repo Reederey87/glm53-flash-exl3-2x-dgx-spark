@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-04: Rebuilt control passes both-node runtime, six API checks, eight
+  prefix rows and exact KV qualification. Matched max-reasoning matrix started
+  as `03687f01` at05:28:43UTC; full performance result remains pending.
+
 - 2026-11-04: Started rebuilt control `3b5da79c` on both Sparks through the
   production unit, invocation `6d2701bc`, after fresh-cache and paired idle gates.
   Both actual runtime/source/argv/checkpoint checks pass; health/API/KV/speed pending.
