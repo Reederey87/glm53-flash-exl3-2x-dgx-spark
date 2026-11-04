@@ -1,0 +1,257 @@
+{
+  "revision": "91271757f7746f3dfb58f7c2aeb44a663389de9e",
+  "files": [
+    {
+      "path": "tests/experimental/b12x/moe/test_nvfp4_csf.py",
+      "sha256": "e5a3c419c72eee79d8ec028c6ffce08c6bcc4522f7fa21e7e6ae4565e4904a76",
+      "test_functions": [
+        {
+          "name": "test_native_expert_output_and_shared_scratch_poisoned_replay",
+          "decorators": [
+            "pytest.mark.parametrize(\"raw\", [\"blocks\"])",
+            "pytest.mark.parametrize(\"tokens\", [1, 17, 33])",
+            "pytest.mark.parametrize(\"activation_mode\", [\"a4\", \"a16\"])",
+            "pytest.mark.parametrize(\"n\", [64, 128, 192, 320])"
+          ]
+        },
+        {
+          "name": "test_scale_decoder_override_preserves_expert_graph_output",
+          "decorators": [
+            "pytest.mark.parametrize(\"tokens,n\", [(1, 64), (17, 320)])"
+          ]
+        },
+        {
+          "name": "test_split_gate_scale_operands_preserve_native_output_for_consumer_counts",
+          "decorators": [
+            "pytest.mark.parametrize(\"tile_m\", [16, 32, 64, 128])"
+          ]
+        },
+        {
+          "name": "test_indexed_scale_programs_are_declared_for_preparation",
+          "decorators": [
+            "pytest.mark.parametrize(\"deterministic\", [False, True])"
+          ]
+        },
+        {
+          "name": "test_large_a16_calls_expand_compressed_scales_per_call",
+          "decorators": [
+            "pytest.mark.parametrize(\"n\", [128, 320])"
+          ]
+        },
+        {
+          "name": "test_a16_expanded_scales_reuse_the_planned_launch_for_live_counts",
+          "decorators": []
+        },
+        {
+          "name": "test_prefetched_scales_replace_the_per_call_expansion",
+          "decorators": [
+            "pytest.mark.parametrize(\n    \"activation_mode,backend,tokens\",\n    [(\"a16\", None, 1600), (\"a4\", None, 1), (\"a4\", None, 33), (\"a4\", \"dynamic\", 33)],\n)"
+          ]
+        },
+        {
+          "name": "test_block_scales_use_native_expert_math_and_shared_scratch",
+          "decorators": [
+            "pytest.mark.parametrize(\"tokens\", [1, 33, 128])",
+            "pytest.mark.parametrize(\"mode\", [\"a4\", \"a16\"])",
+            "pytest.mark.parametrize(\"width\", [192, 320])"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/experimental/b12x/moe/test_nvfp4_shared_input_scales.py",
+      "sha256": "19e32e76341df82200f6f18784aefd5b9fc2ebc828b40c1fa1e5d685362bb971",
+      "test_functions": [
+        {
+          "name": "test_uniform_vector_preserves_storage_and_requires_static_contract",
+          "decorators": []
+        },
+        {
+          "name": "test_mutable_prepared_vectors_do_not_share_even_with_static_bindings",
+          "decorators": []
+        },
+        {
+          "name": "test_nonuniform_or_invalid_scales_do_not_share",
+          "decorators": [
+            "pytest.mark.parametrize(\n    \"values\",\n    [\n        [1.0, 1.0, 1.0, 1.001],\n        [float(\"nan\")] * 4,\n        [float(\"inf\")] * 4,\n        [0.0] * 4,\n        [-1.0] * 4,\n    ],\n)"
+          ]
+        },
+        {
+          "name": "test_one_ulp_difference_does_not_share",
+          "decorators": []
+        },
+        {
+          "name": "test_scale_mutation_invalidates_proof_until_weights_are_reprepared",
+          "decorators": []
+        },
+        {
+          "name": "test_inference_tensor_requires_static_contract",
+          "decorators": []
+        },
+        {
+          "name": "test_binding_decision_does_not_read_scale_values",
+          "decorators": []
+        },
+        {
+          "name": "test_scalar_preserves_existing_shared_input_contract",
+          "decorators": []
+        },
+        {
+          "name": "test_dynamic_launch_schema_marks_weights_and_scales_read_only",
+          "decorators": []
+        },
+        {
+          "name": "test_launch_dispatch_preserves_canonical_scale_version",
+          "decorators": [
+            "pytest.mark.parametrize(\n    \"operation, launch\",\n    [\n        (\"tp_moe_dynamic_launch\", \"_launch_dynamic_flat\"),\n        (\"tp_moe_compact_micro_launch\", \"_launch_compact_micro_flat\"),\n    ],\n)"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/experimental/b12x/moe/test_nvfp4_auto.py",
+      "sha256": "a9316096388da910f2cbfcea1e8697eaea75e404b30f9fadb4d1c1e878250dcc",
+      "test_functions": [
+        {
+          "name": "test_auto_rejects_unsupported_activation",
+          "decorators": [
+            "pytest.mark.parametrize(\n    \"field,value\",\n    [\n        (\"io_dtype\", torch.float16),\n        (\"nonlinearity\", \"relu2\"),\n    ],\n)"
+          ]
+        },
+        {
+          "name": "test_auto_requires_nvfp4_native_storage",
+          "decorators": []
+        },
+        {
+          "name": "test_uniform_nvfp4_a16_requires_only_mma_packing",
+          "decorators": []
+        },
+        {
+          "name": "test_a16_cutoff_uses_existing_precision_candidates",
+          "decorators": [
+            "pytest.mark.parametrize(\n    \"mode,larger_recipe\",\n    ((\"a4\", \"nvfp4\"), (\"a8\", \"w4a8_nvfp4\"), (\"auto\", \"nvfp4_auto\")),\n)"
+          ]
+        },
+        {
+          "name": "test_native_nvfp4_preparation_validates_scale_storage",
+          "decorators": [
+            "pytest.mark.parametrize(\"name\", [\"w13_blockscale\", \"w2_blockscale\"])",
+            "pytest.mark.parametrize(\"invalid\", [\"truncated\", \"strided\", \"dtype\"])"
+          ]
+        },
+        {
+          "name": "test_uniform_nvfp4_a16_does_not_retain_source_scales",
+          "decorators": [
+            "pytest.mark.skipif(not torch.cuda.is_available(), reason=\"requires CUDA\")"
+          ]
+        },
+        {
+          "name": "test_auto_native_decode_retains_launches_and_replays_shared_storage",
+          "decorators": [
+            "pytest.mark.parametrize(\n    \"num_experts,hidden_size,intermediate_size,topk\",\n    (\n        (8, 256, 256, 2),\n        (256, 6144, 256, 8),\n    ),\n)",
+            "pytest.mark.parametrize(\"counts\", ((1, 2, 4, 7, 8), (1, 2, 3, 4, 5, 6, 8)))"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/experimental/b12x/moe/test_w4a16_a4_prefill.py",
+      "sha256": "a00f5c683982ee8d6cdeea5dc6fa75c2cc75dde881abc8f49ead1901899acce2",
+      "test_functions": [
+        {
+          "name": "test_a4_prefill_matches_float64_emulation",
+          "decorators": [
+            "pytest.mark.skipif(not torch.cuda.is_available(), reason=\"requires CUDA\")",
+            "pytest.mark.parametrize(\"terms\", [1, 2])",
+            "pytest.mark.parametrize(\n    \"hidden_size,intermediate_size,num_experts,top_k,swiglu_limit\",\n    [\n        (512, 256, 8, 2, None),\n        (512, 256, 8, 2, 2.03),\n        (512, 256, 8, 2, 10.0),\n        (512, 320, 8, 2, None),\n        (2560, 320, 16, 10, None),\n    ],\n)"
+          ]
+        },
+        {
+          "name": "test_a4_prefill_requires_explicit_choice_and_calibrated_scales",
+          "decorators": [
+            "pytest.mark.skipif(not torch.cuda.is_available(), reason=\"requires CUDA\")"
+          ]
+        },
+        {
+          "name": "test_a4_prefill_per_call_choice_is_independent_of_token_count",
+          "decorators": [
+            "pytest.mark.skipif(not torch.cuda.is_available(), reason=\"requires CUDA\")",
+            "pytest.mark.parametrize(\"enabled\", [False, True])"
+          ]
+        },
+        {
+          "name": "test_a4_prefill_option_leaves_fp4_activation_plans_alone",
+          "decorators": [
+            "pytest.mark.skipif(not torch.cuda.is_available(), reason=\"requires CUDA\")"
+          ]
+        },
+        {
+          "name": "test_a4_prefill_explicit_choice_ignores_auto_a16_cutoff",
+          "decorators": [
+            "pytest.mark.skipif(not torch.cuda.is_available(), reason=\"requires CUDA\")",
+            "pytest.mark.parametrize(\"csf\", [False, True])"
+          ]
+        },
+        {
+          "name": "test_csf_prefetch_query_matches_exact_variant_and_precision",
+          "decorators": [
+            "pytest.mark.parametrize(\"calibrated\", [False, True])"
+          ]
+        },
+        {
+          "name": "test_a4_prefetch_reader_requires_live_size_and_ready_scales",
+          "decorators": []
+        },
+        {
+          "name": "test_a4_prefill_launchers_are_owned_by_each_device",
+          "decorators": [
+            "pytest.mark.skipif(torch.cuda.device_count() < 2, reason=\"requires two CUDA devices\")"
+          ]
+        },
+        {
+          "name": "test_a4_prefill_graph_replay_reuses_launches",
+          "decorators": [
+            "pytest.mark.skipif(not torch.cuda.is_available(), reason=\"requires CUDA\")",
+            "pytest.mark.parametrize(\"terms\", [1, 2])"
+          ]
+        },
+        {
+          "name": "test_a4_csf_scale_readers_preserve_dense_graph_output",
+          "decorators": [
+            "pytest.mark.parametrize(\n    \"intermediate_size,terms,capacity,warps,tokens,ready\",\n    [\n        (256, 1, 320, 8, 131, False),\n        (256, 1, 3072, 8, 131, False),\n        (256, 2, 3072, 8, 131, False),\n        (256, 1, 3072, 16, 131, False),\n        (256, 1, 3072, 8, 131, True),\n        (256, 1, 3072, 8, 1537, False),\n        (256, 1, 3072, 8, 1537, True),\n        (320, 1, 320, 8, 131, False),\n        (320, 2, 3072, 16, 131, False),\n        (320, 1, 3072, 8, 1537, False),\n        (320, 2, 3072, 8, 1537, True),\n    ],\n)"
+          ]
+        }
+      ]
+    }
+  ],
+  "scope": "Static source inventory and prepared hybrid geometry case only; not pytest collection, GPU execution, native-A4 arithmetic qualification or a complete native gate.",
+  "additional_source_anchors": [
+    {
+      "path": "tests/experimental/b12x/quantization/test_bf16_to_fp4_tma.py",
+      "sha256": "1824b30f914f72e3ea9e2c9352d8cf0968c7d5f17f4180f863e6cd6f31292e37",
+      "selected_function": "test_bf16_to_fp4_tma_fp8_scale_boundaries_graph_exact"
+    },
+    {
+      "path": "tests/experimental/b12x/moe/test_w4a16_packed_format.py",
+      "sha256": "010b19883492b7519fd83f38ec6f6529f65b6798f7492953331eb4ce1f1164d6",
+      "selected_function": "test_nvfp4_packed_scale_boundary_preserves_normals_and_discards_subnormals"
+    },
+    {
+      "path": "tests/experimental/b12x/quantization/test_nvfp4_csf_packed.py",
+      "sha256": "65cfc06cd6b9917ed6b63451a9443eb4d7c2b6b792e72b51e1501dc980236fe3",
+      "selected_function": "test_index_matches_the_expansion_pass"
+    }
+  ],
+  "prepared_geometry_case": {
+    "path": "experiments/moe-native-a4/native/test_glm_hybrid_geometry.py",
+    "sha256": "7a17ec0f17dccdabadded518006e325b92ca69a1a51f7f03080cf56e26f5b95b",
+    "hidden_size": 4096,
+    "local_intermediate": 1024,
+    "experts": 288,
+    "top_k": 8,
+    "swiglu_limit": 10.0,
+    "terms": 1,
+    "live_tokens": 192,
+    "gpu_executed": false
+  }
+}

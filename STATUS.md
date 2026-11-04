@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-04: Verified both-node per-expert scale/default-prefetch policy and
+  documented native-A4's A16-prefetch consequence. Pinned native test coverage
+  and prepared an actual-TP2 hybrid oracle case; no GPU qualification or runtime change.
+
 - 2026-11-04: Private Int64 runtime-control verifier passes 23 fault tests and
   the unchanged-incumbent check on both live nodes. Exact inherited build-worker
   differences are required for the future control arm; no serving config changed.

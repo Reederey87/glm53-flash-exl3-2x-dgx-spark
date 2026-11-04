@@ -42,6 +42,9 @@ checkpoint bytes, scale storage and all other recipe fields are unchanged.
 Native A4 and hybrid prefill have different activation-scale contracts; this
 can change both prefill and decode outputs. Do not describe it as merely a
 faster identical kernel, or substitute an EXL3/requantized checkpoint.
+The [native coverage review](native.md) also identifies the one-flag change's
+effect on A16-only scale-prefetch registration and confirms both nodes retain
+the pinned per-expert scale policy. Live selected-plan proof remains required.
 
 ## Exa research, stronger options and local review
 
@@ -80,6 +83,8 @@ Any later trial of either needs its own native, quality and speed gate.
   prefill selection. Existing `test_nvfp4_csf.py`,
   `test_nvfp4_shared_input_scales.py`, `test_nvfp4_auto.py` and
   `test_w4a16_a4_prefill.py` provide starting coverage, not a completed test plan.
+  [Pinned source inventory and an actual-geometry hybrid case](native.md) are
+  prepared, with explicit limits; neither is a GPU qualification result.
 - Include actual TP2 geometry and decode/MTP/prefill boundaries, with bounded
   memory and quantization-aware references. Compile and inspect the executed
   SM121 artifacts on both Sparks. Small-shape tests or a source-only import do
