@@ -3,8 +3,9 @@
 Prepared only, after Exa research and review of the pinned FlashInfer/vLLM,
 local Exllamav3 routing tests and TensorFold's per-path numerical verification.
 No GPU qualification has run and no native container may run beside the active
-Int64 serving matrix. The hybrid case and 32 native-A4 cases are prepared and
-locally collected without GPU execution. The isolated runner, complete source
+Int64 serving matrix. The hybrid case and 44 native-A4 cases (32 expanded,
+12 compressed-scale) are prepared and locally collected without GPU execution.
+The isolated runner, complete source
 bundle and terminal admission gate still need to be frozen.
 
 ## Live controls and consequences of the one-flag treatment
@@ -139,9 +140,9 @@ to add Python test files.
 
 ## Remaining gate work
 
-The native TP2 component below still needs GPU execution. Extend the complete
-bundle with actual-geometry CSF storage/expansion, shared scratch across layers,
-real checkpoint calibration metadata and automatic serving-plan selection.
+The native TP2 components below still need GPU execution. Extend the complete
+bundle with shared scratch across layers, real checkpoint calibration metadata,
+actual checkpoint TP slicing and automatic serving-plan selection.
 Freeze fresh cache paths, both-node idle/identity/source/artifact checks,
 the isolated runner and terminal receipt validator before execution. The
 relevant phase tests include large-offset cases: do not indiscriminately
@@ -154,8 +155,9 @@ matrix may the activation experiment be considered for adoption.
 ## Prepared TP2 native-A4 component
 
 [`test_glm_native_geometry.py`](native/test_glm_native_geometry.py) declares
-32 cases at H4096/N1024/E288/top8 with SwiGLU limit10. Local pytest collection
-finds all32 plus the existing hybrid case; **none has executed on a GPU**.
+32 expanded-scale cases at H4096/N1024/E288/top8 with SwiGLU limit10. Local pytest
+collection now finds these32, the12 compressed-scale cases described below and
+the existing hybrid case; **none has executed on a GPU**.
 The [preparation manifest](native-preparation-manifest.json) records exact
 source hashes, case IDs, thresholds, memory checks and remaining coverage.
 
@@ -217,9 +219,54 @@ scratch request whose individual buffers would fit. These checks are not a
 hard cap on compiler/host allocations and do not replace the both-node90GiB
 idle gate or the future bounded native runner.
 
-This component uses expanded scale storage and forced backend selections.
-It does not qualify the CSF representation, router top-k selection, checkpoint
+These32 cases use expanded scale storage and forced backend selections.
+They do not qualify the CSF representation, router top-k selection, checkpoint
 quality, or the two-process TP collective. Exllamav3 routing tests and
 TensorFold's teacher-receipt checks reinforced keeping those separate from
 fixed-route arithmetic and from bitwise serial replay. No code from either
 engine is installed and no cluster treatment changed during preparation.
+
+### Compressed-scale arithmetic and byte checks
+
+Another12 cases use `Nvfp4CsfWeights` with the actual H4096/N1024/E288/top8
+geometry: compact M1/4/6/8, plus dynamic M9/24/33/4096 with fast math off/on.
+They retain nonuniform activation calibration. The weight block-scale fixture
+varies across rows, columns and experts and includes exact bytes00/01/07/08/
+10/11/20: zeros, positive E4M3 subnormals, normal values and palette exceptions.
+Every expert in each projection must contain actual exception records.
+
+The pinned `compress_fixture` constructs block-format planes from the original
+swizzled bytes; its file hash and import owner are checked. It is a test encoder,
+not a replacement checkpoint codec. A separate expansion plan is declared as
+a dependency of the consuming MoE plan. The prepared native binding must retain
+the compressed decoder and the selected expansion geometry. Expanded buffers
+are poisoned with byte7F before eager execution, capture and each of three
+changed-input replays. Every byte for every active expert in both projections
+must equal the original scale tensors after each phase; at M4096 this covers
+all288 experts. All-row/route arithmetic, clamp activity, masked rows, output
+tails and allocation/pointer checks remain mandatory.
+
+Exa review of the pinned [block-format contract](https://github.com/local-inference-lab/flashinfer/blob/91271757f7746f3dfb58f7c2aeb44a663389de9e/docs/csf-scale-blocks.md)
+and [TensorFold's host-codec review](https://github.com/ashhart/TensorFold/pull/1021)
+motivated the byte checks: matching encoder/decoder mistakes can survive a
+round trip. Here the comparison is against the original native-layout bytes
+and a separate original-weight arithmetic oracle. The local vLLM loader uses
+shared caller-owned expansion buffers and ordered consumers; Exllamav3's TP
+tests keep whole-model partition correctness separate from component math.
+Neither those projects' reported results nor this preparation prove our GPU
+or checkpoint path. Actual checkpoint loading, rank-local slicing and a graph
+with different layers sharing scratch remain separate required coverage.
+
+The pinned checkpoint benchmark is a stronger source for real calibration
+tests. Its original checkpoint arm expects slab components and accepts a
+separate block-checkpoint arm; do not pass this block-only NVIDIA checkpoint
+as the slab source or re-encode its weights to satisfy that interface. The
+block loader helper already accepts explicit TP/rank, which can be reused in
+the future exact-checkpoint gate. Its independent arithmetic oracle is limited
+to at most eight live tokens; larger rows compare native execution arms and
+must not be represented as independent full-chunk arithmetic coverage.
+Its real-data fast-dynamic cosine floor
+of0.99989 is distinct from this synthetic component's prospective0.9999 floor;
+its absolute error bounds also cannot be transferred to differently scaled
+fixtures without justification. No threshold was relaxed and no cluster
+activation flag changed during this preparation.

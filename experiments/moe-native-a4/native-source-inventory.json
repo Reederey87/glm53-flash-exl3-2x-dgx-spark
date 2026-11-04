@@ -344,9 +344,11 @@
   },
   "prepared_native_geometry": {
     "path": "experiments/moe-native-a4/native/test_glm_native_geometry.py",
-    "sha256": "acecaedd9dc171a249a7fe32be9af12a080c587666c0c28d400a98683c3a15c7",
-    "collected_locally": 32,
+    "sha256": "01640704116581b6d2b6e3e6d25fe7cfb7d2bd882cf6dc114def3aa4a70b42d4",
+    "collected_locally": 44,
     "gpu_executed": false,
-    "manifest": "native-preparation-manifest.json"
+    "manifest": "native-preparation-manifest.json",
+    "expanded_cases": 32,
+    "compressed_cases": 12
   }
 }

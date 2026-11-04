@@ -83,9 +83,10 @@ Any later trial of either needs its own native, quality and speed gate.
   prefill selection. Existing `test_nvfp4_csf.py`,
   `test_nvfp4_shared_input_scales.py`, `test_nvfp4_auto.py` and
   `test_w4a16_a4_prefill.py` provide starting coverage, not a completed test plan.
-  [Pinned source inventory, the hybrid case and 32 actual-TP2 native-A4 cases](native.md)
+  [Pinned source inventory, the hybrid case and 44 actual-TP2 native-A4 cases](native.md)
   are prepared, with explicit limits. Local collection and five preallocation
-  guard tests pass; no GPU qualification result is claimed.
+  guard tests pass. Twelve cases add compressed-scale arithmetic and byte-exact
+  active-expert expansion checks; no GPU qualification result is claimed.
 - Include actual TP2 geometry and decode/MTP/prefill boundaries, with bounded
   memory and quantization-aware references. Compile and inspect the executed
   SM121 artifacts on both Sparks. Small-shape tests or a source-only import do

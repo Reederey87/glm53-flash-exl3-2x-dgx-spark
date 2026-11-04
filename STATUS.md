@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-04: Added12 prepared TP2 compressed-scale native-A4 cases with actual
+  exception records and poisoned-buffer byte checks. All44 native cases plus
+  hybrid collect locally; GPU execution waits for the Int64 window to finish.
+
 - 2026-11-04: Prepared32 native-A4 TP2 arithmetic/replay cases with full-chunk,
   compact-boundary, clamp and subnormal coverage; five CPU allocation-guard tests
   pass. GPU execution is pending; the Int64 control matrix remains the only GPU task.
