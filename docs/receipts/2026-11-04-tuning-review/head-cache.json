@@ -1,0 +1,30 @@
+{
+  "timestamp": "2026-11-04T03:26:25.679326+00:00",
+  "scope": "/root/.cache/b12x/compile/preparation",
+  "files": [
+    {
+      "filename": "9c84222449ec24ba544013a9d4bc3787b9d4c1f8b8d571dc3f4da443f8b96f7e.json",
+      "sha256": "88022aa5b4d7520dc237b96ca739d5804a89fd2522801a57dc5c7e4d09efbe28",
+      "bytes": 109314,
+      "mtime_ns": 1793761757052735818,
+      "schema": 22,
+      "tuning_cache_version": 1,
+      "compute_capability": [
+        12,
+        1
+      ],
+      "sm_count": 48,
+      "measurement": "stream_gated_events_v1",
+      "namespace_sha256": "d606c81db2e22f4c09de86f212804adfc92522ebb96797b2ba4d647f53a61514",
+      "record_count": 194,
+      "coverage_totals": {
+        "cartesian_count": 438946,
+        "legal_count": 13376,
+        "effective_count": 13376,
+        "measured_count": 13376
+      },
+      "all_cached_races_complete": true
+    }
+  ],
+  "limitation": "Cached completed races only; does not enumerate fixed, heuristic, missing, or unused model plans. No GPU work or cache writes."
+}

@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-04: Audited installed B12X tuning on both nodes: identical schema-22
+  cache with 194 completed races / 13,376 measured configurations. Candidate17
+  now targets coverage/selection quality; no tuning or serving change applied.
+
 - 2026-11-04: Fresh incumbent b9c5ac7b passed both-rank identity/config,
   all six API checks, eight prefix rows and exact 2,350,210-token KV gate.
   Full max-reasoning baseline matrix d9e6284b is running; no speed result yet.
