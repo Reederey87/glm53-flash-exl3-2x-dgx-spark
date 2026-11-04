@@ -3,8 +3,9 @@
 Prepared only, after Exa research and review of the pinned FlashInfer/vLLM,
 local Exllamav3 routing tests and TensorFold's per-path numerical verification.
 No GPU qualification has run and no native container may run beside the active
-Int64 serving matrix. This is a coverage review and one prepared geometry case,
-not a complete executable gate.
+Int64 serving matrix. The hybrid case and 32 native-A4 cases are prepared and
+locally collected without GPU execution. The isolated runner, complete source
+bundle and terminal admission gate still need to be frozen.
 
 ## Live controls and consequences of the one-flag treatment
 
@@ -138,16 +139,87 @@ to add Python test files.
 
 ## Remaining gate work
 
-Prepare native-A4 arithmetic at the same H4096/N1024/E288/top8/limit10 geometry,
-using per-expert scales and a backend-appropriate oracle. Cover actual decode,
-MTP verification and prefill row counts, including 1/4/6/24, dispatch boundaries
-and the 4096-token chunk; include uniform/nonuniform/subnormal calibration and
-changed inputs/routes through graph replay with poisoned scratch and stable
-allocations. Register exact tolerances, collected identities, bounded memory,
-fresh cache paths, both-node invocation/source/artifact checks and the terminal
-receipt validator before execution. The relevant phase tests include large
-offset cases: do not indiscriminately collect them into this bounded suite.
+The native TP2 component below still needs GPU execution. Extend the complete
+bundle with actual-geometry CSF storage/expansion, shared scratch across layers,
+real checkpoint calibration metadata and automatic serving-plan selection.
+Freeze fresh cache paths, both-node idle/identity/source/artifact checks,
+the isolated runner and terminal receipt validator before execution. The
+relevant phase tests include large-offset cases: do not indiscriminately
+collect them into this bounded suite.
 
 Only after native qualification, the remaining completed-answer quality
 components, actual runtime-treatment proof and the unchanged full speed
 matrix may the activation experiment be considered for adoption.
+
+## Prepared TP2 native-A4 component
+
+[`test_glm_native_geometry.py`](native/test_glm_native_geometry.py) declares
+32 cases at H4096/N1024/E288/top8 with SwiGLU limit10. Local pytest collection
+finds all32 plus the existing hybrid case; **none has executed on a GPU**.
+The [preparation manifest](native-preparation-manifest.json) records exact
+source hashes, case IDs, thresholds, memory checks and remaining coverage.
+
+| Backend | Live rows | Scale profiles | Fast math | Cases |
+|---|---|---|---|---|
+| Compact (`micro`) | 1, 4, 6, 8 | Nonuniform | False | 4 |
+| Dynamic | 1, 4, 6, 8, 9, 16, 17, 24, 32, 33, 4096 | Nonuniform | False and true | 22 |
+| Compact | 6 | Uniform and subnormal | False | 2 |
+| Dynamic | 33 | Uniform and subnormal | False and true | 4 |
+
+Exa reviewed the pinned numerical reference and live-replay tests, plus the
+[SM12x backend synchronization](https://github.com/flashinfer-ai/flashinfer/pull/4285)
+and [scale-numerics correction](https://github.com/flashinfer-ai/flashinfer/pull/3932).
+Those older public entry points do not establish behavior of this installed
+experimental pin. Subsequent local source review found that its
+[`micro.py::is_supported`](https://github.com/local-inference-lab/flashinfer/blob/91271757f7746f3dfb58f7c2aeb44a663389de9e/flashinfer/experimental/b12x/moe/_shared/kernels/micro.py)
+accepts at most eight live tokens. The 8/9 boundary is therefore explicit;
+M24 must not be claimed as compact coverage. Dynamic tile boundaries16/17
+and32/33 are separate checks.
+
+The pinned standard corpus's GLM M1/42-layer cases use local intermediate512
+(TP4). The new fixture uses1024 (TP2), preserves all288 experts and consumes
+the original packed ModelOpt tensors in the independent Torch oracle. The
+corpus is now the ninth test-source anchor, imported for fixture/assertion
+helpers rather than collected wholesale. The actual serving loader's `w13`
+layout and clamp are retained. Exact fixture and installed-reference hashes
+are checked before use; the test tree must not supply kernel implementation.
+
+Every row and route is evaluated, including all4096 rows of the full chunk.
+The unchanged reference dequantizes one route's expert tensors at a time,
+avoiding a full dense288-expert reference copy at the cost of many launches.
+The compact oracle uses `micro` rounding; dynamic uses `dynamic_precise` or
+`dynamic_fast` to match its declared invocation. Physical weight global scales
+are retained while activation calibration changes. Torch's float32 matmul
+precision must be `highest`; reduced-precision reference matmul is refused.
+The test checks that the
+first reference route actually activates the clamp and, for subnormal cases,
+has positive subnormal input and intermediate block scales. A dormant fixture
+fails rather than counting nominal flags as numerical coverage.
+
+Prospective component thresholds are mean row cosine>=0.9999 and
+RMSE/reference RMS<=0.015, with finite/nonzero output. These retain the dynamic
+anchor's bounds and deliberately tighten the older compact corpus's0.999/0.03
+bounds; they have not been established as passing at TP2. Investigate any
+failure before changing a threshold. A16/A4 bit equality is not required.
+Both eager and captured output must pass the initial oracle; three replays
+must pass a second oracle after changing activations, routes and route weights.
+Replays poison output and barriers, require an exactly zero masked row and an
+untouched NaN tail, and forbid allocation-count/live-byte/pointer changes.
+Selected backend and fast-math state are checked, so an unnoticed fallback
+cannot satisfy a forced-path case.
+
+Preallocation guards account for the sum of all scratch buffers, retain at
+least24GiB MemFree after the requested allocation and refuse a planned tensor
+footprint>=32GiB. The fixture reserves an8GiB planning allowance; observed
+CUDA tensor peak must remain below48GiB. Five CPU fault checks verify that
+oversized/low-free requests fail before any allocation, including a combined
+scratch request whose individual buffers would fit. These checks are not a
+hard cap on compiler/host allocations and do not replace the both-node90GiB
+idle gate or the future bounded native runner.
+
+This component uses expanded scale storage and forced backend selections.
+It does not qualify the CSF representation, router top-k selection, checkpoint
+quality, or the two-process TP collective. Exllamav3 routing tests and
+TensorFold's teacher-receipt checks reinforced keeping those separate from
+fixed-route arithmetic and from bitwise serial replay. No code from either
+engine is installed and no cluster treatment changed during preparation.

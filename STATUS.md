@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-04: Prepared32 native-A4 TP2 arithmetic/replay cases with full-chunk,
+  compact-boundary, clamp and subnormal coverage; five CPU allocation-guard tests
+  pass. GPU execution is pending; the Int64 control matrix remains the only GPU task.
+
 - 2026-11-04: Rebuilt control passes both-node runtime, six API checks, eight
   prefix rows and exact KV qualification. Matched max-reasoning matrix started
   as `03687f01` at05:28:43UTC; full performance result remains pending.

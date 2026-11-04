@@ -1,0 +1,89 @@
+{
+  "status": "prepared; no GPU execution or deployment",
+  "flashinfer_revision": "91271757f7746f3dfb58f7c2aeb44a663389de9e",
+  "geometry": {
+    "hidden": 4096,
+    "intermediate_per_tp2_rank": 1024,
+    "experts": 288,
+    "top_k": 8,
+    "swiglu_limit": 10.0
+  },
+  "native_cases": [
+    "m1-micro-fast0-nonuniform",
+    "m4-micro-fast0-nonuniform",
+    "m6-micro-fast0-nonuniform",
+    "m8-micro-fast0-nonuniform",
+    "m1-dynamic-fast0-nonuniform",
+    "m1-dynamic-fast1-nonuniform",
+    "m4-dynamic-fast0-nonuniform",
+    "m4-dynamic-fast1-nonuniform",
+    "m6-dynamic-fast0-nonuniform",
+    "m6-dynamic-fast1-nonuniform",
+    "m8-dynamic-fast0-nonuniform",
+    "m8-dynamic-fast1-nonuniform",
+    "m9-dynamic-fast0-nonuniform",
+    "m9-dynamic-fast1-nonuniform",
+    "m16-dynamic-fast0-nonuniform",
+    "m16-dynamic-fast1-nonuniform",
+    "m17-dynamic-fast0-nonuniform",
+    "m17-dynamic-fast1-nonuniform",
+    "m24-dynamic-fast0-nonuniform",
+    "m24-dynamic-fast1-nonuniform",
+    "m32-dynamic-fast0-nonuniform",
+    "m32-dynamic-fast1-nonuniform",
+    "m33-dynamic-fast0-nonuniform",
+    "m33-dynamic-fast1-nonuniform",
+    "m4096-dynamic-fast0-nonuniform",
+    "m4096-dynamic-fast1-nonuniform",
+    "m6-micro-fast0-uniform",
+    "m33-dynamic-fast0-uniform",
+    "m33-dynamic-fast1-uniform",
+    "m6-micro-fast0-subnormal",
+    "m33-dynamic-fast0-subnormal",
+    "m33-dynamic-fast1-subnormal"
+  ],
+  "local_collection": {
+    "native_a4": 32,
+    "hybrid": 1,
+    "gpu_executions": 0
+  },
+  "oracle": {
+    "path": "flashinfer/experimental/b12x/moe/_shared/kernels/reference.py",
+    "sha256": "e7b34369810c95b2ed469bd4305e224e9e83843414fc69af100b33d9eb96b8a4",
+    "coverage": "Every row and route; original packed layout; backend-specific scale rounding; no CuTe kernel in reference",
+    "float32_matmul_precision": "highest"
+  },
+  "numerical_gate": {
+    "minimum_mean_row_cosine": 0.9999,
+    "maximum_rmse_over_reference_rms": 0.015,
+    "minimum_actual_and_reference_rms": 1e-05,
+    "graph_replays": 3,
+    "zero_masked_row": true,
+    "nan_output_tail_unchanged": true,
+    "no_replay_allocations_or_pointer_changes": true
+  },
+  "memory_checks": {
+    "before_fixture_free_allowance_bytes": 8589934592,
+    "free_floor_after_requested_allocation_bytes": 25769803776,
+    "strict_tensor_footprint_limit_bytes": 34359738368,
+    "strict_observed_peak_limit_bytes": 51539607552,
+    "scope": "Component checks, not the required both-node idle gate or a hard cap on compiler/host allocations"
+  },
+  "files": {
+    "native/test_glm_native_geometry.py": "acecaedd9dc171a249a7fe32be9af12a080c587666c0c28d400a98683c3a15c7",
+    "native/test_glm_hybrid_geometry.py": "7a17ec0f17dccdabadded518006e325b92ca69a1a51f7f03080cf56e26f5b95b",
+    "native-source-inventory.json": "124e768725cdc5a642f291e13741b1bb69dff2683440cef6b865900104682143"
+  },
+  "required_before_gpu": [
+    "Freeze complete test dependency bundle and import/image identities",
+    "Both-node idle/free-memory gate; no serving or other GPU jobs",
+    "Isolated caches and bounded native runner on each node",
+    "Terminal receipt validator, resource/artifact inspection and complete collected-case admission"
+  ],
+  "remaining_coverage": [
+    "Actual-geometry CSF storage/expansion and shared scratch across layers",
+    "Automatic serving selection and real checkpoint calibration metadata",
+    "Completed-answer quality, long context, tool/JSON and full speed matrix",
+    "Two-process TP serving; this component does not execute a collective"
+  ]
+}
