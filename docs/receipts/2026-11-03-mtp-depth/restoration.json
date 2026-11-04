@@ -1,0 +1,13 @@
+{
+  "completed_utc": "2026-11-03T16:09:20Z",
+  "service": "vllm-glm53fp4.service",
+  "service_active": true,
+  "watchdog_timer_active": true,
+  "watchdog_result": "success",
+  "watchdog_exit": 0,
+  "health_http": 200,
+  "recipe_sha256": "cd0d994a55ceeae6b7dab2d02d59f09e461c105d3c7c2effd79dc6c14141589a",
+  "unit_sha256": "af944e8695e5e6db8b4152f591857d1f67d2a7fb5e1432dc25cc4760c35e9631",
+  "mtp_depth": 5,
+  "adoption": "pending user decision"
+}

@@ -1,0 +1,19 @@
+{
+  "head": {
+    "verified": true,
+    "image": "sha256:a7f76ae9f18c7701c9cde5f72c606393d9a21ca94dd8e53b27589935f64fcbe2",
+    "same_environment": true,
+    "same_host_configuration": true,
+    "same_mounts": true,
+    "normalization": "Order of non-overlapping bind entries only"
+  },
+  "worker": {
+    "verified": true,
+    "image": "sha256:a7f76ae9f18c7701c9cde5f72c606393d9a21ca94dd8e53b27589935f64fcbe2",
+    "same_environment": true,
+    "same_host_configuration": true,
+    "same_mounts": true,
+    "normalization": "Order of non-overlapping bind entries only"
+  },
+  "kv_tokens": 2350210
+}

@@ -1,0 +1,20 @@
+{
+  "sha256": "1ee0eb5863106d0dbfa70b1a9b5f7bfc05776d8927a4e694f8af23557670ade0",
+  "file_bytes_advised": 502172556,
+  "metadata_unchanged": true,
+  "note": "Advisory only; file size is not measured reclaimed memory.",
+  "meminfo_before_kib": {
+    "MemFree": 94323644,
+    "MemAvailable": 115703008,
+    "Cached": 25091088,
+    "Dirty": 2684,
+    "Writeback": 0
+  },
+  "meminfo_after_kib": {
+    "MemFree": 94827164,
+    "MemAvailable": 115711208,
+    "Cached": 24601320,
+    "Dirty": 2684,
+    "Writeback": 0
+  }
+}

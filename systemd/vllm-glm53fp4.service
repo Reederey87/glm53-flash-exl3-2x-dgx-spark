@@ -1,0 +1,50 @@
+[Unit]
+Description=GLM-5.3-Flash-FP4-Local on 2x DGX Spark
+# Bound on-failure retries: 3 per hour, then stay failed for a human.
+StartLimitIntervalSec=3600
+StartLimitBurst=3
+Documentation=file:///home/nvidia/glm53-fp4-local/README.md
+
+[Service]
+# oneshot + RemainAfterExit: the launcher dispatches the ranks in daemon mode
+# and returns. ExecStartPost holds the unit in "activating" until /health is 200.
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/nvidia/glm53-fp4-local
+Environment=HOME=/home/nvidia
+Environment=XDG_RUNTIME_DIR=%t
+Environment=PATH=/home/nvidia/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+# The image and the 42-file checkpoint are staged on disk from the manual
+# bring-up. Do not re-pull a moving :latest tag on every boot.
+Environment=PULL_IMAGE=0
+TimeoutStartSec=7200
+TimeoutStopSec=600
+KillMode=process
+
+# A user manager starts early at boot, before dockerd and the worker are ready.
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 60); do docker info >/dev/null 2>&1 && exit 0; sleep 5; done; echo "docker not ready after 300s" >&2; exit 1'
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 120); do ssh -o BatchMode=yes -o ConnectTimeout=5 nvidia@192.168.177.11 docker info >/dev/null 2>&1 && exit 0; sleep 5; done; echo "worker 192.168.177.11 unreachable after 600s" >&2; exit 1'
+# A head-only reboot can leave the worker's old vllm_node running. Clear
+# stale ranks before the memory gate; a no-op on a clean boot.
+ExecStartPre=-/home/nvidia/glm53-fp4-local/launch.sh down
+# The 2M arm needs the unified pool back after a crash or a manual stop. CUDA-free
+# excludes page cache, so wait for MemAvailable, not MemFree.
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 120); do a=$(grep "^MemAvailable:" /proc/meminfo | tr -s " " | cut -d" " -f2); [ "${a:-0}" -ge 104857600 ] && exit 0; sleep 5; done; echo "head MemAvailable <100GiB after 600s" >&2; exit 1'
+
+ExecStart=/home/nvidia/glm53-fp4-local/launch.sh
+# 900s covers the warm-cache boot; the first cold boot can take longer, and
+# the unit remains activating until this succeeds or times out.
+ExecStartPost=/bin/bash -c 'for i in $(seq 1 180); do [ "$(curl -s -o /dev/null -w "%%{http_code}" -m 5 http://127.0.0.1:8000/health || true)" = 200 ] && exit 0; sleep 5; done; echo "health not ready after 900s" >&2; exit 1'
+
+# ExecStopPost also runs after a failed start, so a half-started pair is torn
+# down before systemd retries. `down` is idempotent.
+ExecStop=-/home/nvidia/glm53-fp4-local/launch.sh down
+ExecStopPost=-/home/nvidia/glm53-fp4-local/launch.sh down
+Restart=on-failure
+RestartSec=300
+
+StandardOutput=append:/home/nvidia/glm53-fp4-local/local/prod.log
+StandardError=append:/home/nvidia/glm53-fp4-local/local/prod.log
+
+[Install]
+WantedBy=default.target

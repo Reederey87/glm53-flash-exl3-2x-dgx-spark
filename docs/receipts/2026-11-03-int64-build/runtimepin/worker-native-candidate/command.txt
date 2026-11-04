@@ -1,0 +1,13 @@
+# /run/user/1001/systemd/transient/glm53-int64-worker-candidate-a5901ed.service
+# This is a transient unit file, created programmatically via the systemd API. Do not edit.
+[Unit]
+Description=/bin/bash /home/nvidia/glm53-native-tests/int64-20261103/checks-a5901ed/host-run.sh sha256:bad0f2005665489026ef9febafe8bbc28f6fe0821681cdb82479a21802d1287b candidate /home/nvidia/glm53-native-tests/int64-20261103/results/worker-candidate-runtimepin-a5901ed
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/nvidia/glm53-native-tests/int64-20261103/checks-a5901ed
+StandardOutput=append:/home/nvidia/glm53-native-tests/int64-20261103/receipts/worker-candidate-a5901ed/unit.log
+StandardError=inherit
+ExecStart=
+ExecStart="/bin/bash" "/home/nvidia/glm53-native-tests/int64-20261103/checks-a5901ed/host-run.sh" "sha256:bad0f2005665489026ef9febafe8bbc28f6fe0821681cdb82479a21802d1287b" "candidate" "/home/nvidia/glm53-native-tests/int64-20261103/results/worker-candidate-runtimepin-a5901ed"

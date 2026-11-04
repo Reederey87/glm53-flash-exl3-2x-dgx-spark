@@ -1,0 +1,56 @@
+{
+  "ok": true,
+  "arm": "control",
+  "caches": [
+    {
+      "cache": "/home/nvidia/.cache/vllm",
+      "preserved": "/home/nvidia/.cache/vllm.int64-before-control-20261103",
+      "device": 66306,
+      "inode": 3180077,
+      "mode": "0o775",
+      "uid": 1001,
+      "gid": 1001,
+      "fresh_empty": true
+    },
+    {
+      "cache": "/home/nvidia/.cache/flashinfer",
+      "preserved": "/home/nvidia/.cache/flashinfer.int64-before-control-20261103",
+      "device": 66306,
+      "inode": 3180079,
+      "mode": "0o775",
+      "uid": 1001,
+      "gid": 1001,
+      "fresh_empty": true
+    },
+    {
+      "cache": "/home/nvidia/.cache/b12x",
+      "preserved": "/home/nvidia/.cache/b12x.int64-before-control-20261103",
+      "device": 66306,
+      "inode": 3180080,
+      "mode": "0o775",
+      "uid": 1001,
+      "gid": 1001,
+      "fresh_empty": true
+    },
+    {
+      "cache": "/home/nvidia/.triton",
+      "preserved": "/home/nvidia/.triton.int64-before-control-20261103",
+      "device": 66306,
+      "inode": 3180081,
+      "mode": "0o775",
+      "uid": 1001,
+      "gid": 1001,
+      "fresh_empty": true
+    },
+    {
+      "cache": "/home/nvidia/.tilelang",
+      "preserved": "/home/nvidia/.tilelang.int64-before-control-20261103",
+      "device": 66306,
+      "inode": 3180082,
+      "mode": "0o775",
+      "uid": 1001,
+      "gid": 1001,
+      "fresh_empty": true
+    }
+  ]
+}

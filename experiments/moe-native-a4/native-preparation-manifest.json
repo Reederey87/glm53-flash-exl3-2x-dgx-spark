@@ -1,0 +1,125 @@
+{
+  "status": "prepared; no GPU execution or deployment",
+  "flashinfer_revision": "91271757f7746f3dfb58f7c2aeb44a663389de9e",
+  "geometry": {
+    "hidden": 4096,
+    "intermediate_per_tp2_rank": 1024,
+    "experts": 288,
+    "top_k": 8,
+    "swiglu_limit": 10.0
+  },
+  "native_cases": [
+    "m1-micro-fast0-nonuniform",
+    "m4-micro-fast0-nonuniform",
+    "m6-micro-fast0-nonuniform",
+    "m8-micro-fast0-nonuniform",
+    "m1-dynamic-fast0-nonuniform",
+    "m1-dynamic-fast1-nonuniform",
+    "m4-dynamic-fast0-nonuniform",
+    "m4-dynamic-fast1-nonuniform",
+    "m6-dynamic-fast0-nonuniform",
+    "m6-dynamic-fast1-nonuniform",
+    "m8-dynamic-fast0-nonuniform",
+    "m8-dynamic-fast1-nonuniform",
+    "m9-dynamic-fast0-nonuniform",
+    "m9-dynamic-fast1-nonuniform",
+    "m16-dynamic-fast0-nonuniform",
+    "m16-dynamic-fast1-nonuniform",
+    "m17-dynamic-fast0-nonuniform",
+    "m17-dynamic-fast1-nonuniform",
+    "m24-dynamic-fast0-nonuniform",
+    "m24-dynamic-fast1-nonuniform",
+    "m32-dynamic-fast0-nonuniform",
+    "m32-dynamic-fast1-nonuniform",
+    "m33-dynamic-fast0-nonuniform",
+    "m33-dynamic-fast1-nonuniform",
+    "m4096-dynamic-fast0-nonuniform",
+    "m4096-dynamic-fast1-nonuniform",
+    "m6-micro-fast0-uniform",
+    "m33-dynamic-fast0-uniform",
+    "m33-dynamic-fast1-uniform",
+    "m6-micro-fast0-subnormal",
+    "m33-dynamic-fast0-subnormal",
+    "m33-dynamic-fast1-subnormal"
+  ],
+  "local_collection": {
+    "native_a4_expanded": 32,
+    "native_a4_compressed": 12,
+    "hybrid": 1,
+    "gpu_executions": 0
+  },
+  "oracle": {
+    "path": "flashinfer/experimental/b12x/moe/_shared/kernels/reference.py",
+    "sha256": "e7b34369810c95b2ed469bd4305e224e9e83843414fc69af100b33d9eb96b8a4",
+    "coverage": "Every row and route; original packed layout; backend-specific scale rounding; no CuTe kernel in reference",
+    "float32_matmul_precision": "highest"
+  },
+  "numerical_gate": {
+    "minimum_mean_row_cosine": 0.9999,
+    "maximum_rmse_over_reference_rms": 0.015,
+    "minimum_actual_and_reference_rms": 1e-05,
+    "graph_replays": 3,
+    "zero_masked_row": true,
+    "nan_output_tail_unchanged": true,
+    "no_replay_allocations_or_pointer_changes": true
+  },
+  "memory_checks": {
+    "before_fixture_free_allowance_bytes": 8589934592,
+    "free_floor_after_requested_allocation_bytes": 25769803776,
+    "strict_tensor_footprint_limit_bytes": 34359738368,
+    "strict_observed_peak_limit_bytes": 51539607552,
+    "scope": "Component checks, not the required both-node idle gate or a hard cap on compiler/host allocations"
+  },
+  "files": {
+    "native/test_glm_native_geometry.py": "01640704116581b6d2b6e3e6d25fe7cfb7d2bd882cf6dc114def3aa4a70b42d4",
+    "native/test_glm_hybrid_geometry.py": "7a17ec0f17dccdabadded518006e325b92ca69a1a51f7f03080cf56e26f5b95b",
+    "native-source-inventory.json": "3b6c6d7f7f09055a6b1438ccd4d4fa41459ce88b6c9054ec0ed770117db2dc00"
+  },
+  "required_before_gpu": [
+    "Freeze complete test dependency bundle and import/image identities",
+    "Both-node idle/free-memory gate; no serving or other GPU jobs",
+    "Isolated caches and bounded native runner on each node",
+    "Terminal receipt validator, resource/artifact inspection and complete collected-case admission"
+  ],
+  "remaining_coverage": [
+    "GPU execution of prepared actual-geometry CSF storage/expansion and separate shared-scratch multi-layer graph",
+    "Automatic serving selection and real checkpoint calibration metadata",
+    "Completed-answer quality, long context, tool/JSON and full speed matrix",
+    "Two-process TP serving; this component does not execute a collective"
+  ],
+  "compressed_cases": [
+    "m1-micro-fast0-nonuniform",
+    "m4-micro-fast0-nonuniform",
+    "m6-micro-fast0-nonuniform",
+    "m8-micro-fast0-nonuniform",
+    "m9-dynamic-fast0-nonuniform",
+    "m9-dynamic-fast1-nonuniform",
+    "m24-dynamic-fast0-nonuniform",
+    "m24-dynamic-fast1-nonuniform",
+    "m33-dynamic-fast0-nonuniform",
+    "m33-dynamic-fast1-nonuniform",
+    "m4096-dynamic-fast0-nonuniform",
+    "m4096-dynamic-fast1-nonuniform"
+  ],
+  "compressed_scale_gate": {
+    "encoding": "csf_32x2_v1",
+    "fixture_source": "tests/experimental/b12x/moe/test_nvfp4_csf.py",
+    "fixture_sha256": "e5a3c419c72eee79d8ec028c6ffce08c6bcc4522f7fa21e7e6ae4565e4904a76",
+    "weight_scale_bytes_hex": [
+      "00",
+      "01",
+      "07",
+      "08",
+      "10",
+      "11",
+      "20"
+    ],
+    "every_expert_has_exceptions": true,
+    "poison_byte_hex": "7F",
+    "active_expert_bytes_exact_each_phase": true,
+    "full_chunk_covers_all_experts": true,
+    "explicit_expansion_dependency": true,
+    "selected_expansion_retained_in_moe": true,
+    "cross_layer_shared_scratch_proven": false
+  }
+}

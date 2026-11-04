@@ -1,0 +1,166 @@
+diff --git a/flashinfer/experimental/b12x/comm/roce/_allgather_cute.py b/flashinfer/experimental/b12x/comm/roce/_allgather_cute.py
+index a4e917b27..15d849dd9 100644
+--- a/flashinfer/experimental/b12x/comm/roce/_allgather_cute.py
++++ b/flashinfer/experimental/b12x/comm/roce/_allgather_cute.py
+@@ -182,9 +182,12 @@ class _RoceAllGatherLaunch:
+             # system fence per block after the barrier (cumulative over the
+             # staging stores the barrier ordered) replaces one per thread.
+             if Int32(tidx) == Int32(0):
+-                fence_sc_sys()
+-                prior = atomic_add_relaxed_gpu_u32(stage_counter_ptr, Uint32(1))
+-                if (prior + Uint32(1)) % Uint32(gdim) == Uint32(0):
++                last_stager = Int32(gdim) == Int32(1)
++                if Int32(gdim) != Int32(1):
++                    fence_sc_sys()
++                    prior = atomic_add_relaxed_gpu_u32(stage_counter_ptr, Uint32(1))
++                    last_stager = (prior + Uint32(1)) % Uint32(gdim) == Uint32(0)
++                if last_stager:
+                     st_relaxed_sys_u32(ctrl_base + Int64(4), Uint32(nbytes))
+                     st_relaxed_sys_u32(
+                         ctrl_base + Int64(16) + slot * Int64(4), Uint32(nbytes)
+@@ -193,6 +196,8 @@ class _RoceAllGatherLaunch:
+                     st_relaxed_sys_u32(
+                         ctrl_base + Int64(32) + slot * Int64(4), Uint32(0)
+                     )
++                    # A single block publishes its staged payload and metadata
++                    # together; multiple blocks already fenced before arrival.
+                     fence_sc_sys()
+                     st_relaxed_sys_u32(ctrl_base, seq)
+ 
+@@ -249,8 +254,11 @@ class _RoceAllGatherLaunch:
+             fence_sc_gpu()
+             cute.arch.sync_threads()
+             if Int32(tidx) == Int32(0):
+-                prior = atomic_add_relaxed_gpu_u32(tail_counter_ptr, Uint32(1))
+-                if (prior + Uint32(1)) % Uint32(gdim) == Uint32(0):
++                last_finisher = Int32(gdim) == Int32(1)
++                if Int32(gdim) != Int32(1):
++                    prior = atomic_add_relaxed_gpu_u32(tail_counter_ptr, Uint32(1))
++                    last_finisher = (prior + Uint32(1)) % Uint32(gdim) == Uint32(0)
++                if last_finisher:
+                     fence_sc_gpu()
+                     # Every block's timeout store precedes its tail arrival, so the
+                     # error word is final here.  A failed sequence keeps the epoch,
+@@ -338,7 +346,7 @@ def get_launcher(
+         1,
+         1,
+         current_cuda_stream(),
+-        compile_spec=KernelCompileSpec.from_key("comm.roce.allgather", 5, cache_key),
++        compile_spec=KernelCompileSpec.from_key("comm.roce.allgather", 6, cache_key),
+     )
+ 
+     def run(
+diff --git a/flashinfer/experimental/b12x/comm/roce/_oneshot_cute.py b/flashinfer/experimental/b12x/comm/roce/_oneshot_cute.py
+index d63c3331a..fce6e4daf 100644
+--- a/flashinfer/experimental/b12x/comm/roce/_oneshot_cute.py
++++ b/flashinfer/experimental/b12x/comm/roce/_oneshot_cute.py
+@@ -255,9 +255,12 @@ class _RoceOneshotLaunch:
+ 
+             # 2. the last block to finish staging rings the proxy doorbell
+             if Int32(tidx) == Int32(0):
+-                fence_sc_sys()
+-                prior = atomic_add_relaxed_gpu_u32(stage_counter_ptr, Uint32(1))
+-                if (prior + Uint32(1)) % Uint32(gdim) == Uint32(0):
++                last_stager = Int32(gdim) == Int32(1)
++                if Int32(gdim) != Int32(1):
++                    fence_sc_sys()
++                    prior = atomic_add_relaxed_gpu_u32(stage_counter_ptr, Uint32(1))
++                    last_stager = (prior + Uint32(1)) % Uint32(gdim) == Uint32(0)
++                if last_stager:
+                     st_relaxed_sys_u32(ctrl_base + Int64(4), Uint32(nbytes))
+                     st_relaxed_sys_u32(
+                         ctrl_base + Int64(16) + slot * Int64(4), Uint32(nbytes)
+@@ -266,6 +269,8 @@ class _RoceOneshotLaunch:
+                     st_relaxed_sys_u32(
+                         ctrl_base + Int64(32) + slot * Int64(4), Uint32(0)
+                     )
++                    # A single block publishes its staged payload and metadata
++                    # together; multiple blocks already fenced before arrival.
+                     fence_sc_sys()
+                     st_relaxed_sys_u32(ctrl_base, seq)
+ 
+@@ -315,8 +320,11 @@ class _RoceOneshotLaunch:
+             fence_sc_gpu()
+             cute.arch.sync_threads()
+             if Int32(tidx) == Int32(0):
+-                prior = atomic_add_relaxed_gpu_u32(tail_counter_ptr, Uint32(1))
+-                if (prior + Uint32(1)) % Uint32(gdim) == Uint32(0):
++                last_finisher = Int32(gdim) == Int32(1)
++                if Int32(gdim) != Int32(1):
++                    prior = atomic_add_relaxed_gpu_u32(tail_counter_ptr, Uint32(1))
++                    last_finisher = (prior + Uint32(1)) % Uint32(gdim) == Uint32(0)
++                if last_finisher:
+                     fence_sc_gpu()
+                     # Every block's timeout store precedes its tail arrival, so the
+                     # error word is final here.  A failed sequence keeps the epoch,
+@@ -422,7 +430,7 @@ def get_launcher(
+         1,
+         1,
+         current_cuda_stream(),
+-        compile_spec=KernelCompileSpec.from_key("comm.roce.oneshot", 6, cache_key),
++        compile_spec=KernelCompileSpec.from_key("comm.roce.oneshot", 7, cache_key),
+     )
+ 
+     def run(
+diff --git a/tests/experimental/b12x/comm/test_roce_oneshot_gpu.py b/tests/experimental/b12x/comm/test_roce_oneshot_gpu.py
+index 9caf73f88..11298beb7 100644
+--- a/tests/experimental/b12x/comm/test_roce_oneshot_gpu.py
++++ b/tests/experimental/b12x/comm/test_roce_oneshot_gpu.py
+@@ -690,6 +690,8 @@ def test_all_gather_graph_replay_with_alternating_grid_sizes(runtime):
+     topk = torch.zeros(8, 64, dtype=torch.float32, device=runtime.device)
+     logits = torch.zeros(8, 38720, dtype=torch.bfloat16, device=runtime.device)
+     h = torch.zeros(8 * 4096, dtype=torch.bfloat16, device=runtime.device)
++    small = torch.zeros(8, dtype=torch.bfloat16, device=runtime.device)
++    small_out = torch.empty_like(small)
+     topk_out = torch.empty(8, 64 * world, dtype=torch.float32, device=runtime.device)
+     logits_out = torch.empty(
+         8, 38720 * world, dtype=torch.bfloat16, device=runtime.device
+@@ -712,6 +714,7 @@ def test_all_gather_graph_replay_with_alternating_grid_sizes(runtime):
+     stream = torch.cuda.Stream(device=runtime.device)
+     stream.wait_stream(torch.cuda.current_stream())
+     with torch.cuda.stream(stream):
++        runtime.all_reduce(small, out=small_out)
+         runtime.all_gather(topk, dim=-1, out=topk_out)
+         runtime.all_gather(logits, dim=-1, out=logits_out)
+         runtime.all_reduce(h, out=reduced)
+@@ -720,10 +723,13 @@ def test_all_gather_graph_replay_with_alternating_grid_sizes(runtime):
+     dist.barrier()
+     graph = torch.cuda.CUDAGraph()
+     with torch.cuda.graph(graph, stream=stream), runtime.capture(stream=stream):
++        runtime.all_reduce(small, out=small_out)
+         runtime.all_gather(topk, dim=-1, out=topk_out)
+         runtime.all_gather(logits, dim=-1, out=logits_out)
++        runtime.all_reduce(small, out=small_out)
+         runtime.all_gather(topk, dim=-1, out=topk_out)
+         runtime.all_reduce(h, out=reduced)
++        runtime.all_reduce(small, out=small_out)
+         runtime.all_gather(topk, dim=-1, out=topk_out)
+     torch.cuda.synchronize()
+     dist.barrier()
+@@ -732,6 +738,7 @@ def test_all_gather_graph_replay_with_alternating_grid_sizes(runtime):
+         topk.copy_(torch.randn_like(topk))
+         logits.copy_(torch.randn_like(logits))
+         h.copy_(torch.randn_like(h))
++        small.copy_(torch.randn_like(small))
+         parts = [torch.empty_like(topk) for _ in range(world)]
+         dist.all_gather(parts, topk)
+         expected_topk = torch.cat(parts, dim=-1)
+@@ -740,9 +747,18 @@ def test_all_gather_graph_replay_with_alternating_grid_sizes(runtime):
+         expected_logits = torch.cat(parts, dim=-1)
+         expected_reduce = h.clone()
+         dist.all_reduce(expected_reduce)
++        expected_small = small.clone()
++        dist.all_reduce(expected_small)
++        allocated = torch.cuda.memory_allocated()
++        allocations = torch.cuda.memory_stats()["allocation.all.allocated"]
+         graph.replay()
+         torch.cuda.synchronize()
++        assert torch.cuda.memory_allocated() == allocated
++        assert torch.cuda.memory_stats()["allocation.all.allocated"] == allocations
+         runtime.check_health()
++        torch.testing.assert_close(
++            small_out, expected_small, rtol=2e-2, atol=2e-2 * world
++        )
+         assert torch.equal(topk_out, expected_topk)
+         assert torch.equal(logits_out, expected_logits)
+         torch.testing.assert_close(

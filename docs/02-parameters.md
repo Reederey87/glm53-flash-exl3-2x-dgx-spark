@@ -1,323 +1,125 @@
 # Parameters
 
-Every value in `env.example`, and why. The short version: **four knobs form a load-bearing
-system — `MAX_MODEL_LEN=1000000`, `MAX_NUM_BATCHED_TOKENS=3584`, the KV pin, and
-`--no-async-scheduling`. Change one and you must re-derive the others.**
+The serving shape lives in
+[`recipes/glm-5.3-flash-fp4-local.yaml`](../recipes/glm-5.3-flash-fp4-local.yaml).
+This page explains every value and where it comes from. The reference is the
+[NVIDIA model card](https://huggingface.co/nvidia/GLM-5.3-Flash-FP4-Local) and
+the upstream
+[`glm-5.3-flash.yaml`](https://github.com/eugr/spark-vllm-docker/blob/main/recipes/glm-5.3-flash.yaml)
+at `0bdc9c9`.
 
-## Caller exports and `.env`
+## Model and runtime
 
-For every key assigned by `.env`, a non-empty caller export wins for that
-invocation. This makes guarded commands such as
-`MAX_MODEL_LEN=200000 ./start.sh validate` reflect the requested arm instead of
-silently retaining the file value. The launcher captures only exported,
-non-readonly names and never evaluates generated shell text.
+| Setting | Value | Why |
+|---|---|---|
+| `model` | `nvidia/GLM-5.3-Flash-FP4-Local` | The vendor QAD checkpoint. Its compressed scales require the B12X image. |
+| `container` | `vllm-node-b12x` | Local tag for `eugr/spark-vllm-b12x:latest`. |
+| `build_args` | `--exp-b12x` | Tells `build-and-copy.sh` to pull the B12X image rather than build a runner. |
+| `--load-format` | `b12x` | B12X loader; faster and more memory-efficient than InstantTensor on GB10. |
+| `--quantization` | `modelopt_mixed` | Matches the checkpoint's mixed NVFP4/MXFP8/FP8 graph. |
+| `--dtype` | `bfloat16` | Non-quantized tensors are BF16. |
+| `--trust-remote-code` | not set | The B12X image already contains `Glm5NextForConditionalGeneration`; the model card's command does not use it. |
 
-An empty caller export normally keeps the `.env` value, matching the historical
-launcher behavior. `GLM53_KV_CAPACITY_LOG`,
-`GLM53_PREFIX_CACHE_SPARSE_MISS_METRIC`, `GLM53_APC_NO_STORE`, and
-`GLM53_INDEXER_WORKSPACE` are deliberate exceptions: empty is invalid for those
-strict knobs, so it survives to `validate_numeric_config` and fails before any
-restart side effect.
+## Parallelism and cache
 
-## MAX_MODEL_LEN=1000000
+| Setting | Value | Why |
+|---|---|---|
+| `--tensor-parallel-size` | `2` | One rank per Spark. |
+| `--decode-context-parallel-size` | `1` | The DGX Spark recipe does not use DCP. |
+| `--attention-backend` | `B12X` | Required for the compressed checkpoint and the hybrid attention. |
+| `--moe-backend`, `--linear-backend` | `b12x` | B12X MoE and linear kernels. |
+| `--block-size` | `256` | Vendor recipe and model card value. Must be a multiple of the indexer's kpool (4) and match the mamba alignment. |
+| `--mamba-cache-mode` | `align` | Keeps KDA recurrent state aligned with the paged cache. |
+| `--enable-prefix-caching` | on | Vendor recipe; agentic follow-ups depend on it. |
+| `--enable-prompt-tokens-details` | on | Populates `usage.prompt_tokens_details.cached_tokens`; without it the API returns null and a cache hit is invisible to the client. |
+| `--enable-chunked-prefill` | on | Lets short requests interleave with long prefill. |
+| `--kv-cache-dtype` | `fp8` | The validated cache format. |
+| `--kv-cache-memory-bytes` | `17G` | Explicit 2M pool; measured 2,078,358 tokens. See below. |
+| `--mm-processor-cache-gb` | `0` | Returns the 4 GiB multimodal processor cache to offset the explicit KV reservation. Text serving is unaffected. |
+| `--max-model-len` | `500000` | Vendor-validated window on this hardware. The checkpoint supports 1M; see the README for the override. |
+| `--max-num-seqs` | `4` | Four 500k requests fill the 2M pool. |
+| `--max-num-batched-tokens` | `4096` | Vendor value; controls prefill chunk size. |
+| `--gpu-memory-utilization` | `0.87` | Vendor value. |
 
-This deployment started at 262k because the pinned pool then counted 318,640 tokens
-(1.22× one full request) and 900k meant every concurrent session evicted every other
-session's cache. Two allocator changes later (the drafter/MLA page **slot-share** plus
-the hybrid prefix-hit fix — see `docs/06-improvement-plan.md`), the **same pinned
-bytes** count **1,396,551 tokens = 1.40× a full 1M request**, and 1M allocates cleanly.
-Pool "tokens" are geometry-dependent; the bytes never move.
+### Why 17G, and what the card's 0.87 measured
 
-Cost of the 1M window, measured: ~6–9% prose decode and longer cold prefill; structured
-decode unaffected. Solo-session cache retention holds ~340k tokens at 99%; two ≥68k
-sessions still thrash each other to 0% (see `docs/04-prefix-caching.md`) — the window
-does not repeal the one-long-context-client rule.
+The model card's DGX Spark command uses `--gpu-memory-utilization 0.87` and no
+`--kv-cache-memory-bytes`. The upstream recipe carries an 8G default but does
+not interpolate it into the command. On this pair the card's command measured
+**1,944,029 tokens** (3.89× at 500k). Pinning 17 GiB measured **2,078,358**
+(4.16×), and `--mm-processor-cache-gb 0` returns the 4 GiB processor cache to
+partly offset the extra reservation. The measured arms:
 
-## MAX_NUM_BATCHED_TOKENS=3584 — do not "round" this number
+| Arm | KV | Tokens | 500k concurrency | Free after boot |
+|---|---:|---:|---:|---:|
+| 11 GiB, model-card command otherwise | 11 GiB | 1,343,283 | 2.69× | ~10 GiB |
+| Model-card command (`0.87`, no cap) | 16.93 GiB | 1,944,029 | 3.89× | ~4.8 GiB |
+| **Pinned 2M arm (this recipe)** | **17 GiB** | **2,078,358** | **4.16×** | **~4.8 GiB** |
 
-3584 **is the cache page size** vLLM derives for this hybrid model ("Setting attention
-block size to 3584 tokens…" in the boot log). Align-mode prefix caching checkpoints the
-KDA state only when a prefill chunk ends exactly on a page boundary:
+The boot log is the authority; `./launch.sh kv` fails below 2,000,000. The
+17 GiB arm sits at the memory edge: ~4.8 GiB free, ~3.7 GiB available after
+startup. Do not co-locate other workloads on these nodes. See
+[docs/04-kv-cache.md](04-kv-cache.md#memory-margin).
 
-- MNBT **below** 3584 (upstream ships 1024): chunk ends drift, checkpoints almost never
-  land, and a missing KDA checkpoint **vetoes all attention-layer cache hits** — the
-  dashboard reads exactly 0% with nothing in the logs.
-- MNBT **8192**: OOMs the GB10 indexer's shared memory on long prefill.
-- **3584**: one page per chunk; verified clean on a 200k cold prefill at ~940 tok/s.
+## Speculative decoding
 
-If a future image changes the page size, MNBT must move with it.
+```json
+{"method":"mtp","num_speculative_tokens":5,
+ "moe_backend":"humming","attention_backend":"B12X"}
+```
 
-## EXTRA_ARGS: the KV pin + async off
+The GLM-5.3 checkpoint carries its own MTP head, so there is no external draft
+model. `num_speculative_tokens: 5` is the vendor recipe value. The
+`humming`/`B12X` backends are the vendor pairing for this checkpoint. MTP
+acceptance is reported by `scripts/spec_acceptance.py` from the vLLM counters;
+do not use a lifetime counter as a run rate.
 
-`--kv-cache-memory-bytes 15414698763` (14.36 GiB) pins the pool: vLLM skips memory
-profiling and the pool is byte-identical every boot. The value is vLLM's own suggestion
-from the first unpinned boot. Rules:
+## Parsers
 
-- **Never raise it.** With the pin there is no fit protection; under a 4×60k concurrent
-  burst the head node has **3.6 GiB MemFree**. An overshoot is a mid-flight OOM kill,
-  not a clean error. If boot-time free memory ever shrinks, LOWER the pin.
-- **Keep the quoted form.** Unquoted, `source` under `set -a` parses the number as a
-  command and `start.sh` dies with exit 127.
+| Flag | Why |
+|---|---|
+| `--reasoning-parser glm45` | The checkpoint emits `<think>…</think>`; `glm45` maps it to `reasoning_content`. |
+| `--tool-call-parser glm47` | The checkpoint's `<tool_call>` XML uses the glm47 grammar. |
+| `--enable-auto-tool-choice` | Required for the tool parser to act on `tool_choice: auto`. |
 
-`--no-async-scheduling` is mandatory, twice over: the tri-state default resolves to
-ENABLED if you merely omit the flag, and under async the sliding-window-family
-reservation is double-counted (vLLM #47728 class), which inflates the MNBT-3584
-admission check to 17.51 GiB > the pin — the engine refuses to boot. Async-off passes
-the same check and benched at/above the async reference here (structured 69.8 vs 67.4).
+The chat template ships in the weights repository. Do not substitute the old
+EXL3 kit's template; this checkpoint's template handles reasoning effort, tool
+results, and image/video placeholders.
 
-## GPU_MEM_UTIL=0.85
+## Environment variables
 
-With the pin this sizes **nothing** — it is only the boot gate (`free >= total × util`),
-and the gate reads CUDA device-free, which tracks `MemFree`, NOT `MemAvailable` (page
-cache is invisible to it). 0.87 demands 105.87 GiB free against boots measured at
-104.1–106.98 and crash-loops. Leave it.
+These are set by the recipe and passed to both containers:
 
-## The rest
+| Variable | Value | Why |
+|---|---|---|
+| `CUTE_DSL_ARCH` | `sm_121a` | GB10 is SM121a; the B12X kernels compile for it. |
+| `SAFETENSORS_FAST_GPU` | `1` | Faster local checkpoint load. |
+| `VLLM_ENABLE_ROCE_ALLREDUCE` | `1` | Use the B12X one-shot RoCE all-reduce on the CX7 link. |
+| `VLLM_ROCE_ALLREDUCE_MAX_SIZE` | `2MB` | Vendor threshold. |
+| `NCCL_BUFFSIZE` | `1048576` | Vendor value for the RDMA path. |
+| `NCCL_MAX_CTAS` | `8` | Vendor value. |
+| `VLLM_WORKER_MULTIPROC_METHOD` | `spawn` | Required by the v2 model runner. |
+| `VLLM_SSM_CONV_STATE_LAYOUT` | `DS` | KDA state layout. |
+| `VLLM_USE_AOT_COMPILE` | `1` | Ahead-of-time compile the B12X kernels. |
+| `VLLM_USE_MEGA_AOT_ARTIFACT` | `1` | Use the merged AOT artifact. |
+| `VLLM_USE_V2_MODEL_RUNNER` | `1` | The B12X path expects the v2 runner. |
+| `VLLM_ENABLE_PCIE_ALLREDUCE` | `0` | Two Sparks use the CX7 RoCE path, not PCIe. |
+| `B12X_POLICY_MODE` | `auto` | Let B12X select its policy. |
+| `VLLM_B12X_MOE_FP4_FORCE_A16` | `1` | Vendor value for FP4 MoE activations. |
+| `B12X_W4A16_A4_PREFILL` | `1` | Vendor prefill path. |
 
-- `MAX_NUM_SEQS=4` — matches the cudagraph capture set (4 seqs × 8 spec tokens = 32).
-- `ENFORCE_EAGER` stays **0** in production. Live argv captures
-  `--cudagraph-capture-sizes 1 2 4 8 16 24 32` (k=7 × C4). Do not restart into
-  eager from a `/metrics` scrape. `scripts/spec-graph-probe.sh` classifies
-  accepted fraction, accepted drafts/step and output tokens/step separately.
-  Structured 1.000/7.000 is a healthy ceiling, not vllm#53030 LENGTH=1. A
-  graph-vs-eager comparison is a guarded restarted/rewarmed arm, parked unless
-  that probe reports `collapse`.
-- `DFLASH_TOKENS=7` — k=5 was rejected in A/B (structured −28%; the k+1 ceiling is
-  arithmetic). The capture sizes are sized for k=7; they are not free memory.
-- `READY_TIMEOUT=4800` / `VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS=1800` — a cold JIT rebuild
-  after a cache wipe is slow, not dead. Timeouts that "look generous" prevent the
-  watchdog from shooting a booting engine.
-- `IMAGE` names an **immutable** artifact + `SKIP_PULL=1` — since 2026-08-30 that is a local build tag produced by this repo's `Dockerfile` (previously a registry digest); either way, a restart must never silently upgrade
-  the runtime. The weekly check-updates timer diffs the registry digest against the pin
-  so upgrades are deliberate.
+`CUTE_DSL_ARCH=sm_121a` is not the same spelling as the older kit's
+`TORCH_CUDA_ARCH_LIST=12.1a`; using the old value on this image does not select
+the B12X kernels.
 
-## Added 2026-08-31
+## What not to change without an A/B window
 
-- `DFLASH_REVISION=7d74cdd…` — the drafter checkpoint, pinned. The Hub repo mutates
-  under a fixed name; without the pin, a re-download quietly swaps drafter weights,
-  which is the same stale-kernel hazard as changing `DFLASH_TOKENS` (it is in the JIT
-  shape hash for that reason). Newer official checkpoints (`dc77ff1`, `bf582e4`)
-  were benched and rejected (W19). The compatible on-policy
-  `cfontes/GLM-5.3-Flash-DFlash2-TR3-v3` `45f7e139` was A/B'd 2026-09-09
-  (task 28) at k=7 / adaptive-k ema / TRF=32 and **REVERTED** as a wash
-  (hashmap −2.2%, essay −3.5%). Keep `7d74cdd`. Do not chain k=2.
-- `DEFAULT_MAX_NEW_TOKENS=65536` — server-side ceiling for requests that omit
-  `max_tokens`. Without it, one forgetful client can decode toward a million tokens
-  and starve everyone. Passed as its own `--override-generation-config` argument so
-  the JIT shape hash ignores it; the model's own sampling defaults (temperature 1.0)
-  survive the merge — verify the boot log line says so.
-- `GLM53_SPINWAIT_2MS=1` — cuts vLLM's shared-memory reader spin from 1 s to 2 ms.
-  On a 20-core GB10 the default keeps two threads busy-spinning at ~90% through every
-  decode; with the patch the spinner parks and the head's hot zones drop ~5 °C.
-  Throughput measured unchanged against a same-day control.
-- `GLM53_FINE_GRAINED_APC=1` — lets prefix-cache hits land on 64-token boundaries
-  instead of full 3,584-token pages (the coordinator's veto came from a scratch
-  buffer that never caches anyway — `docs/04`). This is what makes small prompts and
-  follow-up turns cache; it costs ~3% structured decode, accepted deliberately.
-
-## Added 2026-09-01
-
-- `GLM53_DEFAULT_REASONING_EFFORT=high` — server-side default reasoning effort
-  (W27). The W16 template maps *unset* to `max`, so any client sending only
-  `enable_thinking` ran at the most expensive setting; this knob injects
-  `--default-chat-template-kwargs '{"reasoning_effort":"high"}'` as one argv
-  element. Strict enum (`low|high|max`, empty = off), validated start/restart
-  only, not in the JIT shape hash. Per-request `chat_template_kwargs` win.
-- `GLM53_ALIGN_FLOOR=1` — align-floor overlay (dormant at LPTT=1792). Stops the
-  mamba align split from zeroing a sub-block chunk when `LPTT >= block_size`;
-  required before any `LPTT >= 3584` arm. Read once at import.
-- `GLM53_KV_CAPACITY_LOG=1` — honest KV-capacity boot log (W41, log-only).
-  After the stock line, prints one line per KV-cache group plus the usable
-  block-id count and the aligned dense-retention cached-conversation capacity —
-  the stock "GPU KV cache size" number is a concurrency figure in token units
-  for a multi-group hybrid, not a cache capacity. Derivation errors are logged,
-  never boot-fatal. Not in the JIT shape hash.
-- `GLM53_PREFIX_CACHE_SPARSE_MISS_METRIC=1` — metric-only backport of vLLM
-  #52527. Exports `vllm:prefix_cache_sparse_retention_misses`, the number of
-  shared-prefix tokens matched by at least one participating KV group but
-  discarded when hybrid hit reconciliation selected a shorter common hit.
-  It records only after successful admission and changes no cache lookup,
-  retention, scheduling, allocation, eviction, or request output. `0` leaves
-  the three vLLM metric files byte-identical. Not in the JIT shape hash.
-- `GLM53_APC_NO_STORE=1` — kill switch for the per-request prefix-cache
-  no-store surface (W42). A request sent with `vllm_xargs
-  {"skip_writing_prefix_cache": 1}` (or the typed `SamplingParams` field) never
-  inserts its blocks into the GPU prefix cache; lookups are unaffected and its
-  blocks stay unhashed, recycling LIFO-first, so one-off batch lanes stop
-  evicting other sessions' cached prefixes. Malformed values are an HTTP 400 at
-  the API boundary. Not in the JIT shape hash.
-
-## Added 2026-09-07
-
-- `VLLM_USE_V2_MODEL_RUNNER` — not a configuration knob on this image.
-  Production already logs `Using V2 Model Runner`, GLM is in the default V2
-  architecture set, and W28 patches `v1/worker/gpu/model_runner.py`. Unset
-  or `1` is a no-op; `0` is refused by `start.sh validate` before any
-  stop/restart. Upstream DSpark adaptive verification stays parked; the
-  overlay-only Task 25 arm below is the verification-prefix experiment.
-- `SPEC_METHOD=mtp` — MTP rollback is refused when `MAX_NUM_SEQS > 12`
-  (capture-size guard). `dflash` remains production. Validation runs before
-  stop, so a refused rollback cannot tear the pair down.
-- Inherited `KVCacheSpec.merge` — `overlay/patch_kv_merge_assert.py` ports
-  upstream #55234's `assert` → `raise AssertionError` so grouping stays
-  fail-closed under `python -O`. The DSpark `non_causal_multi_token_decode`
-  any-merge and 656 B/token `fp8_ds_mla` page are already on this image.
-  Not in the JIT shape hash.
-
-## Added 2026-09-09
-
-- `GLM53_ADAPTIVE_K=ema` — verification-only adaptive-k (Task 25 / kit
-  #139 split), **adopted 2026-09-09**. `ema` trims only
-  `request.spec_token_ids` so the **target** verify uses a 2/4/7
-  prefix; the DFlash2 drafter query/mask/selector/cache stay eight-row
-  (`DFLASH_TOKENS` remains 7). Structured output and the first
-  `MIN_STEPS` (default 4) stay at full k. Batch-min keeps FULL graphs
-  uniform. Not a drop-in of kit #139: that PR writes `batch_k()` into
-  `num_spec_tokens_to_schedule`, which sizes the trained draft on this
-  image. `start.sh` still defaults to `off`; production `.env`
-  last-wins `ema`. Rollback is `GLM53_ADAPTIVE_K=off` (policy only;
-  extra graphs are the sibling knob). The policy knob is **not** in
-  the JIT shape hash.
-- `GLM53_ADAPTIVE_K_CAPTURE=1` — extra target FULL graphs for verify
-  query lengths 3 and 5
-  (`--cudagraph-capture-sizes 1 2 3 4 5 6 8 9 10 12 15 16 20 24 32`).
-  Independent of the EMA. Adopted with Task 25 because B needs those
-  graphs; A vs B0 was capture/padding cost, not the D2 win. Extra
-  capture **is** a config-shape change (`prod-start.sh` hashes
-  `EXTRA_ARGS` and this knob) and paid a ~1.1 GiB idle MemFree step
-  (6.00/5.74 → 4.90/4.57 GiB), still above the 2.5 GiB abort. Rollback
-  both knobs to `off`/`0` through the guarded unit (stock
-  `1 2 4 8 16 24 32`, no image rebuild).
-- `GLM53_ADAPTIVE_K_SATURATE` — leftover Task 25 policy knob.
-  **REVERTED 2026-09-09 at `n`.** Production last-wins stay unset
-  (launcher default `max`). `max` treats a fully-accepted prefix as
-  k=7 so the EMA can climb; `n` records the accepted count and never
-  climbs after a low-accept stretch. Policy-only: not in the JIT
-  shape hash, no cubin, no extra graphs. Isolated A vs B on
-  `e3-w3-zfill` / TRF=32 / ema / extra graphs / k=7: hashmap
-  29.09 → 28.90 (−0.7%), essay 24.95 → 25.21 (+1.1%), structured
-  70.51 → 70.23 @ 7.0/1.000 (−0.4%). Wash vs the ≥5% prose/agentic
-  bar. Do not chain ALPHA/MARGIN/MIN_STEPS. Rollback: unset through
-  the guarded unit (oneshot restart; `start` is a no-op).
-- `GLM53_ADAPTIVE_K_BATCH_MARGIN=1` — trims the uniform target batch
-  row to the min known choice when the batch mixes known EMA choices
-  with policy-warmup pins (unseen requests, MIN_STEPS). The uniform
-  FULL-graph row is `max(1 + k_i)`, so one warmup-pinned request
-  otherwise holds the whole batch at k=7 even after the EMA trimmed
-  the rest. Actual rule: with no structured request present, ignore
-  the warmup pins and take the minimum of the known choices; a single
-  known choice is enough (no majority needed). Any structured request
-  still pins the batch at full k (its rows passed grammar validation),
-  and an all-unseen batch stays at full k (nothing known to trim
-  toward). Saturating-accept requests return ordinary known choices
-  through `saturate=max`, not the `None` pin this branch handles.
-  Policy-only: no draft execution change, no new capture shapes, not
-  in the JIT shape hash (same rule as the EMA knob). Default `0`
-  (EMA-only). Requires `GLM53_ADAPTIVE_K=ema`. Gate with the margin
-  alone frozen; prose acceptance must not regress. Rollback: `0`
-  through the guarded unit, no image rebuild.
-- `GLM53_ADAPTIVE_K_POS_TRIM=1` — concurrency-gated clamp of the
-  uniform batch row to the ladder floor (`min(SET)`, 2 on the standing
-  `2,4,7` set), but only when 2+ observed requests share the batch.
-  At C1 it is a no-op: a lone request keeps its warm EMA choice. Any
-  warmup pin (unseen, under MIN_STEPS) or any structured request also
-  disables it for that step, so mixed batches keep the batch-margin
-  width and C1 keeps the EMA width. Rationale: per-request trims alone
-  cannot move the uniform FULL-graph row on prose mixes (the +10.7%
-  margin arm still verified at ~2.5/step on prose), while upstream
-  D-Cut/adaptive-verify wins concentrate at concurrency ≥ 16 with
-  ~10% low-concurrency overhead. The gate is the shared row: at C1 the
-  treatment must be byte-identical to the control (hist parity), at C4
-  the row must drop toward k+1 = 3 without an accept/step regression.
-  Policy-only: no draft execution change, no new capture shapes, not
-  in the JIT shape hash (same rule as the EMA knob). Default `0`.
-  Requires `GLM53_ADAPTIVE_K=ema` **and**
-  `GLM53_ADAPTIVE_K_BATCH_MARGIN=1` (single verify-width policy;
-  `start.sh` refuses pos-trim without the margin). Rollback: `0`
-  through the guarded unit, no image rebuild.
-
-- `GLM53_PROFILE_TORCH_DIR` / `GLM53_PROFILE_MAX_ITERS` — Task 29/31
-  decode-step profiler, **oracle only, not production**. Empty dir = off.
-  When set, `start.sh` appends `--profiler-config.profiler=torch`,
-  `--profiler-config.torch_profiler_dir=…`,
-  `--profiler-config.torch_profiler_with_stack=false`,
-  `--profiler-config.ignore_frontend=true` and
-  `--profiler-config.max_iterations=<iters>` to **both** rank inner
-  scripts, which mounts `/start_profile` / `/stop_profile`. The dir must
-  be an absolute path under `/root/.cache/vllm/`; iters is a base-10
-  integer `0..99999999`.
-  `ProfilerConfig.compute_hash()` is a constant
-  (`d751713988987e9331980363e24189ce`), so the knobs are deliberately
-  **not** in the `local/prod-start.sh` JIT shape hash — the 2026-09-09
-  window proved the stamp unchanged
-  (`078835f1d75fc6398c0eca32400fc132` before and after). Kineto reports
-  graph-captured kernels (graph id, launch geometry, *estimated*
-  occupancy); external nsys attach is unsafe on this server and
-  ncu/GPU-metric counters are privilege-denied. Use
-  `scripts/run_decode_profile_window.py` (guarded, auto-restore) +
-  `scripts/probe_decode_profile.py` +
-  `scripts/audit_decode_kernel_share.py`. Rollback: unset both, guarded
-  unit restart.
-
-- `GLM53_KDA_REC_WARPS` / `GLM53_KDA_REC_STAGES` / `GLM53_KDA_REC_BV_CAP`
-  — Task 30 fused `fused_recurrent_kda` launch. **REVERTED 2026-09-09
-  at warps=2** (hashmap −5.7%; structured −0.5% at 7.0/1.000). Live
-  path on `e3-w3-zfill` is FLA `ops/kda.py` `fused_recurrent_kda_fwd`
-  (`num_warps=1`, `num_stages=3`, `BV=min(next_power_of_2(V), 8)`).
-  Overlay `overlay/patch_kda_recurrent.py` is default-off: empty knobs
-  leave the file byte-identical. Armed values: warps `1|2|4|8`, stages
-  `1..5`, BV cap `8|16|32`. Fail-closed on drifted anchors. **Does not**
-  drop in FlashInfer `fused_kda_decode` (hard-dispatches
-  H∈{12,24,48,96}; GLM TP2 is 32 local heads; no
-  `num_accepted_tokens` rollback). Draft T=8 shares this kernel;
-  query 3/5 already have FULL graphs from Task 25. These knobs **are**
-  in the JIT shape hash. Production leaves all three unset. Do not
-  chain STAGES or BV_CAP. Occupancy at T∈{3,5,8} remains unmeasured;
-  nsys/ncu still gates any later arm. Rollback: unset all three
-  through the guarded unit.
-
-## Added 2026-09-02
-
-- `EXL3_FAT_SORTED=1` / `EXL3_FAT_BATCHED=1` / `EXL3_FAT_KERNEL=1` — the
-  fat-expert prefill path (W24) plus the 2026-09-02 kernel stack. Higher
-  tiers imply the lower ones. KERNEL needs `exllamav3_ext.exl3_fat_gemm`,
-  which this repo's Dockerfile bakes; the last public GHCR digest does not
-  export it, so leaving these on against that pin fails at start. Isolated
-  kernel receipts: **+41%** at production shapes (52 → ~73.5 TFLOP/s),
-  bit-exact ×56, sanitizer-clean. End-to-end prefill vs the same-day
-  control is parity under ambient bursts (240k full-set median +0.3%).
-  Ticket-scheduler cherry-pick (`d5e4361`) is baked at image build
-  (`GLM53_EXL3_TICKET_SCHEDULER=1`, not an env.example knob). Rollback of
-  the kernel stack is an `IMAGE=` flip, not a flag.
-
-- `EXL3_FAT_GROUPED=1` — E3 grouped fat-expert MoE, **adopted 2026-09-07**.
-  Prefill only: device-side segment tables plus three launches (gather /
-  gate+up+SwiGLU / down+`float4` atomic scatter) instead of the E2 host
-  loop over fat experts. Decode stays fused `exl3_moe`. Requires the
-  additive `exl3_fat_moe` symbols from `glm53-selfbuild:e3-grouped`
-  (`Dockerfile.e3-layer` on `ca13bdd-v147`). Missing symbols fail closed.
-  Live TP2 scratch is h13 + h2 at `intermediate_size_per_partition=1024`.
-  Production (`e3-grouped`) **pre-sizes** that to MNBT × top-8 =
-  28,672 rows ≈ **280 MiB/rank**. W1 lazy grow-only was **REVERTED
-  2026-09-07**: CUDA-graph capture already requests 28,672 rows, so
-  idle MemFree did not shrink. Overlay vehicle
-  `Dockerfile.e3-py-layer` / `EXL3_FAT_SCRATCH_ROWS` remains in-tree
-  for a later capture-aware window; do not set it on production.
-  Same-day A-B-B-A (E3 adopt): 240k cold prefill **+19.6%** (1075 →
-  1286 tok/s), structured decode non-inferior, pool 1,396,551 / 1.40×.
-  Rollback: `EXL3_FAT_GROUPED=0` and `IMAGE=glm53-selfbuild:ca13bdd-v147`.
-  GHCR/old images must leave this 0.
-
-- `EXL3_TEMP_ROWS_FUSED=32` — fused `exl3_moe` temp rows per expert
-  (decode + thin prefill), **adopted 2026-09-09**. Launcher default
-  stays **128**; production `.env` last-wins 32. Not in the JIT
-  shape hash. `start.sh validate` requires a base-10 integer 1..8388608
-  and, on dflash, at least the C-decode floor
-  `MAX_NUM_SEQS × (DFLASH_TOKENS+1)` (C4 k=7 → 32). Unique-per-token
-  top-k (`grouped_topk` / `torch.topk`) keeps hottest ≤ T, so TRF=32
-  does not drop decode experts (kernel skip is `>`). CPU judge:
-  `scripts/probe_w2_unique_topk.py`. Same-boot A vs B: 60k **+16.1%**
-  (1253 → 1454), 240k **+13.3%** (1242 → 1408), structured 66.6 →
-  69.1 @ 7.0/1.000, hashmap prose 27.5 → 30.8. Frozen: `ROW_TILE=0`,
-  `EXL3_FAT_GROUPED=1`, scratch, geometry, `e3-w3-zfill`. Rollback:
-  last-wins `EXL3_TEMP_ROWS_FUSED=128`. Do not combine with W1 or W4.
+- `--block-size`: the indexer's kpool compression and the mamba alignment both
+  depend on it. 256 is the vendor value.
+- `--attention-backend`, `--moe-backend`, `--linear-backend`: B12X is not an
+  optional fast path here; the checkpoint's compressed scales are read by it.
+- `--kv-cache-dtype`: FP8 is the validated format. BF16 halves the pool.
+- `--max-num-seqs`: raising it does not create KV; the four 500k requests
+  already fill the pool.
+- MTP depth: measure acceptance before changing it. A deeper draft is not
+  automatically faster.

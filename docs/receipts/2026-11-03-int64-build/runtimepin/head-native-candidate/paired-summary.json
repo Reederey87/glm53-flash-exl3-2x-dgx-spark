@@ -1,0 +1,1385 @@
+{
+  "paired_objects": 187,
+  "missing_control_keys": [],
+  "candidate_only_semantic_keys": [
+    "d1e38cf532f357fade6a4f23384b31080f98b7e60668aae6a570376cd25b02b5",
+    "ee23df624a7523b3616f06271b51f9e92d9f044231e8144af8cf4f0e7fb29c67"
+  ],
+  "metrics": {
+    "REG": {
+      "min_delta": -6,
+      "max_delta": 15,
+      "increased": 4,
+      "decreased": 22
+    },
+    "STACK": {
+      "min_delta": 0,
+      "max_delta": 0,
+      "increased": 0,
+      "decreased": 0
+    },
+    "LOCAL": {
+      "min_delta": 0,
+      "max_delta": 0,
+      "increased": 0,
+      "decreased": 0
+    },
+    "SHARED": {
+      "min_delta": 0,
+      "max_delta": 0,
+      "increased": 0,
+      "decreased": 0
+    },
+    "DYNAMIC_SHARED": {
+      "min_delta": 0,
+      "max_delta": 0,
+      "increased": 0,
+      "decreased": 0
+    },
+    "CONSTANT[0]": {
+      "min_delta": 0,
+      "max_delta": 8,
+      "increased": 73,
+      "decreased": 0
+    }
+  },
+  "register_increases": [
+    {
+      "semantic_key": "0b541cb9c15297f03cb24150ef4ae9c21472e4187bcbff31a91121751b1f6572",
+      "control": {
+        "REG": 47,
+        "STACK": 0,
+        "SHARED": 1024,
+        "LOCAL": 0,
+        "CONSTANT[0]": 1936,
+        "TEXTURE": 0,
+        "SURFACE": 0,
+        "SAMPLER": 0,
+        "DYNAMIC_SHARED": 43008
+      },
+      "candidate": {
+        "REG": 48,
+        "STACK": 0,
+        "SHARED": 1024,
+        "LOCAL": 0,
+        "CONSTANT[0]": 1944,
+        "TEXTURE": 0,
+        "SURFACE": 0,
+        "SAMPLER": 0,
+        "DYNAMIC_SHARED": 43008
+      },
+      "semantic_payload": {
+        "cache_format": "b12x_cute_compile_cache_v7_explicit_spec",
+        "compile_environment": [
+          [
+            "CC",
+            ""
+          ],
+          [
+            "CUDACXX",
+            ""
+          ],
+          [
+            "CUDA_HOME",
+            ""
+          ],
+          [
+            "CUDA_PATH",
+            ""
+          ],
+          [
+            "CUDA_TOOLKIT_PATH",
+            ""
+          ],
+          [
+            "CUTE_DSL_ARCH",
+            ""
+          ],
+          [
+            "CUTE_DSL_LIBS",
+            "/usr/local/lib/python3.12/dist-packages/nvidia_cutlass_dsl/cu13/lib/libcute_dsl_runtime.so"
+          ],
+          [
+            "CXX",
+            ""
+          ],
+          [
+            "NVCC_APPEND_FLAGS",
+            ""
+          ],
+          [
+            "NVCC_PREPEND_FLAGS",
+            ""
+          ]
+        ],
+        "compile_options": [
+          "opt-level=3",
+          "enable-pyir=false",
+          "rdc=false",
+          "enable-assertions=false",
+          "preserve-line-info=false"
+        ],
+        "compile_spec": {
+          "facts": [
+            "legacy",
+            "gemm.dense",
+            4,
+            [
+              [
+                "field",
+                "arg0",
+                128
+              ],
+              [
+                "field",
+                "arg1",
+                256
+              ],
+              [
+                "field",
+                "arg2",
+                1
+              ],
+              [
+                "field",
+                "arg3",
+                2
+              ],
+              [
+                "field",
+                "arg4",
+                "k"
+              ],
+              [
+                "field",
+                "arg5",
+                "k"
+              ],
+              [
+                "field",
+                "arg6",
+                "n"
+              ],
+              [
+                "field",
+                "arg7",
+                [
+                  "type",
+                  "cutlass.base_dsl.typing",
+                  "BFloat16"
+                ]
+              ],
+              [
+                "field",
+                "arg8",
+                [
+                  "type",
+                  "cutlass.base_dsl.typing",
+                  "Uint8"
+                ]
+              ],
+              [
+                "field",
+                "arg9",
+                [
+                  "type",
+                  "cutlass.base_dsl.typing",
+                  "Float32"
+                ]
+              ],
+              [
+                "field",
+                "arg10",
+                [
+                  "type",
+                  "cutlass.base_dsl.typing",
+                  "Float32"
+                ]
+              ],
+              [
+                "field",
+                "arg11",
+                16
+              ],
+              [
+                "field",
+                "arg12",
+                16
+              ],
+              [
+                "field",
+                "arg13",
+                128
+              ],
+              [
+                "field",
+                "arg14",
+                [
+                  16,
+                  64
+                ]
+              ],
+              [
+                "field",
+                "arg15",
+                [
+                  1,
+                  1
+                ]
+              ],
+              [
+                "field",
+                "arg16",
+                [
+                  "dataclass",
+                  "b12x._lib.dense_gemm",
+                  "_DenseGemmPolicy",
+                  [
+                    [
+                      "single_work_tile_per_cta",
+                      true
+                    ],
+                    [
+                      "direct_one_m_tile_scheduler",
+                      true
+                    ],
+                    [
+                      "use_m1_non_tma",
+                      false
+                    ],
+                    [
+                      "split_k_slices",
+                      2
+                    ],
+                    [
+                      "split_k_atomic_bf16",
+                      false
+                    ],
+                    [
+                      "large_m_unroll",
+                      false
+                    ]
+                  ]
+                ]
+              ],
+              [
+                "field",
+                "arg17",
+                48
+              ],
+              [
+                "field",
+                "arg18",
+                48
+              ],
+              [
+                "field",
+                "arg19",
+                "sm_121a"
+              ],
+              [
+                "field",
+                "arg20",
+                "tma"
+              ],
+              [
+                "field",
+                "arg21",
+                false
+              ],
+              [
+                "field",
+                "arg22",
+                false
+              ],
+              [
+                "field",
+                "arg23",
+                false
+              ],
+              [
+                "field",
+                "arg24",
+                false
+              ],
+              [
+                "field",
+                "arg25",
+                0
+              ],
+              [
+                "field",
+                "arg26",
+                false
+              ],
+              [
+                "field",
+                "arg27",
+                false
+              ],
+              [
+                "field",
+                "arg28",
+                false
+              ],
+              [
+                "field",
+                "arg29",
+                false
+              ],
+              [
+                "field",
+                "arg30",
+                1
+              ],
+              [
+                "field",
+                "arg31",
+                false
+              ],
+              [
+                "field",
+                "arg32",
+                "nvfp4"
+              ],
+              [
+                "field",
+                "arg33",
+                null
+              ],
+              [
+                "field",
+                "arg34",
+                false
+              ],
+              [
+                "field",
+                "arg35",
+                256
+              ]
+            ]
+          ],
+          "kernel": "gemm.dense",
+          "version": 4
+        },
+        "compile_spec_hash": "2ced3e83f6a03af6dbdd003daa5a4b0265e4fe081231f2a713fce6f0bc971007",
+        "device_arch": [
+          "cuda",
+          [
+            12,
+            1
+          ],
+          48
+        ],
+        "target": {
+          "call": "b12x._lib.dense_gemm._DenseGemmLaunch.__call__",
+          "kind": "callable_instance",
+          "type": "b12x._lib.dense_gemm._DenseGemmLaunch"
+        }
+      }
+    },
+    {
+      "semantic_key": "3e1c286ba3f5f0bbecb020574b15854f5a41d4846015fc03dc9ac54ac6a066a2",
+      "control": {
+        "REG": 81,
+        "STACK": 0,
+        "SHARED": 1024,
+        "LOCAL": 0,
+        "CONSTANT[0]": 1936,
+        "TEXTURE": 0,
+        "SURFACE": 0,
+        "SAMPLER": 0,
+        "DYNAMIC_SHARED": 64512
+      },
+      "candidate": {
+        "REG": 96,
+        "STACK": 0,
+        "SHARED": 1024,
+        "LOCAL": 0,
+        "CONSTANT[0]": 1944,
+        "TEXTURE": 0,
+        "SURFACE": 0,
+        "SAMPLER": 0,
+        "DYNAMIC_SHARED": 64512
+      },
+      "semantic_payload": {
+        "cache_format": "b12x_cute_compile_cache_v7_explicit_spec",
+        "compile_environment": [
+          [
+            "CC",
+            ""
+          ],
+          [
+            "CUDACXX",
+            ""
+          ],
+          [
+            "CUDA_HOME",
+            ""
+          ],
+          [
+            "CUDA_PATH",
+            ""
+          ],
+          [
+            "CUDA_TOOLKIT_PATH",
+            ""
+          ],
+          [
+            "CUTE_DSL_ARCH",
+            ""
+          ],
+          [
+            "CUTE_DSL_LIBS",
+            "/usr/local/lib/python3.12/dist-packages/nvidia_cutlass_dsl/cu13/lib/libcute_dsl_runtime.so"
+          ],
+          [
+            "CXX",
+            ""
+          ],
+          [
+            "NVCC_APPEND_FLAGS",
+            ""
+          ],
+          [
+            "NVCC_PREPEND_FLAGS",
+            ""
+          ]
+        ],
+        "compile_options": [
+          "opt-level=3",
+          "enable-pyir=false",
+          "rdc=false",
+          "enable-assertions=false",
+          "preserve-line-info=false"
+        ],
+        "compile_spec": {
+          "facts": [
+            "legacy",
+            "gemm.dense",
+            4,
+            [
+              [
+                "field",
+                "arg0",
+                2048
+              ],
+              [
+                "field",
+                "arg1",
+                4096
+              ],
+              [
+                "field",
+                "arg2",
+                1
+              ],
+              [
+                "field",
+                "arg3",
+                4
+              ],
+              [
+                "field",
+                "arg4",
+                "k"
+              ],
+              [
+                "field",
+                "arg5",
+                "k"
+              ],
+              [
+                "field",
+                "arg6",
+                "n"
+              ],
+              [
+                "field",
+                "arg7",
+                [
+                  "type",
+                  "cutlass.base_dsl.typing",
+                  "BFloat16"
+                ]
+              ],
+              [
+                "field",
+                "arg8",
+                [
+                  "type",
+                  "cutlass.base_dsl.typing",
+                  "Uint8"
+                ]
+              ],
+              [
+                "field",
+                "arg9",
+                [
+                  "type",
+                  "cutlass.base_dsl.typing",
+                  "Float32"
+                ]
+              ],
+              [
+                "field",
+                "arg10",
+                [
+                  "type",
+                  "cutlass.base_dsl.typing",
+                  "Float32"
+                ]
+              ],
+              [
+                "field",
+                "arg11",
+                32
+              ],
+              [
+                "field",
+                "arg12",
+                16
+              ],
+              [
+                "field",
+                "arg13",
+                64
+              ],
+              [
+                "field",
+                "arg14",
+                [
+                  16,
+                  128
+                ]
+              ],
+              [
+                "field",
+                "arg15",
+                [
+                  1,
+                  1
+                ]
+              ],
+              [
+                "field",
+                "arg16",
+                [
+                  "dataclass",
+                  "b12x._lib.dense_gemm",
+                  "_DenseGemmPolicy",
+                  [
+                    [
+                      "single_work_tile_per_cta",
+                      true
+                    ],
+                    [
+                      "direct_one_m_tile_scheduler",
+                      true
+                    ],
+                    [
+                      "use_m1_non_tma",
+                      false
+                    ],
+                    [
+                      "split_k_slices",
+                      4
+                    ],
+                    [
+                      "split_k_atomic_bf16",
+                      false
+                    ],
+                    [
+                      "large_m_unroll",
+                      false
+                    ]
+                  ]
+                ]
+              ],
+              [
+                "field",
+                "arg17",
+                48
+              ],
+              [
+                "field",
+                "arg18",
+                48
+              ],
+              [
+                "field",
+                "arg19",
+                "sm_121a"
+              ],
+              [
+                "field",
+                "arg20",
+                "tma"
+              ],
+              [
+                "field",
+                "arg21",
+                false
+              ],
+              [
+                "field",
+                "arg22",
+                false
+              ],
+              [
+                "field",
+                "arg23",
+                false
+              ],
+              [
+                "field",
+                "arg24",
+                false
+              ],
+              [
+                "field",
+                "arg25",
+                0
+              ],
+              [
+                "field",
+                "arg26",
+                false
+              ],
+              [
+                "field",
+                "arg27",
+                true
+              ],
+              [
+                "field",
+                "arg28",
+                false
+              ],
+              [
+                "field",
+                "arg29",
+                false
+              ],
+              [
+                "field",
+                "arg30",
+                1
+              ],
+              [
+                "field",
+                "arg31",
+                false
+              ],
+              [
+                "field",
+                "arg32",
+                "mxfp8"
+              ],
+              [
+                "field",
+                "arg33",
+                2
+              ],
+              [
+                "field",
+                "arg34",
+                false
+              ],
+              [
+                "field",
+                "arg35",
+                4096
+              ]
+            ]
+          ],
+          "kernel": "gemm.dense",
+          "version": 4
+        },
+        "compile_spec_hash": "f770d9f9b668ebe30364ba8e3fe549a6d13f0443ed59a072b3a98b8def3a2141",
+        "device_arch": [
+          "cuda",
+          [
+            12,
+            1
+          ],
+          48
+        ],
+        "target": {
+          "call": "b12x._lib.dense_gemm._DenseGemmLaunch.__call__",
+          "kind": "callable_instance",
+          "type": "b12x._lib.dense_gemm._DenseGemmLaunch"
+        }
+      }
+    },
+    {
+      "semantic_key": "4c53467765a1b46ef962399a52af617b2cdc4c3dbbb4a00f19e617af53bd6dd2",
+      "control": {
+        "REG": 38,
+        "STACK": 0,
+        "SHARED": 1024,
+        "LOCAL": 0,
+        "CONSTANT[0]": 1936,
+        "TEXTURE": 0,
+        "SURFACE": 0,
+        "SAMPLER": 0,
+        "DYNAMIC_SHARED": 94208
+      },
+      "candidate": {
+        "REG": 40,
+        "STACK": 0,
+        "SHARED": 1024,
+        "LOCAL": 0,
+        "CONSTANT[0]": 1944,
+        "TEXTURE": 0,
+        "SURFACE": 0,
+        "SAMPLER": 0,
+        "DYNAMIC_SHARED": 94208
+      },
+      "semantic_payload": {
+        "cache_format": "b12x_cute_compile_cache_v7_explicit_spec",
+        "compile_environment": [
+          [
+            "CC",
+            ""
+          ],
+          [
+            "CUDACXX",
+            ""
+          ],
+          [
+            "CUDA_HOME",
+            ""
+          ],
+          [
+            "CUDA_PATH",
+            ""
+          ],
+          [
+            "CUDA_TOOLKIT_PATH",
+            ""
+          ],
+          [
+            "CUTE_DSL_ARCH",
+            ""
+          ],
+          [
+            "CUTE_DSL_LIBS",
+            "/usr/local/lib/python3.12/dist-packages/nvidia_cutlass_dsl/cu13/lib/libcute_dsl_runtime.so"
+          ],
+          [
+            "CXX",
+            ""
+          ],
+          [
+            "NVCC_APPEND_FLAGS",
+            ""
+          ],
+          [
+            "NVCC_PREPEND_FLAGS",
+            ""
+          ]
+        ],
+        "compile_options": [
+          "opt-level=3",
+          "enable-pyir=false",
+          "rdc=false",
+          "enable-assertions=false",
+          "preserve-line-info=false"
+        ],
+        "compile_spec": {
+          "facts": [
+            "legacy",
+            "gemm.dense",
+            4,
+            [
+              [
+                "field",
+                "arg0",
+                40
+              ],
+              [
+                "field",
+                "arg1",
+                256
+              ],
+              [
+                "field",
+                "arg2",
+                1
+              ],
+              [
+                "field",
+                "arg3",
+                2
+              ],
+              [
+                "field",
+                "arg4",
+                "k"
+              ],
+              [
+                "field",
+                "arg5",
+                "k"
+              ],
+              [
+                "field",
+                "arg6",
+                "n"
+              ],
+              [
+                "field",
+                "arg7",
+                [
+                  "type",
+                  "cutlass.base_dsl.typing",
+                  "BFloat16"
+                ]
+              ],
+              [
+                "field",
+                "arg8",
+                [
+                  "type",
+                  "cutlass.base_dsl.typing",
+                  "Uint8"
+                ]
+              ],
+              [
+                "field",
+                "arg9",
+                [
+                  "type",
+                  "cutlass.base_dsl.typing",
+                  "Float32"
+                ]
+              ],
+              [
+                "field",
+                "arg10",
+                [
+                  "type",
+                  "cutlass.base_dsl.typing",
+                  "Float32"
+                ]
+              ],
+              [
+                "field",
+                "arg11",
+                32
+              ],
+              [
+                "field",
+                "arg12",
+                16
+              ],
+              [
+                "field",
+                "arg13",
+                128
+              ],
+              [
+                "field",
+                "arg14",
+                [
+                  16,
+                  128
+                ]
+              ],
+              [
+                "field",
+                "arg15",
+                [
+                  1,
+                  1
+                ]
+              ],
+              [
+                "field",
+                "arg16",
+                [
+                  "dataclass",
+                  "b12x._lib.dense_gemm",
+                  "_DenseGemmPolicy",
+                  [
+                    [
+                      "single_work_tile_per_cta",
+                      true
+                    ],
+                    [
+                      "direct_one_m_tile_scheduler",
+                      true
+                    ],
+                    [
+                      "use_m1_non_tma",
+                      false
+                    ],
+                    [
+                      "split_k_slices",
+                      2
+                    ],
+                    [
+                      "split_k_atomic_bf16",
+                      false
+                    ],
+                    [
+                      "large_m_unroll",
+                      false
+                    ]
+                  ]
+                ]
+              ],
+              [
+                "field",
+                "arg17",
+                48
+              ],
+              [
+                "field",
+                "arg18",
+                48
+              ],
+              [
+                "field",
+                "arg19",
+                "sm_121a"
+              ],
+              [
+                "field",
+                "arg20",
+                "tma"
+              ],
+              [
+                "field",
+                "arg21",
+                false
+              ],
+              [
+                "field",
+                "arg22",
+                false
+              ],
+              [
+                "field",
+                "arg23",
+                false
+              ],
+              [
+                "field",
+                "arg24",
+                false
+              ],
+              [
+                "field",
+                "arg25",
+                0
+              ],
+              [
+                "field",
+                "arg26",
+                false
+              ],
+              [
+                "field",
+                "arg27",
+                true
+              ],
+              [
+                "field",
+                "arg28",
+                false
+              ],
+              [
+                "field",
+                "arg29",
+                false
+              ],
+              [
+                "field",
+                "arg30",
+                1
+              ],
+              [
+                "field",
+                "arg31",
+                false
+              ],
+              [
+                "field",
+                "arg32",
+                "mxfp8"
+              ],
+              [
+                "field",
+                "arg33",
+                null
+              ],
+              [
+                "field",
+                "arg34",
+                false
+              ],
+              [
+                "field",
+                "arg35",
+                160
+              ]
+            ]
+          ],
+          "kernel": "gemm.dense",
+          "version": 4
+        },
+        "compile_spec_hash": "574a48a6f2fdedcfc218346a12189d7130fc3f04336f50752edbf8855814d8d9",
+        "device_arch": [
+          "cuda",
+          [
+            12,
+            1
+          ],
+          48
+        ],
+        "target": {
+          "call": "b12x._lib.dense_gemm._DenseGemmLaunch.__call__",
+          "kind": "callable_instance",
+          "type": "b12x._lib.dense_gemm._DenseGemmLaunch"
+        }
+      }
+    },
+    {
+      "semantic_key": "5275d2b6a0f5acddf26d3b9b1f99b2795e0a9ba8c57c81951ae215acd81cfb10",
+      "control": {
+        "REG": 59,
+        "STACK": 0,
+        "SHARED": 1024,
+        "LOCAL": 0,
+        "CONSTANT[0]": 1936,
+        "TEXTURE": 0,
+        "SURFACE": 0,
+        "SAMPLER": 0,
+        "DYNAMIC_SHARED": 79872
+      },
+      "candidate": {
+        "REG": 60,
+        "STACK": 0,
+        "SHARED": 1024,
+        "LOCAL": 0,
+        "CONSTANT[0]": 1944,
+        "TEXTURE": 0,
+        "SURFACE": 0,
+        "SAMPLER": 0,
+        "DYNAMIC_SHARED": 79872
+      },
+      "semantic_payload": {
+        "cache_format": "b12x_cute_compile_cache_v7_explicit_spec",
+        "compile_environment": [
+          [
+            "CC",
+            ""
+          ],
+          [
+            "CUDACXX",
+            ""
+          ],
+          [
+            "CUDA_HOME",
+            ""
+          ],
+          [
+            "CUDA_PATH",
+            ""
+          ],
+          [
+            "CUDA_TOOLKIT_PATH",
+            ""
+          ],
+          [
+            "CUTE_DSL_ARCH",
+            ""
+          ],
+          [
+            "CUTE_DSL_LIBS",
+            "/usr/local/lib/python3.12/dist-packages/nvidia_cutlass_dsl/cu13/lib/libcute_dsl_runtime.so"
+          ],
+          [
+            "CXX",
+            ""
+          ],
+          [
+            "NVCC_APPEND_FLAGS",
+            ""
+          ],
+          [
+            "NVCC_PREPEND_FLAGS",
+            ""
+          ]
+        ],
+        "compile_options": [
+          "opt-level=3",
+          "enable-pyir=false",
+          "rdc=false",
+          "enable-assertions=false",
+          "preserve-line-info=false"
+        ],
+        "compile_spec": {
+          "facts": [
+            "legacy",
+            "gemm.dense",
+            4,
+            [
+              [
+                "field",
+                "arg0",
+                136
+              ],
+              [
+                "field",
+                "arg1",
+                800
+              ],
+              [
+                "field",
+                "arg2",
+                1
+              ],
+              [
+                "field",
+                "arg3",
+                4
+              ],
+              [
+                "field",
+                "arg4",
+                "k"
+              ],
+              [
+                "field",
+                "arg5",
+                "k"
+              ],
+              [
+                "field",
+                "arg6",
+                "n"
+              ],
+              [
+                "field",
+                "arg7",
+                [
+                  "type",
+                  "cutlass.base_dsl.typing",
+                  "BFloat16"
+                ]
+              ],
+              [
+                "field",
+                "arg8",
+                [
+                  "type",
+                  "cutlass.base_dsl.typing",
+                  "Uint8"
+                ]
+              ],
+              [
+                "field",
+                "arg9",
+                [
+                  "type",
+                  "cutlass.base_dsl.typing",
+                  "Float32"
+                ]
+              ],
+              [
+                "field",
+                "arg10",
+                [
+                  "type",
+                  "cutlass.base_dsl.typing",
+                  "Float32"
+                ]
+              ],
+              [
+                "field",
+                "arg11",
+                16
+              ],
+              [
+                "field",
+                "arg12",
+                16
+              ],
+              [
+                "field",
+                "arg13",
+                256
+              ],
+              [
+                "field",
+                "arg14",
+                [
+                  16,
+                  64
+                ]
+              ],
+              [
+                "field",
+                "arg15",
+                [
+                  1,
+                  1
+                ]
+              ],
+              [
+                "field",
+                "arg16",
+                [
+                  "dataclass",
+                  "b12x._lib.dense_gemm",
+                  "_DenseGemmPolicy",
+                  [
+                    [
+                      "single_work_tile_per_cta",
+                      true
+                    ],
+                    [
+                      "direct_one_m_tile_scheduler",
+                      true
+                    ],
+                    [
+                      "use_m1_non_tma",
+                      false
+                    ],
+                    [
+                      "split_k_slices",
+                      4
+                    ],
+                    [
+                      "split_k_atomic_bf16",
+                      false
+                    ],
+                    [
+                      "large_m_unroll",
+                      false
+                    ]
+                  ]
+                ]
+              ],
+              [
+                "field",
+                "arg17",
+                48
+              ],
+              [
+                "field",
+                "arg18",
+                48
+              ],
+              [
+                "field",
+                "arg19",
+                "sm_121a"
+              ],
+              [
+                "field",
+                "arg20",
+                "tma"
+              ],
+              [
+                "field",
+                "arg21",
+                false
+              ],
+              [
+                "field",
+                "arg22",
+                false
+              ],
+              [
+                "field",
+                "arg23",
+                false
+              ],
+              [
+                "field",
+                "arg24",
+                false
+              ],
+              [
+                "field",
+                "arg25",
+                0
+              ],
+              [
+                "field",
+                "arg26",
+                false
+              ],
+              [
+                "field",
+                "arg27",
+                false
+              ],
+              [
+                "field",
+                "arg28",
+                false
+              ],
+              [
+                "field",
+                "arg29",
+                false
+              ],
+              [
+                "field",
+                "arg30",
+                1
+              ],
+              [
+                "field",
+                "arg31",
+                false
+              ],
+              [
+                "field",
+                "arg32",
+                "nvfp4"
+              ],
+              [
+                "field",
+                "arg33",
+                null
+              ],
+              [
+                "field",
+                "arg34",
+                false
+              ],
+              [
+                "field",
+                "arg35",
+                800
+              ]
+            ]
+          ],
+          "kernel": "gemm.dense",
+          "version": 4
+        },
+        "compile_spec_hash": "98dbe1f99010a0ad04bb078c510022c055a26c41e808bcffe8c7de505a323c5f",
+        "device_arch": [
+          "cuda",
+          [
+            12,
+            1
+          ],
+          48
+        ],
+        "target": {
+          "call": "b12x._lib.dense_gemm._DenseGemmLaunch.__call__",
+          "kind": "callable_instance",
+          "type": "b12x._lib.dense_gemm._DenseGemmLaunch"
+        }
+      }
+    }
+  ],
+  "qualification": "No new stack/local/shared allocation in bounded corpus. Four register increases retained for performance review; worker and serving gates still required."
+}

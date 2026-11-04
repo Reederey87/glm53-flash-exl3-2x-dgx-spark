@@ -1,0 +1,161 @@
+{
+  "arithmetic": {
+    "status": 200,
+    "request": {
+      "model": "nvidia/GLM-5.3-Flash-FP4-Local",
+      "temperature": 0,
+      "seed": 0,
+      "max_tokens": 512,
+      "chat_template_kwargs": {
+        "reasoning_effort": "max"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is 17 * 23? Work through the arithmetic, then give the number only as your final answer."
+        }
+      ]
+    },
+    "response": {
+      "id": "chatcmpl-a219434e0c192ec5",
+      "object": "chat.completion",
+      "created": 1793714464,
+      "model": "nvidia/GLM-5.3-Flash-FP4-Local",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "**Breaking it down:**\n\n17 \u00d7 23 = 17 \u00d7 (20 + 3)\n\n- 17 \u00d7 20 = 340\n- 17 \u00d7 3 = 51\n\n340 + 51 = 391\n\n**Final answer:**\n\n391",
+            "refusal": null,
+            "annotations": null,
+            "audio": null,
+            "function_call": null,
+            "reasoning": "The user wants me to compute 17 * 23, show the work, then give the number only as the final answer.\n\n17 * 23 = 17 * 20 + 17 * 3 = 340 + 51 = 391.\n\nLet me verify: 17 * 23 = 17 * 23. 10*23 = 230, 7*23 = 161, 230 + 161 = 391. Correct.\n\nFormat: Show the arithmetic steps, then final answer as just the number."
+          },
+          "logprobs": null,
+          "finish_reason": "stop",
+          "stop_reason": 154827,
+          "token_ids": null,
+          "routed_experts": null
+        }
+      ],
+      "service_tier": null,
+      "system_fingerprint": "vllm-0.1.dev21830+g8244d1c44.d20261015-tp2-17960779",
+      "usage": {
+        "prompt_tokens": 35,
+        "total_tokens": 205,
+        "completion_tokens": 170,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "created_cache_tokens": 0,
+          "multimodal_tokens": null
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 112
+        }
+      },
+      "prompt_logprobs": null,
+      "prompt_token_ids": null,
+      "prompt_text": null,
+      "kv_transfer_params": null,
+      "ec_transfer_params": null,
+      "metrics": null
+    }
+  },
+  "tool": {
+    "status": 200,
+    "request": {
+      "model": "nvidia/GLM-5.3-Flash-FP4-Local",
+      "temperature": 0,
+      "seed": 0,
+      "max_tokens": 512,
+      "chat_template_kwargs": {
+        "reasoning_effort": "max"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is the weather in Paris? Use the get_weather tool."
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_weather",
+            "description": "Return weather for a city.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "city": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "city"
+              ]
+            }
+          }
+        }
+      ],
+      "tool_choice": "auto"
+    },
+    "response": {
+      "id": "chatcmpl-b993b93c8b3c32a6",
+      "object": "chat.completion",
+      "created": 1793714469,
+      "model": "nvidia/GLM-5.3-Flash-FP4-Local",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": null,
+            "refusal": null,
+            "annotations": null,
+            "audio": null,
+            "function_call": null,
+            "tool_calls": [
+              {
+                "id": "chatcmpl-tool-bfebed3b5e23b596",
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "arguments": "{\"city\": \"Paris\"}"
+                }
+              }
+            ],
+            "reasoning": "The user wants to know the weather in Paris. I should use the get_weather tool with the city parameter set to \"Paris\"."
+          },
+          "logprobs": null,
+          "finish_reason": "tool_calls",
+          "stop_reason": 154829,
+          "token_ids": null,
+          "routed_experts": null
+        }
+      ],
+      "service_tier": null,
+      "system_fingerprint": "vllm-0.1.dev21830+g8244d1c44.d20261015-tp2-17960779",
+      "usage": {
+        "prompt_tokens": 167,
+        "total_tokens": 205,
+        "completion_tokens": 38,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "created_cache_tokens": 0,
+          "multimodal_tokens": null
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 26
+        }
+      },
+      "prompt_logprobs": null,
+      "prompt_token_ids": null,
+      "prompt_text": null,
+      "kv_transfer_params": null,
+      "ec_transfer_params": null,
+      "metrics": null
+    }
+  }
+}

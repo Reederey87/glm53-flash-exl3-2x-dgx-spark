@@ -1,0 +1,22 @@
+[
+  {
+    "experiment": "roce-single-block",
+    "changed_files": [
+      "Dockerfile",
+      "build-metadata.yaml",
+      "context-sha256.txt"
+    ],
+    "compiler_stages_identical": true,
+    "manifest_sha256": "0fa06d1c4b271c4fc17782d3904a2c49abfd0e011f2a8a1c4e8b7d8412c7d876"
+  },
+  {
+    "experiment": "roce-failure-sentinel",
+    "changed_files": [
+      "Dockerfile",
+      "build-metadata.yaml",
+      "context-sha256.txt"
+    ],
+    "compiler_stages_identical": true,
+    "manifest_sha256": "ba2a487faa6401d17c9e5cbf04de0d50931807cb8a5e13b6c9faee4da56bc651"
+  }
+]

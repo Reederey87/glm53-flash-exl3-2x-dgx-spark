@@ -1,0 +1,21 @@
+{
+  "head": {
+    "verified": true,
+    "container_id": "2c51faba4f67c39e492b68588488384f0308168d25919bd693560d84b8915c74",
+    "image": "sha256:a7f76ae9f18c7701c9cde5f72c606393d9a21ca94dd8e53b27589935f64fcbe2",
+    "started_at": "2026-11-03T23:51:56.3824092Z",
+    "same_environment": true,
+    "same_host_config": true,
+    "same_mounts": true
+  },
+  "worker": {
+    "verified": true,
+    "container_id": "5181bc096a541674e7623661b90443b413f615c623adebdf537b8b11dd50e870",
+    "image": "sha256:a7f76ae9f18c7701c9cde5f72c606393d9a21ca94dd8e53b27589935f64fcbe2",
+    "started_at": "2026-11-03T23:51:57.100115904Z",
+    "same_environment": true,
+    "same_host_config": true,
+    "same_mounts": true
+  },
+  "frozen_harnesses_verified": true
+}

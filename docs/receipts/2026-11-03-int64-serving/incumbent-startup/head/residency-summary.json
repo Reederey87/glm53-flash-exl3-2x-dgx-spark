@@ -1,0 +1,30 @@
+{
+  "completed-residency": {
+    "receipt_sha256": "517e01bb7701250260ba873e1f9095b82b9b433289f756322d57789e3d6b8500",
+    "read_only": true,
+    "total_resident_bytes": 536444928,
+    "file_records": 94,
+    "minimum_scanned_file_bytes": 16777216
+  },
+  "completed-dependency-residency": {
+    "receipt_sha256": "85143037348d9b52e271e82a42b8666fbdb7296aec2550407238e5b72c562979",
+    "read_only": true,
+    "total_resident_bytes": 562233344,
+    "file_records": 86,
+    "minimum_scanned_file_bytes": 16777216
+  },
+  "checkpoint-residency": {
+    "receipt_sha256": "26c25467d80144cad94be621c8c15ecd14952de204f8595f9a22a103a58e9a5e",
+    "read_only": true,
+    "total_resident_bytes": 0,
+    "file_records": 42
+  },
+  "image-layer-residency": {
+    "receipt_sha256": "fa1e658baffb611dc40d7a9cef5d95804338295553f677c4a18a82a290a61b4d",
+    "read_only": true,
+    "total_resident_bytes": 2315935744,
+    "file_records": 265,
+    "minimum_scanned_file_bytes": 16777216
+  },
+  "note": "Residency diagnostics do not reclaim memory. The checkpoint scan reads the index and page metadata, not weight contents. Completed image-layer scan covered 82 declared layers of five exact images."
+}

@@ -1,0 +1,34 @@
+{
+  "timestamp": "2026-11-04T03:30:58.448434+00:00",
+  "image_ids": {
+    "incumbent": "sha256:a7f76ae9f18c7701c9cde5f72c606393d9a21ca94dd8e53b27589935f64fcbe2",
+    "control": "sha256:3b5da79c42ed4204440cfb07c6de1eba46441d5cba6b57d5428d44e60c10d0ed",
+    "candidate": "sha256:bad0f2005665489026ef9febafe8bbc28f6fe0821681cdb82479a21802d1287b"
+  },
+  "incumbent_to_control": {
+    "environment_equal": false,
+    "environment_only_left": [],
+    "environment_only_right": [],
+    "environment_changed_keys": [
+      "CMAKE_BUILD_PARALLEL_LEVEL",
+      "MAKEFLAGS",
+      "MAX_JOBS",
+      "NINJAFLAGS"
+    ],
+    "entrypoint_equal": true,
+    "cmd_equal": true,
+    "working_dir_equal": true,
+    "user_equal": true
+  },
+  "control_to_candidate": {
+    "environment_equal": true,
+    "environment_only_left": [],
+    "environment_only_right": [],
+    "environment_changed_keys": [],
+    "entrypoint_equal": true,
+    "cmd_equal": true,
+    "working_dir_equal": true,
+    "user_equal": true
+  },
+  "scope": "Image launch configuration only; values remain private. Actual runtime verification remains required after selection."
+}

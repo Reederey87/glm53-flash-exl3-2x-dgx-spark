@@ -1,0 +1,37 @@
+{
+  "verified": true,
+  "treatment": {
+    "arm": "candidate",
+    "flashinfer_commit": "91271757f7746f3dfb58f7c2aeb44a663389de9e",
+    "files": {
+      "flashinfer/experimental/b12x/_lib/dense_gemm.py": "89437e814ab6ded8b1e2366149eba4ad9c12a073b67ed153f7b717dfbe96fbd2",
+      "tests/experimental/b12x/gemm/test_blockscaled_a16.py": "e2576cfef66c128cb5aff959f6fa0b85573ec2f7dbec6e83ddd12224d160dff7"
+    },
+    "patch_sha256": "d4219c64d030d36d57686f70a18133b32a0fbbaff7ad878d6b771c6294bf5a2e",
+    "gpu_qualified": false
+  },
+  "context_manifest_sha256": "dc468a68e99ccd9e11f304528d1c965250bb14f52b9aefeb450955719aa55728",
+  "wheels": [
+    {
+      "path": "/home/nvidia/glm53-source-builds/dense-int64-frontend131-3d6ac59/context/artifacts/flashinfer-candidate/flashinfer_jit_cache-0.7.1-cp39-abi3-manylinux_2_28_aarch64.whl",
+      "bytes": 4269,
+      "sha256": "f68b73e92a38256ec0c19550e47eefa0886f40b13e0db904edc0e7c0ee8cdf51"
+    },
+    {
+      "path": "/home/nvidia/glm53-source-builds/dense-int64-frontend131-3d6ac59/context/artifacts/flashinfer-candidate/flashinfer_jit_cache_sm121a-0.7.1-cp39-abi3-linux_aarch64.whl",
+      "bytes": 185920393,
+      "sha256": "dd5e7cab81ce142cfbe65564263bf234d0c2e5cdd98b0fccc2624c208a1ca6a9"
+    },
+    {
+      "path": "/home/nvidia/glm53-source-builds/dense-int64-frontend131-3d6ac59/context/artifacts/flashinfer-candidate/flashinfer_python-0.7.1-py3-none-any.whl",
+      "bytes": 64950587,
+      "sha256": "9e5e314d2dca1c7007e63b079ef011e4cb62aa3c076e5abf0d75877b8f244241"
+    },
+    {
+      "path": "/home/nvidia/glm53-source-builds/dense-int64-explicit-fetch/context/artifacts/vllm-wheels/vllm-0.1.dev21830+g8244d1c44.d20261103-cp312-cp312-linux_aarch64.whl",
+      "bytes": 502172556,
+      "sha256": "1ee0eb5863106d0dbfa70b1a9b5f7bfc05776d8927a4e694f8af23557670ade0"
+    }
+  ],
+  "qualification": "Export identity only; candidate runner and native/serving tests pending"
+}

@@ -1,0 +1,1 @@
+{"min_tokens": 2000000, "ok": true, "pool": {"block_size": null, "blocks": null, "gib": null, "line": "(EngineCore pid=382) INFO 11-04 03:08:49 [kv_cache_utils.py:2850] GPU KV cache size: 2,350,210 tokens, Maximum concurrency for 1,000,000 tokens per request: 2.35x", "tokens": 2350210}}

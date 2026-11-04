@@ -1,0 +1,26 @@
+{
+  "timestamp": "2026-11-04T05:06:23.572883+00:00",
+  "node": "head",
+  "snapshot": "/home/nvidia/glm53-fp4-local/local/ab-20261103/int64-serving/control/before-start",
+  "arm": "control",
+  "previous_image": "sha256:a7f76ae9f18c7701c9cde5f72c606393d9a21ca94dd8e53b27589935f64fcbe2",
+  "planned_image": "sha256:3b5da79c42ed4204440cfb07c6de1eba46441d5cba6b57d5428d44e60c10d0ed",
+  "available_images": {
+    "incumbent": "sha256:a7f76ae9f18c7701c9cde5f72c606393d9a21ca94dd8e53b27589935f64fcbe2",
+    "control": "sha256:3b5da79c42ed4204440cfb07c6de1eba46441d5cba6b57d5428d44e60c10d0ed",
+    "candidate": "sha256:bad0f2005665489026ef9febafe8bbc28f6fe0821681cdb82479a21802d1287b"
+  },
+  "runtime_file_hashes": {
+    "launch.sh": "fec47e5dfb212011c3e9e3c0ca1fe644d9a483ca486c92fd8f404a229247998a",
+    "recipes/glm-5.3-flash-fp4-local.yaml": "cd0d994a55ceeae6b7dab2d02d59f09e461c105d3c7c2effd79dc6c14141589a",
+    ".env": "26c84e0c3492897c8d6f2a7e17b0867bb2bf38b9c9f4cd5f547529d583310276",
+    "serving-unit": "af944e8695e5e6db8b4152f591857d1f67d2a7fb5e1432dc25cc4760c35e9631"
+  },
+  "worker_configuration": null,
+  "private_inspection_saved": true,
+  "independent_variable": "Qualified rebuilt control image; exact four inherited build-worker environment differences are separately verified",
+  "frozen": "NVIDIA revision76348ddb,TP2,MTP5,FP8KV17G/rank,2350210tokens,1Mcontext,maxseq4,chunk4096,transport/driver/kernel/recipe/launcher",
+  "gate": "Full runtime/API/prefix/KV qualification and same96+40matrix seed2026110304; reject >2% prefill/decode/draft-acceptance regression in at least2matchedreps, review baseline variability",
+  "rollback": "sha256:a7f76ae9f18c7701c9cde5f72c606393d9a21ca94dd8e53b27589935f64fcbe2 on BOTH vllm-node-b12x:latest aliases, original compiler directories, unit-only start; verify/rearm watchdog",
+  "scope": "Pre-stop snapshot only; no image alias, cache, config or service changed"
+}

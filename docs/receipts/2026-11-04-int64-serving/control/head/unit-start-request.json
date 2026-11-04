@@ -1,0 +1,10 @@
+{
+  "requested": "2026-11-04T05:14:56.907229+00:00",
+  "arm": "control",
+  "image": "sha256:3b5da79c42ed4204440cfb07c6de1eba46441d5cba6b57d5428d44e60c10d0ed",
+  "previous_image": "sha256:a7f76ae9f18c7701c9cde5f72c606393d9a21ca94dd8e53b27589935f64fcbe2",
+  "env_ledger_sha256": "708ad289f6ab05f0dbd0fa8fe64b664d0c7bcb9c1673328754e61a749b8be966",
+  "active_env_assignments_unchanged": true,
+  "start_entrypoint": "systemctl --user start --no-block vllm-glm53fp4.service",
+  "baseline_publication": "2d5156ad2a148c420e9cda23e78583fced858c59"
+}

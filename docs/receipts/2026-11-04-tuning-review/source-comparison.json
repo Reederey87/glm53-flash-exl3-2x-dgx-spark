@@ -1,0 +1,34 @@
+[
+  {
+    "path": "flashinfer/experimental/b12x/preparation/_cache.py",
+    "installed_sha256": "4fb6681ed235d3c4c645b2b07d89e4f81270a3297cee2bff64f5d4df480bd28b",
+    "pinned_source_sha256": "4fb6681ed235d3c4c645b2b07d89e4f81270a3297cee2bff64f5d4df480bd28b",
+    "source_commit": "91271757f7746f3dfb58f7c2aeb44a663389de9e",
+    "matches_pinned_source": true,
+    "both_nodes_identical": true
+  },
+  {
+    "path": "flashinfer/experimental/b12x/preparation/session.py",
+    "installed_sha256": "6d391f535de932619858549c85704332f41d22eb594d274df61337e1ad2548f0",
+    "pinned_source_sha256": "6d391f535de932619858549c85704332f41d22eb594d274df61337e1ad2548f0",
+    "source_commit": "91271757f7746f3dfb58f7c2aeb44a663389de9e",
+    "matches_pinned_source": true,
+    "both_nodes_identical": true
+  },
+  {
+    "path": "vllm/config/kernel.py",
+    "installed_sha256": "e3ffc467338888d490b2bf7fc20bf32c749fbffe7da0f61e72f415c8de7ab09a",
+    "pinned_source_sha256": "e3ffc467338888d490b2bf7fc20bf32c749fbffe7da0f61e72f415c8de7ab09a",
+    "source_commit": "8244d1c44348ae8a5bbfc9f1b607021652283ed4",
+    "matches_pinned_source": true,
+    "both_nodes_identical": true
+  },
+  {
+    "path": "vllm/model_executor/warmup/b12x_prepare.py",
+    "installed_sha256": "0b8717cc17a9dca6aa772af9aeb33a7bbb7769461aa8c63c00d2db2b18598112",
+    "pinned_source_sha256": "0b8717cc17a9dca6aa772af9aeb33a7bbb7769461aa8c63c00d2db2b18598112",
+    "source_commit": "8244d1c44348ae8a5bbfc9f1b607021652283ed4",
+    "matches_pinned_source": true,
+    "both_nodes_identical": true
+  }
+]

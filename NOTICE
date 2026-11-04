@@ -1,34 +1,31 @@
-GLM-5.3-Flash-EXL3 on 2x DGX Spark
+GLM-5.3-Flash-FP4-Local on 2x DGX Spark
 Copyright 2026 the glm53-2x-dgx-spark contributors
 
-Original work in this repository (docs/, local/, env.example, and the README) is
-licensed under the Apache License, Version 2.0 (see LICENSE).
+Original work in this repository (launch.sh, recipes/, scripts/, docs/, tests/,
+env.example, and the README) is licensed under the Apache License, Version 2.0
+(see LICENSE).
 
-This repository is based on the GLM-5.3-Flash 2x-DGX-Sparks serving kit by
-Mia's AI Lab (https://github.com/MiaAI-Lab/GLM-5.3-Flash-EXL3-2x-dgx-sparks),
-vendored at upstream commit b5ab8091 (originally 32db610). Local modifications
-to vendored files are marked with "# LOCAL:" comments and carry the
-repository's Apache-2.0 license. The vendored kit is MIT-licensed; its license
-is reproduced in full below.
+This kit is a recipe and an operations wrapper around the community launcher
+"spark-vllm-docker" by Eugene Rakhmatulin
+(https://github.com/eugr/spark-vllm-docker), which is MIT-licensed. The
+upstream launcher is cloned at a pinned commit; it is not vendored into this
+repository. Its MIT license is reproduced in full below.
 
-Since 2026-08-30 the serving image is built by this repository's Dockerfile
-(previously a prebuilt image was pulled from
-ghcr.io/miaai-lab/glm-5.3-flash-2x-dgx-sparks). The build starts FROM the
-official vLLM day-0 GLM-5.3 preview image (vllm/vllm-openai:glm53-flash-
-arm64-cu130, pinned by digest; vLLM is Apache-2.0-licensed by its
-contributors) and compiles in exllamav3 by turboderp
-(https://github.com/turboderp-org/exllamav3, MIT-licensed) at a pinned
-commit.
+The serving image "eugr/spark-vllm-b12x:latest" is a community build that
+packages vLLM (Apache-2.0), FlashInfer (Apache-2.0), and the
+local-inference-lab B12X fork. The image is pulled from Docker Hub and is not
+redistributed by this repository.
 
-Model weights (brandonmusic/GLM-5.3-Flash-tr3-4bpw), the DFlash2 drafter
-(incoai/GLM-5.3-Flash-DFlash2), and the base GLM-5.3-Flash model (zai-org) are
-distributed under their own licenses on Hugging Face and are not part of this
-repository.
+The model weights "nvidia/GLM-5.3-Flash-FP4-Local" are governed by the
+NVIDIA Open Model Agreement
+(https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-agreement/).
+The base model "zai-org/GLM-5.3-Flash" is MIT-licensed. Neither the weights nor
+any image layer is redistributed here.
 
 ----------------------------------------------------------------------------
-MIT License (the vendored serving kit)
+MIT License (upstream spark-vllm-docker)
 
-Copyright (c) 2026 Mia's AI Lab
+Copyright (c) 2026 Eugene Rakhmatulin
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

@@ -1,0 +1,13 @@
+# /run/user/1001/systemd/transient/glm53-int64-native-control-runtimepin.service
+# This is a transient unit file, created programmatically via the systemd API. Do not edit.
+[Unit]
+Description=/bin/bash /home/nvidia/glm53-native-tests/int64-20261103/checks-f0ac844/host-run.sh sha256:3b5da79c42ed4204440cfb07c6de1eba46441d5cba6b57d5428d44e60c10d0ed control /home/nvidia/glm53-native-tests/int64-20261103/results/head-control-runtimepin-3b5da79c
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+StandardOutput=append:/home/nvidia/glm53-source-builds/dense-int64-runtimepin-408a805/receipts/native-head-control/unit.log
+StandardError=inherit
+WorkingDirectory=/home/nvidia/glm53-native-tests/int64-20261103/checks-f0ac844
+ExecStart=
+ExecStart="/bin/bash" "/home/nvidia/glm53-native-tests/int64-20261103/checks-f0ac844/host-run.sh" "sha256:3b5da79c42ed4204440cfb07c6de1eba46441d5cba6b57d5428d44e60c10d0ed" "control" "/home/nvidia/glm53-native-tests/int64-20261103/results/head-control-runtimepin-3b5da79c"

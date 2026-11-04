@@ -1,0 +1,21 @@
+[Unit]
+Description=Expose GLM-5.3-Flash-FP4-Local on the Tailscale IPv4
+Documentation=file:///home/nvidia/glm53-fp4-local/docs/10-tailscale.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=HOME=/home/nvidia
+Environment=XDG_RUNTIME_DIR=%t
+Environment=PATH=/home/nvidia/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+ExecStart=/usr/bin/python3 /home/nvidia/glm53-fp4-local/scripts/tailscale_proxy.py
+Restart=always
+RestartSec=3
+TimeoutStopSec=10
+KillMode=process
+StandardOutput=append:/home/nvidia/glm53-fp4-local/local/tailscale-proxy.log
+StandardError=append:/home/nvidia/glm53-fp4-local/local/tailscale-proxy.log
+
+[Install]
+WantedBy=default.target

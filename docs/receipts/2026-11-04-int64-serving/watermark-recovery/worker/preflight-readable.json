@@ -1,0 +1,105 @@
+{
+  "ok": true,
+  "applied": false,
+  "before": {
+    "settings": {
+      "min_free_kbytes": "1048576",
+      "watermark_scale_factor": "10",
+      "watermark_boost_factor": "15000"
+    },
+    "zones": {
+      "0:DMA": {
+        "boost": 0,
+        "min": 1436,
+        "low": 1795,
+        "high": 2154,
+        "managed": 174814
+      },
+      "0:DMA32": {
+        "boost": 0,
+        "min": 0,
+        "low": 0,
+        "high": 0,
+        "managed": 0
+      },
+      "0:Normal": {
+        "boost": 7680,
+        "min": 268387,
+        "low": 333563,
+        "high": 398739,
+        "managed": 31725390
+      },
+      "0:Movable": {
+        "boost": 0,
+        "min": 32,
+        "low": 32,
+        "high": 32,
+        "managed": 0
+      },
+      "0:Device": {
+        "boost": 0,
+        "min": 0,
+        "low": 0,
+        "high": 0,
+        "managed": 0
+      }
+    },
+    "meminfo_kib": {
+      "MemFree": 116731384,
+      "MemAvailable": 119670380,
+      "Cached": 5906684,
+      "SReclaimable": 470604
+    }
+  },
+  "after": {
+    "settings": {
+      "min_free_kbytes": "1048576",
+      "watermark_scale_factor": "10",
+      "watermark_boost_factor": "15000"
+    },
+    "zones": {
+      "0:DMA": {
+        "boost": 0,
+        "min": 1436,
+        "low": 1795,
+        "high": 2154,
+        "managed": 174814
+      },
+      "0:DMA32": {
+        "boost": 0,
+        "min": 0,
+        "low": 0,
+        "high": 0,
+        "managed": 0
+      },
+      "0:Normal": {
+        "boost": 7680,
+        "min": 268387,
+        "low": 333563,
+        "high": 398739,
+        "managed": 31725390
+      },
+      "0:Movable": {
+        "boost": 0,
+        "min": 32,
+        "low": 32,
+        "high": 32,
+        "managed": 0
+      },
+      "0:Device": {
+        "boost": 0,
+        "min": 0,
+        "low": 0,
+        "high": 0,
+        "managed": 0
+      }
+    },
+    "meminfo_kib": {
+      "MemFree": 116731384,
+      "MemAvailable": 119670380,
+      "Cached": 5906684,
+      "SReclaimable": 470604
+    }
+  },
+  "configured_values_unchanged": true
+}

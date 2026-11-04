@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="1" time="4.429" timestamp="2026-11-03T22:41:16.770757+00:00" hostname="206a52f4811f"><testcase classname="" name="test_nvfp4_split_partials_exceed_int32_elements" time="4.420" /></testsuite></testsuites>

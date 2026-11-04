@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="1.226" timestamp="2026-11-03T22:01:41.160051+00:00" hostname="a65463ac2e05"><testcase classname="tests.experimental.b12x.gemm.test_blockscaled_a16" name="test_nvfp4_split_partials_exceed_int32_elements" time="0.671"><failure message="ValueError: invalid A16 launch geometry">def test_nvfp4_split_partials_exceed_int32_elements():
+        require_b12x()
+        m, n, k = 4096, 34816, 1024
+        source = torch.ones((m, k), device="cuda", dtype=torch.bfloat16)
+        packed = torch.full((n, k // 2), 0x22, device="cuda", dtype=torch.uint8)
+        scales = torch.ones((n, k // 16), device="cuda", dtype=torch.float8_e4m3fn)
+        weight = blockscaled.pack_weight(
+            packed,
+            swizzle_block_scale(scales),
+            recipe="nvfp4",
+            global_scale=torch.ones(1, device="cuda", dtype=torch.float32),
+        )
+        out = torch.empty((m, n), device="cuda", dtype=torch.bfloat16)
+        config = BlockscaledConfig(mode="a16", tile_m=16, tile_n=64, tile_k=64, split_k=16)
+        workspace = make_workspace(
+            source, weight, activation_mode="a16", out=out, config=config
+        )
+        assert workspace.numel() &gt; 2**31 * 4
+&gt;       with prepared_execution(
+            source,
+            weight,
+            activation_mode="a16",
+            out=out,
+            workspace=workspace,
+            config=config,
+        ) as (_, plan):
+
+tests/experimental/b12x/gemm/test_blockscaled_a16.py:1028: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/lib/python3.12/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+tests/experimental/b12x/gemm/test_blockscaled_a16.py:63: in prepared_execution
+    session.prepare((request,))
+/usr/local/lib/python3.12/dist-packages/flashinfer/experimental/b12x/preparation/session.py:538: in prepare
+    state = job.advance(**authorization)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/flashinfer/experimental/b12x/preparation/session.py:940: in advance
+    return self._advance(
+/usr/local/lib/python3.12/dist-packages/flashinfer/experimental/b12x/preparation/session.py:1051: in _advance
+    signal = self._steps.send(send_value)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/flashinfer/experimental/b12x/preparation/session.py:2099: in _run
+    obligations = yield from self._configure(groups)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/flashinfer/experimental/b12x/preparation/session.py:1267: in _configure
+    configuration = plan.contract.configure(
+/usr/local/lib/python3.12/dist-packages/flashinfer/experimental/b12x/preparation/tuning.py:288: in configure
+    self.validate_config(query, default, device)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+query = BlockscaledQuery(recipe='nvfp4', num_tokens=4096, in_features=1024, padded_in_features=1024, out_features=34816, activ...ytes=9126805504, expected_m=None, codegen=FrozenMapping(_items=(('fused_fp6_quant', False), ('split_k_atomic', True))))
+config = BlockscaledConfig(mode='a16', tile_m=16, tile_n=64, tile_k=64, split_k=16, mma_warps=None)
+device = DeviceIdentity(vendor='nvidia', compute_capability=(12, 1), sm_count=48, product_name='nvidia gb10')
+
+    def _validate_config(query, config, device):
+        if not isinstance(config, BlockscaledConfig) or config.mode not in (
+            "a16",
+            "quantized",
+        ):
+            raise ValueError("invalid packed precision configuration")
+        if query.activation_mode != "auto" and config.mode != query.activation_mode:
+            raise ValueError("configuration conflicts with caller activation precision")
+        if query.recipe in BLOCK_CODECS and config.mode != "a16":
+            raise ValueError("IQ2_XS supports only A16 execution")
+        if config.mma_warps is not None and not (
+            type(config.mma_warps) is int
+            and config.mma_warps in (2, 4)
+            and config.mode == "a16"
+            and query.recipe == "mxfp8"
+            and config.tile_m in (None, 16)
+        ):
+            raise ValueError(
+                "explicit compute warps require two- or four-warp MXFP8 A16 M16 execution"
+            )
+        if config.mode == "a16":
+            if query.recipe == "mxfp4":
+                raise ValueError("MXFP4 does not support A16 execution")
+            simt = query.recipe in BLOCK_CODECS and config.tile_n == 4
+            row_tiles = (
+                (1, 2, 4, 8)
+                if simt
+                else (8, 16, 32, 64)
+                if query.recipe in BLOCK_CODECS
+                else (16, 32, 64)
+            )
+            if (
+                (simt and config.tile_m is None)
+                or config.tile_m is not None
+                and (type(config.tile_m) is not int or config.tile_m not in row_tiles)
+            ):
+                raise ValueError("invalid A16 row tile")
+            if query.recipe == "mxfp8" and config.tile_m not in (None, 16):
+                raise ValueError("MXFP8 A16 requires a 16-row tile")
+            if not simt and config.tile_m == 8 and config.split_k != 1:
+                raise ValueError("transposed IQ2_XS does not support split-K")
+            if (
+                type(config.tile_n) is not int
+                or config.tile_n not in ((4,) if simt else (64, 128))
+                or type(config.tile_k) is not int
+                or config.tile_k
+                not in (
+                    (256,)
+                    if simt
+                    else (64, 128, 256)
+                    if query.recipe in ("iq2_xs", "iq2_xxs", "q8_0", "nvfp4")
+                    else (64, 128)
+                )
+                or type(config.split_k) is not int
+                or config.split_k not in ((1,) if simt else (1, 2, 4, 8))
+            ):
+&gt;               raise ValueError("invalid A16 launch geometry")
+E               ValueError: invalid A16 launch geometry
+
+/usr/local/lib/python3.12/dist-packages/flashinfer/experimental/b12x/gemm/blockscaled/_tuning.py:320: ValueError</failure></testcase></testsuite></testsuites>

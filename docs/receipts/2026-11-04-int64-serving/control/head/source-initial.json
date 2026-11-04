@@ -1,0 +1,10 @@
+{
+  "verified": true,
+  "arm": "control",
+  "installed_source": "/usr/local/lib/python3.12/dist-packages/flashinfer/experimental/b12x/_lib/dense_gemm.py",
+  "sha256": "313ed8cda2c9665a48e40c88c2676a328ae6174ee65b85514d668d1e9fc1e024",
+  "flashinfer_commit": "91271757f7746f3dfb58f7c2aeb44a663389de9e",
+  "node": "head",
+  "timestamp": "2026-11-04T05:17:02.903267+00:00",
+  "scope": "Read-only installed source and treatment manifest; no kernel import or GPU execution"
+}

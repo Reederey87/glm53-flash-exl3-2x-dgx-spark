@@ -1,0 +1,13 @@
+# /run/user/1001/systemd/transient/glm53-build-dense-int64-20261103.service
+# This is a transient unit file, created programmatically via the systemd API. Do not edit.
+[Unit]
+Description=/usr/bin/docker build --platform linux/arm64 --progress plain --build-arg BUILD_JOBS=4 --build-arg TORCH_CUDA_ARCH_LIST=12.1a --build-arg FLASHINFER_CUDA_ARCH_LIST=12.1a --build-arg TORCH_VERSION=2.13.0 --build-arg TORCHVISION_VERSION=0.28.0 --build-arg TORCHAUDIO_VERSION=2.11.0 --build-arg CUTLASS_DSL_VERSION=4.7.0 --target runner --tag glm53-int64-20261103-runtimepin-control --build-context flashinfer_wheels=/home/nvidia/glm53-source-builds/dense-int64-explicit-fetch/context/artifacts/flashinfer-control --build-context vllm_wheels=/home/nvidia/glm53-source-builds/dense-int64-explicit-fetch/context/artifacts/vllm-wheels --build-arg DENSE_INT64_ARM=control .
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+StandardOutput=append:/home/nvidia/glm53-source-builds/dense-int64-runtimepin-408a805/receipts/control-build/build.log
+StandardError=inherit
+WorkingDirectory=/home/nvidia/glm53-source-builds/dense-int64-runtimepin-408a805/context
+ExecStart=
+ExecStart="/usr/bin/docker" "build" "--platform" "linux/arm64" "--progress" "plain" "--build-arg" "BUILD_JOBS=4" "--build-arg" "TORCH_CUDA_ARCH_LIST=12.1a" "--build-arg" "FLASHINFER_CUDA_ARCH_LIST=12.1a" "--build-arg" "TORCH_VERSION=2.13.0" "--build-arg" "TORCHVISION_VERSION=0.28.0" "--build-arg" "TORCHAUDIO_VERSION=2.11.0" "--build-arg" "CUTLASS_DSL_VERSION=4.7.0" "--target" "runner" "--tag" "glm53-int64-20261103-runtimepin-control" "--build-context" "flashinfer_wheels=/home/nvidia/glm53-source-builds/dense-int64-explicit-fetch/context/artifacts/flashinfer-control" "--build-context" "vllm_wheels=/home/nvidia/glm53-source-builds/dense-int64-explicit-fetch/context/artifacts/vllm-wheels" "--build-arg" "DENSE_INT64_ARM=control" "."

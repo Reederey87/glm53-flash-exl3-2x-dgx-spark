@@ -1,0 +1,11 @@
+--- /home/nvidia/glm53-source-builds/dense-int64-frontend131-3d6ac59/receipts/control-inventory/packages.json	2026-11-03 14:40:08.890508911 -0500
++++ /home/nvidia/glm53-source-builds/dense-int64-frontend131-3d6ac59/receipts/candidate-inventory/packages.json	2026-11-03 16:11:15.439896691 -0500
+@@ -485,7 +485,7 @@
+   ],
+   [
+     "openai",
+-    "3.43.0"
++    "3.44.0"
+   ],
+   [
+     "openai-harmony",

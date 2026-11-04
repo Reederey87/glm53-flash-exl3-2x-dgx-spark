@@ -1,0 +1,10 @@
+{
+  "timestamp": "2026-11-04T05:14:09.195800+00:00",
+  "node": "head",
+  "alias": "vllm-node-b12x:latest",
+  "previous_image": "sha256:a7f76ae9f18c7701c9cde5f72c606393d9a21ca94dd8e53b27589935f64fcbe2",
+  "selected_image": "sha256:3b5da79c42ed4204440cfb07c6de1eba46441d5cba6b57d5428d44e60c10d0ed",
+  "rollback_image_retained": true,
+  "five_fresh_cache_paths_verified": true,
+  "scope": "Control image alias selected only; serving start is a separate unit action"
+}

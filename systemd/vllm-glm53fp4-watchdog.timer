@@ -1,0 +1,13 @@
+[Unit]
+Description=Run the GLM-5.3-Flash-FP4-Local health canary every minute
+
+[Timer]
+# Leave the boot start alone until the pair has had time to load weights and
+# answer /health. After that, one probe per minute.
+OnBootSec=15min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Unit=vllm-glm53fp4-watchdog.service
+
+[Install]
+WantedBy=timers.target

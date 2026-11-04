@@ -1,0 +1,18 @@
+{
+  "timestamp": "2026-11-04T04:11:27.553733+00:00",
+  "controls": {
+    "VLLM_B12X_MOE_FP4_LAYER_MAX_INPUT_SCALE": "unset",
+    "VLLM_B12X_CSF_SCALE_PREFETCH": "unset",
+    "VLLM_B12X_MOE_FP4_FORCE_A16": "1",
+    "B12X_W4A16_A4_PREFILL": "1"
+  },
+  "source_resolved_effective_policy": {
+    "VLLM_B12X_MOE_FP4_LAYER_MAX_INPUT_SCALE": "0",
+    "VLLM_B12X_CSF_SCALE_PREFETCH": "1"
+  },
+  "installed_source_sha256": {
+    "vllm/envs.py": "d05fcbe03ff55bc027c7557bc9e05ff18245907c83bd815a08ffb284441fe673",
+    "vllm/model_executor/layers/quantization/nvfp4_csf.py": "0ae697a86efb41a1149885b88499c878636da54cafd9f2bb5710ea4626062c5c"
+  },
+  "scope": "Read-only source hash and process-environment whitelist. Effective defaults inferred from exact pinned source; no live tensor/plan inspection or GPU calls."
+}

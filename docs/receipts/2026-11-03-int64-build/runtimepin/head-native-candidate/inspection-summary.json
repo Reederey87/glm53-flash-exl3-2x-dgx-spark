@@ -1,0 +1,30 @@
+{
+  "b12x_objects": 189,
+  "all_b12x_inspections_complete": true,
+  "unique_semantic_keys": 189,
+  "b12x_architectures": [
+    "sm_121a"
+  ],
+  "other_artifacts": [
+    {
+      "path": "cache/inductor/triton/0/5G4P7H47AMXI2ZZBI2VWFYNMS627GBBKLQBV6SW3POPLW2243EFQ/triton_poi_fused_blockscaled_packed_mxfp8_prequantized_full_0.cubin",
+      "bytes": 9088,
+      "sha256": "ac29c92dc8b0cdb84c57a5c06899d3f9a0f383a33bf1f18bea5cf042c14cefc6",
+      "cuobjdump_status": 0,
+      "resource_report": "resources/ac29c92dc8b0cdb84c57a5c06899d3f9a0f383a33bf1f18bea5cf042c14cefc6.txt",
+      "inspection_tools": {
+        "elf": 0,
+        "resources": 0,
+        "sass": 0
+      }
+    },
+    {
+      "path": "cache/inductor/triton/0/5G4P7H47AMXI2ZZBI2VWFYNMS627GBBKLQBV6SW3POPLW2243EFQ/triton_poi_fused_blockscaled_packed_mxfp8_prequantized_full_0.ptx",
+      "bytes": 4886,
+      "sha256": "3338b6b016dcb44c42a02662c303ec2bad99d25b05ca6870c834b74413f3e628",
+      "inspection_tools": {}
+    }
+  ],
+  "image": "sha256:bad0f2005665489026ef9febafe8bbc28f6fe0821681cdb82479a21802d1287b",
+  "qualification": "Artifact inspection only; paired resource review and serving remain required."
+}

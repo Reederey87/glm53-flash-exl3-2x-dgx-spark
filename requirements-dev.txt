@@ -1,9 +1,0 @@
-# Dev/test dependencies — the kit itself needs only Docker + bash.
-#
-# Preferred: uv. Dependencies are declared in pyproject.toml, so use
-#     uv sync && uv run pytest tests/ -q
-# This file is the pip-only fallback for contributors without uv:
-#     pip install -r requirements-dev.txt && pytest tests/ -q
-pytest
-jinja2
-tokenizers==0.22.2

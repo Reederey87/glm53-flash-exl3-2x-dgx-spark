@@ -1,0 +1,25 @@
+{
+  "protocol": {
+    "version": 1,
+    "dataset_revision": "3101c7d5072418e28b9008a6636bde82a006892c",
+    "dataset_sha256": "3730d312f6e3440559ace48831e51066acaca737f6eabec99bccb9e4b3c39d14",
+    "count": 1319,
+    "model": "nvidia/GLM-5.3-Flash-FP4-Local",
+    "concurrency": 1,
+    "max_tokens": 8192,
+    "temperature": 0,
+    "top_p": 1,
+    "seed": 2026110401,
+    "chat_template_kwargs": {
+      "reasoning_effort": "max"
+    },
+    "instruction": "Solve the problem. End your final answer with a separate line: #### <numeric answer>. Do not include units on that line.",
+    "minimum_control_accuracy": 0.95,
+    "maximum_loss_upper_bound": 0.01,
+    "loss_bound_alpha": 0.05
+  },
+  "protocol_sha256": "39aa687f1e094e47a2b9378ec2041674d8379f53dad999393861cf3f2bc9893a",
+  "script_sha256": "63ccf0ac9848aaefa6e9b8d26a8a2cca35611f044c03347b8312af0d1100692b",
+  "requests_sha256": "46433ce1d78a4c8c9f0632a943bb6e274d700c041a912a7b04da58f2fb379f0a",
+  "all_reference_answers_parse": true
+}

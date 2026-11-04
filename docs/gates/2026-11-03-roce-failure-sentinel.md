@@ -1,0 +1,148 @@
+# Independent RoCE failure sentinel — preregistration
+
+Candidate 30 repairs timeout/failure detection when Uint32 sequence wraps to
+zero. CPU reproduction and source qualification are complete; no native build,
+GPU trial or runtime change has occurred. Finish MTP3 and restore MTP5 first.
+
+## Treatment and controls
+
+Only the manifest-pinned sentinel repair is applied: dedicated host flag at
+byte 56, constant nonzero device poison, consistent host/kernel/C-proxy reads,
+internal ABI 8 and refreshed kernel cache identities. The public API remains
+1. Keep the one-block optimization, inline-assembly constraint change and
+completion/snapshot enhancement out of this window.
+
+Freeze patch, manifest, tests, build context and this gate before staging.
+Use a full ARM64 source build, not a Python overlay. Match the rebuilt control
+and candidate's dependencies and retain package/OS/wheel inventories. Hold
+vLLM `8244d1c44348ae8a5bbfc9f1b607021652283ed4`, FlashInfer base `91271757`,
+Torch 2.13.0+cu130, DSL 4.7.0, SM121a, driver 580.173.02 and kernel
+6.17.0-1031-nvidia fixed. Compare a rebuilt control with the incumbent before
+attributing any performance change to this treatment.
+
+Exact serving controls: NVIDIA GLM-5.3-Flash-FP4-Local revision
+`76348ddb2be2e35e39ecfc00e75dc07703f4f3d5`, TP2, MTP5, context 1,000,000,
+max sequences 4, chunk 4096, FP8 KV, 17 GiB per rank and 2,350,210 usable
+tokens. Preserve all actual transport, scheduler, cache and launcher controls.
+
+## Native correctness before serving
+
+Disarm healers, snapshot both nodes, stop through the FP4 unit, verify both
+containers gone and both MemFree >=90 GiB. Build and qualify only while idle.
+Retain incumbent image/config and fresh separate caches for each arm.
+
+Require native compilation on both GB10s and exact installed file/ABI hashes.
+Run all 24 prepared bounded reduce/gather tests on the candidate; successful
+wrap cases can also run on the old control. Do not inject the known-broken
+failure into production. Each run needs an external timeout supervisor and
+an exact imported-source identity. Skipped tests are missing evidence.
+
+Complete equivalent eager/graph success/failure coverage for two-shot and
+variable-length paths, including invalid counts at sequence zero. Require
+failure flag 1, retained diagnostic sequence, no published usable output,
+stopped epoch, poisoned subsequent launches and bounded teardown. Test C-proxy
+exit from both waiting loops. A source predicate check does not replace these
+native tests.
+
+Run paired two-node fabric correctness/striping and mixed-size graph replay.
+Prove old/new internal ABI mismatch refuses setup on both ranks without
+entering collectives. Require fresh/reused state correctness, no allocation
+growth during replay, no invalid memory accesses and no weakened timeout
+behavior. Any failure prevents serving qualification.
+
+## Serving gate and restoration
+
+Start each arm only through the unit after the both-node idle gate. Record
+config/recipe/image snapshots and append trial history without duplicate
+active `.env` keys. Verify actual image, sources, ABI and serving argv on
+both ranks. API, tool, real reasoning, prefix-cache and fixed-KV checks must
+pass before the speed matrix.
+
+Use frozen harness `05c6023`, seed 2026110304, explicit max effort, three reps,
+unique no-cache 8k/16k/32k/64k/128k prefill at c1/2/4/8 with cap 4, and
+200-generated-token code/prose/structured decode with the same warmups.
+Retain per-run speculative counters and raw receipts; no unrelated inference.
+Reject >2% prefill/decode/acceptance regression reproduced in two of three
+matched reps; changes inside control noise require paired remeasurement.
+A neutral speed result may support this reliability repair only after every
+correctness and capacity gate passes. No speed gain is presumed.
+
+CUDA/Xid errors, rank loss, corrupt output, capacity shrinkage or sustained
+swapping trigger restoration. After the window, restore incumbent image
+`sha256:a7f76ae9f18c7701c9cde5f72c606393d9a21ca94dd8e53b27589935f64fcbe2`,
+MTP5 and saved config through the unit, preserve the trial record, verify
+image/checkpoint/KV/health and re-arm the watchdog. Ask for final adoption
+with the complete native/serving/rollback receipts.
+
+## Build preparation receipt
+
+Kernel patch/tests are frozen at `5082aa4`; full source-build packaging at
+`e6015c6`. Exact fresh upstream control and candidate applications match the
+manifest, including absence/presence of the new control module. Both arms
+export the identical native regression source. Ten build-helper tests pass;
+the full local repository suite is 143 passed. Native tests remain unrun.
+
+The initial, now superseded context was staged on spark1 at
+`/home/nvidia/glm53-source-builds/roce-sentinel-e6015c6/context`, manifest SHA256
+`2904d9e091ce68ec5c22462c6e999e55655dcaae35f9fc7305476ea1e967e64c`.
+Every context file hash matched after transfer. With the serving unit
+confirmed active, `build_pair.sh glm53-roceflag-20261103` returned its expected
+exit 2 before creating artifacts or building. MTP3 remained active/running
+with PID 188858. Refusal logs are beside the context, with local copies under
+`local/build-audit/roce-sentinel-staging-receipt`. No image has been built.
+
+The extended bundle prepares 36 two-shot/varlen GPU cases, 12 compiled
+C-proxy cases and a separate opt-in two-node mixed-ABI check. None has run.
+The common upstream ABI test now checks module/library agreement; exact
+per-arm versions remain required by the image identity gate. Fresh pinned
+source application and all qualification-file exports match their manifests.
+The full local suite is now 144 passed, including 11 applier tests.
+
+The extended bundle is frozen at `a26fe32` and staged separately at
+`/home/nvidia/glm53-source-builds/roce-sentinel-a26fe32/context`. Its context
+manifest SHA256 is
+`53902177532da39eef20649adbe74918ee3f72f841127daf1173f96e71978c63`;
+all transferred files match. The active-cluster guard again refused with
+exit 2 and no build artifacts. MTP3 remained running with PID 188858.
+Receipts: `local/build-audit/roce-sentinel-v2-staging-receipt`. Use this
+context superseded the earlier `e6015c6` context.
+
+Pre-build review then corrected the extended test's multi-block partial-write
+assertion: a different block can publish poison before the local write. Both
+legal orderings are accepted, with untouched peer output and exact poisoned
+replay still required. Runtime patch bytes are unchanged. Eleven applier
+tests and Python compilation pass; native execution remains pending. The
+replacement local context is `local/build-audit/roce-sentinel-context-v3`,
+manifest SHA256 `e8f9eaeb161a83ff15c378a8bfa952c37671edfbb3473123c5fb8574021939ca`.
+Frozen commit `da83fb8` is staged at
+`/home/nvidia/glm53-source-builds/roce-sentinel-da83fb8/context`; every transferred
+hash matches. This replaces `a26fe32` for an actual build. Neither was built.
+
+## Source-fetch reproducibility correction
+
+The [verified exact-SHA fetch correction](2026-11-03-dense-int64.md#explicit-pinned-source-fetch)
+now also applies to this generator: explicitly fetch the frozen FlashInfer
+commit with history, check out detached and assert its SHA. The regenerated
+context differs from `da83fb8` only in `Dockerfile` and `context-sha256.txt`;
+the eight-file runtime treatment, all native tests, package pins and build
+wrapper are byte-identical. The original native and serving gates still apply.
+
+Replacement context manifest SHA256:
+`fe1f128fa5acae558207474ab0bc5d4eeacf631f5fef8501daeb3f730a037a64`.
+Local context: `local/build-audit/sentinel-explicit-fetch-context`.
+Use this replacement for an eventual independent build. All preceding
+contexts and receipts are preserved; no sentinel image or GPU result exists.
+
+## Common runtime dependency correction
+
+Both runner dependency solves now use the [verified frontend1.31 constraint](2026-11-03-dense-int64.md#common-runner-repair-and-completed-image-cache-recovery)
+with DSL4.7 retained. This prevents the observed unpinned-frontend conflict;
+it does not alter the eight-file sentinel treatment or its native gates.
+The same Exa and local-tree dependency review applies to both RoCE generators.
+
+New local context: `local/build-audit/sentinel-frontend131-context`; manifest
+SHA256 `ba2a487faa6401d17c9e5cbf04de0d50931807cb8a5e13b6c9faee4da56bc651`.
+Only Dockerfile, build metadata and manifest differ from the previous context;
+all compiler-stage, kernel, test and wrapper bytes are preserved. Shared
+constraint/anchor tests pass across all three generators. Freeze this context
+before separate staging. No sentinel build or GPU qualification has run.

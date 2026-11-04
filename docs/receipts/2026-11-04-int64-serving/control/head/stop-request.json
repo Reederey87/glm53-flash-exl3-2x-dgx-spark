@@ -1,0 +1,21 @@
+{
+  "requested": "2026-11-04T05:07:25.865853+00:00",
+  "reason": "Registered rebuilt-control serving arm after full incumbent baseline validation",
+  "server_before": {
+    "MainPID": "0",
+    "ControlPID": "0",
+    "Result": "success",
+    "ActiveState": "active",
+    "SubState": "exited",
+    "InvocationID": "b9c5ac7bd82a47c8a5e98424d537f5e8"
+  },
+  "benchmark_before": {
+    "MainPID": "0",
+    "ControlPID": "0",
+    "Result": "success",
+    "ActiveState": "active",
+    "SubState": "exited",
+    "InvocationID": "d9e6284b9a1349ea8c500b46693f28f8"
+  },
+  "baseline_publication": "2d5156ad2a148c420e9cda23e78583fced858c59"
+}
