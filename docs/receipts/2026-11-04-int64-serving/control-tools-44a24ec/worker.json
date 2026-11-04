@@ -1,0 +1,26 @@
+{
+  "timestamp": "2026-11-04T04:47:12.927889+00:00",
+  "directory": "/home/nvidia/glm53-ab-20261103/int64-serving/control-tools-44a24ec",
+  "manifest_sha256": "da5564aa90d72bfc65e0412e1486c9b3b6729d6f2888dc2a8f6f0b771aa23fa1",
+  "commit": "44a24ec5a296412f4e5420cb2e243322f970d4cc",
+  "files": {
+    "wait_cluster_idle.py": {
+      "repository_path": "experiments/startup-memory/wait_cluster_idle.py",
+      "sha256": "82a2f656de6c766f02e76b273cf537397589a2d9fefcc7622c5ebf8798b93745"
+    },
+    "preserve_compile_caches.py": {
+      "repository_path": "experiments/dense-int64/preserve_compile_caches.py",
+      "sha256": "67642fe5d75374acd4b667bd39c06e9735c83cb23b3e44bd49f10da4dbea088a"
+    },
+    "verify_serving_controls.py": {
+      "repository_path": "experiments/dense-int64/verify_serving_controls.py",
+      "sha256": "ccb9a0e9fbdf39ebb308281723d278d1d8d2cc359e0e5ade23052e6c80a5288d"
+    },
+    "restore_compile_caches.py": {
+      "repository_path": "experiments/dense-int64/restore_compile_caches.py",
+      "sha256": "e87b0530d81bd0e3126dfe900d53a8b0239213ec9904f6d54d2fbde4d69efb23"
+    }
+  },
+  "hashes_match": true,
+  "scope": "Additive staging and hash verification only; helpers not executed, no serving or cache mutation"
+}

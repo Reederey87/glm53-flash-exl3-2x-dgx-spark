@@ -1,5 +1,9 @@
 # Status
 
+- 2026-11-04: Staged frozen idle/cache/runtime-verification/rollback helpers in
+  each node's isolated `int64-serving/control-tools-44a24ec` directory. All
+  source hashes match; no helper execution or running-deployment change.
+
 - 2026-11-04: Added the pinned dynamic native-A4 arithmetic/replay test to the
   qualification inventory, with its exact rounding references and coverage
   limits. Source review only; Int64 baseline remains the sole GPU workload.

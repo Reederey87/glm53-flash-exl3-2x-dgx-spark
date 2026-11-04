@@ -140,3 +140,18 @@ both nodes idle before applying. The helper's filesystem tests cover retention,
 partial rename rollback and refusal to overwrite an intervening writer.
 Actual original-cache restoration, incumbent startup/API/KV verification and
 watchdog rearming remain pending at the end of the experiment.
+
+## Staged tools for the remaining serving arms
+
+At 04:47 UTC, the four already-tested helpers from commit `44a24ec` were staged
+under each node's `int64-serving/control-tools-44a24ec` directory. Transfer used
+a new temporary directory, checked every file hash, then renamed the directory.
+The [head](control-tools-44a24ec/head.json) and
+[worker](control-tools-44a24ec/worker.json) receipts record the identical bundle
+manifest SHA `da5564aa90d72bfc65e0412e1486c9b3b6729d6f2888dc2a8f6f0b771aa23fa1`.
+
+The bundle contains `wait_cluster_idle.py`, `preserve_compile_caches.py`,
+`verify_serving_controls.py` and `restore_compile_caches.py`. No helper was
+executed during staging, and no cache, container, alias or serving configuration
+changed. This makes the tools available for the registered control/candidate
+windows and final rollback; it does not satisfy their future idle/start gates.
